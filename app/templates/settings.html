@@ -17,10 +17,16 @@
         </div>
         <div class="col-md-6">
           <label class="form-label">Token Plex (admin)</label>
-          <div class="input-group">
+          <div class="input-group mb-2">
             <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
             <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
             <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
+          </div>
+          <div>
+            <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
+              <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
+            </button>
+            <span id="sso-status" class="ms-2 small text-muted"></span>
           </div>
         </div>
         <div class="col-md-10">
@@ -410,10 +416,77 @@ async function importData() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
     res.innerHTML = `<span class="text-success">Import reussi — ${d.stats.users_upserted} utilisateur(s), ${d.stats.requests_upserted} demande(s)</span>`;
-    showToast('Import terminé !', 'success');
+    showToast('Import terminé ! Rechargement...', 'success');
+    setTimeout(() => location.reload(), 1500);
   } catch(e) {
     res.innerHTML = `<span class="text-danger">${e.message}</span>`;
     showToast('Erreur import : ' + e.message, 'danger');
+  }
+}
+
+async function startPlexSSO() {
+  const btn = document.getElementById('btn-plex-sso');
+  const status = document.getElementById('sso-status');
+  btn.disabled = true;
+  status.textContent = 'Initialisation...';
+  
+  try {
+    const r = await fetch('/api/plex/sso/pin', { method: 'POST' });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    
+    // Ouvrir la popup
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      d.auth_url,
+      'PlexSSO',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+    );
+    
+    if (!popup) {
+      btn.disabled = false;
+      status.textContent = '';
+      return showToast('Bloqueur de popup détecté. Veuillez autoriser les popups.', 'warning');
+    }
+    
+    status.textContent = 'En attente de connexion sur Plex...';
+    
+    // Polling du statut du PIN
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes (60 * 2 secondes)
+    const interval = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts || popup.closed) {
+        clearInterval(interval);
+        btn.disabled = false;
+        status.textContent = attempts > maxAttempts ? 'Temps écoulé.' : 'Connexion annulée.';
+        return;
+      }
+      
+      try {
+        const checkRes = await fetch(`/api/plex/sso/check/${d.id}`);
+        const checkData = await checkRes.json();
+        if (checkData.authenticated && checkData.token) {
+          clearInterval(interval);
+          popup.close();
+          document.getElementById('plex_token').value = checkData.token;
+          btn.disabled = false;
+          status.textContent = 'Connecté !';
+          showToast('Connexion Plex réussie ! N\'oubliez pas d\'enregistrer les paramètres.', 'success');
+        }
+      } catch (e) {
+        console.error('Check error', e);
+      }
+    }, 2000);
+    
+  } catch (e) {
+    btn.disabled = false;
+    status.textContent = 'Erreur.';
+    showToast('Erreur Plex SSO : ' + e.message, 'danger');
   }
 }
 
@@ -421,6 +494,7 @@ function copyEl(id) {
   navigator.clipboard.writeText(document.getElementById(id).value);
   showToast('URL copiée !', 'success');
 }
+
 
 
 </script>

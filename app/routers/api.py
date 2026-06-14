@@ -98,6 +98,31 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# Authentification Plex SSO (OAuth)
+# ---------------------------------------------------------------------------
+
+@router.post("/plex/sso/pin")
+async def plex_sso_pin():
+    """Crée une demande de PIN Plex SSO et retourne l'URL d'authentification."""
+    from ..services.plex_api import get_auth_pin
+    try:
+        return await get_auth_pin()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur d'initialisation SSO Plex : {str(e)}")
+
+
+@router.get("/plex/sso/check/{pin_id}")
+async def plex_sso_check(pin_id: int):
+    """Vérifie si le PIN Plex a été validé et retourne le token."""
+    from ..services.plex_api import check_auth_pin
+    try:
+        token = await check_auth_pin(pin_id)
+        return {"authenticated": bool(token), "token": token}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # Tests de connectivité
 # ---------------------------------------------------------------------------
 
