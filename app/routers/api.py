@@ -25,7 +25,7 @@ from ..database import get_db
 from ..models import MediaRequest, PlexUser, Settings
 from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
 from ..services import email_service, radarr, sonarr
-from ..services.plex_api import test_connection as plex_test
+from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 
 

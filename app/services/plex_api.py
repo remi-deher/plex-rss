@@ -114,7 +114,7 @@ def _parse_api_item(item: dict, username: str) -> dict:
     }
 
 
-async def test_connection(plex_url: str, plex_token: str) -> tuple[bool, str]:
+async def check_connection(plex_url: str, plex_token: str) -> tuple[bool, str]:
     """Vérifie la validité du token Plex en interrogeant le profil utilisateur.
 
     Returns:
