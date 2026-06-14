@@ -137,6 +137,12 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
     })
 
 
+@router.get("/logs", response_class=HTMLResponse)
+def logs_page(request: Request, _: None = Depends(require_auth)):
+    """Page des logs applicatifs en temps réel."""
+    return templates.TemplateResponse("logs.html", {"request": request})
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
     """Page de configuration globale de l'application."""

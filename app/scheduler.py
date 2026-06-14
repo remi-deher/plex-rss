@@ -21,12 +21,8 @@ from .models import Settings, PlexUser, MediaRequest, RequestStatus
 from .services.watchlist import fetch_watchlist
 from .services.sonarr import add_series, is_series_available
 from .services.radarr import add_movie, is_movie_available
-from .services.email_service import (
-    send_request_notification,
-    send_failure_notification,
-    send_available_notification,
-)
-from .services.notifications import send_all as send_push
+from .services.overseerr import request_media as overseerr_request, is_request_available as overseerr_available
+from .notification_queue import enqueue as enqueue_notification
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +63,14 @@ async def sync_users_from_feed(items: list[dict], db: Session):
 
 
 async def _submit_to_arr(settings: Settings, item: dict) -> tuple[int | None, bool, str | None]:
-    """Envoie un média à Sonarr (séries) ou Radarr (films).
+    """Envoie un média à Overseerr (si activé) ou Sonarr/Radarr directement.
 
     Returns:
         (arr_id, already_existed, arr_slug)
-        - arr_id         : ID interne Sonarr/Radarr, None si échec
-        - already_existed: True si le média était déjà présent dans *arr
-        - arr_slug       : titleSlug (Sonarr) ou titleSlug (Radarr) pour les liens
     """
+    if settings.overseerr_enabled and settings.overseerr_url and settings.overseerr_api_key:
+        return await overseerr_request(settings.overseerr_url, settings.overseerr_api_key, item)
+
     if item["media_type"] == "show" and settings.sonarr_enabled and settings.sonarr_url:
         return await add_series(
             settings.sonarr_url, settings.sonarr_api_key,
@@ -86,62 +82,51 @@ async def _submit_to_arr(settings: Settings, item: dict) -> tuple[int | None, bo
             settings.radarr_url, settings.radarr_api_key,
             settings.radarr_quality_profile_id, settings.radarr_root_folder,
             item,
+            minimum_availability=settings.radarr_minimum_availability or "released",
         )
     return None, False, None
 
 
-async def _notify_request(settings: Settings, req: MediaRequest, db: Session):
-    """Envoie les notifications de nouvelle demande (email + push Discord/Telegram)."""
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipient = (user_obj.notification_email if user_obj else None) or settings.smtp_from
+def _get_recipients(user_obj, settings: Settings) -> list[str]:
+    """Résout la liste des destinataires email pour un utilisateur.
 
-    if settings.email_on_request and recipient and not req.request_mail_sent:
-        try:
-            await send_request_notification(settings, req, recipient)
-            req.request_mail_sent = True
-            db.commit()
-        except Exception as e:
-            logger.error(f"Request email failed for '{req.title}': {e}")
-
-    await send_push(settings, req, "request")
-
-
-async def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
-    """Envoie les notifications d'échec de transmission (email + push)."""
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipient = (user_obj.notification_email if user_obj else None) or settings.smtp_from
-
-    if settings.email_on_request and recipient:
-        try:
-            arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-            await send_failure_notification(
-                settings, req, recipient,
-                f"Impossible de transmettre a {arr_name}. Verifiez la configuration.",
-            )
-        except Exception as e:
-            logger.error(f"Failure email failed for '{req.title}': {e}")
-
-    await send_push(settings, req, "failed")
-
-
-async def _notify_available(settings: Settings, req: MediaRequest, db: Session):
-    """Envoie les notifications de disponibilité (email + push).
-
-    Le flag available_mail_sent évite d'envoyer l'email plusieurs fois si le
-    job check_arr_statuses repasse sur le même item (ex. redémarrage du scheduler).
+    - Adresse(s) de l'utilisateur (séparées par virgules), ou smtp_from par défaut.
+    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie séparée.
     """
+    raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
+    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+
+    admin_email = (settings.admin_notification_email or "").strip()
+    if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
+        for addr in [e.strip() for e in admin_email.split(",") if e.strip()]:
+            if addr not in recipients:
+                recipients.append(addr)
+
+    return recipients
+
+
+def _notify_request(settings: Settings, req: MediaRequest, db: Session):
+    """Empile la notification de nouvelle demande dans la queue."""
+    if not req.request_mail_sent:
+        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+        recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
+        enqueue_notification("request", req.id, recipients)
+
+
+def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
+    """Empile la notification d'échec dans la queue."""
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipient = (user_obj.notification_email if user_obj else None) or settings.smtp_from
+    recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
+    arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
+    enqueue_notification("failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration.")
 
-    if settings.email_on_available and recipient and not req.available_mail_sent:
-        try:
-            await send_available_notification(settings, req, recipient)
-            req.available_mail_sent = True
-            db.commit()
-        except Exception as e:
-            logger.error(f"Available email failed for '{req.title}': {e}")
 
-    await send_push(settings, req, "available")
+def _notify_available(settings: Settings, req: MediaRequest, db: Session):
+    """Empile la notification de disponibilité dans la queue."""
+    if not req.available_mail_sent:
+        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+        recipients = _get_recipients(user_obj, settings) if settings.email_on_available else []
+        enqueue_notification("available", req.id, recipients)
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +223,9 @@ async def poll_watchlists():
                 # Média déjà dans *arr : pas de notification (évite le spam au redémarrage)
                 logger.info(f"'{item['title']}' already in arr — skipping notifications")
             elif req.status == RequestStatus.sent_to_arr:
-                await _notify_request(settings, req, db)
+                _notify_request(settings, req, db)
             elif req.status == RequestStatus.failed:
-                await _notify_failure(settings, req, db)
+                _notify_failure(settings, req, db)
 
         logger.info(f"Poll complete: {new_count} requests processed")
 
@@ -283,7 +268,12 @@ async def check_arr_statuses():
             new_arr_id = None
             new_slug = None
             try:
-                if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+                if settings.overseerr_enabled and settings.overseerr_url and req.arr_id:
+                    available, new_arr_id, new_slug = await overseerr_available(
+                        settings.overseerr_url, settings.overseerr_api_key,
+                        overseerr_request_id=req.arr_id,
+                    )
+                elif req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
                     available, new_arr_id, new_slug = await is_series_available(
                         settings.sonarr_url, settings.sonarr_api_key,
                         arr_id=req.arr_id, tvdb_id=req.tvdb_id,
@@ -308,7 +298,7 @@ async def check_arr_statuses():
                 req.available_at = datetime.utcnow()
                 db.commit()
                 logger.info(f"'{req.title}' is now available")
-                await _notify_available(settings, req, db)
+                _notify_available(settings, req, db)
             elif new_arr_id or new_slug:
                 db.commit()
 

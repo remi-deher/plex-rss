@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% set page = "logs" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2><i class="bi bi-terminal me-2 text-warning"></i>Logs applicatifs</h2>
+  <div class="d-flex gap-2 align-items-center">
+    <div class="btn-group btn-group-sm" id="timeFilter">
+      <button class="btn btn-outline-secondary" onclick="setTimeFilter(30)" data-mins="30">30 min</button>
+      <button class="btn btn-outline-secondary" onclick="setTimeFilter(60)" data-mins="60">1 h</button>
+      <button class="btn btn-outline-secondary active" onclick="setTimeFilter(0)" data-mins="0">Tout</button>
+    </div>
+    <select id="levelFilter" class="form-select form-select-sm" style="width:auto" onchange="applyFilter()">
+      <option value="">Tous les niveaux</option>
+      <option value="INFO">INFO</option>
+      <option value="WARNING">WARNING</option>
+      <option value="ERROR">ERROR</option>
+    </select>
+    <input type="text" id="searchFilter" class="form-control form-control-sm" placeholder="Rechercher..." style="width:180px" oninput="applyFilter()">
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">
+      <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+    </button>
+    <div class="form-check form-switch mb-0 ms-1">
+      <input class="form-check-input" type="checkbox" id="autoRefresh" checked onchange="toggleAuto()">
+      <label class="form-check-label text-secondary small" for="autoRefresh">Auto</label>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div id="log-container" style="font-family:monospace;font-size:12.5px;max-height:75vh;overflow-y:auto;background:#0d0d0d;border-radius:.375rem">
+      <div id="log-body">
+        <div class="text-center text-muted py-5">
+          <div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-2">
+  <small class="text-muted" id="log-count"></small>
+  <small class="text-muted" id="last-refresh"></small>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allLogs = [];
+let autoTimer = null;
+let activeTimeMins = 0;
+
+function setTimeFilter(mins) {
+  activeTimeMins = mins;
+  document.querySelectorAll('#timeFilter button').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.mins) === mins);
+  });
+  applyFilter();
+}
+
+async function loadLogs() {
+  try {
+    const r = await fetch('/api/logs');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    allLogs = await r.json();
+    applyFilter();
+    document.getElementById('last-refresh').textContent =
+      'Mis à jour à ' + new Date().toLocaleTimeString('fr-FR');
+  } catch(e) {
+    document.getElementById('log-body').innerHTML =
+      `<div class="text-danger p-3">Erreur : ${e.message}</div>`;
+  }
+}
+
+function applyFilter() {
+  const level = document.getElementById('levelFilter').value;
+  const search = document.getElementById('searchFilter').value.toLowerCase();
+
+  let filtered = allLogs;
+  if (activeTimeMins > 0) {
+    const cutoff = new Date(Date.now() - activeTimeMins * 60000);
+    filtered = filtered.filter(l => new Date(l.time + 'Z') >= cutoff);
+  }
+  if (level) filtered = filtered.filter(l => l.level === level);
+  if (search) filtered = filtered.filter(l =>
+    l.message.toLowerCase().includes(search) ||
+    l.logger.toLowerCase().includes(search)
+  );
+
+  document.getElementById('log-count').textContent =
+    `${filtered.length} entrée(s) / ${allLogs.length} au total`;
+
+  if (filtered.length === 0) {
+    document.getElementById('log-body').innerHTML =
+      '<div class="text-muted text-center py-5">Aucune entrée correspondante</div>';
+    return;
+  }
+
+  const rows = filtered.map(l => {
+    const cls = {
+      INFO: 'text-info',
+      WARNING: 'text-warning',
+      ERROR: 'text-danger',
+      CRITICAL: 'text-danger',
+      DEBUG: 'text-secondary',
+    }[l.level] || 'text-secondary';
+    const msg = escHtml(l.message);
+    const name = escHtml(l.logger);
+    return `<div class="px-3 py-1 border-bottom border-secondary border-opacity-25 d-flex gap-3" style="line-height:1.5">
+      <span class="text-secondary flex-shrink-0" style="min-width:140px">${l.time}</span>
+      <span class="${cls} fw-bold flex-shrink-0" style="min-width:70px">${l.level}</span>
+      <span class="text-secondary flex-shrink-0 d-none d-md-inline" style="min-width:180px;opacity:.6">${name}</span>
+      <span class="text-white-50 text-break">${msg}</span>
+    </div>`;
+  }).join('');
+
+  document.getElementById('log-body').innerHTML = rows;
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function toggleAuto() {
+  if (document.getElementById('autoRefresh').checked) {
+    autoTimer = setInterval(loadLogs, 5000);
+  } else {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+}
+
+loadLogs();
+autoTimer = setInterval(loadLogs, 5000);
+</script>
+{% endblock %}

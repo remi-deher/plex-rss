@@ -55,6 +55,7 @@ class Settings(Base):
     radarr_quality_profile_id = Column(Integer, nullable=True)
     radarr_root_folder = Column(String, nullable=True)
     radarr_enabled = Column(Boolean, default=True)
+    radarr_minimum_availability = Column(String, default="released")  # announced|inCinemas|released|tba
 
     # --- Email (SMTP) ---
     smtp_host = Column(String, nullable=True)
@@ -63,10 +64,16 @@ class Settings(Base):
     smtp_password = Column(String, nullable=True)
     smtp_from = Column(String, nullable=True)
     smtp_tls = Column(Boolean, default=True)
+    admin_notification_email = Column(String, nullable=True)  # reçoit une copie si notify_admin activé sur l'utilisateur
     email_on_request = Column(Boolean, default=True)
     email_on_available = Column(Boolean, default=True)
     email_request_template = Column(Text, nullable=True)    # template Jinja2 HTML custom
     email_available_template = Column(Text, nullable=True)  # template Jinja2 HTML custom
+
+    # --- Overseerr ---
+    overseerr_url = Column(String, nullable=True)
+    overseerr_api_key = Column(String, nullable=True)
+    overseerr_enabled = Column(Boolean, default=False)  # True = envoyer à Overseerr plutôt qu'à Sonarr/Radarr
 
     # --- Notifications push (Discord / Telegram) ---
     # Si l'URL/token est renseigné, les notifications sont envoyées automatiquement.
@@ -88,6 +95,7 @@ class PlexUser(Base):
     display_name = Column(String, nullable=True)                # nom lisible défini par l'admin
     plex_email = Column(String, nullable=True)
     notification_email = Column(String, nullable=True)          # surcharge l'email SMTP par défaut
+    notify_admin = Column(Boolean, default=True)               # True = l'admin reçoit aussi une copie
     enabled = Column(Boolean, default=True)                     # False = demandes ignorées
     created_at = Column(DateTime, default=datetime.utcnow)
 

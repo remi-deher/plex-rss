@@ -65,15 +65,16 @@
 <div id="view-grid" class="row g-3" style="display:none!important">
   {% for r in requests %}
   <div class="col-6 col-md-4 col-lg-3 request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}">
-    <div class="card h-100 position-relative overflow-hidden request-card" role="button" onclick="openDetail({{ r.id }})" style="cursor:pointer">
+    <div class="card position-relative overflow-hidden request-card" role="button" onclick="openDetail({{ r.id }})" style="cursor:pointer;height:240px">
       {% if r.poster_url %}
-      <img src="{{ r.poster_url }}" class="card-img-top" style="height:200px;object-fit:cover"
-           onerror="this.parentElement.querySelector('.no-poster').style.display='flex';this.style.display='none'">
-      {% endif %}
-      <div class="no-poster {% if r.poster_url %}d-none{% endif %}" style="height:200px;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
-        <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted fs-1"></i>
+      <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.1) 0%,rgba(20,20,20,.93) 55%)"></div>
+      {% else %}
+      <div style="position:absolute;inset:0;background:#1f1f1f;display:flex;align-items:center;justify-content:center">
+        <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:3rem;opacity:.2"></i>
       </div>
-      <div class="position-absolute top-0 end-0 m-2">
+      {% endif %}
+      <div class="position-absolute top-0 end-0 m-2" id="status-badge-{{ r.id }}">
         {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>
         {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>
         {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
@@ -84,31 +85,33 @@
           {% if r.media_type == 'show' %}Série{% else %}Film{% endif %}
         </span>
       </div>
-      <div class="card-body p-2">
-        <div class="fw-bold text-truncate" style="font-size:13px" title="{{ r.title }}">
-          {{ r.title }}{% if r.year %} <span class="text-muted fw-normal">({{ r.year }})</span>{% endif %}
-        </div>
-        <div class="text-muted" style="font-size:11px">
-          <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
-        </div>
-        <div class="d-flex align-items-center justify-content-between mt-1">
-          <span class="text-muted" style="font-size:11px">{{ r.requested_at.strftime('%d/%m/%Y') if r.requested_at else '' }}</span>
-          <div class="d-flex gap-1" onclick="event.stopPropagation()">
+      <div class="position-absolute bottom-0 start-0 end-0 p-2">
+        <div class="d-flex align-items-end justify-content-between gap-1">
+          <div class="overflow-hidden">
+            <div class="fw-bold text-white text-truncate" style="font-size:13px;text-shadow:0 1px 4px #000" title="{{ r.title }}">
+              {{ r.title }}{% if r.year %} <span class="fw-normal" style="opacity:.7">({{ r.year }})</span>{% endif %}
+            </div>
+            <div class="text-white-50" style="font-size:11px">
+              <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
+            </div>
+          </div>
+          <div class="d-flex gap-1 flex-shrink-0" onclick="event.stopPropagation()">
             {% if r.arr_slug %}
               {% if r.media_type == 'show' and sonarr_url %}
               <a href="{{ sonarr_url }}/series/{{ r.arr_slug }}" target="_blank" rel="noopener"
-                 class="btn py-0 px-1 btn-outline-secondary" style="font-size:10px" title="Ouvrir dans Sonarr">
+                 class="btn py-0 px-1 btn-outline-secondary" style="font-size:10px;background:rgba(0,0,0,.5)" title="Ouvrir dans Sonarr">
                 <i class="bi bi-box-arrow-up-right"></i>
               </a>
               {% elif r.media_type == 'movie' and radarr_url %}
               <a href="{{ radarr_url }}/movie/{{ r.arr_slug }}" target="_blank" rel="noopener"
-                 class="btn py-0 px-1 btn-outline-secondary" style="font-size:10px" title="Ouvrir dans Radarr">
+                 class="btn py-0 px-1 btn-outline-secondary" style="font-size:10px;background:rgba(0,0,0,.5)" title="Ouvrir dans Radarr">
                 <i class="bi bi-box-arrow-up-right"></i>
               </a>
               {% endif %}
             {% endif %}
             {% if r.status in ('failed', 'pending') %}
-            <button class="btn py-0 px-1 btn-outline-warning" style="font-size:10px" title="Réessayer" onclick="retryRequest({{ r.id }}, this)">
+            <button class="btn py-0 px-1 btn-outline-warning" style="font-size:10px;background:rgba(0,0,0,.5)" title="Réessayer"
+                    id="retry-btn-{{ r.id }}" onclick="retryRequest({{ r.id }}, this)">
               <i class="bi bi-arrow-clockwise"></i>
             </button>
             {% endif %}
@@ -155,7 +158,7 @@
         </tr></thead>
         <tbody>
           {% for r in requests %}
-          <tr class="request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}"
+          <tr class="request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}" data-id="{{ r.id }}"
               role="button" onclick="openDetail({{ r.id }})" style="cursor:pointer">
             <td>
               {% if r.poster_url %}
@@ -181,10 +184,12 @@
             </td>
             <td>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}</td>
             <td>
+              <span class="status-badge">
               {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Dispo</span>
               {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoye</span>
               {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>
               {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Attente</span>{% endif %}
+              </span>
             </td>
             <td class="d-none d-lg-table-cell" onclick="event.stopPropagation()">
               <span class="badge bg-secondary">{{ r.source or '?' }}</span>
@@ -213,7 +218,7 @@
             </td>
             <td onclick="event.stopPropagation()">
               {% if r.status in ('failed', 'pending') %}
-              <button class="btn btn-sm btn-outline-warning py-0" title="Réessayer" onclick="retryRequest({{ r.id }}, this)">
+              <button class="btn btn-sm btn-outline-warning py-0 retry-btn" title="Réessayer" onclick="retryRequest({{ r.id }}, this)">
                 <i class="bi bi-arrow-clockwise"></i>
               </button>
               {% endif %}
@@ -337,7 +342,7 @@ function applyUserFilter() {
   window.location.href = url.toString();
 }
 
-// Retry
+// Retry inline (sans reload)
 async function retryRequest(id, btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -345,12 +350,50 @@ async function retryRequest(id, btn) {
     const r = await fetch(`/api/requests/${id}/retry`, {method: 'POST'});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    showToast('Demande relancée — polling en cours...', 'warning');
-    setTimeout(() => location.reload(), 3000);
+    showToast('Polling en cours...', 'warning');
+    pollStatusUpdate(id, btn);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+  }
+}
+
+const STATUS_BADGE = {
+  available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>',
+  sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>',
+  failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>',
+  pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>',
+};
+
+async function pollStatusUpdate(id, btn, attempts = 0) {
+  if (attempts > 20) { location.reload(); return; }
+  await new Promise(res => setTimeout(res, 2000));
+  try {
+    const r = await fetch(`/api/requests/${id}`);
+    const d = await r.json();
+    if (d.status !== 'pending') {
+      // Mettre à jour le badge dans la grille et le tableau
+      const badgeEl = document.getElementById(`status-badge-${id}`);
+      if (badgeEl) badgeEl.innerHTML = STATUS_BADGE[d.status] || '';
+      const rowBadge = document.querySelector(`tr[data-id="${id}"] .status-badge`);
+      if (rowBadge) rowBadge.outerHTML = statusBadge(d.status);
+      // Masquer le bouton retry si ce n'est plus failed/pending
+      if (d.status !== 'failed' && d.status !== 'pending') {
+        btn.closest('[id^=retry-btn]')?.remove();
+        // aussi dans le tableau
+        document.querySelector(`tr[data-id="${id}"] .retry-btn`)?.remove();
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
+      }
+      const label = {available:'Disponible !', sent_to_arr:'Envoyé à *arr', failed:'Échec'};
+      showToast(label[d.status] || d.status, d.status === 'failed' ? 'danger' : 'success');
+    } else {
+      pollStatusUpdate(id, btn, attempts + 1);
+    }
+  } catch(e) {
+    location.reload();
   }
 }
 
@@ -419,8 +462,14 @@ function renderDetail(d) {
           <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${d.plex_user || d.plex_user_id}</td></tr>
           <tr><td class="text-muted">Date demande</td><td>${reqDate}</td></tr>
           ${d.available_at ? `<tr><td class="text-muted">Disponible le</td><td class="text-success">${availDate}</td></tr>` : ''}
-          <tr><td class="text-muted">Email dem.</td><td>${d.request_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}</td></tr>
+          <tr><td class="text-muted">Email dem.</td><td>${d.request_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}${d._user_emails?.length ? ' <span class="text-muted" style="font-size:11px">→ ' + d._user_emails.join(', ') + '</span>' : ''}</td></tr>
           <tr><td class="text-muted">Email dispo.</td><td>${d.available_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}</td></tr>
+          <tr><td class="text-muted">Notif admin</td><td>${d._notify_admin
+            ? (d._admin_emails?.length
+                ? '<i class="bi bi-bell-fill text-warning"></i> <span style="font-size:11px">' + d._admin_emails.join(', ') + '</span>'
+                : '<i class="bi bi-bell text-muted"></i> <span class="text-muted" style="font-size:11px">Activé (aucun email admin configuré)</span>')
+            : '<i class="bi bi-bell-slash text-muted"></i> <span class="text-muted">Désactivé pour cet utilisateur</span>'
+          }</td></tr>
         </table>
         ${ids ? `<div class="mt-2">${ids}</div>` : ''}
         ${errorBlock}
@@ -492,6 +541,16 @@ setTimeout(() => {
   banner.onclick = () => location.reload();
   document.querySelector('h2')?.closest('.d-flex')?.insertAdjacentElement('afterend', banner);
 }, 120000);
+
+// Pré-sélection filtre depuis l'URL (?status=failed etc.)
+(function applyUrlFilter() {
+  const params = new URLSearchParams(window.location.search);
+  const status = params.get('status');
+  if (status) {
+    const sel = document.getElementById('filterStatus');
+    if (sel) { sel.value = status; filterItems(); }
+  }
+})();
 
 // Init
 setView(currentView);

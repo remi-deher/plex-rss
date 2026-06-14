@@ -1,345 +1,599 @@
 {% extends "base.html" %}
 {% set page = "settings" %}
 {% block content %}
-<h2 class="mb-4">Paramètres</h2>
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="mb-0">Paramètres</h2>
+</div>
+
+<style>
+.conn-badge { font-size: 11px; }
+.arr-card { transition: opacity .25s; }
+.tab-warn-dot { font-size: 8px; vertical-align: middle; }
+</style>
 
 <form id="settings-form">
-<div class="row g-4">
 
-  <!-- Plex -->
-  <div class="col-12">
-    <div class="card p-4">
-      <h5 class="mb-3"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">URL Plex (local)</label>
-          <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Token Plex (admin)</label>
-          <div class="input-group mb-2">
-            <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
-            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
-            <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
-          </div>
-          <div>
-            <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
-              <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
-            </button>
-            <span id="sso-status" class="ms-2 small text-muted"></span>
-          </div>
-        </div>
-        <div class="col-md-10">
-          <label class="form-label">URL du flux RSS Plex (admin avec Plex Pass)</label>
-          <div class="input-group">
-            <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-            <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Source prioritaire</label>
-          <select class="form-select" name="watchlist_source_priority">
-            <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>API Plex (token)</option>
-            <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>Flux RSS</option>
-          </select>
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
-            <label class="form-check-label" for="fallback">Activer le fallback</label>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">Intervalle de polling (minutes)</label>
-          <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
-        </div>
-      </div>
-    </div>
-  </div>
+<!-- ── Tabs ── -->
+<ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-connexions" type="button" role="tab">
+      <i class="bi bi-plug"></i> Connexions
+      <i class="bi bi-circle-fill text-warning tab-warn-dot d-none" id="warn-connexions" title="Sections incomplètes"></i>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-notifications" type="button" role="tab">
+      <i class="bi bi-bell"></i> Notifications
+      <i class="bi bi-circle-fill text-warning tab-warn-dot d-none" id="warn-notifications" title="Sections incomplètes"></i>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-avance" type="button" role="tab">
+      <i class="bi bi-gear"></i> Avancé
+    </button>
+  </li>
+</ul>
 
-  <!-- Sonarr -->
-  <div class="col-md-6">
-    <div class="card p-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h5 class="mb-0"><i class="bi bi-tv text-info me-2"></i>Sonarr</h5>
-        <div class="form-check form-switch mb-0">
-          <input class="form-check-input" type="checkbox" name="sonarr_enabled" id="sonarr_en" {% if s.sonarr_enabled %}checked{% endif %}>
-          <label class="form-check-label" for="sonarr_en">Activé</label>
-        </div>
-      </div>
-      <div class="row g-3">
-        <div class="col-12">
-          <label class="form-label">URL Sonarr</label>
-          <input type="url" class="form-control" name="sonarr_url" value="{{ s.sonarr_url or '' }}" placeholder="http://192.168.1.10:8989">
-        </div>
-        <div class="col-12">
-          <label class="form-label">Clé API</label>
-          <div class="input-group">
-            <input type="password" class="form-control" name="sonarr_api_key" value="{{ s.sonarr_api_key or '' }}" id="sonarr_key">
-            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('sonarr_key')"><i class="bi bi-eye"></i></button>
-            <button type="button" class="btn btn-outline-info" onclick="testConn('sonarr')">Tester</button>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Profil qualité</label>
-          <select class="form-select" name="sonarr_quality_profile_id" id="sonarr_profile">
-            {% if s.sonarr_quality_profile_id %}<option value="{{ s.sonarr_quality_profile_id }}" selected>ID {{ s.sonarr_quality_profile_id }}</option>{% endif %}
-          </select>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('sonarr')">Charger</button>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Dossier racine</label>
-          <select class="form-select" name="sonarr_root_folder" id="sonarr_folder">
-            {% if s.sonarr_root_folder %}<option value="{{ s.sonarr_root_folder }}" selected>{{ s.sonarr_root_folder }}</option>{% endif %}
-          </select>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('sonarr')">Charger</button>
-        </div>
-      </div>
-    </div>
-  </div>
+<div class="tab-content" id="settingsTabContent">
 
-  <!-- Radarr -->
-  <div class="col-md-6">
-    <div class="card p-4 h-100">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h5 class="mb-0"><i class="bi bi-camera-video text-primary me-2"></i>Radarr</h5>
-        <div class="form-check form-switch mb-0">
-          <input class="form-check-input" type="checkbox" name="radarr_enabled" id="radarr_en" {% if s.radarr_enabled %}checked{% endif %}>
-          <label class="form-check-label" for="radarr_en">Activé</label>
-        </div>
-      </div>
-      <div class="row g-3">
-        <div class="col-12">
-          <label class="form-label">URL Radarr</label>
-          <input type="url" class="form-control" name="radarr_url" value="{{ s.radarr_url or '' }}" placeholder="http://192.168.1.10:7878">
-        </div>
-        <div class="col-12">
-          <label class="form-label">Clé API</label>
-          <div class="input-group">
-            <input type="password" class="form-control" name="radarr_api_key" value="{{ s.radarr_api_key or '' }}" id="radarr_key">
-            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('radarr_key')"><i class="bi bi-eye"></i></button>
-            <button type="button" class="btn btn-outline-primary" onclick="testConn('radarr')">Tester</button>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Profil qualité</label>
-          <select class="form-select" name="radarr_quality_profile_id" id="radarr_profile">
-            {% if s.radarr_quality_profile_id %}<option value="{{ s.radarr_quality_profile_id }}" selected>ID {{ s.radarr_quality_profile_id }}</option>{% endif %}
-          </select>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('radarr')">Charger</button>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Dossier racine</label>
-          <select class="form-select" name="radarr_root_folder" id="radarr_folder">
-            {% if s.radarr_root_folder %}<option value="{{ s.radarr_root_folder }}" selected>{{ s.radarr_root_folder }}</option>{% endif %}
-          </select>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('radarr')">Charger</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- ════════════════════════ TAB : CONNEXIONS ════════════════════════ -->
+  <div class="tab-pane fade show active" id="tab-connexions" role="tabpanel">
+    <div class="row g-4">
 
-  <!-- Email -->
-  <div class="col-12">
-    <div class="card p-4">
-      <h5 class="mb-3"><i class="bi bi-envelope text-success me-2"></i>Email (SMTP)</h5>
-      <div class="row g-3">
-        <div class="col-md-5">
-          <label class="form-label">Serveur SMTP</label>
-          <input type="text" class="form-control" name="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
-        </div>
-        <div class="col-md-2">
-          <label class="form-label">Port</label>
-          <input type="number" class="form-control" name="smtp_port" value="{{ s.smtp_port or 587 }}">
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-          <div class="form-check form-switch mb-2">
-            <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls" {% if s.smtp_tls %}checked{% endif %}>
-            <label class="form-check-label" for="smtp_tls">STARTTLS</label>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Utilisateur SMTP</label>
-          <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Mot de passe SMTP</label>
-          <div class="input-group">
-            <input type="password" class="form-control" name="smtp_password" value="{{ s.smtp_password or '' }}" id="smtp_pass">
-            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('smtp_pass')"><i class="bi bi-eye"></i></button>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Email expéditeur</label>
-          <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Test — envoyer un email à</label>
-          <div class="input-group">
-            <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
-            <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
-          </div>
-        </div>
-        <div class="col-12">
-          <div class="d-flex gap-4">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
-              <label class="form-check-label" for="email_req">Email à la demande</label>
+      <!-- Plex -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
+            <div class="d-flex align-items-center gap-2">
+              <span id="conn-badge-plex-rss" class="conn-badge"></span>
+              <span id="conn-badge-plex-api" class="conn-badge"></span>
             </div>
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
-              <label class="form-check-label" for="email_av">Email quand disponible</label>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">URL Plex (local)</label>
+              <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Token Plex (admin)</label>
+              <div class="input-group mb-2">
+                <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
+              </div>
+              <div>
+                <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
+                  <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
+                </button>
+                <span id="sso-status" class="ms-2 small text-muted"></span>
+              </div>
+            </div>
+            <div class="col-md-10">
+              <label class="form-label">URL du flux RSS Plex (admin avec Plex Pass)</label>
+              <div class="input-group">
+                <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Source prioritaire</label>
+              <select class="form-select" name="watchlist_source_priority">
+                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>API Plex (token)</option>
+                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>Flux RSS</option>
+              </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="fallback">Activer le fallback</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Intervalle de polling (minutes)</label>
+              <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- Notifications Push -->
-  <div class="col-12">
-    <div class="card p-4">
-      <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Notifications Push</h5>
-      <div class="row g-3">
-        <!-- Discord -->
-        <div class="col-12">
-          <h6 class="text-muted mb-2"><i class="bi bi-discord me-1"></i>Discord</h6>
-        </div>
-        <div class="col-md-8">
-          <label class="form-label">Webhook URL Discord</label>
-          <div class="input-group">
-            <input type="url" class="form-control" name="discord_webhook_url"
-                   value="{{ s.discord_webhook_url or '' }}"
-                   placeholder="https://discord.com/api/webhooks/...">
-            <button type="button" class="btn btn-outline-secondary" onclick="testConn('discord')">Tester</button>
+      <!-- Sonarr + Radarr -->
+      <div class="col-md-6" id="card-wrap-sonarr">
+        <div class="card p-4 h-100 arr-card">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+              <i class="bi bi-tv text-info me-2"></i>Sonarr
+              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="sonarr" style="font-size:8px" title="URL manquante"></i>
+            </h5>
+            <div class="d-flex align-items-center gap-3">
+              <span id="conn-badge-sonarr" class="conn-badge"></span>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="sonarr_enabled" id="sonarr_en" {% if s.sonarr_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="sonarr_en">Activé</label>
+              </div>
+            </div>
           </div>
-          <div class="form-text">Laissez vide pour désactiver. Les notifs sont envoyées à la demande et à la disponibilité.</div>
-        </div>
-        <!-- Telegram -->
-        <div class="col-12 mt-2">
-          <h6 class="text-muted mb-2"><i class="bi bi-telegram me-1"></i>Telegram</h6>
-        </div>
-        <div class="col-md-5">
-          <label class="form-label">Bot Token</label>
-          <div class="input-group">
-            <input type="password" class="form-control" name="telegram_bot_token"
-                   value="{{ s.telegram_bot_token or '' }}" id="tg_token"
-                   placeholder="123456:ABC-...">
-            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('tg_token')"><i class="bi bi-eye"></i></button>
-          </div>
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">Chat ID</label>
-          <input type="text" class="form-control" name="telegram_chat_id"
-                 value="{{ s.telegram_chat_id or '' }}" placeholder="-100123456789">
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-          <button type="button" class="btn btn-outline-secondary w-100" onclick="testConn('telegram')">Tester</button>
-        </div>
-        <div class="col-12">
-          <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Import / Export -->
-  <div class="col-12">
-    <div class="card p-4">
-      <h5 class="mb-3"><i class="bi bi-arrow-down-up text-info me-2"></i>Import / Export</h5>
-      <div class="row g-3">
-        <div class="col-md-6">
-          <p class="text-muted mb-2">Exporte tous les paramètres, utilisateurs et demandes dans un fichier JSON.</p>
-          <a href="/api/export" class="btn btn-outline-info" download>
-            <i class="bi bi-download me-1"></i>Exporter les données
-          </a>
-        </div>
-        <div class="col-md-6">
-          <p class="text-muted mb-2">Importe un fichier JSON exporté précédemment (fusion, pas d'écrasement).</p>
-          <div class="d-flex gap-2 align-items-center">
-            <input type="file" class="form-control" id="importFile" accept=".json" style="max-width:280px">
-            <button class="btn btn-outline-warning" onclick="importData()">
-              <i class="bi bi-upload me-1"></i>Importer
-            </button>
-          </div>
-          <div id="importResult" class="mt-2"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Webhooks Sonarr / Radarr -->
-  <div class="col-12">
-    <div class="card p-4 border-warning">
-      <h5 class="mb-3"><i class="bi bi-broadcast text-warning me-2"></i>Webhooks — Notifications de disponibilité</h5>
-      <p class="text-muted mb-3">
-        Configurez ces URLs dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
-        pour être notifié dès qu'un contenu est téléchargé et importé.
-        Sélectionnez l'événement <strong>OnDownload / OnImport</strong>.
-      </p>
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
-          <div class="input-group">
-            <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/sonarr" readonly id="webhook-sonarr">
-            <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
-          </div>
-        </div>
-        <div class="col-md-6">
-          <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
-          <div class="input-group">
-            <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/radarr" readonly id="webhook-radarr">
-            <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">URL Sonarr</label>
+              <input type="url" class="form-control arr-url" name="sonarr_url" value="{{ s.sonarr_url or '' }}" placeholder="http://192.168.1.10:8989" data-arr="sonarr">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Clé API</label>
+              <div class="input-group">
+                <input type="password" class="form-control arr-key" name="sonarr_api_key" value="{{ s.sonarr_api_key or '' }}" id="sonarr_key" data-arr="sonarr">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('sonarr_key')"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-outline-info" onclick="testConn('sonarr')">Tester</button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Profil qualité</label>
+              <select class="form-select" name="sonarr_quality_profile_id" id="sonarr_profile">
+                {% if s.sonarr_quality_profile_id %}<option value="{{ s.sonarr_quality_profile_id }}" selected>ID {{ s.sonarr_quality_profile_id }}</option>{% endif %}
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('sonarr')">Charger</button>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Dossier racine</label>
+              <select class="form-select" name="sonarr_root_folder" id="sonarr_folder">
+                {% if s.sonarr_root_folder %}<option value="{{ s.sonarr_root_folder }}" selected>{{ s.sonarr_root_folder }}</option>{% endif %}
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('sonarr')">Charger</button>
+            </div>
           </div>
         </div>
       </div>
-      <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:#2a2a2a;font-size:13px">
-        <i class="bi bi-info-circle me-1"></i>
-        La correspondance se fait en priorité par <strong>ID TVDB/TMDB</strong> stocké lors de la demande, puis par titre si l'ID est absent.
+
+      <div class="col-md-6" id="card-wrap-radarr">
+        <div class="card p-4 h-100 arr-card">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+              <i class="bi bi-camera-video text-primary me-2"></i>Radarr
+              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="radarr" style="font-size:8px" title="URL manquante"></i>
+            </h5>
+            <div class="d-flex align-items-center gap-3">
+              <span id="conn-badge-radarr" class="conn-badge"></span>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="radarr_enabled" id="radarr_en" {% if s.radarr_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="radarr_en">Activé</label>
+              </div>
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">URL Radarr</label>
+              <input type="url" class="form-control arr-url" name="radarr_url" value="{{ s.radarr_url or '' }}" placeholder="http://192.168.1.10:7878" data-arr="radarr">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Clé API</label>
+              <div class="input-group">
+                <input type="password" class="form-control arr-key" name="radarr_api_key" value="{{ s.radarr_api_key or '' }}" id="radarr_key" data-arr="radarr">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('radarr_key')"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-outline-primary" onclick="testConn('radarr')">Tester</button>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Profil qualité</label>
+              <select class="form-select" name="radarr_quality_profile_id" id="radarr_profile">
+                {% if s.radarr_quality_profile_id %}<option value="{{ s.radarr_quality_profile_id }}" selected>ID {{ s.radarr_quality_profile_id }}</option>{% endif %}
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('radarr')">Charger</button>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Dossier racine</label>
+              <select class="form-select" name="radarr_root_folder" id="radarr_folder">
+                {% if s.radarr_root_folder %}<option value="{{ s.radarr_root_folder }}" selected>{{ s.radarr_root_folder }}</option>{% endif %}
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('radarr')">Charger</button>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Disponibilité minimale <span class="badge bg-primary ms-1" style="font-size:10px">v5</span></label>
+              <select class="form-select" name="radarr_minimum_availability">
+                <option value="announced" {% if s.radarr_minimum_availability == 'announced' %}selected{% endif %}>Annoncé</option>
+                <option value="inCinemas" {% if s.radarr_minimum_availability == 'inCinemas' %}selected{% endif %}>En salle</option>
+                <option value="released" {% if not s.radarr_minimum_availability or s.radarr_minimum_availability == 'released' %}selected{% endif %}>Sorti (recommandé)</option>
+                <option value="tba" {% if s.radarr_minimum_availability == 'tba' %}selected{% endif %}>À annoncer</option>
+              </select>
+              <div class="form-text">Requis par Radarr v5 — détermine quand le film est éligible au téléchargement.</div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Overseerr -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+              <i class="bi bi-send text-warning me-2"></i>Overseerr
+              <span class="badge bg-secondary ms-2" style="font-size:11px">Mode alternatif</span>
+            </h5>
+            <div class="d-flex align-items-center gap-3">
+              <span id="conn-badge-overseerr" class="conn-badge"></span>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="overseerr_enabled" id="overseerr_en" {% if s.overseerr_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="overseerr_en">Activé</label>
+              </div>
+            </div>
+          </div>
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:#2a2a2a;font-size:13px">
+            <i class="bi bi-info-circle me-1"></i>
+            Quand activé, les demandes sont envoyées à <strong>Overseerr</strong> plutôt que directement à Sonarr/Radarr.
+            Overseerr gère le routage et les profils de qualité selon sa propre configuration.
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">URL Overseerr</label>
+              <input type="url" class="form-control" name="overseerr_url" value="{{ s.overseerr_url or '' }}" placeholder="http://192.168.1.10:5055">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Clé API</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="overseerr_api_key" value="{{ s.overseerr_api_key or '' }}" id="overseerr_key">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('overseerr_key')"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-outline-warning" onclick="testConn('overseerr')">Tester</button>
+              </div>
+              <div class="form-text">Overseerr → Paramètres → Général → Clé API</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-  <!-- Liens Utiles / Info Projet -->
-  <div class="col-12">
-    <div class="card p-4" style="background: rgba(255,255,255,.015); border-style: dashed;">
-      <h5 class="mb-3 text-muted"><i class="bi bi-info-circle me-2"></i>Plex RSS Monitor — Projet</h5>
-      <div class="d-flex flex-wrap gap-4">
-        <a href="https://github.com/remi-deher/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size: .95rem; transition: color .2s;" onmouseover="this.style.color='#fff'; this.classList.add('text-warning');" onmouseout="this.style.color=''; this.classList.remove('text-warning');">
-          <i class="bi bi-github" style="font-size: 1.3rem;"></i>
-          <span>Dépôt GitHub du Projet</span>
-        </a>
-        <a href="https://hub.docker.com/r/mrcryllix/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size: .95rem; transition: color .2s;" onmouseover="this.style.color='#fff'; this.classList.add('text-info');" onmouseout="this.style.color=''; this.classList.remove('text-info');">
-          <i class="bi bi-box-seam-fill" style="font-size: 1.3rem;"></i>
-          <span>Image Docker Hub Officielle</span>
-        </a>
+  <!-- ════════════════════════ TAB : NOTIFICATIONS ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-notifications" role="tabpanel">
+    <div class="row g-4">
+
+      <!-- Email SMTP -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+              <i class="bi bi-envelope text-success me-2"></i>Email (SMTP)
+              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="smtp" style="font-size:8px" title="Serveur SMTP manquant"></i>
+            </h5>
+            <span id="conn-badge-smtp" class="conn-badge"></span>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-5">
+              <label class="form-label">Serveur SMTP</label>
+              <input type="text" class="form-control" name="smtp_host" id="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" class="form-control" name="smtp_port" value="{{ s.smtp_port or 587 }}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls" {% if s.smtp_tls %}checked{% endif %}>
+                <label class="form-check-label" for="smtp_tls">STARTTLS</label>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Utilisateur SMTP</label>
+              <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Mot de passe SMTP</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="smtp_password" value="{{ s.smtp_password or '' }}" id="smtp_pass">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('smtp_pass')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Email expéditeur</label>
+              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email(s) admin <span class="text-muted small">(reçoit une copie si activé par utilisateur)</span></label>
+              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
+              <div class="form-text">Plusieurs adresses séparées par des virgules. Le toggle par utilisateur contrôle qui notifie l'admin.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Test — envoyer un email à</label>
+              <div class="input-group">
+                <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
+                <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="d-flex gap-4">
+                <div class="form-check form-switch">
+                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
+                  <label class="form-check-label" for="email_req">Email à la demande</label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
+                  <label class="form-check-label" for="email_av">Email quand disponible</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <!-- Push -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Notifications Push</h5>
+          <div class="row g-3">
+            <div class="col-12">
+              <h6 class="text-muted mb-2"><i class="bi bi-discord me-1"></i>Discord</h6>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Webhook URL Discord</label>
+              <div class="input-group">
+                <input type="url" class="form-control" name="discord_webhook_url" value="{{ s.discord_webhook_url or '' }}" placeholder="https://discord.com/api/webhooks/...">
+                <button type="button" class="btn btn-outline-secondary" onclick="testConn('discord')">Tester</button>
+              </div>
+              <div class="d-flex align-items-center gap-2 mt-1">
+                <span class="form-text mb-0">Laissez vide pour désactiver.</span>
+                <span id="conn-badge-discord" class="conn-badge"></span>
+              </div>
+            </div>
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-telegram me-1"></i>Telegram</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Bot Token</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="telegram_bot_token" value="{{ s.telegram_bot_token or '' }}" id="tg_token" placeholder="123456:ABC-...">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('tg_token')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Chat ID</label>
+              <input type="text" class="form-control" name="telegram_chat_id" value="{{ s.telegram_chat_id or '' }}" placeholder="-100123456789">
+            </div>
+            <div class="col-md-2 d-flex align-items-end gap-2">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('telegram')">Tester</button>
+              <span id="conn-badge-telegram" class="conn-badge align-self-center"></span>
+            </div>
+            <div class="col-12">
+              <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-</div>
+  <!-- ════════════════════════ TAB : AVANCÉ ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-avance" role="tabpanel">
+    <div class="row g-4">
 
-<div class="mt-4 d-flex gap-2">
-  <button type="button" class="btn btn-warning btn-lg" onclick="saveSettings()">
-    <i class="bi bi-save me-1"></i>Enregistrer
-  </button>
+      <!-- Import / Export -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-arrow-down-up text-info me-2"></i>Import / Export</h5>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <p class="text-muted mb-2">Exporte tous les paramètres, utilisateurs et demandes dans un fichier JSON.</p>
+              <a href="/api/export" class="btn btn-outline-info" download>
+                <i class="bi bi-download me-1"></i>Exporter les données
+              </a>
+            </div>
+            <div class="col-md-6">
+              <p class="text-muted mb-2">Importe un fichier JSON exporté précédemment (fusion, pas d'écrasement).</p>
+              <div class="d-flex gap-2 align-items-center">
+                <input type="file" class="form-control" id="importFile" accept=".json" style="max-width:280px">
+                <button class="btn btn-outline-warning" onclick="importData()">
+                  <i class="bi bi-upload me-1"></i>Importer
+                </button>
+              </div>
+              <div id="importResult" class="mt-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhooks — collapsed by default -->
+      <div class="col-12">
+        <div class="card border-warning">
+          <div class="card-header d-flex justify-content-between align-items-center border-warning py-3"
+               style="background:transparent;cursor:pointer"
+               data-bs-toggle="collapse" data-bs-target="#webhooks-body" aria-expanded="false" aria-controls="webhooks-body">
+            <h5 class="mb-0"><i class="bi bi-broadcast text-warning me-2"></i>Webhooks — Notifications de disponibilité</h5>
+            <i class="bi bi-chevron-down text-muted" id="webhooks-chevron"></i>
+          </div>
+          <div class="collapse" id="webhooks-body">
+            <div class="card-body pt-0">
+              <p class="text-muted mb-3">
+                Configurez ces URLs dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
+                pour être notifié dès qu'un contenu est téléchargé et importé.
+                Sélectionnez l'événement <strong>OnDownload / OnImport</strong>.
+              </p>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/sonarr" readonly id="webhook-sonarr">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">Sonarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/radarr" readonly id="webhook-radarr">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">Radarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                </div>
+                <div class="col-12">
+                  <hr class="border-secondary my-2">
+                  <h6 class="text-muted mb-2">
+                    <i class="bi bi-collection-play-fill text-warning me-1"></i>Plex
+                    <span class="badge bg-warning text-dark ms-1" style="font-size:10px">Plex Pass requis</span>
+                  </h6>
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label">Plex — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/plex" readonly id="webhook-plex">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-plex')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">
+                    Plex → Paramètres → Webhooks → Ajouter un webhook · Événements traités : <strong>library.new</strong> (nouveau contenu) et <strong>media.scrobble</strong> (regardé en entier).
+                    Permet une détection de disponibilité instantanée sans polling.
+                  </div>
+                </div>
+              </div>
+              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:#2a2a2a;font-size:13px">
+                <i class="bi bi-info-circle me-1"></i>
+                La correspondance se fait en priorité par <strong>TMDB/TVDB/IMDB ID</strong>, puis par titre si les IDs sont absents.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info Projet -->
+      <div class="col-12">
+        <div class="card p-4" style="background: rgba(255,255,255,.015); border-style: dashed;">
+          <h5 class="mb-3 text-muted"><i class="bi bi-info-circle me-2"></i>Plex RSS Monitor — Projet</h5>
+          <div class="d-flex flex-wrap gap-4">
+            <a href="https://github.com/remi-deher/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size:.95rem;transition:color .2s" onmouseover="this.classList.add('text-warning')" onmouseout="this.classList.remove('text-warning')">
+              <i class="bi bi-github" style="font-size:1.3rem"></i>
+              <span>Dépôt GitHub du Projet</span>
+            </a>
+            <a href="https://hub.docker.com/r/mrcryllix/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size:.95rem;transition:color .2s" onmouseover="this.classList.add('text-info')" onmouseout="this.classList.remove('text-info')">
+              <i class="bi bi-box-seam-fill" style="font-size:1.3rem"></i>
+              <span>Image Docker Hub Officielle</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 </form>
+
+<!-- ── Sticky save bar ── -->
+<div class="position-sticky bottom-0 py-3 mt-4" style="background:linear-gradient(transparent,var(--bs-body-bg) 45%);z-index:100">
+  <div class="d-flex align-items-center gap-3">
+    <button type="button" class="btn btn-warning btn-lg" onclick="saveSettings()">
+      <i class="bi bi-save me-1"></i>Enregistrer
+    </button>
+    <span id="dirty-indicator" class="badge bg-warning text-dark d-none">
+      <i class="bi bi-pencil-fill me-1"></i>Modifications non enregistrées
+    </span>
+  </div>
+</div>
 
 <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ── Dirty tracking ────────────────────────────────────────────────────────────
+let _dirty = false;
+function markDirty() {
+  if (_dirty) return;
+  _dirty = true;
+  document.getElementById('dirty-indicator').classList.remove('d-none');
+}
+function clearDirty() {
+  _dirty = false;
+  document.getElementById('dirty-indicator').classList.add('d-none');
+}
+document.getElementById('settings-form').addEventListener('change', markDirty);
+document.getElementById('settings-form').addEventListener('input', markDirty);
+
+// ── Connection badges (sessionStorage) ───────────────────────────────────────
+function setConnBadge(service, success, label) {
+  const el = document.getElementById(`conn-badge-${service}`);
+  if (!el) return;
+  el.className = 'conn-badge badge ' + (success ? 'bg-success' : 'bg-danger');
+  el.innerHTML = `<i class="bi bi-circle-fill me-1" style="font-size:8px"></i>${label}`;
+  try { sessionStorage.setItem(`conn_${service}`, JSON.stringify({success, label})); } catch(e) {}
+}
+function restoreConnBadges() {
+  ['plex-api','plex-rss','sonarr','radarr','overseerr','discord','telegram','smtp'].forEach(s => {
+    try {
+      const stored = sessionStorage.getItem(`conn_${s}`);
+      if (stored) { const d = JSON.parse(stored); setConnBadge(s, d.success, d.label); }
+    } catch(e) {}
+  });
+}
+
+// ── Overseerr → dim Sonarr/Radarr ────────────────────────────────────────────
+function updateOverseerrMode() {
+  const enabled = document.getElementById('overseerr_en').checked;
+  ['sonarr','radarr'].forEach(arr => {
+    const wrap = document.getElementById(`card-wrap-${arr}`);
+    if (!wrap) return;
+    wrap.style.opacity = enabled ? '0.4' : '1';
+    wrap.style.pointerEvents = enabled ? 'none' : '';
+    wrap.title = enabled ? 'Géré par Overseerr — désactivez Overseerr pour modifier' : '';
+  });
+}
+document.getElementById('overseerr_en').addEventListener('change', updateOverseerrMode);
+
+// ── Section incomplete warnings ───────────────────────────────────────────────
+function checkSectionWarnings() {
+  const sonarrOn = document.getElementById('sonarr_en').checked;
+  const sonarrUrl = document.querySelector('[name=sonarr_url]').value.trim();
+  showSectionWarn('sonarr', sonarrOn && !sonarrUrl);
+
+  const radarrOn = document.getElementById('radarr_en').checked;
+  const radarrUrl = document.querySelector('[name=radarr_url]').value.trim();
+  showSectionWarn('radarr', radarrOn && !radarrUrl);
+
+  const emailOn = document.getElementById('email_req').checked || document.getElementById('email_av').checked;
+  const smtpHost = document.getElementById('smtp_host').value.trim();
+  showSectionWarn('smtp', emailOn && !smtpHost);
+
+  const hasConnWarn = !!document.querySelector('#tab-connexions .section-warn:not(.d-none)');
+  document.getElementById('warn-connexions').classList.toggle('d-none', !hasConnWarn);
+  const hasNotifWarn = !!document.querySelector('#tab-notifications .section-warn:not(.d-none)');
+  document.getElementById('warn-notifications').classList.toggle('d-none', !hasNotifWarn);
+}
+function showSectionWarn(section, show) {
+  document.querySelectorAll(`.section-warn[data-section="${section}"]`).forEach(el => {
+    el.classList.toggle('d-none', !show);
+  });
+}
+document.getElementById('settings-form').addEventListener('change', checkSectionWarnings);
+document.getElementById('settings-form').addEventListener('input', checkSectionWarnings);
+
+// ── Auto-load profiles/folders on blur when URL + key both present ────────────
+let _autoLoadTimers = {};
+function tryAutoLoad(arr) {
+  clearTimeout(_autoLoadTimers[arr]);
+  _autoLoadTimers[arr] = setTimeout(() => {
+    const url = document.querySelector(`[name=${arr}_url]`).value.trim();
+    const key = document.querySelector(`[name=${arr}_api_key]`).value.trim();
+    if (url && key) { loadProfiles(arr); loadFolders(arr); }
+  }, 600);
+}
+document.querySelectorAll('.arr-url, .arr-key').forEach(el => {
+  el.addEventListener('blur', () => tryAutoLoad(el.dataset.arr));
+});
+
+// ── Webhook chevron rotation ──────────────────────────────────────────────────
+document.getElementById('webhooks-body').addEventListener('show.bs.collapse', () => {
+  document.getElementById('webhooks-chevron').className = 'bi bi-chevron-up text-muted';
+});
+document.getElementById('webhooks-body').addEventListener('hide.bs.collapse', () => {
+  document.getElementById('webhooks-chevron').className = 'bi bi-chevron-down text-muted';
+});
+
+// ── Core functions ────────────────────────────────────────────────────────────
 function togglePass(id) {
   const el = document.getElementById(id);
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
 function getFormData() {
-  const form = document.getElementById('settings-form');
   const data = {};
-  form.querySelectorAll('input, select').forEach(el => {
+  document.querySelectorAll('#settings-form input, #settings-form select').forEach(el => {
     if (!el.name) return;
     if (el.type === 'checkbox') data[el.name] = el.checked;
     else if (el.value !== '') data[el.name] = el.value;
@@ -355,6 +609,7 @@ async function saveSettings() {
       body: JSON.stringify(getFormData())
     });
     if (!r.ok) throw new Error(await r.text());
+    clearDirty();
     showToast('Paramètres enregistrés !', 'success');
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
@@ -366,6 +621,7 @@ async function testConn(service) {
   await saveSettings();
   const r = await fetch(`/api/test/${service}`, {method:'POST'});
   const d = await r.json();
+  setConnBadge(service, d.success, d.success ? 'Connecté' : 'Échec');
   showToast(d.message, d.success ? 'success' : 'danger');
 }
 
@@ -379,15 +635,20 @@ async function testSmtp() {
     body: JSON.stringify({recipient: email})
   });
   const d = await r.json();
+  setConnBadge('smtp', d.success, d.success ? 'Email envoyé' : 'Échec');
   showToast(d.message, d.success ? 'success' : 'danger');
 }
 
 async function loadProfiles(service) {
   try {
     const r = await fetch(`/api/${service}/profiles`);
+    if (!r.ok) return;
     const profiles = await r.json();
     const sel = document.getElementById(`${service}_profile`);
-    sel.innerHTML = profiles.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    const current = sel.value;
+    sel.innerHTML = profiles.map(p =>
+      `<option value="${p.id}" ${String(p.id) === String(current) ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
   } catch(e) {
     showToast(`Impossible de charger les profils ${service} — vérifiez l'URL et la clé API`, 'danger');
   }
@@ -396,9 +657,13 @@ async function loadProfiles(service) {
 async function loadFolders(service) {
   try {
     const r = await fetch(`/api/${service}/folders`);
+    if (!r.ok) return;
     const folders = await r.json();
     const sel = document.getElementById(`${service}_folder`);
-    sel.innerHTML = folders.map(f => `<option value="${f}">${f}</option>`).join('');
+    const current = sel.value;
+    sel.innerHTML = folders.map(f =>
+      `<option value="${f}" ${f === current ? 'selected' : ''}>${f}</option>`
+    ).join('');
   } catch(e) {
     showToast(`Impossible de charger les dossiers ${service}`, 'danger');
   }
@@ -415,7 +680,7 @@ async function importData() {
     const r = await fetch('/api/import', {method: 'POST', body: form});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    res.innerHTML = `<span class="text-success">Import reussi — ${d.stats.users_upserted} utilisateur(s), ${d.stats.requests_upserted} demande(s)</span>`;
+    res.innerHTML = `<span class="text-success">Import réussi — ${d.stats.users_upserted} utilisateur(s), ${d.stats.requests_upserted} demande(s)</span>`;
     showToast('Import terminé ! Rechargement...', 'success');
     setTimeout(() => location.reload(), 1500);
   } catch(e) {
@@ -429,44 +694,29 @@ async function startPlexSSO() {
   const status = document.getElementById('sso-status');
   btn.disabled = true;
   status.textContent = 'Initialisation...';
-  
   try {
     const r = await fetch('/api/plex/sso/pin', { method: 'POST' });
     if (!r.ok) throw new Error(await r.text());
     const d = await r.json();
-    
-    // Ouvrir la popup
-    const width = 600;
-    const height = 700;
+    const width = 600, height = 700;
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
-    
-    const popup = window.open(
-      d.auth_url,
-      'PlexSSO',
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-    );
-    
+    const popup = window.open(d.auth_url, 'PlexSSO', `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`);
     if (!popup) {
       btn.disabled = false;
       status.textContent = '';
       return showToast('Bloqueur de popup détecté. Veuillez autoriser les popups.', 'warning');
     }
-    
     status.textContent = 'En attente de connexion sur Plex...';
-    
-    // Polling du statut du PIN
     let attempts = 0;
-    const maxAttempts = 60; // 2 minutes (60 * 2 secondes)
     const interval = setInterval(async () => {
       attempts++;
-      if (attempts > maxAttempts || popup.closed) {
+      if (attempts > 60 || popup.closed) {
         clearInterval(interval);
         btn.disabled = false;
-        status.textContent = attempts > maxAttempts ? 'Temps écoulé.' : 'Connexion annulée.';
+        status.textContent = attempts > 60 ? 'Temps écoulé.' : 'Connexion annulée.';
         return;
       }
-      
       try {
         const checkRes = await fetch(`/api/plex/sso/check/${d.id}`);
         const checkData = await checkRes.json();
@@ -476,14 +726,11 @@ async function startPlexSSO() {
           document.getElementById('plex_token').value = checkData.token;
           btn.disabled = false;
           status.textContent = 'Connecté !';
-          showToast('Connexion Plex réussie ! N\'oubliez pas d\'enregistrer les paramètres.', 'success');
+          showToast("Connexion Plex réussie ! N'oubliez pas d'enregistrer les paramètres.", 'success');
         }
-      } catch (e) {
-        console.error('Check error', e);
-      }
+      } catch(e) { console.error('Check error', e); }
     }, 2000);
-    
-  } catch (e) {
+  } catch(e) {
     btn.disabled = false;
     status.textContent = 'Erreur.';
     showToast('Erreur Plex SSO : ' + e.message, 'danger');
@@ -495,7 +742,9 @@ function copyEl(id) {
   showToast('URL copiée !', 'success');
 }
 
-
-
+// ── Init ──────────────────────────────────────────────────────────────────────
+restoreConnBadges();
+updateOverseerrMode();
+checkSectionWarnings();
 </script>
 {% endblock %}

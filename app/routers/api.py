@@ -68,6 +68,11 @@ class SettingsUpdate(BaseModel):
     discord_webhook_url: Optional[str] = None
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    admin_notification_email: Optional[str] = None
+    radarr_minimum_availability: Optional[str] = None
+    overseerr_url: Optional[str] = None
+    overseerr_api_key: Optional[str] = None
+    overseerr_enabled: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -187,6 +192,16 @@ async def test_telegram(db: Session = Depends(get_db)):
         return {"success": False, "message": str(e)}
 
 
+@router.post("/test/overseerr")
+async def test_overseerr(db: Session = Depends(get_db)):
+    from ..services.overseerr import test_connection as overseerr_test
+    s = db.query(Settings).first()
+    if not s or not s.overseerr_url or not s.overseerr_api_key:
+        return {"success": False, "message": "Overseerr non configuré"}
+    ok, msg = await overseerr_test(s.overseerr_url, s.overseerr_api_key)
+    return {"success": ok, "message": msg}
+
+
 class SmtpTestRequest(BaseModel):
     recipient: str
 
@@ -236,6 +251,7 @@ class UserCreate(BaseModel):
     plex_email: Optional[str] = None
     notification_email: Optional[str] = None
     enabled: bool = True
+    notify_admin: bool = True
 
 
 @router.get("/users")
@@ -446,7 +462,20 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
     req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
     if not req:
         raise HTTPException(404, "Request not found")
-    return {c.name: getattr(req, c.name) for c in req.__table__.columns}
+    d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
+
+    settings = db.query(Settings).first()
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    raw = (user_obj.notification_email if user_obj else None) or (settings.smtp_from if settings else "") or ""
+    user_emails = [e.strip() for e in raw.split(",") if e.strip()]
+    admin_emails: list[str] = []
+    notify_admin = bool(user_obj and getattr(user_obj, "notify_admin", True))
+    if settings and settings.admin_notification_email and notify_admin:
+        admin_emails = [e.strip() for e in settings.admin_notification_email.split(",") if e.strip()]
+    d["_user_emails"] = user_emails
+    d["_admin_emails"] = admin_emails
+    d["_notify_admin"] = notify_admin
+    return d
 
 
 @router.post("/requests/{request_id}/retry")
@@ -539,3 +568,14 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
         {"id": r.id, "title": r.title, "available_at": r.available_at.isoformat() if r.available_at else None}
         for r in items
     ]
+
+
+# ---------------------------------------------------------------------------
+# Logs applicatifs
+# ---------------------------------------------------------------------------
+
+@router.get("/logs")
+def get_logs(_: None = Depends(require_auth)):
+    """Retourne les derniers logs applicatifs (buffer mémoire circulaire)."""
+    from ..log_buffer import get_logs as _get_logs
+    return _get_logs()

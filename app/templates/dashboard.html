@@ -50,28 +50,36 @@
 <!-- Stats -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
-    <div class="card p-3 text-center">
-      <div class="display-6 fw-bold text-warning">{{ stats.total }}</div>
-      <div class="text-muted small mt-1">Total demandes</div>
-    </div>
+    <a href="/requests" class="text-decoration-none">
+      <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#e5a00d'" onmouseout="this.style.borderColor=''">
+        <div class="display-6 fw-bold text-warning">{{ stats.total }}</div>
+        <div class="text-muted small mt-1">Total demandes</div>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card p-3 text-center">
-      <div class="display-6 fw-bold text-primary">{{ stats.sent }}</div>
-      <div class="text-muted small mt-1">Envoyees *arr</div>
-    </div>
+    <a href="/requests?status=sent_to_arr" class="text-decoration-none">
+      <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#0d6efd'" onmouseout="this.style.borderColor=''">
+        <div class="display-6 fw-bold text-primary">{{ stats.sent }}</div>
+        <div class="text-muted small mt-1">Envoyées *arr</div>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card p-3 text-center">
-      <div class="display-6 fw-bold text-success">{{ stats.available }}</div>
-      <div class="text-muted small mt-1">Disponibles</div>
-    </div>
+    <a href="/requests?status=available" class="text-decoration-none">
+      <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#198754'" onmouseout="this.style.borderColor=''">
+        <div class="display-6 fw-bold text-success">{{ stats.available }}</div>
+        <div class="text-muted small mt-1">Disponibles</div>
+      </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card p-3 text-center">
-      <div class="display-6 fw-bold text-danger">{{ stats.failed }}</div>
-      <div class="text-muted small mt-1">Echouees</div>
-    </div>
+    <a href="/requests?status=failed" class="text-decoration-none">
+      <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#dc3545'" onmouseout="this.style.borderColor=''">
+        <div class="display-6 fw-bold text-danger">{{ stats.failed }}</div>
+        <div class="text-muted small mt-1">Échouées</div>
+      </div>
+    </a>
   </div>
 </div>
 
@@ -115,28 +123,35 @@
 <div class="row g-3">
   {% for r in recent_requests %}
   <div class="col-6 col-md-4 col-lg-3">
-    <div class="card h-100 position-relative overflow-hidden" style="border-color:#333">
-      {% if r.poster_url %}
-      <img src="{{ r.poster_url }}" class="card-img-top" style="height:180px;object-fit:cover" onerror="this.style.display='none'">
-      {% else %}
-      <div style="height:180px;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
-        <i class="bi bi-image text-muted fs-1"></i>
-      </div>
-      {% endif %}
-      <div class="position-absolute top-0 end-0 m-2">
-        {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i> Dispo</span>
-        {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i> Envoye</span>
-        {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i> Echec</span>
-        {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i> Attente</span>{% endif %}
-      </div>
-      <div class="card-body p-2">
-        <div class="fw-bold text-truncate" style="font-size:13px" title="{{ r.title }}">{{ r.title }}</div>
-        <div class="text-muted" style="font-size:11px">
-          {{ users_map.get(r.plex_user_id, r.plex_user_id) }}
-          {% if r.year %} · {{ r.year }}{% endif %}
+    <a href="/requests" class="text-decoration-none">
+      <div class="card h-100 position-relative overflow-hidden" style="border-color:#333;min-height:220px;cursor:pointer">
+        {% if r.poster_url %}
+        <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.15) 0%,rgba(20,20,20,.92) 58%)"></div>
+        {% else %}
+        <div style="position:absolute;inset:0;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:2.5rem;opacity:.3"></i>
+        </div>
+        {% endif %}
+        <div class="position-absolute top-0 end-0 m-2">
+          {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>
+          {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>
+          {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
+          {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>{% endif %}
+        </div>
+        <div class="position-absolute top-0 start-0 m-2">
+          <span class="badge {% if r.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px">
+            {% if r.media_type == 'show' %}Série{% else %}Film{% endif %}
+          </span>
+        </div>
+        <div class="position-absolute bottom-0 start-0 end-0 p-2">
+          <div class="fw-bold text-white text-truncate" style="font-size:13px;text-shadow:0 1px 4px #000" title="{{ r.title }}">{{ r.title }}</div>
+          <div class="text-white-50" style="font-size:11px">
+            {{ users_map.get(r.plex_user_id, r.plex_user_id) }}{% if r.year %} · {{ r.year }}{% endif %}
+          </div>
         </div>
       </div>
-    </div>
+    </a>
   </div>
   {% else %}
   <div class="col-12 text-center text-muted py-5">
@@ -319,5 +334,6 @@ loadActivity();
 loadStatsByUser();
 checkNewAvailable();
 setInterval(loadActivity, 60000);
+setInterval(loadHealth, 120000);
 </script>
 {% endblock %}

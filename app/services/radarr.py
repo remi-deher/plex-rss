@@ -21,6 +21,7 @@ async def add_movie(
     quality_profile_id: int,
     root_folder: str,
     item: dict,
+    minimum_availability: str = "released",
 ) -> tuple[int | None, bool, str | None]:
     """Ajoute un film à Radarr, ou retourne son ID s'il existe déjà.
 
@@ -56,6 +57,7 @@ async def add_movie(
         "tmdbId": int(tmdb_id),
         "qualityProfileId": quality_profile_id,
         "rootFolderPath": root_folder,
+        "minimumAvailability": minimum_availability,  # requis en Radarr v5
         "monitored": True,
         "addOptions": {"searchForMovie": True},
     }

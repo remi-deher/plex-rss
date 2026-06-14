@@ -29,6 +29,7 @@
         <th>Demandes</th>
         <th>Email notification</th>
         <th>Actif</th>
+        <th>Notif admin</th>
         <th>Actions</th>
       </tr></thead>
       <tbody id="users-table">
@@ -61,8 +62,12 @@
             {% else %}<span class="badge bg-secondary">Ignoré</span>{% endif %}
           </td>
           <td>
+            {% if u.notify_admin %}<span class="badge bg-warning text-dark"><i class="bi bi-bell-fill me-1"></i>Oui</span>
+            {% else %}<span class="badge bg-secondary"><i class="bi bi-bell-slash me-1"></i>Non</span>{% endif %}
+          </td>
+          <td>
             <button class="btn btn-sm btn-outline-secondary me-1"
-              onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ u.display_name or '' }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }})">
+              onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ u.display_name or '' }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }}, {{ 'true' if u.notify_admin else 'false' }})">
               <i class="bi bi-pencil"></i>
             </button>
             <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ u.id }})">
@@ -71,7 +76,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-4">
+        <tr><td colspan="7" class="text-center text-muted py-4">
           Aucun utilisateur configuré — cliquez sur <strong>Synchroniser depuis le RSS</strong>.
         </td></tr>
         {% endfor %}
@@ -104,13 +109,20 @@
           <input type="email" class="form-control" id="fPlexEmail" placeholder="jean@example.com">
         </div>
         <div class="mb-3">
-          <label class="form-label">Email de notification</label>
-          <input type="email" class="form-control" id="fNotifEmail" placeholder="Laisser vide = email SMTP par défaut">
+          <label class="form-label">Email(s) de notification</label>
+          <input type="text" class="form-control" id="fNotifEmail" placeholder="ex: alice@mail.com, bob@mail.com">
+          <div class="form-text">Plusieurs adresses séparées par des virgules. Vide = adresse SMTP par défaut.</div>
         </div>
-        <div class="form-check form-switch">
+        <div class="form-check form-switch mb-2">
           <input class="form-check-input" type="checkbox" id="fEnabled" checked>
           <label class="form-check-label" for="fEnabled">
             Traiter les demandes de cet utilisateur
+          </label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="fNotifyAdmin" checked>
+          <label class="form-check-label" for="fNotifyAdmin">
+            Notifier l'admin pour cet utilisateur
           </label>
         </div>
       </div>
@@ -156,9 +168,10 @@ function openAdd(prefillId) {
   document.getElementById('fPlexEmail').value = '';
   document.getElementById('fNotifEmail').value = '';
   document.getElementById('fEnabled').checked = true;
+  document.getElementById('fNotifyAdmin').checked = true;
 }
 
-function openEdit(id, userId, displayName, plexEmail, notifEmail, enabled) {
+function openEdit(id, userId, displayName, plexEmail, notifEmail, enabled, notifyAdmin) {
   editingId = id;
   document.getElementById('modalTitle').textContent = 'Modifier un utilisateur';
   document.getElementById('fUserId').value = userId;
@@ -167,6 +180,7 @@ function openEdit(id, userId, displayName, plexEmail, notifEmail, enabled) {
   document.getElementById('fPlexEmail').value = plexEmail;
   document.getElementById('fNotifEmail').value = notifEmail;
   document.getElementById('fEnabled').checked = enabled;
+  document.getElementById('fNotifyAdmin').checked = notifyAdmin;
   new bootstrap.Modal(document.getElementById('userModal')).show();
 }
 
@@ -177,6 +191,7 @@ async function saveUser() {
     plex_email: document.getElementById('fPlexEmail').value.trim() || null,
     notification_email: document.getElementById('fNotifEmail').value.trim() || null,
     enabled: document.getElementById('fEnabled').checked,
+    notify_admin: document.getElementById('fNotifyAdmin').checked,
   };
   if (!data.plex_user_id) return showToast('ID Plex requis', 'danger');
 

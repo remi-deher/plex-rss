@@ -17,12 +17,15 @@ from .scheduler import start_scheduler, scheduler
 from .routers import pages, api, webhook, importexport, email_templates, auth
 from .routers.pages import RedirectException
 from .services.auth import get_secret_key
+from .log_buffer import install as install_log_buffer
+from .notification_queue import start_worker as start_notif_worker, stop_worker as stop_notif_worker
 from fastapi.responses import RedirectResponse
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+install_log_buffer()
 
 
 @asynccontextmanager
@@ -45,11 +48,13 @@ async def lifespan(app: FastAPI):
             _db.close()
 
         start_scheduler(poll_minutes=_interval)
+        start_notif_worker()
         logging.info("Scheduler OK. App ready.")
     except Exception:
         logging.exception("STARTUP FAILED")
         raise
     yield
+    stop_notif_worker()
     scheduler.shutdown()
 
 
