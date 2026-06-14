@@ -13,16 +13,19 @@ Scheduler APScheduler gérant les deux tâches périodiques :
 
 import logging
 from datetime import datetime
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
+
 from .database import SessionLocal
-from .models import Settings, PlexUser, MediaRequest, RequestStatus
-from .services.watchlist import fetch_watchlist
-from .services.sonarr import add_series, is_series_available
-from .services.radarr import add_movie, is_movie_available
-from .services.overseerr import request_media as overseerr_request, is_request_available as overseerr_available
+from .models import MediaRequest, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
+from .services.overseerr import is_request_available as overseerr_available
+from .services.overseerr import request_media as overseerr_request
+from .services.radarr import add_movie, is_movie_available
+from .services.sonarr import add_series, is_series_available
+from .services.watchlist import fetch_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,7 @@ scheduler = AsyncIOScheduler()
 # ---------------------------------------------------------------------------
 # Cycle de vie du scheduler
 # ---------------------------------------------------------------------------
+
 
 def start_scheduler(poll_minutes: int = 5):
     """Enregistre les deux jobs et démarre le scheduler."""
@@ -50,6 +54,7 @@ def update_poll_interval(minutes: int):
 # ---------------------------------------------------------------------------
 # Fonctions utilitaires partagées
 # ---------------------------------------------------------------------------
+
 
 async def sync_users_from_feed(items: list[dict], db: Session):
     """Crée automatiquement un PlexUser pour chaque plex_user_id inconnu trouvé dans le flux."""
@@ -73,14 +78,18 @@ async def _submit_to_arr(settings: Settings, item: dict) -> tuple[int | None, bo
 
     if item["media_type"] == "show" and settings.sonarr_enabled and settings.sonarr_url:
         return await add_series(
-            settings.sonarr_url, settings.sonarr_api_key,
-            settings.sonarr_quality_profile_id, settings.sonarr_root_folder,
+            settings.sonarr_url,
+            settings.sonarr_api_key,
+            settings.sonarr_quality_profile_id,
+            settings.sonarr_root_folder,
             item,
         )
     if item["media_type"] == "movie" and settings.radarr_enabled and settings.radarr_url:
         return await add_movie(
-            settings.radarr_url, settings.radarr_api_key,
-            settings.radarr_quality_profile_id, settings.radarr_root_folder,
+            settings.radarr_url,
+            settings.radarr_api_key,
+            settings.radarr_quality_profile_id,
+            settings.radarr_root_folder,
             item,
             minimum_availability=settings.radarr_minimum_availability or "released",
         )
@@ -118,7 +127,9 @@ def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
     arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-    enqueue_notification("failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration.")
+    enqueue_notification(
+        "failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
+    )
 
 
 def _notify_available(settings: Settings, req: MediaRequest, db: Session):
@@ -132,6 +143,7 @@ def _notify_available(settings: Settings, req: MediaRequest, db: Session):
 # ---------------------------------------------------------------------------
 # Jobs planifiés
 # ---------------------------------------------------------------------------
+
 
 async def poll_watchlists():
     """Lit les watchlists Plex et synchronise les demandes vers Sonarr/Radarr.
@@ -175,11 +187,15 @@ async def poll_watchlists():
             user_obj = users_map.get(uid)
             display_name = (user_obj.display_name if user_obj else None) or uid
 
-            existing = db.query(MediaRequest).filter(
-                MediaRequest.plex_user_id == uid,
-                MediaRequest.title == item["title"],
-                MediaRequest.media_type == item["media_type"],
-            ).first()
+            existing = (
+                db.query(MediaRequest)
+                .filter(
+                    MediaRequest.plex_user_id == uid,
+                    MediaRequest.title == item["title"],
+                    MediaRequest.media_type == item["media_type"],
+                )
+                .first()
+            )
 
             if existing:
                 # Ne retenter que les statuts récupérables
@@ -254,9 +270,13 @@ async def check_arr_statuses():
         if not settings:
             return
 
-        candidates = db.query(MediaRequest).filter(
-            MediaRequest.status == RequestStatus.sent_to_arr,
-        ).all()
+        candidates = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.status == RequestStatus.sent_to_arr,
+            )
+            .all()
+        )
 
         if not candidates:
             return
@@ -270,18 +290,24 @@ async def check_arr_statuses():
             try:
                 if settings.overseerr_enabled and settings.overseerr_url and req.arr_id:
                     available, new_arr_id, new_slug = await overseerr_available(
-                        settings.overseerr_url, settings.overseerr_api_key,
+                        settings.overseerr_url,
+                        settings.overseerr_api_key,
                         overseerr_request_id=req.arr_id,
                     )
                 elif req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
                     available, new_arr_id, new_slug = await is_series_available(
-                        settings.sonarr_url, settings.sonarr_api_key,
-                        arr_id=req.arr_id, tvdb_id=req.tvdb_id,
+                        settings.sonarr_url,
+                        settings.sonarr_api_key,
+                        arr_id=req.arr_id,
+                        tvdb_id=req.tvdb_id,
                     )
                 elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
                     available, new_arr_id, new_slug = await is_movie_available(
-                        settings.radarr_url, settings.radarr_api_key,
-                        arr_id=req.arr_id, tmdb_id=req.tmdb_id, imdb_id=req.imdb_id,
+                        settings.radarr_url,
+                        settings.radarr_api_key,
+                        arr_id=req.arr_id,
+                        tmdb_id=req.tmdb_id,
+                        imdb_id=req.imdb_id,
                     )
             except Exception as e:
                 logger.warning(f"Status check error for '{req.title}': {e}")

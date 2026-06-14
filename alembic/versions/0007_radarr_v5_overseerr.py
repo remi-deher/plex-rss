@@ -5,9 +5,12 @@ Revises: 0006
 Create Date: 2026-06-14
 
 """
+
 from typing import Sequence, Union
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "0007"
 down_revision: Union[str, None] = "0006"
@@ -17,7 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Radarr v5
-    op.add_column("settings", sa.Column("radarr_minimum_availability", sa.String(), server_default="released", nullable=False))
+    op.add_column(
+        "settings", sa.Column("radarr_minimum_availability", sa.String(), server_default="released", nullable=False)
+    )
     # Overseerr
     op.add_column("settings", sa.Column("overseerr_url", sa.String(), nullable=True))
     op.add_column("settings", sa.Column("overseerr_api_key", sa.String(), nullable=True))

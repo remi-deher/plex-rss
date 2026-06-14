@@ -1,10 +1,12 @@
 import json
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
+
 from ..database import get_db
-from ..models import Settings, PlexUser, MediaRequest
+from ..models import MediaRequest, PlexUser, Settings
 
 
 def require_auth(request: Request):
@@ -25,8 +27,7 @@ def export_data(db: Session = Depends(get_db)):
 
     def row(obj, exclude=None):
         exclude = exclude or []
-        return {c.name: getattr(obj, c.name) for c in obj.__table__.columns
-                if c.name not in exclude}
+        return {c.name: getattr(obj, c.name) for c in obj.__table__.columns if c.name not in exclude}
 
     payload = {
         "version": EXPORT_VERSION,
@@ -74,9 +75,9 @@ async def import_data(
                 # Forcer les types appropriés pour la DB
                 column = Settings.__table__.columns.get(k)
                 if column is not None:
-                    if column.type.python_type == bool and isinstance(v, str):
+                    if column.type.python_type is bool and isinstance(v, str):
                         v = v.lower() in ("true", "1", "on", "yes")
-                    elif column.type.python_type == int and v is not None:
+                    elif column.type.python_type is int and v is not None:
                         try:
                             v = int(v)
                         except (ValueError, TypeError):
@@ -98,23 +99,27 @@ async def import_data(
                 column = PlexUser.__table__.columns.get(k)
                 if column is not None:
                     # Convertir les dates en objets datetime
-                    if column.type.python_type == datetime and isinstance(v, str) and v:
+                    if column.type.python_type is datetime and isinstance(v, str) and v:
                         try:
                             v = datetime.fromisoformat(v)
                         except ValueError:
                             pass
-                    elif column.type.python_type == bool and isinstance(v, str):
+                    elif column.type.python_type is bool and isinstance(v, str):
                         v = v.lower() in ("true", "1", "on", "yes")
                 setattr(user, k, v)
         stats["users_upserted"] += 1
 
     # Requests — upsert par (plex_user_id + title + media_type)
     for r_data in payload.get("requests", []):
-        existing = db.query(MediaRequest).filter(
-            MediaRequest.plex_user_id == r_data.get("plex_user_id"),
-            MediaRequest.title == r_data.get("title"),
-            MediaRequest.media_type == r_data.get("media_type"),
-        ).first()
+        existing = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.plex_user_id == r_data.get("plex_user_id"),
+                MediaRequest.title == r_data.get("title"),
+                MediaRequest.media_type == r_data.get("media_type"),
+            )
+            .first()
+        )
         if not existing:
             existing = MediaRequest()
             db.add(existing)
@@ -123,14 +128,14 @@ async def import_data(
                 column = MediaRequest.__table__.columns.get(k)
                 if column is not None:
                     # Convertir les dates en objets datetime
-                    if column.type.python_type == datetime and isinstance(v, str) and v:
+                    if column.type.python_type is datetime and isinstance(v, str) and v:
                         try:
                             v = datetime.fromisoformat(v)
                         except ValueError:
                             pass
-                    elif column.type.python_type == bool and isinstance(v, str):
+                    elif column.type.python_type is bool and isinstance(v, str):
                         v = v.lower() in ("true", "1", "on", "yes")
-                    elif column.type.python_type == int and v is not None:
+                    elif column.type.python_type is int and v is not None:
                         try:
                             v = int(v)
                         except (ValueError, TypeError):

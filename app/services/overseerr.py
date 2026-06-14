@@ -27,8 +27,9 @@ Media statuts (media.status) :
 - 5 = AVAILABLE
 """
 
-import httpx
 import logging
+
+import httpx
 
 logger = logging.getLogger(__name__)
 

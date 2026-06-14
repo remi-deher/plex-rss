@@ -9,8 +9,9 @@ Fonctions principales :
 - get_quality_profiles / get_root_folders : données de configuration UI
 """
 
-import httpx
 import logging
+
+import httpx
 
 logger = logging.getLogger(__name__)
 

@@ -10,6 +10,7 @@ Couche d'accès à la base de données SQLite via SQLAlchemy.
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from .models import Settings
 
 DATABASE_URL = "sqlite:///./data/plex_rss.db"
@@ -26,6 +27,7 @@ def run_migrations():
     se marchent dessus sur le fichier SQLite (erreur "database is locked").
     """
     import subprocess
+
     subprocess.run(
         ["alembic", "upgrade", "head"],
         capture_output=False,

@@ -4,9 +4,12 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-06-14
 """
+
 from typing import Sequence, Union
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "0002"
 down_revision: Union[str, None] = "0001"
@@ -68,8 +71,12 @@ DEFAULT_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 def upgrade() -> None:
     op.add_column("settings", sa.Column("email_request_template", sa.Text(), nullable=True))
     op.add_column("settings", sa.Column("email_available_template", sa.Text(), nullable=True))
-    op.execute(f"UPDATE settings SET email_request_template = '{DEFAULT_REQUEST_TEMPLATE.replace(chr(39), chr(39)*2)}' WHERE id = 1")
-    op.execute(f"UPDATE settings SET email_available_template = '{DEFAULT_AVAILABLE_TEMPLATE.replace(chr(39), chr(39)*2)}' WHERE id = 1")
+    op.execute(
+        f"UPDATE settings SET email_request_template = '{DEFAULT_REQUEST_TEMPLATE.replace(chr(39), chr(39) * 2)}' WHERE id = 1"
+    )
+    op.execute(
+        f"UPDATE settings SET email_available_template = '{DEFAULT_AVAILABLE_TEMPLATE.replace(chr(39), chr(39) * 2)}' WHERE id = 1"
+    )
 
 
 def downgrade() -> None:

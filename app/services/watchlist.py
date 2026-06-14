@@ -9,10 +9,12 @@ La priorité et le fallback sont configurables dans Settings.
 """
 
 import logging
+
 from sqlalchemy.orm import Session
+
+from ..models import Settings
 from .plex_api import get_friends_watchlist
 from .plex_rss import fetch_watchlist_rss
-from ..models import Settings
 
 logger = logging.getLogger(__name__)
 

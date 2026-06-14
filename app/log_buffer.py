@@ -25,13 +25,15 @@ LEVEL_COLORS = {
 class MemoryLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):
         try:
-            _buffer.append({
-                "time": datetime.utcfromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
-                "level": record.levelname,
-                "color": LEVEL_COLORS.get(record.levelname, "secondary"),
-                "logger": record.name,
-                "message": self.format(record) if record.exc_info else record.getMessage(),
-            })
+            _buffer.append(
+                {
+                    "time": datetime.utcfromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+                    "level": record.levelname,
+                    "color": LEVEL_COLORS.get(record.levelname, "secondary"),
+                    "logger": record.name,
+                    "message": self.format(record) if record.exc_info else record.getMessage(),
+                }
+            )
         except Exception:
             pass
 

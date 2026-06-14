@@ -9,10 +9,12 @@ les mises à jour dynamiques passent par les endpoints API (api.py).
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import asc, desc as sqldesc
+from sqlalchemy import asc
+from sqlalchemy import desc as sqldesc
 from sqlalchemy.orm import Session
+
 from ..database import get_db
-from ..models import Settings, PlexUser, MediaRequest, RequestStatus
+from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
@@ -27,6 +29,7 @@ def require_auth(request: Request):
     """Dépendance : redirige vers /login si l'utilisateur n'est pas authentifié."""
     if not request.session.get("authenticated"):
         from urllib.parse import quote
+
         path = quote(str(request.url.path), safe="/")
         raise RedirectException(f"/login?next={path}")
 
@@ -36,10 +39,7 @@ def build_users_map(db: Session) -> dict:
 
     Utilisé pour résoudre les IDs hex en noms lisibles dans les templates.
     """
-    return {
-        u.plex_user_id: (u.display_name or u.plex_user_id)
-        for u in db.query(PlexUser).all()
-    }
+    return {u.plex_user_id: (u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -54,13 +54,16 @@ def dashboard(request: Request, _: None = Depends(require_auth), db: Session = D
         "available": sum(1 for r in all_requests if r.status == RequestStatus.available),
         "failed": sum(1 for r in all_requests if r.status == RequestStatus.failed),
     }
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "settings": settings,
-        "recent_requests": recent,
-        "stats": stats,
-        "users_map": build_users_map(db),
-    })
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "settings": settings,
+            "recent_requests": recent,
+            "stats": stats,
+            "users_map": build_users_map(db),
+        },
+    )
 
 
 @router.get("/requests", response_class=HTMLResponse)
@@ -94,21 +97,24 @@ def requests_page(
     requests_page_data = q.offset((page - 1) * per_page).limit(per_page).all()
 
     settings = db.query(Settings).first()
-    return templates.TemplateResponse("requests.html", {
-        "request": request,
-        "requests": requests_page_data,
-        "users_map": build_users_map(db),
-        "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
-        "active_user": user,
-        "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
-        "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
-        "page": page,
-        "per_page": per_page,
-        "total": total,
-        "total_pages": total_pages,
-        "sort": sort,
-        "order": order,
-    })
+    return templates.TemplateResponse(
+        "requests.html",
+        {
+            "request": request,
+            "requests": requests_page_data,
+            "users_map": build_users_map(db),
+            "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
+            "active_user": user,
+            "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
+            "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "sort": sort,
+            "order": order,
+        },
+    )
 
 
 @router.get("/users", response_class=HTMLResponse)
@@ -130,11 +136,14 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
         elif r.status == "sent_to_arr":
             counts_map[uid]["sent"] += 1
 
-    return templates.TemplateResponse("users.html", {
-        "request": request,
-        "users": users,
-        "counts_map": counts_map,
-    })
+    return templates.TemplateResponse(
+        "users.html",
+        {
+            "request": request,
+            "users": users,
+            "counts_map": counts_map,
+        },
+    )
 
 
 @router.get("/logs", response_class=HTMLResponse)
@@ -148,8 +157,11 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
     """Page de configuration globale de l'application."""
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")
-    return templates.TemplateResponse("settings.html", {
-        "request": request,
-        "s": s,
-        "webhook_url": f"{base_url}/webhook/plex",
-    })
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request,
+            "s": s,
+            "webhook_url": f"{base_url}/webhook/plex",
+        },
+    )

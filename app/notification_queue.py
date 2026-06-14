@@ -13,12 +13,13 @@ Cycle de vie :
 
 import asyncio
 import logging
+
 from .database import SessionLocal
-from .models import Settings, MediaRequest
+from .models import MediaRequest, Settings
 from .services.email_service import (
-    send_request_notification,
     send_available_notification,
     send_failure_notification,
+    send_request_notification,
 )
 from .services.notifications import send_discord, send_telegram
 

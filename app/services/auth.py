@@ -10,6 +10,7 @@ Service d'authentification.
 
 import os
 import secrets
+
 import bcrypt
 
 _SECRET_KEY_FILE = "data/.secret_key"
@@ -32,18 +33,17 @@ def get_secret_key() -> str:
 def hash_password(password: str) -> str:
     """Retourne le hash bcrypt du mot de passe."""
     # Encodage en bytes nécessaire pour bcrypt
-    pwd_bytes = password.encode('utf-8')
+    pwd_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(pwd_bytes, salt)
-    return hashed.decode('utf-8')
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Vérifie qu'un mot de passe en clair correspond au hash stocké."""
     try:
-        plain_bytes = plain.encode('utf-8')
-        hashed_bytes = hashed.encode('utf-8')
+        plain_bytes = plain.encode("utf-8")
+        hashed_bytes = hashed.encode("utf-8")
         return bcrypt.checkpw(plain_bytes, hashed_bytes)
     except Exception:
         return False
-

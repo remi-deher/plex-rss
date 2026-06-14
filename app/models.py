@@ -7,10 +7,11 @@ Tables :
 - MediaRequest : demandes de médias issues des watchlists
 """
 
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Enum
-from sqlalchemy.orm import DeclarativeBase
-from datetime import datetime
 import enum
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase
 
 
 class Base(DeclarativeBase):
@@ -23,10 +24,10 @@ class WatchlistSource(str, enum.Enum):
 
 
 class RequestStatus(str, enum.Enum):
-    pending = "pending"          # en attente d'envoi à Sonarr/Radarr
+    pending = "pending"  # en attente d'envoi à Sonarr/Radarr
     sent_to_arr = "sent_to_arr"  # transmis, en attente de disponibilité
-    available = "available"      # fichier présent dans Sonarr/Radarr
-    failed = "failed"            # échec de transmission
+    available = "available"  # fichier présent dans Sonarr/Radarr
+    failed = "failed"  # échec de transmission
 
 
 class Settings(Base):
@@ -64,10 +65,12 @@ class Settings(Base):
     smtp_password = Column(String, nullable=True)
     smtp_from = Column(String, nullable=True)
     smtp_tls = Column(Boolean, default=True)
-    admin_notification_email = Column(String, nullable=True)  # reçoit une copie si notify_admin activé sur l'utilisateur
+    admin_notification_email = Column(
+        String, nullable=True
+    )  # reçoit une copie si notify_admin activé sur l'utilisateur
     email_on_request = Column(Boolean, default=True)
     email_on_available = Column(Boolean, default=True)
-    email_request_template = Column(Text, nullable=True)    # template Jinja2 HTML custom
+    email_request_template = Column(Text, nullable=True)  # template Jinja2 HTML custom
     email_available_template = Column(Text, nullable=True)  # template Jinja2 HTML custom
 
     # --- Overseerr ---
@@ -92,11 +95,11 @@ class PlexUser(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     plex_user_id = Column(String, unique=True, nullable=False)  # ID hex issu du champ <author> du RSS
-    display_name = Column(String, nullable=True)                # nom lisible défini par l'admin
+    display_name = Column(String, nullable=True)  # nom lisible défini par l'admin
     plex_email = Column(String, nullable=True)
-    notification_email = Column(String, nullable=True)          # surcharge l'email SMTP par défaut
-    notify_admin = Column(Boolean, default=True)               # True = l'admin reçoit aussi une copie
-    enabled = Column(Boolean, default=True)                     # False = demandes ignorées
+    notification_email = Column(String, nullable=True)  # surcharge l'email SMTP par défaut
+    notify_admin = Column(Boolean, default=True)  # True = l'admin reçoit aussi une copie
+    enabled = Column(Boolean, default=True)  # False = demandes ignorées
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -105,10 +108,10 @@ class MediaRequest(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     plex_user_id = Column(String, nullable=False)  # ID hex issu du RSS
-    plex_user = Column(String, nullable=True)       # display_name résolu au moment de la création
+    plex_user = Column(String, nullable=True)  # display_name résolu au moment de la création
     title = Column(String, nullable=False)
     year = Column(Integer, nullable=True)
-    media_type = Column(String, nullable=False)     # "movie" ou "show"
+    media_type = Column(String, nullable=False)  # "movie" ou "show"
 
     # Identifiants externes — utilisés pour le lookup dans Sonarr/Radarr
     tmdb_id = Column(String, nullable=True)
@@ -117,11 +120,13 @@ class MediaRequest(Base):
     plex_guid = Column(String, nullable=True)
 
     status = Column(String, default=RequestStatus.pending)
-    source = Column(String, nullable=True)    # "api" ou "rss" selon la source du polling
-    arr_id = Column(Integer, nullable=True)   # ID interne Sonarr ou Radarr
-    arr_slug = Column(String, nullable=True)  # titleSlug (Sonarr) ou tmdbId string (Radarr) pour construire des liens directs
+    source = Column(String, nullable=True)  # "api" ou "rss" selon la source du polling
+    arr_id = Column(Integer, nullable=True)  # ID interne Sonarr ou Radarr
+    arr_slug = Column(
+        String, nullable=True
+    )  # titleSlug (Sonarr) ou tmdbId string (Radarr) pour construire des liens directs
 
-    request_mail_sent = Column(Boolean, default=False)    # évite les doublons d'email de demande
+    request_mail_sent = Column(Boolean, default=False)  # évite les doublons d'email de demande
     available_mail_sent = Column(Boolean, default=False)  # évite les doublons d'email de disponibilité
 
     requested_at = Column(DateTime, default=datetime.utcnow)

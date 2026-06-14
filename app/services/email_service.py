@@ -11,12 +11,14 @@ Si aucun template custom n'est défini, les templates par défaut ci-dessous son
 Les templates sont rendus avec Jinja2 (variables : title, year, poster_url, plex_user, etc.).
 """
 
-import aiosmtplib
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+import aiosmtplib
 from jinja2 import Template, TemplateError
-from ..models import Settings, MediaRequest
+
+from ..models import MediaRequest, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -163,12 +165,12 @@ async def send_failure_notification(settings: Settings, request: MediaRequest, r
     <h1 style="color:#fff;margin:0;font-size:22px">Demande non transmise</h1>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
-    {"<img src='" + ctx['poster_url'] + "' style='width:110px;float:right;border-radius:8px;margin:0 0 12px 20px'>" if ctx['poster_url'] else ""}
-    <h2 style="margin:0 0 8px">{ctx['title']}{"(" + str(ctx['year']) + ")" if ctx['year'] else ""}</h2>
-    <p style="margin:4px 0;color:#aaa"><strong style="color:#dc3545">Type :</strong> {ctx['media_type_label']}&nbsp;&nbsp;
-    <strong style="color:#dc3545">Demandé par :</strong> {ctx['plex_user']}</p>
+    {"<img src='" + ctx["poster_url"] + "' style='width:110px;float:right;border-radius:8px;margin:0 0 12px 20px'>" if ctx["poster_url"] else ""}
+    <h2 style="margin:0 0 8px">{ctx["title"]}{"(" + str(ctx["year"]) + ")" if ctx["year"] else ""}</h2>
+    <p style="margin:4px 0;color:#aaa"><strong style="color:#dc3545">Type :</strong> {ctx["media_type_label"]}&nbsp;&nbsp;
+    <strong style="color:#dc3545">Demandé par :</strong> {ctx["plex_user"]}</p>
     <p style="margin:16px 0;padding:12px;background:#2a2a2a;border-left:4px solid #dc3545;color:#f8d7da;font-size:13px">
-      {ctx['reason']}
+      {ctx["reason"]}
     </p>
     <p style="color:#aaa;font-size:13px">
       La demande a bien été enregistrée. Elle sera retransmise lors du prochain polling si le problème est résolu.

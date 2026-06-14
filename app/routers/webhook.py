@@ -1,10 +1,12 @@
 import json
 import logging
 from datetime import datetime
+
 from fastapi import APIRouter, Request
 from sqlalchemy.orm import Session
+
 from ..database import SessionLocal
-from ..models import Settings, MediaRequest, RequestStatus, PlexUser
+from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 from ..notification_queue import enqueue as enqueue_notification
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])

@@ -10,9 +10,11 @@ silencieusement. Les erreurs réseau sont loggées mais ne font pas planter le s
 - "failed"    : échec de transmission à Sonarr/Radarr
 """
 
-import httpx
 import logging
-from ..models import Settings, MediaRequest
+
+import httpx
+
+from ..models import MediaRequest, Settings
 
 logger = logging.getLogger(__name__)
 

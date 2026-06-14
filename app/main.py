@@ -10,16 +10,19 @@ Responsabilités :
 import logging
 import os
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from starlette.middleware.sessions import SessionMiddleware
-from .database import init_db
-from .scheduler import start_scheduler, scheduler
-from .routers import pages, api, webhook, importexport, email_templates, auth
-from .routers.pages import RedirectException
-from .services.auth import get_secret_key
-from .log_buffer import install as install_log_buffer
-from .notification_queue import start_worker as start_notif_worker, stop_worker as stop_notif_worker
 from fastapi.responses import RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+
+from .database import init_db
+from .log_buffer import install as install_log_buffer
+from .notification_queue import start_worker as start_notif_worker
+from .notification_queue import stop_worker as stop_notif_worker
+from .routers import api, auth, email_templates, importexport, pages, webhook
+from .routers.pages import RedirectException
+from .scheduler import scheduler, start_scheduler
+from .services.auth import get_secret_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +43,7 @@ async def lifespan(app: FastAPI):
         # Lire l'intervalle de polling depuis la DB avant de lancer le scheduler
         from .database import SessionLocal
         from .models import Settings as _Settings
+
         _db = SessionLocal()
         try:
             _s = _db.query(_Settings).first()

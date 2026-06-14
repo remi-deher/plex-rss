@@ -7,10 +7,11 @@ C'est la source de données la plus riche (synopsis, GUIDs complets)
 mais elle nécessite un token Plex valide.
 """
 
-import httpx
 import logging
 import urllib.parse
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +93,7 @@ def _parse_api_item(item: dict, username: str) -> dict:
     Les GUIDs sont sous la forme [{"id": "tmdb://12345"}, {"id": "imdb://tt..."}].
     On les transforme en dict {scheme: value} pour un accès direct.
     """
-    guids = {
-        g["id"].split("://")[0]: g["id"].split("://")[1]
-        for g in item.get("Guid", [])
-        if "://" in g.get("id", "")
-    }
+    guids = {g["id"].split("://")[0]: g["id"].split("://")[1] for g in item.get("Guid", []) if "://" in g.get("id", "")}
     return {
         "title": item.get("title", ""),
         "year": item.get("year"),
@@ -170,14 +167,10 @@ async def check_auth_pin(pin_id: int) -> Optional[str]:
     Returns:
         Le Plex Token s'il est disponible, None sinon.
     """
-    headers = {
-        "Accept": "application/json",
-        "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"
-    }
+    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"}
     async with httpx.AsyncClient(timeout=10) as client:
         # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
         resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
         resp.raise_for_status()
         data = resp.json()
         return data.get("authToken")
-

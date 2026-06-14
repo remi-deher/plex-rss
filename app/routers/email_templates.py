@@ -3,11 +3,10 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from ..database import get_db
 from ..models import Settings
-from ..services.email_service import (
-    render_template, DEFAULT_REQUEST_TEMPLATE, DEFAULT_AVAILABLE_TEMPLATE
-)
+from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
 
 
 def require_auth(request: Request):
@@ -35,22 +34,25 @@ SAMPLE_CONTEXT = {
 @router.get("/settings/email-templates", response_class=HTMLResponse)
 def email_templates_page(request: Request, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
-    return templates.TemplateResponse("email_templates.html", {
-        "request": request,
-        "page": "settings",
-        "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
-        "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,
-        "variables": [
-            ("{{ title }}", "Titre du film ou de la série"),
-            ("{{ year }}", "Année de sortie"),
-            ("{{ poster_url }}", "URL de l'affiche"),
-            ("{{ plex_user }}", "Nom de l'utilisateur"),
-            ("{{ media_type_label }}", "Film ou Série"),
-            ("{{ media_type_label_cap }}", "Le film / La série"),
-            ("{{ overview }}", "Synopsis"),
-            ("{{ genres }}", "Genres (ex: Action, Drame)"),
-        ],
-    })
+    return templates.TemplateResponse(
+        "email_templates.html",
+        {
+            "request": request,
+            "page": "settings",
+            "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
+            "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,
+            "variables": [
+                ("{{ title }}", "Titre du film ou de la série"),
+                ("{{ year }}", "Année de sortie"),
+                ("{{ poster_url }}", "URL de l'affiche"),
+                ("{{ plex_user }}", "Nom de l'utilisateur"),
+                ("{{ media_type_label }}", "Film ou Série"),
+                ("{{ media_type_label_cap }}", "Le film / La série"),
+                ("{{ overview }}", "Synopsis"),
+                ("{{ genres }}", "Genres (ex: Action, Drame)"),
+            ],
+        },
+    )
 
 
 class PreviewRequest(BaseModel):

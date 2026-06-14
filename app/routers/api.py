@@ -15,16 +15,19 @@ Endpoints regroupés par domaine :
 - /api/onboarding        : checklist de configuration initiale
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
 from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from ..database import get_db
-from ..models import Settings, PlexUser, MediaRequest
-from ..services import sonarr, radarr, email_service
+from ..models import MediaRequest, PlexUser, Settings
+from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
+from ..services import email_service, radarr, sonarr
 from ..services.plex_api import test_connection as plex_test
 from ..services.plex_rss import test_rss
-from ..scheduler import poll_watchlists, update_poll_interval, check_arr_statuses
+
 
 def require_auth(request: Request):
     """Dépendance API : retourne 401 si la session n'est pas authentifiée."""
@@ -35,10 +38,10 @@ def require_auth(request: Request):
 router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_auth)])
 
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+
 
 class SettingsUpdate(BaseModel):
     plex_url: Optional[str] = None
@@ -106,10 +109,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 # Authentification Plex SSO (OAuth)
 # ---------------------------------------------------------------------------
 
+
 @router.post("/plex/sso/pin")
 async def plex_sso_pin(request: Request):
     """Crée une demande de PIN Plex SSO et retourne l'URL d'authentification."""
     from ..services.plex_api import get_auth_pin
+
     try:
         # Reconstruit l'URL de base en respectant X-Forwarded-Proto (reverse proxy HTTPS)
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
@@ -124,6 +129,7 @@ async def plex_sso_pin(request: Request):
 async def plex_sso_check(pin_id: int):
     """Vérifie si le PIN Plex a été validé et retourne le token."""
     from ..services.plex_api import check_auth_pin
+
     try:
         token = await check_auth_pin(pin_id)
         return {"authenticated": bool(token), "token": token}
@@ -134,6 +140,7 @@ async def plex_sso_check(pin_id: int):
 # ---------------------------------------------------------------------------
 # Tests de connectivité
 # ---------------------------------------------------------------------------
+
 
 @router.post("/test/plex-api")
 async def test_plex_api(db: Session = Depends(get_db)):
@@ -169,6 +176,7 @@ async def test_discord(db: Session = Depends(get_db)):
     if not s or not s.discord_webhook_url:
         return {"success": False, "message": "Webhook Discord non configuré"}
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(s.discord_webhook_url, json={"content": "Test Plex RSS Monitor — Discord OK !"})
@@ -184,6 +192,7 @@ async def test_telegram(db: Session = Depends(get_db)):
     if not s or not s.telegram_bot_token or not s.telegram_chat_id:
         return {"success": False, "message": "Telegram non configuré"}
     import httpx
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(
@@ -199,6 +208,7 @@ async def test_telegram(db: Session = Depends(get_db)):
 @router.post("/test/overseerr")
 async def test_overseerr(db: Session = Depends(get_db)):
     from ..services.overseerr import test_connection as overseerr_test
+
     s = db.query(Settings).first()
     if not s or not s.overseerr_url or not s.overseerr_api_key:
         return {"success": False, "message": "Overseerr non configuré"}
@@ -220,6 +230,7 @@ async def test_smtp(body: SmtpTestRequest, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Helpers Sonarr / Radarr (pour les selects de configuration)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/sonarr/profiles")
 async def sonarr_profiles(db: Session = Depends(get_db)):
@@ -248,6 +259,7 @@ async def radarr_folders(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Utilisateurs Plex
 # ---------------------------------------------------------------------------
+
 
 class UserCreate(BaseModel):
     plex_user_id: str
@@ -284,9 +296,7 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
     resolved = data.display_name or user.plex_user_id
-    db.query(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).update(
-        {"plex_user": resolved}
-    )
+    db.query(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).update({"plex_user": resolved})
     db.commit()
     return user
 
@@ -304,8 +314,9 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
 @router.post("/users/discover")
 async def discover_users(db: Session = Depends(get_db)):
     """Scanne le flux RSS, auto-crée les nouveaux utilisateurs et retourne un résumé."""
-    from ..services.plex_rss import fetch_watchlist_rss
     from ..scheduler import sync_users_from_feed
+    from ..services.plex_rss import fetch_watchlist_rss
+
     s = db.query(Settings).first()
     if not s or not s.plex_rss_url:
         raise HTTPException(400, "URL RSS non configurée")
@@ -321,8 +332,7 @@ async def discover_users(db: Session = Depends(get_db)):
         "total": len(all_users),
         "added": len(new_ids),
         "users": [
-            {"plex_user_id": u.plex_user_id, "display_name": u.display_name, "enabled": u.enabled}
-            for u in all_users
+            {"plex_user_id": u.plex_user_id, "display_name": u.display_name, "enabled": u.enabled} for u in all_users
         ],
     }
 
@@ -331,18 +341,24 @@ async def discover_users(db: Session = Depends(get_db)):
 # Santé des services
 # ---------------------------------------------------------------------------
 
+
 @router.get("/onboarding")
 def onboarding_status(db: Session = Depends(get_db)):
     """Retourne l'état d'avancement de la configuration initiale (checklist)."""
     s = db.query(Settings).first()
     users_count = db.query(PlexUser).count()
     steps = [
-        {"id": "rss",      "label": "Flux RSS Plex configuré",              "done": bool(s and s.plex_rss_url)},
-        {"id": "sonarr",   "label": "Sonarr configuré",                     "done": bool(s and s.sonarr_url and s.sonarr_api_key)},
-        {"id": "radarr",   "label": "Radarr configuré",                     "done": bool(s and s.radarr_url and s.radarr_api_key)},
-        {"id": "smtp",     "label": "Email (SMTP) configuré",               "done": bool(s and s.smtp_host)},
-        {"id": "users",    "label": "Au moins un utilisateur détecté",      "done": users_count > 0},
-        {"id": "webhooks", "label": "Webhooks Sonarr/Radarr configurés",    "done": bool(s and s.sonarr_url), "optional": True},
+        {"id": "rss", "label": "Flux RSS Plex configuré", "done": bool(s and s.plex_rss_url)},
+        {"id": "sonarr", "label": "Sonarr configuré", "done": bool(s and s.sonarr_url and s.sonarr_api_key)},
+        {"id": "radarr", "label": "Radarr configuré", "done": bool(s and s.radarr_url and s.radarr_api_key)},
+        {"id": "smtp", "label": "Email (SMTP) configuré", "done": bool(s and s.smtp_host)},
+        {"id": "users", "label": "Au moins un utilisateur détecté", "done": users_count > 0},
+        {
+            "id": "webhooks",
+            "label": "Webhooks Sonarr/Radarr configurés",
+            "done": bool(s and s.sonarr_url),
+            "optional": True,
+        },
     ]
     return {"steps": steps, "complete": all(s["done"] for s in steps if not s.get("optional"))}
 
@@ -366,7 +382,10 @@ async def health_check(db: Session = Depends(get_db)):
         results["radarr"] = {"ok": None, "message": "Non configuré"}
 
     results["smtp"] = {"ok": bool(s and s.smtp_host), "message": "Configuré" if s and s.smtp_host else "Non configuré"}
-    results["rss"] = {"ok": bool(s and s.plex_rss_url), "message": "Configuré" if s and s.plex_rss_url else "Non configuré"}
+    results["rss"] = {
+        "ok": bool(s and s.plex_rss_url),
+        "message": "Configuré" if s and s.plex_rss_url else "Non configuré",
+    }
 
     return results
 
@@ -375,11 +394,14 @@ async def health_check(db: Session = Depends(get_db)):
 # Statistiques
 # ---------------------------------------------------------------------------
 
+
 @router.get("/stats/timeline")
 def stats_timeline(db: Session = Depends(get_db)):
     """Retourne le nombre de demandes par jour sur les 30 derniers jours."""
     from datetime import datetime, timedelta
+
     from sqlalchemy import func
+
     days = 30
     start = datetime.utcnow() - timedelta(days=days)
     rows = (
@@ -404,6 +426,7 @@ def stats_timeline(db: Session = Depends(get_db)):
 def stats_by_user(db: Session = Depends(get_db)):
     """Retourne le nombre de demandes par utilisateur, trié par volume décroissant."""
     from sqlalchemy import func
+
     rows = (
         db.query(MediaRequest.plex_user_id, func.count().label("total"))
         .group_by(MediaRequest.plex_user_id)
@@ -421,6 +444,7 @@ def stats_by_user(db: Session = Depends(get_db)):
 def stats_counts(db: Session = Depends(get_db)):
     """Retourne les compteurs par statut (utilisé pour le badge de navigation)."""
     from sqlalchemy import func
+
     rows = db.query(MediaRequest.status, func.count().label("n")).group_by(MediaRequest.status).all()
     counts = {r.status: r.n for r in rows}
     return {
@@ -436,11 +460,14 @@ def stats_counts(db: Session = Depends(get_db)):
 # Scheduler
 # ---------------------------------------------------------------------------
 
+
 @router.get("/next-poll")
 def next_poll_info():
     """Retourne le nombre de secondes avant le prochain polling (pour le countdown UI)."""
-    from ..scheduler import scheduler
     from datetime import datetime, timezone
+
+    from ..scheduler import scheduler
+
     job = scheduler.get_job("watchlist_poll")
     if not job or not job.next_run_time:
         return {"next_run_seconds": None, "next_run_iso": None}
@@ -455,6 +482,7 @@ def next_poll_info():
 # ---------------------------------------------------------------------------
 # Demandes (MediaRequest)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/requests")
 def list_requests(db: Session = Depends(get_db)):
@@ -518,10 +546,12 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
 # Activité et notifications
 # ---------------------------------------------------------------------------
 
+
 @router.get("/activity")
 def activity_log(db: Session = Depends(get_db)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
     from datetime import datetime, timedelta
+
     cutoff = datetime.utcnow() - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
@@ -533,21 +563,25 @@ def activity_log(db: Session = Depends(get_db)):
     events = []
     for r in reqs:
         if r.requested_at:
-            events.append({
-                "type": r.status if r.status in ("failed",) else "request",
-                "title": r.title,
-                "user": r.plex_user or r.plex_user_id or "?",
-                "media_type": r.media_type,
-                "time": r.requested_at.isoformat(),
-            })
+            events.append(
+                {
+                    "type": r.status if r.status in ("failed",) else "request",
+                    "title": r.title,
+                    "user": r.plex_user or r.plex_user_id or "?",
+                    "media_type": r.media_type,
+                    "time": r.requested_at.isoformat(),
+                }
+            )
         if r.available_at and r.available_at >= cutoff:
-            events.append({
-                "type": "available",
-                "title": r.title,
-                "user": r.plex_user or r.plex_user_id or "?",
-                "media_type": r.media_type,
-                "time": r.available_at.isoformat(),
-            })
+            events.append(
+                {
+                    "type": "available",
+                    "title": r.title,
+                    "user": r.plex_user or r.plex_user_id or "?",
+                    "media_type": r.media_type,
+                    "time": r.available_at.isoformat(),
+                }
+            )
     events.sort(key=lambda e: e["time"], reverse=True)
     return events[:25]
 
@@ -560,6 +594,7 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
     lors de la visite de la page.
     """
     from datetime import datetime, timezone
+
     q = db.query(MediaRequest).filter(MediaRequest.status == "available")
     if since:
         try:
@@ -578,8 +613,10 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
 # Logs applicatifs
 # ---------------------------------------------------------------------------
 
+
 @router.get("/logs")
 def get_logs(_: None = Depends(require_auth)):
     """Retourne les derniers logs applicatifs (buffer mémoire circulaire)."""
     from ..log_buffer import get_logs as _get_logs
+
     return _get_logs()

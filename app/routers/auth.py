@@ -9,10 +9,11 @@ Trois routes :
 - GET  /logout : destruction de la session
 """
 
-from fastapi import APIRouter, Depends, Request, Form
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+
 from ..database import get_db
 from ..models import Settings
 from ..services.auth import hash_password, verify_password

@@ -10,10 +10,11 @@ Chaque entrée expose :
   <media:keywords>  → genres (séparés par des virgules)
 """
 
-import feedparser
-import httpx
 import logging
 import re
+
+import feedparser
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def _parse_rss_entry(entry) -> dict | None:
     year_match = re.search(r"\((\d{4})\)\s*$", title)
     if year_match:
         year = int(year_match.group(1))
-        title = title[:year_match.start()].strip()
+        title = title[: year_match.start()].strip()
 
     # Affiche : d'abord <media:thumbnail>, sinon <media:content>
     poster_url = None
@@ -104,11 +105,11 @@ def _parse_guid(guid: str) -> tuple[str | None, str | None, str | None]:
     """Extrait (tmdb_id, tvdb_id, imdb_id) depuis une URI de type 'imdb://tt0187078'."""
     tmdb_id = tvdb_id = imdb_id = None
     if guid.startswith("imdb://"):
-        imdb_id = guid[len("imdb://"):]
+        imdb_id = guid[len("imdb://") :]
     elif guid.startswith("tvdb://"):
-        tvdb_id = guid[len("tvdb://"):]
+        tvdb_id = guid[len("tvdb://") :]
     elif guid.startswith("tmdb://"):
-        tmdb_id = guid[len("tmdb://"):]
+        tmdb_id = guid[len("tmdb://") :]
     return tmdb_id, tvdb_id, imdb_id
 
 
