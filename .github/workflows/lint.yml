@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - main
+    tags: ["v*"]
     paths:
       - "app/**"
+      - "tests/**"
       - "alembic/**"
       - "ruff.toml"
   pull_request:
     paths:
       - "app/**"
+      - "tests/**"
       - "alembic/**"
       - "ruff.toml"
 
@@ -32,3 +35,19 @@ jobs:
 
       - name: Format check
         run: ruff format --check .
+
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt mypy
+
+      - name: Type check
+        run: mypy app --ignore-missing-imports --no-strict-optional

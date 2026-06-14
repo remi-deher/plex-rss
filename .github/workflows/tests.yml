@@ -3,6 +3,7 @@ name: Unit Tests
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths:
       - "app/**"
       - "tests/**"
@@ -29,7 +30,7 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio
+        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
 
-      - name: Run tests
-        run: python -m pytest -v
+      - name: Run tests with coverage
+        run: python -m pytest -v --cov=app --cov-report=term-missing --cov-fail-under=60

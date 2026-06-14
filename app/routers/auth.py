@@ -9,7 +9,10 @@ Trois routes :
 - GET  /logout : destruction de la session
 """
 
-from fastapi import APIRouter, Depends, Form, Request
+import time
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -20,6 +23,20 @@ from ..services.auth import hash_password, verify_password
 
 router = APIRouter(tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
+
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 600
+
+
+def _is_rate_limited(ip: str) -> bool:
+    now = time.monotonic()
+    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _WINDOW_SECONDS]
+    return len(_login_attempts[ip]) >= _MAX_ATTEMPTS
+
+
+def _record_failed_attempt(ip: str) -> None:
+    _login_attempts[ip].append(time.monotonic())
 
 
 @router.get("/setup", response_class=HTMLResponse)
@@ -91,6 +108,10 @@ async def login_post(
     db: Session = Depends(get_db),
 ):
     """Vérifie les identifiants et ouvre une session."""
+    ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(ip):
+        raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 10 minutes.")
+
     s = db.query(Settings).first()
 
     def error(msg: str):
@@ -100,6 +121,7 @@ async def login_post(
         return RedirectResponse("/setup", status_code=302)
 
     if username != s.auth_username or not verify_password(password, s.auth_password_hash):
+        _record_failed_attempt(ip)
         return error("Identifiants incorrects.")
 
     request.session["authenticated"] = True
