@@ -1,6 +1,13 @@
 # Plex RSS Monitor
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/mrcryllix/plex-rss?style=flat-flat&color=e5a00d&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
+[![Docker Image Size](https://img.shields.io/docker/image-size/mrcryllix/plex-rss/latest?style=flat-flat&color=1f1f1f&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
+[![License](https://img.shields.io/github/license/remi-deher/plex-rss?color=198754&style=flat-flat)](LICENSE)
+
 Application web auto-hébergée qui surveille les watchlists Plex de vos amis et transmet automatiquement les demandes à **Sonarr** (séries) et **Radarr** (films), avec notifications par email, Discord et Telegram.
+
+> [!TIP]
+> L'image Docker officielle est disponible sur Docker Hub à l'adresse suivante : [mrcryllix/plex-rss](https://hub.docker.com/r/mrcryllix/plex-rss).
 
 ## Fonctionnalités
 
@@ -13,6 +20,7 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 - **Interface web** responsive (dark theme) avec dashboard, page demandes, gestion utilisateurs
 - **Multi-utilisateurs** : filtrage par utilisateur Plex, désactivation individuelle
 - **Import/Export** JSON pour la sauvegarde de configuration
+
 
 ## Architecture
 
