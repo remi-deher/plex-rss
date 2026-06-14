@@ -8,6 +8,7 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 
 > [!TIP]
 > L'image Docker officielle est disponible sur Docker Hub : [mrcryllix/plex-rss](https://hub.docker.com/r/mrcryllix/plex-rss)
+> et sur GitHub Container Registry : `ghcr.io/remi-deher/plex-rss`
 
 ---
 
