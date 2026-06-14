@@ -1,7 +1,8 @@
 """Tests unitaires pour app/services/radarr.py."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services.radarr import add_movie, check_connection, is_movie_available
 

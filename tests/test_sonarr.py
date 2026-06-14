@@ -3,9 +3,10 @@
 Tous les appels httpx sont mockés — aucune instance Sonarr réelle n'est requise.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.sonarr import add_series, check_connection, is_series_available, lookup_series
 

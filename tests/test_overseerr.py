@@ -1,7 +1,8 @@
 """Tests unitaires pour app/services/overseerr.py."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services.overseerr import check_connection, is_request_available, request_media
 
