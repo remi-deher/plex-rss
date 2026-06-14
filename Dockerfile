@@ -7,7 +7,9 @@ RUN apk update && apk upgrade && \
     apk add --no-cache libffi
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip uninstall -y pip setuptools && \
     apk del .build-deps
 
 COPY . .
