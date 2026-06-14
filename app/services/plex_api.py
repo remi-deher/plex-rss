@@ -147,7 +147,8 @@ async def get_auth_pin() -> dict:
         "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"
     }
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(f"{PLEX_TV_BASE}/pins", headers=headers)
+        # Utilisation de l'API v2 officielle de Plex pour les PINs
+        resp = await client.post(f"{PLEX_TV_BASE}/api/v2/pins", headers=headers)
         resp.raise_for_status()
         data = resp.json()
         pin_id = data.get("id")
@@ -172,7 +173,8 @@ async def check_auth_pin(pin_id: int) -> Optional[str]:
         "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"
     }
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(f"{PLEX_TV_BASE}/pins/{pin_id}", headers=headers)
+        # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
+        resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
         resp.raise_for_status()
         data = resp.json()
         return data.get("authToken")

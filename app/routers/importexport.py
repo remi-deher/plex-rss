@@ -85,6 +85,12 @@ async def import_data(
             db.add(user)
         for k, v in u_data.items():
             if hasattr(user, k) and k != "id":
+                # Convertir les dates en objets datetime
+                if k in ("created_at",) and isinstance(v, str) and v:
+                    try:
+                        v = datetime.fromisoformat(v)
+                    except ValueError:
+                        pass
                 setattr(user, k, v)
         stats["users_upserted"] += 1
 
@@ -100,6 +106,12 @@ async def import_data(
             db.add(existing)
         for k, v in r_data.items():
             if hasattr(existing, k) and k != "id":
+                # Convertir les dates en objets datetime
+                if k in ("requested_at", "available_at") and isinstance(v, str) and v:
+                    try:
+                        v = datetime.fromisoformat(v)
+                    except ValueError:
+                        pass
                 setattr(existing, k, v)
         stats["requests_upserted"] += 1
 
