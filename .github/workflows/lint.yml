@@ -4,7 +4,15 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "app/**"
+      - "alembic/**"
+      - "ruff.toml"
   pull_request:
+    paths:
+      - "app/**"
+      - "alembic/**"
+      - "ruff.toml"
 
 jobs:
   ruff:

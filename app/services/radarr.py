@@ -151,7 +151,7 @@ async def is_movie_available(
     return data.get("hasFile", False), data.get("id"), data.get("titleSlug")
 
 
-async def test_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
+async def check_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Radarr.
 
     Returns:

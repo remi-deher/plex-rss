@@ -159,14 +159,14 @@ async def test_plex_rss(db: Session = Depends(get_db)):
 @router.post("/test/sonarr")
 async def test_sonarr(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
-    ok, msg = await sonarr.test_connection(s.sonarr_url or "", s.sonarr_api_key or "")
+    ok, msg = await sonarr.check_connection(s.sonarr_url or "", s.sonarr_api_key or "")
     return {"success": ok, "message": msg}
 
 
 @router.post("/test/radarr")
 async def test_radarr(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
-    ok, msg = await radarr.test_connection(s.radarr_url or "", s.radarr_api_key or "")
+    ok, msg = await radarr.check_connection(s.radarr_url or "", s.radarr_api_key or "")
     return {"success": ok, "message": msg}
 
 
@@ -207,7 +207,7 @@ async def test_telegram(db: Session = Depends(get_db)):
 
 @router.post("/test/overseerr")
 async def test_overseerr(db: Session = Depends(get_db)):
-    from ..services.overseerr import test_connection as overseerr_test
+    from ..services.overseerr import check_connection as overseerr_test
 
     s = db.query(Settings).first()
     if not s or not s.overseerr_url or not s.overseerr_api_key:
@@ -370,13 +370,13 @@ async def health_check(db: Session = Depends(get_db)):
     results = {}
 
     if s and s.sonarr_url and s.sonarr_api_key:
-        ok, msg = await sonarr.test_connection(s.sonarr_url, s.sonarr_api_key)
+        ok, msg = await sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)
         results["sonarr"] = {"ok": ok, "message": msg}
     else:
         results["sonarr"] = {"ok": None, "message": "Non configuré"}
 
     if s and s.radarr_url and s.radarr_api_key:
-        ok, msg = await radarr.test_connection(s.radarr_url, s.radarr_api_key)
+        ok, msg = await radarr.check_connection(s.radarr_url, s.radarr_api_key)
         results["radarr"] = {"ok": ok, "message": msg}
     else:
         results["radarr"] = {"ok": None, "message": "Non configuré"}

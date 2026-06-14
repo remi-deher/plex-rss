@@ -148,7 +148,7 @@ async def _resolve_tmdb_id(base: str, headers: dict, item: dict) -> str | None:
     return None
 
 
-async def test_connection(overseerr_url: str, api_key: str) -> tuple[bool, str]:
+async def check_connection(overseerr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Overseerr.
 
     Returns:

@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "app/**"
+      - "Dockerfile"
+      - "requirements.txt"
   schedule:
     - cron: "0 6 * * 1"
 

@@ -143,7 +143,7 @@ async def is_series_available(
     return available, data.get("id"), data.get("titleSlug")
 
 
-async def test_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
+async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Sonarr.
 
     Returns:
