@@ -5,8 +5,8 @@ import app.metrics as m
 
 def _reset():
     """Réinitialise le singleton _m entre les tests."""
-    from app.metrics import _Metrics
     import app.metrics as mod
+    from app.metrics import _Metrics
     mod._m = _Metrics()
 
 
