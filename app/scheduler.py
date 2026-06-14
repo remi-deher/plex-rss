@@ -178,7 +178,7 @@ async def poll_watchlists():
 
         new_count = 0
         for item in items:
-            uid = item.get("plex_user_id", "unknown")
+            uid = item.get("plex_user_id") or item.get("plex_user", "unknown")
 
             # Ignorer les utilisateurs désactivés si la table utilisateurs est renseignée
             if has_filter and uid not in enabled_ids:
@@ -288,7 +288,7 @@ async def check_arr_statuses():
             new_arr_id = None
             new_slug = None
             try:
-                if settings.overseerr_enabled and settings.overseerr_url and req.arr_id:
+                if settings.overseerr_enabled and settings.overseerr_url:
                     available, new_arr_id, new_slug = await overseerr_available(
                         settings.overseerr_url,
                         settings.overseerr_api_key,

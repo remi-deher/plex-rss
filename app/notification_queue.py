@@ -43,7 +43,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
             return
 
         # Envoi email à chaque destinataire séparément
-        email_ok = False
+        all_ok = True
         for recipient in recipients:
             try:
                 if event == "request":
@@ -52,13 +52,13 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                     await send_available_notification(settings, req, recipient)
                 elif event == "failed":
                     await send_failure_notification(settings, req, recipient, reason)
-                email_ok = True
                 logger.info(f"Notification email [{event}] envoyée à {recipient} pour '{req.title}'")
             except Exception as e:
+                all_ok = False
                 logger.error(f"Notification email [{event}] échouée pour {recipient} / '{req.title}': {e}")
 
-        # Mise à jour des flags uniquement si au moins un email a été envoyé
-        if email_ok:
+        # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
+        if all_ok:
             if event == "request":
                 req.request_mail_sent = True
             elif event == "available":

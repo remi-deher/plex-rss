@@ -94,6 +94,8 @@ def get_settings(db: Session = Depends(get_db)):
 def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     """Met à jour la configuration. Ignore la valeur masquée du mot de passe SMTP."""
     s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Paramètres non initialisés")
     for key, val in data.model_dump(exclude_none=True).items():
         # Ne pas écraser le vrai mot de passe par la valeur masquée affichée dans l'UI
         if key == "smtp_password" and val == "••••••••":
@@ -145,6 +147,8 @@ async def plex_sso_check(pin_id: int):
 @router.post("/test/plex-api")
 async def test_plex_api(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    if not s:
+        return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await plex_test(s.plex_url or "", s.plex_token or "")
     return {"success": ok, "message": msg}
 
@@ -152,6 +156,8 @@ async def test_plex_api(db: Session = Depends(get_db)):
 @router.post("/test/plex-rss")
 async def test_plex_rss(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    if not s:
+        return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await test_rss(s.plex_rss_url or "")
     return {"success": ok, "message": msg}
 
@@ -159,6 +165,8 @@ async def test_plex_rss(db: Session = Depends(get_db)):
 @router.post("/test/sonarr")
 async def test_sonarr(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    if not s:
+        return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await sonarr.check_connection(s.sonarr_url or "", s.sonarr_api_key or "")
     return {"success": ok, "message": msg}
 
@@ -166,6 +174,8 @@ async def test_sonarr(db: Session = Depends(get_db)):
 @router.post("/test/radarr")
 async def test_radarr(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    if not s:
+        return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await radarr.check_connection(s.radarr_url or "", s.radarr_api_key or "")
     return {"success": ok, "message": msg}
 
