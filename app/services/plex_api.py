@@ -9,6 +9,7 @@ mais elle nécessite un token Plex valide.
 
 import httpx
 import logging
+import urllib.parse
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ async def test_connection(plex_url: str, plex_token: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-async def get_auth_pin() -> dict:
+async def get_auth_pin(forward_url: str = "") -> dict:
     """Demande un code PIN d'authentification à Plex pour initier le SSO.
 
     Returns:
@@ -144,20 +145,21 @@ async def get_auth_pin() -> dict:
     headers = {
         "Accept": "application/json",
         "X-Plex-Product": "Plex RSS Monitor",
-        "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"
+        "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id",
     }
     async with httpx.AsyncClient(timeout=10) as client:
-        # Utilisation de l'API v2 officielle de Plex pour les PINs
         resp = await client.post(f"{PLEX_TV_BASE}/api/v2/pins", headers=headers)
         resp.raise_for_status()
         data = resp.json()
         pin_id = data.get("id")
         code = data.get("code")
-        
-        # URL de redirection vers Plex Auth pour l'utilisateur
+
+        encoded_forward = urllib.parse.quote(forward_url, safe="")
         auth_url = (
             f"https://app.plex.tv/auth/#!?clientID=plex-rss-monitor-sso-id"
-            f"&code={code}&context%5Bdevice%5D%5Bproduct%5D=Plex%20RSS%20Monitor"
+            f"&code={code}"
+            f"&context%5Bdevice%5D%5Bproduct%5D=Plex%20RSS%20Monitor"
+            f"&forwardUrl={encoded_forward}"
         )
         return {"id": pin_id, "code": code, "auth_url": auth_url}
 

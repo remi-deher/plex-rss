@@ -107,11 +107,15 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/plex/sso/pin")
-async def plex_sso_pin():
+async def plex_sso_pin(request: Request):
     """Crée une demande de PIN Plex SSO et retourne l'URL d'authentification."""
     from ..services.plex_api import get_auth_pin
     try:
-        return await get_auth_pin()
+        # Reconstruit l'URL de base en respectant X-Forwarded-Proto (reverse proxy HTTPS)
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.url.netloc)
+        forward_url = f"{scheme}://{host}/settings"
+        return await get_auth_pin(forward_url=forward_url)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur d'initialisation SSO Plex : {str(e)}")
 
