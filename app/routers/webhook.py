@@ -106,7 +106,7 @@ async def plex_webhook(request: Request):
     """
     try:
         form = await request.form()
-        raw = form.get("payload", "")
+        raw = str(form.get("payload", ""))
         if not raw:
             # Fallback : JSON direct (certains proxys aplatissent le multipart)
             try:
