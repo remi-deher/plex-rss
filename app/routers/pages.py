@@ -55,9 +55,9 @@ def dashboard(request: Request, _: None = Depends(require_auth), db: Session = D
         "failed": sum(1 for r in all_requests if r.status == RequestStatus.failed),
     }
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "settings": settings,
             "recent_requests": recent,
             "stats": stats,
@@ -98,9 +98,9 @@ def requests_page(
 
     settings = db.query(Settings).first()
     return templates.TemplateResponse(
+        request,
         "requests.html",
         {
-            "request": request,
             "requests": requests_page_data,
             "users_map": build_users_map(db),
             "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
@@ -137,9 +137,9 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
             counts_map[uid]["sent"] += 1
 
     return templates.TemplateResponse(
+        request,
         "users.html",
         {
-            "request": request,
             "users": users,
             "counts_map": counts_map,
         },
@@ -149,7 +149,7 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
 @router.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, _: None = Depends(require_auth)):
     """Page des logs applicatifs en temps réel."""
-    return templates.TemplateResponse("logs.html", {"request": request})
+    return templates.TemplateResponse(request, "logs.html")
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -158,9 +158,9 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
-            "request": request,
             "s": s,
             "webhook_url": f"{base_url}/webhook/plex",
         },

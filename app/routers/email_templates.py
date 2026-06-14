@@ -35,9 +35,9 @@ SAMPLE_CONTEXT = {
 def email_templates_page(request: Request, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     return templates.TemplateResponse(
+        request,
         "email_templates.html",
         {
-            "request": request,
             "page": "settings",
             "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
             "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,

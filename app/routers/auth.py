@@ -28,7 +28,7 @@ def setup_get(request: Request, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if s and s.auth_username:
         return RedirectResponse("/", status_code=302)
-    return templates.TemplateResponse("setup.html", {"request": request, "error": None})
+    return templates.TemplateResponse(request, "setup.html", {"error": None})
 
 
 @router.post("/setup", response_class=HTMLResponse)
@@ -47,7 +47,7 @@ async def setup_post(
         return RedirectResponse("/", status_code=302)
 
     def error(msg: str):
-        return templates.TemplateResponse("setup.html", {"request": request, "error": msg})
+        return templates.TemplateResponse(request, "setup.html", {"error": msg})
 
     username = username.strip()
     if not username:
@@ -79,7 +79,7 @@ def login_get(request: Request, next: str = "/", db: Session = Depends(get_db)):
         return RedirectResponse("/setup", status_code=302)
     if request.session.get("authenticated"):
         return RedirectResponse(next or "/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": None})
+    return templates.TemplateResponse(request, "login.html", {"next": next, "error": None})
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -94,7 +94,7 @@ async def login_post(
     s = db.query(Settings).first()
 
     def error(msg: str):
-        return templates.TemplateResponse("login.html", {"request": request, "next": next, "error": msg})
+        return templates.TemplateResponse(request, "login.html", {"next": next, "error": msg})
 
     if not s or not s.auth_username or not s.auth_password_hash:
         return RedirectResponse("/setup", status_code=302)
