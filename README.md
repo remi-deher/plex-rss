@@ -86,7 +86,7 @@ version: '3.8'
 
 services:
   plex-rss:
-    image: plex-rss-plex-rss:latest # Ou construit localement : build: .
+    image: mrcryllix/plex-rss:latest # Ou construit localement : build: .
     container_name: plex-rss
     ports:
       - "8000:8000"
