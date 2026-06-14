@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% set page = "users" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Utilisateurs surveillés</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary" onclick="discoverUsers()">
+      <i class="bi bi-arrow-repeat me-1"></i>Synchroniser depuis le RSS
+    </button>
+    <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#userModal" onclick="openAdd()">
+      <i class="bi bi-plus-lg me-1"></i>Ajouter manuellement
+    </button>
+  </div>
+</div>
+
+<div class="alert alert-secondary border-0 mb-3" style="background:#2a2a2a">
+  <i class="bi bi-info-circle me-2"></i>
+  Les utilisateurs sont <strong>détectés automatiquement</strong> depuis le flux RSS à chaque polling.
+  Cliquez sur <strong>Synchroniser</strong> pour les importer immédiatement.
+  Désactivez un utilisateur pour ignorer ses demandes (ex. : il utilise déjà Overseerr).
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-dark table-hover mb-0">
+      <thead><tr>
+        <th>ID Plex (hex)</th>
+        <th>Nom affiché</th>
+        <th>Demandes</th>
+        <th>Email notification</th>
+        <th>Actif</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody id="users-table">
+        {% for u in users %}
+        {% set c = counts_map.get(u.plex_user_id, {}) %}
+        <tr id="user-{{ u.id }}">
+          <td><code class="text-warning" style="font-size:12px">{{ u.plex_user_id }}</code></td>
+          <td>
+            <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none fw-bold">
+              {{ u.display_name or u.plex_user_id }}
+            </a>
+          </td>
+          <td>
+            {% if c %}
+            <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none">
+              <span class="badge bg-secondary me-1" title="Total">{{ c.get('total', 0) }}</span>
+              {% if c.get('available', 0) %}<span class="badge badge-available me-1" title="Disponibles"><i class="bi bi-check-circle-fill"></i> {{ c.get('available', 0) }}</span>{% endif %}
+              {% if c.get('failed', 0) %}<span class="badge badge-failed" title="Echecs"><i class="bi bi-x-circle-fill"></i> {{ c.get('failed', 0) }}</span>{% endif %}
+            </a>
+            {% else %}
+            <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">
+            {% if u.notification_email %}{{ u.notification_email }}
+            {% else %}<span class="fst-italic">SMTP par défaut</span>{% endif %}
+          </td>
+          <td>
+            {% if u.enabled %}<span class="badge bg-success">Actif</span>
+            {% else %}<span class="badge bg-secondary">Ignoré</span>{% endif %}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-secondary me-1"
+              onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ u.display_name or '' }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }})">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ u.id }})">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">
+          Aucun utilisateur configuré — cliquez sur <strong>Synchroniser depuis le RSS</strong>.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal ajout/édition -->
+<div class="modal fade" id="userModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:#1f1f1f">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="modalTitle">Ajouter un utilisateur</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editId">
+        <div class="mb-3">
+          <label class="form-label">ID Plex <span class="text-muted">(hex, depuis le champ &lt;author&gt; du RSS)</span></label>
+          <input type="text" class="form-control font-monospace" id="fUserId" placeholder="eead4af03aaec372">
+          <div class="form-text">Récupéré automatiquement via "Découvrir depuis le RSS"</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nom affiché <span class="text-muted">(libre)</span></label>
+          <input type="text" class="form-control" id="fDisplayName" placeholder="Jean Dupont">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Email Plex</label>
+          <input type="email" class="form-control" id="fPlexEmail" placeholder="jean@example.com">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Email de notification</label>
+          <input type="email" class="form-control" id="fNotifEmail" placeholder="Laisser vide = email SMTP par défaut">
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="fEnabled" checked>
+          <label class="form-check-label" for="fEnabled">
+            Traiter les demandes de cet utilisateur
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-warning" onclick="saveUser()">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal découverte -->
+<div class="modal fade" id="discoverModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="background:#1f1f1f">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Utilisateurs découverts dans le flux RSS</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="discoverBody">
+        <div class="text-center py-4"><div class="spinner-border text-warning"></div><p class="mt-2">Lecture du flux RSS...</p></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let editingId = null;
+
+function openAdd(prefillId) {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'Ajouter un utilisateur';
+  document.getElementById('fUserId').value = prefillId || '';
+  document.getElementById('fUserId').readOnly = !!prefillId;
+  document.getElementById('fDisplayName').value = '';
+  document.getElementById('fPlexEmail').value = '';
+  document.getElementById('fNotifEmail').value = '';
+  document.getElementById('fEnabled').checked = true;
+}
+
+function openEdit(id, userId, displayName, plexEmail, notifEmail, enabled) {
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Modifier un utilisateur';
+  document.getElementById('fUserId').value = userId;
+  document.getElementById('fUserId').readOnly = true;
+  document.getElementById('fDisplayName').value = displayName;
+  document.getElementById('fPlexEmail').value = plexEmail;
+  document.getElementById('fNotifEmail').value = notifEmail;
+  document.getElementById('fEnabled').checked = enabled;
+  new bootstrap.Modal(document.getElementById('userModal')).show();
+}
+
+async function saveUser() {
+  const data = {
+    plex_user_id: document.getElementById('fUserId').value.trim(),
+    display_name: document.getElementById('fDisplayName').value.trim() || null,
+    plex_email: document.getElementById('fPlexEmail').value.trim() || null,
+    notification_email: document.getElementById('fNotifEmail').value.trim() || null,
+    enabled: document.getElementById('fEnabled').checked,
+  };
+  if (!data.plex_user_id) return showToast('ID Plex requis', 'danger');
+
+  const url = editingId ? `/api/users/${editingId}` : '/api/users';
+  const method = editingId ? 'PUT' : 'POST';
+  try {
+    const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast('Utilisateur enregistré !', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+    setTimeout(() => location.reload(), 800);
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Supprimer cet utilisateur ?')) return;
+  await fetch(`/api/users/${id}`, {method:'DELETE'});
+  document.getElementById(`user-${id}`)?.remove();
+  showToast('Supprimé', 'success');
+}
+
+async function discoverUsers() {
+  const modal = new bootstrap.Modal(document.getElementById('discoverModal'));
+  document.getElementById('discoverBody').innerHTML = `
+    <div class="text-center py-4">
+      <div class="spinner-border text-warning"></div>
+      <p class="mt-2 text-muted">Lecture du flux RSS en cours...</p>
+    </div>`;
+  modal.show();
+
+  try {
+    const r = await fetch('/api/users/discover', {method:'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail);
+    const data = await r.json();
+
+    const all = data.users;
+
+    if (!all || all.length === 0) {
+      document.getElementById('discoverBody').innerHTML = '<p class="text-muted text-center py-3">Aucun utilisateur trouvé dans le flux RSS.</p>';
+      return;
+    }
+
+    let html = `<p class="text-muted mb-3">${all.length} utilisateur(s) au total.
+      <span class="badge bg-warning text-dark">${data.added} nouveau(x) ajouté(s)</span></p>
+      <table class="table table-dark table-sm">
+        <thead><tr><th>ID Plex</th><th>Nom affiché</th><th>Actif</th></tr></thead><tbody>`;
+
+    for (const u of all) {
+      html += `<tr>
+        <td><code class="text-warning">${u.plex_user_id}</code></td>
+        <td>${u.display_name || '<span class="text-muted fst-italic">Non défini</span>'}</td>
+        <td>${u.enabled ? '<span class="badge bg-success">Actif</span>' : '<span class="badge bg-secondary">Ignoré</span>'}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (data.added > 0) html += `<div class="alert alert-success mt-2">${data.added} nouvel(aux) utilisateur(s) ajoute(s). Actualisez la page pour les voir.</div>`;
+    document.getElementById('discoverBody').innerHTML = html;
+  } catch(e) {
+    document.getElementById('discoverBody').innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
+  }
+}
+
+function addDiscovered(userId) {
+  bootstrap.Modal.getInstance(document.getElementById('discoverModal')).hide();
+  openAdd(userId);
+  setTimeout(() => new bootstrap.Modal(document.getElementById('userModal')).show(), 300);
+}
+
+
+</script>
+{% endblock %}

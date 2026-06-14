@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% set page = "settings" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2>Templates d'emails</h2>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary" onclick="resetTemplates()">
+      <i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser
+    </button>
+    <button class="btn btn-warning" onclick="saveTemplates()">
+      <i class="bi bi-save me-1"></i>Enregistrer
+    </button>
+  </div>
+</div>
+
+<!-- Variables disponibles -->
+<div class="card p-3 mb-4" style="background:#2a2a2a">
+  <h6 class="mb-2 text-muted">Variables disponibles</h6>
+  <div class="d-flex flex-wrap gap-2">
+    {% for var, desc in variables %}
+    <span class="badge bg-secondary" style="cursor:pointer;font-size:13px" title="{{ desc }}" onclick="insertVar(event, '{{ var }}')">{{ var }}</span>
+    {% endfor %}
+  </div>
+  <small class="text-muted mt-2 d-block">Cliquez sur une variable pour la copier. Syntaxe Jinja2 supportée : <code>{% raw %}{% if poster_url %}...{% endif %}{% endraw %}</code></small>
+</div>
+
+<!-- Onglets -->
+<ul class="nav nav-tabs mb-0" id="templateTabs">
+  <li class="nav-item">
+    <button class="nav-link active" id="tab-request" onclick="switchTab('request')">
+      <i class="bi bi-envelope me-1"></i>Nouvelle demande
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" id="tab-available" onclick="switchTab('available')">
+      <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
+    </button>
+  </li>
+</ul>
+
+<div class="row g-0" style="height:calc(100vh - 340px);min-height:500px">
+  <!-- Éditeur -->
+  <div class="col-md-6" style="border:1px solid #333;border-top:none;border-right:none">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333">
+      <span class="text-muted small">Éditeur HTML</span>
+      <button class="btn btn-sm btn-outline-secondary" onclick="livePreview()">
+        <i class="bi bi-eye me-1"></i>Prévisualiser
+      </button>
+    </div>
+    <textarea id="editor-request" class="form-control font-monospace border-0 h-100"
+      style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px"
+      oninput="scheduleLivePreview()" spellcheck="false">{{ request_template }}</textarea>
+    <textarea id="editor-available" class="form-control font-monospace border-0 h-100"
+      style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px;display:none"
+      oninput="scheduleLivePreview()" spellcheck="false">{{ available_template }}</textarea>
+  </div>
+
+  <!-- Prévisualisation -->
+  <div class="col-md-6" style="border:1px solid #333;border-top:none">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333">
+      <span class="text-muted small">Prévisualisation</span>
+      <span class="badge bg-secondary" id="preview-status">En attente</span>
+    </div>
+    <iframe id="preview-frame" style="width:100%;height:100%;border:none;background:#fff"></iframe>
+  </div>
+</div>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentTab = 'request';
+let previewTimer = null;
+
+function activeEditor() {
+  return document.getElementById('editor-' + currentTab);
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('editor-request').style.display = tab === 'request' ? '' : 'none';
+  document.getElementById('editor-available').style.display = tab === 'available' ? '' : 'none';
+  document.getElementById('tab-request').classList.toggle('active', tab === 'request');
+  document.getElementById('tab-available').classList.toggle('active', tab === 'available');
+  livePreview();
+}
+
+function scheduleLivePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(livePreview, 600);
+}
+
+async function livePreview() {
+  document.getElementById('preview-status').textContent = 'Chargement...';
+  try {
+    const r = await fetch('/api/email-preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({template: activeEditor().value, type: currentTab}),
+    });
+    const html = await r.text();
+    const frame = document.getElementById('preview-frame');
+    frame.srcdoc = html;
+    document.getElementById('preview-status').textContent = 'OK';
+    document.getElementById('preview-status').className = 'badge bg-success';
+  } catch(e) {
+    document.getElementById('preview-status').textContent = 'Erreur';
+    document.getElementById('preview-status').className = 'badge bg-danger';
+  }
+}
+
+async function saveTemplates() {
+  try {
+    const r = await fetch('/api/email-templates', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        email_request_template: document.getElementById('editor-request').value,
+        email_available_template: document.getElementById('editor-available').value,
+      }),
+    });
+    if (!r.ok) throw new Error();
+    showToast('Templates enregistrés !', 'success');
+  } catch {
+    showToast('Erreur lors de l\'enregistrement', 'danger');
+  }
+}
+
+async function resetTemplates() {
+  if (!confirm('Réinitialiser les deux templates par défaut ?')) return;
+  await fetch('/api/email-templates/reset', {method: 'POST'});
+  showToast('Réinitialisé — rechargement...', 'success');
+  setTimeout(() => location.reload(), 1000);
+}
+
+function insertVar(e, varName) {
+  navigator.clipboard.writeText(varName);
+  showToast(`${varName} copié !`, 'secondary');
+}
+
+
+// Prévisualisation au chargement
+window.addEventListener('load', () => livePreview());
+</script>
+{% endblock %}

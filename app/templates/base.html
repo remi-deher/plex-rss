@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plex RSS Monitor</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23e5a00d'/%3E%3Cpolygon points='13,9 25,16 13,23' fill='%23141414'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    body { background: #141414; }
+
+    /* Sidebar desktop */
+    .sidebar {
+      position: sticky;
+      top: 56px;
+      height: calc(100vh - 56px);
+      overflow-y: auto;
+      background: #1f1f1f;
+      border-right: 1px solid #333;
+    }
+    .sidebar .nav-link { color: #aaa; border-radius: 6px; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #e5a00d; background: #2a2a2a; }
+
+    /* Navbar */
+    .navbar-brand { color: #e5a00d !important; font-weight: bold; letter-spacing: .5px; }
+
+    /* Cards */
+    .card { background: #1f1f1f; border: 1px solid #333; }
+    .health-card { transition: border-color .3s; border: 1px solid #333; }
+    .request-card { transition: transform .15s, box-shadow .15s; cursor: default; }
+    .request-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+
+    /* Status badges */
+    .badge-pending  { background: #555; }
+    .badge-sent     { background: #0d6efd; }
+    .badge-available{ background: #198754; }
+    .badge-failed   { background: #dc3545; }
+
+    /* Bottom nav mobile */
+    .bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1f1f1f;
+      border-top: 1px solid #333;
+      z-index: 1040;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .bottom-nav a {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 8px 4px 6px;
+      color: #888;
+      text-decoration: none;
+      font-size: 10px;
+      gap: 2px;
+      transition: color .15s;
+    }
+    .bottom-nav a i { font-size: 20px; }
+    .bottom-nav a.active, .bottom-nav a:hover { color: #e5a00d; }
+
+    @media (max-width: 767px) {
+      .sidebar { display: none !important; }
+      .bottom-nav { display: flex; }
+      main { padding-bottom: 80px !important; }
+      .navbar-brand { font-size: 15px; }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #141414; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark sticky-top" style="background:#1f1f1f;border-bottom:1px solid #333">
+  <div class="container-fluid">
+    <span class="navbar-brand"><i class="bi bi-collection-play-fill me-2"></i>Plex RSS Monitor</span>
+    {% if request.session.get('username') %}
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-secondary d-none d-sm-inline" style="font-size:.85rem;">
+        <i class="bi bi-person-circle me-1"></i>{{ request.session['username'] }}
+      </span>
+      <a href="/logout" class="btn btn-sm" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:8px;font-size:.8rem;padding:5px 12px;transition:all .2s;"
+         onmouseover="this.style.borderColor='#dc3545';this.style.color='#f87171';"
+         onmouseout="this.style.borderColor='rgba(255,255,255,.1)';this.style.color='#aaa';">
+        <i class="bi bi-box-arrow-right me-1"></i>Déconnexion
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</nav>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar desktop -->
+    <nav class="col-md-2 sidebar py-3 d-none d-md-flex flex-column gap-1 px-2">
+      <a href="/" class="nav-link {% if page=='dashboard' %}active{% endif %}">
+        <i class="bi bi-speedometer2 me-2"></i>Dashboard
+      </a>
+      <a href="/requests" class="nav-link {% if page=='requests' %}active{% endif %}">
+        <i class="bi bi-film me-2"></i>Demandes
+        <span id="sidebar-badge" class="badge bg-danger ms-auto" style="display:none"></span>
+      </a>
+      <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}">
+        <i class="bi bi-people me-2"></i>Utilisateurs
+      </a>
+      <hr class="border-secondary my-1">
+      <a href="/settings" class="nav-link {% if page=='settings' %}active{% endif %}">
+        <i class="bi bi-gear me-2"></i>Paramètres
+      </a>
+      <a href="/settings/email-templates" class="nav-link {% if page=='email-templates' %}active{% endif %}">
+        <i class="bi bi-envelope-paper me-2"></i>Templates email
+      </a>
+    </nav>
+
+    <!-- Contenu principal -->
+    <main class="col-md-10 py-4 px-3 px-md-4">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<!-- Bottom nav mobile -->
+<nav class="bottom-nav">
+  <a href="/" class="{% if page=='dashboard' %}active{% endif %}">
+    <i class="bi bi-speedometer2"></i>Dashboard
+  </a>
+  <a href="/requests" class="{% if page=='requests' %}active{% endif %}">
+    <i class="bi bi-film"></i>Demandes
+  </a>
+  <a href="/users" class="{% if page=='users' %}active{% endif %}">
+    <i class="bi bi-people"></i>Utilisateurs
+  </a>
+  <a href="/settings" class="{% if page=='settings' or page=='email-templates' %}active{% endif %}">
+    <i class="bi bi-gear"></i>Paramètres
+  </a>
+</nav>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function showToast(msg, type = 'success') {
+  const id = 'toast-' + Date.now();
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'position-fixed bottom-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+  }
+  container.insertAdjacentHTML('beforeend', `
+    <div id="${id}" class="toast align-items-center text-bg-${type} border-0 show">
+      <div class="d-flex">
+        <div class="toast-body">${msg}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>`);
+  setTimeout(() => document.getElementById(id)?.remove(), 4000);
+}
+
+(async function loadGlobalStats() {
+  try {
+    const d = await fetch('/api/stats/counts').then(r => r.json());
+    const badge = document.getElementById('sidebar-badge');
+    if (d.failed > 0) {
+      badge.textContent = d.failed;
+      badge.style.display = '';
+      document.title = `(${d.failed}) Plex RSS Monitor`;
+    }
+  } catch(e) {}
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

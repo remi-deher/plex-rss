@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% set page = "settings" %}
+{% block content %}
+<h2 class="mb-4">Paramètres</h2>
+
+<form id="settings-form">
+<div class="row g-4">
+
+  <!-- Plex -->
+  <div class="col-12">
+    <div class="card p-4">
+      <h5 class="mb-3"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">URL Plex (local)</label>
+          <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Token Plex (admin)</label>
+          <div class="input-group">
+            <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
+            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
+            <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
+          </div>
+        </div>
+        <div class="col-md-10">
+          <label class="form-label">URL du flux RSS Plex (admin avec Plex Pass)</label>
+          <div class="input-group">
+            <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+            <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Source prioritaire</label>
+          <select class="form-select" name="watchlist_source_priority">
+            <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>API Plex (token)</option>
+            <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>Flux RSS</option>
+          </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="fallback">Activer le fallback</label>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Intervalle de polling (minutes)</label>
+          <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sonarr -->
+  <div class="col-md-6">
+    <div class="card p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-tv text-info me-2"></i>Sonarr</h5>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" name="sonarr_enabled" id="sonarr_en" {% if s.sonarr_enabled %}checked{% endif %}>
+          <label class="form-check-label" for="sonarr_en">Activé</label>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">URL Sonarr</label>
+          <input type="url" class="form-control" name="sonarr_url" value="{{ s.sonarr_url or '' }}" placeholder="http://192.168.1.10:8989">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Clé API</label>
+          <div class="input-group">
+            <input type="password" class="form-control" name="sonarr_api_key" value="{{ s.sonarr_api_key or '' }}" id="sonarr_key">
+            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('sonarr_key')"><i class="bi bi-eye"></i></button>
+            <button type="button" class="btn btn-outline-info" onclick="testConn('sonarr')">Tester</button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Profil qualité</label>
+          <select class="form-select" name="sonarr_quality_profile_id" id="sonarr_profile">
+            {% if s.sonarr_quality_profile_id %}<option value="{{ s.sonarr_quality_profile_id }}" selected>ID {{ s.sonarr_quality_profile_id }}</option>{% endif %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('sonarr')">Charger</button>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dossier racine</label>
+          <select class="form-select" name="sonarr_root_folder" id="sonarr_folder">
+            {% if s.sonarr_root_folder %}<option value="{{ s.sonarr_root_folder }}" selected>{{ s.sonarr_root_folder }}</option>{% endif %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('sonarr')">Charger</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Radarr -->
+  <div class="col-md-6">
+    <div class="card p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-camera-video text-primary me-2"></i>Radarr</h5>
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" name="radarr_enabled" id="radarr_en" {% if s.radarr_enabled %}checked{% endif %}>
+          <label class="form-check-label" for="radarr_en">Activé</label>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">URL Radarr</label>
+          <input type="url" class="form-control" name="radarr_url" value="{{ s.radarr_url or '' }}" placeholder="http://192.168.1.10:7878">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Clé API</label>
+          <div class="input-group">
+            <input type="password" class="form-control" name="radarr_api_key" value="{{ s.radarr_api_key or '' }}" id="radarr_key">
+            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('radarr_key')"><i class="bi bi-eye"></i></button>
+            <button type="button" class="btn btn-outline-primary" onclick="testConn('radarr')">Tester</button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Profil qualité</label>
+          <select class="form-select" name="radarr_quality_profile_id" id="radarr_profile">
+            {% if s.radarr_quality_profile_id %}<option value="{{ s.radarr_quality_profile_id }}" selected>ID {{ s.radarr_quality_profile_id }}</option>{% endif %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('radarr')">Charger</button>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Dossier racine</label>
+          <select class="form-select" name="radarr_root_folder" id="radarr_folder">
+            {% if s.radarr_root_folder %}<option value="{{ s.radarr_root_folder }}" selected>{{ s.radarr_root_folder }}</option>{% endif %}
+          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('radarr')">Charger</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Email -->
+  <div class="col-12">
+    <div class="card p-4">
+      <h5 class="mb-3"><i class="bi bi-envelope text-success me-2"></i>Email (SMTP)</h5>
+      <div class="row g-3">
+        <div class="col-md-5">
+          <label class="form-label">Serveur SMTP</label>
+          <input type="text" class="form-control" name="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Port</label>
+          <input type="number" class="form-control" name="smtp_port" value="{{ s.smtp_port or 587 }}">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls" {% if s.smtp_tls %}checked{% endif %}>
+            <label class="form-check-label" for="smtp_tls">STARTTLS</label>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Utilisateur SMTP</label>
+          <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Mot de passe SMTP</label>
+          <div class="input-group">
+            <input type="password" class="form-control" name="smtp_password" value="{{ s.smtp_password or '' }}" id="smtp_pass">
+            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('smtp_pass')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Email expéditeur</label>
+          <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Test — envoyer un email à</label>
+          <div class="input-group">
+            <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
+            <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="d-flex gap-4">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
+              <label class="form-check-label" for="email_req">Email à la demande</label>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
+              <label class="form-check-label" for="email_av">Email quand disponible</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notifications Push -->
+  <div class="col-12">
+    <div class="card p-4">
+      <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Notifications Push</h5>
+      <div class="row g-3">
+        <!-- Discord -->
+        <div class="col-12">
+          <h6 class="text-muted mb-2"><i class="bi bi-discord me-1"></i>Discord</h6>
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Webhook URL Discord</label>
+          <div class="input-group">
+            <input type="url" class="form-control" name="discord_webhook_url"
+                   value="{{ s.discord_webhook_url or '' }}"
+                   placeholder="https://discord.com/api/webhooks/...">
+            <button type="button" class="btn btn-outline-secondary" onclick="testConn('discord')">Tester</button>
+          </div>
+          <div class="form-text">Laissez vide pour désactiver. Les notifs sont envoyées à la demande et à la disponibilité.</div>
+        </div>
+        <!-- Telegram -->
+        <div class="col-12 mt-2">
+          <h6 class="text-muted mb-2"><i class="bi bi-telegram me-1"></i>Telegram</h6>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">Bot Token</label>
+          <div class="input-group">
+            <input type="password" class="form-control" name="telegram_bot_token"
+                   value="{{ s.telegram_bot_token or '' }}" id="tg_token"
+                   placeholder="123456:ABC-...">
+            <button type="button" class="btn btn-outline-secondary" onclick="togglePass('tg_token')"><i class="bi bi-eye"></i></button>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Chat ID</label>
+          <input type="text" class="form-control" name="telegram_chat_id"
+                 value="{{ s.telegram_chat_id or '' }}" placeholder="-100123456789">
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+          <button type="button" class="btn btn-outline-secondary w-100" onclick="testConn('telegram')">Tester</button>
+        </div>
+        <div class="col-12">
+          <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import / Export -->
+  <div class="col-12">
+    <div class="card p-4">
+      <h5 class="mb-3"><i class="bi bi-arrow-down-up text-info me-2"></i>Import / Export</h5>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <p class="text-muted mb-2">Exporte tous les paramètres, utilisateurs et demandes dans un fichier JSON.</p>
+          <a href="/api/export" class="btn btn-outline-info" download>
+            <i class="bi bi-download me-1"></i>Exporter les données
+          </a>
+        </div>
+        <div class="col-md-6">
+          <p class="text-muted mb-2">Importe un fichier JSON exporté précédemment (fusion, pas d'écrasement).</p>
+          <div class="d-flex gap-2 align-items-center">
+            <input type="file" class="form-control" id="importFile" accept=".json" style="max-width:280px">
+            <button class="btn btn-outline-warning" onclick="importData()">
+              <i class="bi bi-upload me-1"></i>Importer
+            </button>
+          </div>
+          <div id="importResult" class="mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Webhooks Sonarr / Radarr -->
+  <div class="col-12">
+    <div class="card p-4 border-warning">
+      <h5 class="mb-3"><i class="bi bi-broadcast text-warning me-2"></i>Webhooks — Notifications de disponibilité</h5>
+      <p class="text-muted mb-3">
+        Configurez ces URLs dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
+        pour être notifié dès qu'un contenu est téléchargé et importé.
+        Sélectionnez l'événement <strong>OnDownload / OnImport</strong>.
+      </p>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
+          <div class="input-group">
+            <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/sonarr" readonly id="webhook-sonarr">
+            <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
+          <div class="input-group">
+            <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/radarr" readonly id="webhook-radarr">
+            <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:#2a2a2a;font-size:13px">
+        <i class="bi bi-info-circle me-1"></i>
+        La correspondance se fait en priorité par <strong>ID TVDB/TMDB</strong> stocké lors de la demande, puis par titre si l'ID est absent.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="mt-4 d-flex gap-2">
+  <button type="button" class="btn btn-warning btn-lg" onclick="saveSettings()">
+    <i class="bi bi-save me-1"></i>Enregistrer
+  </button>
+</div>
+</form>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePass(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function getFormData() {
+  const form = document.getElementById('settings-form');
+  const data = {};
+  form.querySelectorAll('input, select').forEach(el => {
+    if (!el.name) return;
+    if (el.type === 'checkbox') data[el.name] = el.checked;
+    else if (el.value !== '') data[el.name] = el.value;
+  });
+  return data;
+}
+
+async function saveSettings() {
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(getFormData())
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showToast('Paramètres enregistrés !', 'success');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function testConn(service) {
+  showToast(`Test ${service} en cours...`, 'secondary');
+  await saveSettings();
+  const r = await fetch(`/api/test/${service}`, {method:'POST'});
+  const d = await r.json();
+  showToast(d.message, d.success ? 'success' : 'danger');
+}
+
+async function testSmtp() {
+  const email = document.getElementById('test_email').value;
+  if (!email) return showToast('Entrez un email de test', 'warning');
+  await saveSettings();
+  const r = await fetch('/api/test/smtp', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({recipient: email})
+  });
+  const d = await r.json();
+  showToast(d.message, d.success ? 'success' : 'danger');
+}
+
+async function loadProfiles(service) {
+  try {
+    const r = await fetch(`/api/${service}/profiles`);
+    const profiles = await r.json();
+    const sel = document.getElementById(`${service}_profile`);
+    sel.innerHTML = profiles.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  } catch(e) {
+    showToast(`Impossible de charger les profils ${service} — vérifiez l'URL et la clé API`, 'danger');
+  }
+}
+
+async function loadFolders(service) {
+  try {
+    const r = await fetch(`/api/${service}/folders`);
+    const folders = await r.json();
+    const sel = document.getElementById(`${service}_folder`);
+    sel.innerHTML = folders.map(f => `<option value="${f}">${f}</option>`).join('');
+  } catch(e) {
+    showToast(`Impossible de charger les dossiers ${service}`, 'danger');
+  }
+}
+
+async function importData() {
+  const file = document.getElementById('importFile').files[0];
+  if (!file) return showToast('Sélectionnez un fichier JSON', 'warning');
+  const form = new FormData();
+  form.append('file', file);
+  const res = document.getElementById('importResult');
+  res.innerHTML = '<span class="text-muted">Import en cours...</span>';
+  try {
+    const r = await fetch('/api/import', {method: 'POST', body: form});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    res.innerHTML = `<span class="text-success">Import reussi — ${d.stats.users_upserted} utilisateur(s), ${d.stats.requests_upserted} demande(s)</span>`;
+    showToast('Import terminé !', 'success');
+  } catch(e) {
+    res.innerHTML = `<span class="text-danger">${e.message}</span>`;
+    showToast('Erreur import : ' + e.message, 'danger');
+  }
+}
+
+function copyEl(id) {
+  navigator.clipboard.writeText(document.getElementById(id).value);
+  showToast('URL copiée !', 'success');
+}
+
+
+</script>
+{% endblock %}
