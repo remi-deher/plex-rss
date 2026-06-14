@@ -14,6 +14,7 @@ Cycle de vie :
 import asyncio
 import logging
 
+from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, Settings
 from .services.email_service import (
@@ -58,6 +59,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 logger.error(f"Notification email [{event}] échouée pour {recipient} / '{req.title}': {e}")
 
         # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
+        app_metrics.record_notification(all_ok)
         if all_ok:
             if event == "request":
                 req.request_mail_sent = True

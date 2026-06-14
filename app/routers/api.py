@@ -15,16 +15,20 @@ Endpoints regroupés par domaine :
 - /api/onboarding        : checklist de configuration initiale
 """
 
+import time
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from .. import metrics as app_metrics
 from ..database import get_db
 from ..models import MediaRequest, PlexUser, Settings
 from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
 from ..services import email_service, radarr, sonarr
+from ..services.overseerr import check_connection as overseerr_test
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 
@@ -373,31 +377,81 @@ def onboarding_status(db: Session = Depends(get_db)):
     return {"steps": steps, "complete": all(s["done"] for s in steps if not s.get("optional"))}
 
 
+async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
+    """Exécute une coroutine de connectivité et retourne (ok, message, latence_ms)."""
+    t0 = time.monotonic()
+    ok, msg = await coro
+    return ok, msg, round((time.monotonic() - t0) * 1000, 1)
+
+
 @router.get("/health")
 async def health_check(db: Session = Depends(get_db)):
-    """Vérifie la connectivité de tous les services (Sonarr, Radarr, SMTP, RSS)."""
+    """État structuré de tous les services connectés avec latences."""
     s = db.query(Settings).first()
-    results = {}
+    services: dict[str, dict] = {}
+    failed = 0
+    degraded = 0
 
+    # Sonarr
     if s and s.sonarr_url and s.sonarr_api_key:
-        ok, msg = await sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)
-        results["sonarr"] = {"ok": ok, "message": msg}
+        ok, msg, ms = await _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key))
+        services["sonarr"] = {"ok": ok, "message": msg, "response_ms": ms}
+        if not ok:
+            failed += 1
     else:
-        results["sonarr"] = {"ok": None, "message": "Non configuré"}
+        services["sonarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
 
+    # Radarr
     if s and s.radarr_url and s.radarr_api_key:
-        ok, msg = await radarr.check_connection(s.radarr_url, s.radarr_api_key)
-        results["radarr"] = {"ok": ok, "message": msg}
+        ok, msg, ms = await _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key))
+        services["radarr"] = {"ok": ok, "message": msg, "response_ms": ms}
+        if not ok:
+            failed += 1
     else:
-        results["radarr"] = {"ok": None, "message": "Non configuré"}
+        services["radarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
 
-    results["smtp"] = {"ok": bool(s and s.smtp_host), "message": "Configuré" if s and s.smtp_host else "Non configuré"}
-    results["rss"] = {
+    # Overseerr
+    if s and s.overseerr_enabled and s.overseerr_url and s.overseerr_api_key:
+        ok, msg, ms = await _timed_check(overseerr_test(s.overseerr_url, s.overseerr_api_key))
+        services["overseerr"] = {"ok": ok, "message": msg, "response_ms": ms}
+        if not ok:
+            degraded += 1
+    else:
+        services["overseerr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
+
+    # Plex API
+    if s and s.plex_url and s.plex_token:
+        ok, msg, ms = await _timed_check(plex_test(s.plex_url, s.plex_token))
+        services["plex"] = {"ok": ok, "message": msg, "response_ms": ms}
+        if not ok:
+            failed += 1
+    else:
+        services["plex"] = {"ok": None, "message": "Non configuré", "response_ms": None}
+
+    # SMTP & RSS — pas de test réseau, on vérifie juste la configuration
+    services["smtp"] = {
+        "ok": bool(s and s.smtp_host),
+        "message": "Configuré" if s and s.smtp_host else "Non configuré",
+        "response_ms": None,
+    }
+    services["rss"] = {
         "ok": bool(s and s.plex_rss_url),
         "message": "Configuré" if s and s.plex_rss_url else "Non configuré",
+        "response_ms": None,
     }
 
-    return results
+    if failed > 0:
+        overall = "down"
+    elif degraded > 0:
+        overall = "degraded"
+    else:
+        overall = "healthy"
+
+    return {
+        "status": overall,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "services": services,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +520,43 @@ def stats_counts(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/metrics")
+def get_metrics(db: Session = Depends(get_db)):
+    """Métriques runtime (session courante) + agrégats DB (total historique).
+
+    Les compteurs runtime se réinitialisent au redémarrage du serveur.
+    Les agrégats DB reflètent l'ensemble de l'historique.
+    """
+    from sqlalchemy import func
+
+    # Agrégats DB
+    total = db.query(MediaRequest).count()
+    available = db.query(MediaRequest).filter(MediaRequest.status == "available").count()
+    failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").count()
+    notif_sent = db.query(MediaRequest).filter(MediaRequest.available_mail_sent.is_(True)).count()
+    notif_missed = db.query(MediaRequest).filter(
+        MediaRequest.status == "available",
+        MediaRequest.available_mail_sent.is_(False),
+    ).count()
+    notif_total = notif_sent + notif_missed
+    notif_failure_pct_db = round(notif_missed / notif_total * 100, 1) if notif_total else None
+
+    return {
+        "runtime": app_metrics.snapshot(),
+        "db": {
+            "total_requests": total,
+            "available": available,
+            "failed": failed,
+            "success_rate_pct": round(available / total * 100, 1) if total else None,
+            "notifications": {
+                "sent": notif_sent,
+                "missed": notif_missed,
+                "failure_rate_pct": notif_failure_pct_db,
+            },
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Scheduler
 # ---------------------------------------------------------------------------
@@ -474,7 +565,6 @@ def stats_counts(db: Session = Depends(get_db)):
 @router.get("/next-poll")
 def next_poll_info():
     """Retourne le nombre de secondes avant le prochain polling (pour le countdown UI)."""
-    from datetime import datetime, timezone
 
     from ..scheduler import scheduler
 

@@ -12,12 +12,14 @@ Scheduler APScheduler gérant les deux tâches périodiques :
 """
 
 import logging
+import time
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
 
+from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
@@ -74,18 +76,28 @@ async def _submit_to_arr(settings: Settings, item: dict) -> tuple[int | None, bo
         (arr_id, already_existed, arr_slug)
     """
     if settings.overseerr_enabled and settings.overseerr_url and settings.overseerr_api_key:
-        return await overseerr_request(settings.overseerr_url, settings.overseerr_api_key, item)
+        t0 = time.monotonic()
+        result = await overseerr_request(settings.overseerr_url, settings.overseerr_api_key, item)
+        app_metrics.record_overseerr_latency((time.monotonic() - t0) * 1000)
+        app_metrics.record_arr_submission(result[0] is not None or result[1])
+        return result
 
     if item["media_type"] == "show" and settings.sonarr_enabled and settings.sonarr_url:
-        return await add_series(
+        t0 = time.monotonic()
+        result = await add_series(
             settings.sonarr_url,
             settings.sonarr_api_key,
             settings.sonarr_quality_profile_id,
             settings.sonarr_root_folder,
             item,
         )
+        app_metrics.record_sonarr_latency((time.monotonic() - t0) * 1000)
+        app_metrics.record_arr_submission(result[0] is not None or result[1])
+        return result
+
     if item["media_type"] == "movie" and settings.radarr_enabled and settings.radarr_url:
-        return await add_movie(
+        t0 = time.monotonic()
+        result = await add_movie(
             settings.radarr_url,
             settings.radarr_api_key,
             settings.radarr_quality_profile_id,
@@ -93,6 +105,10 @@ async def _submit_to_arr(settings: Settings, item: dict) -> tuple[int | None, bo
             item,
             minimum_availability=settings.radarr_minimum_availability or "released",
         )
+        app_metrics.record_radarr_latency((time.monotonic() - t0) * 1000)
+        app_metrics.record_arr_submission(result[0] is not None or result[1])
+        return result
+
     return None, False, None
 
 
@@ -158,7 +174,9 @@ async def poll_watchlists():
     4. Notifie selon le résultat (succès, échec, déjà existant).
     """
     logger.info("Polling watchlists...")
+    _poll_start = time.monotonic()
     db: Session = SessionLocal()
+    _poll_error = False
     try:
         settings = db.query(Settings).first()
         if not settings:
@@ -247,7 +265,9 @@ async def poll_watchlists():
 
     except Exception as e:
         logger.error(f"Poll error: {e}")
+        _poll_error = True
     finally:
+        app_metrics.record_poll((time.monotonic() - _poll_start) * 1000, error=_poll_error)
         db.close()
 
 
