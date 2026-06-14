@@ -68,22 +68,26 @@ def client_no_auth(db):
 
 def _seed(db):
     """Peuple la DB avec des données minimales pour que les pages ne crashent pas."""
-    db.add(Settings(
-        smtp_host="smtp.example.com",
-        plex_url="http://plex.local",
-        sonarr_url="http://sonarr.local",
-        radarr_url="http://radarr.local",
-        auth_username="admin",
-        auth_password_hash="hash",
-    ))
+    db.add(
+        Settings(
+            smtp_host="smtp.example.com",
+            plex_url="http://plex.local",
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
     db.add(PlexUser(plex_user_id="alice", display_name="Alice", enabled=True))
-    db.add(MediaRequest(
-        plex_user_id="alice",
-        plex_user="Alice",
-        title="Inception",
-        media_type="movie",
-        status=RequestStatus.sent_to_arr,
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Inception",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
     db.commit()
 
 

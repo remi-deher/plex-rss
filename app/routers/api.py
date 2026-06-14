@@ -534,10 +534,14 @@ def get_metrics(db: Session = Depends(get_db)):
     available = db.query(MediaRequest).filter(MediaRequest.status == "available").count()
     failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").count()
     notif_sent = db.query(MediaRequest).filter(MediaRequest.available_mail_sent.is_(True)).count()
-    notif_missed = db.query(MediaRequest).filter(
-        MediaRequest.status == "available",
-        MediaRequest.available_mail_sent.is_(False),
-    ).count()
+    notif_missed = (
+        db.query(MediaRequest)
+        .filter(
+            MediaRequest.status == "available",
+            MediaRequest.available_mail_sent.is_(False),
+        )
+        .count()
+    )
     notif_total = notif_sent + notif_missed
     notif_failure_pct_db = round(notif_missed / notif_total * 100, 1) if notif_total else None
 

@@ -143,7 +143,9 @@ async def test_send_skipped_when_smtp_not_configured():
 @pytest.mark.asyncio
 async def test_send_raises_on_smtp_error():
     """Erreur SMTP → exception propagée (pour que notification_queue la capture)."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("connection refused"))):
+    with patch(
+        "app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("connection refused"))
+    ):
         with pytest.raises(Exception, match="connection refused"):
             await send_request_notification(_settings(), _req(), "dest@example.com")
 

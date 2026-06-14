@@ -150,7 +150,12 @@ async def test_poll_existing_sent_to_arr_is_skipped(db):
     db.add(existing)
     db.commit()
 
-    with _patch_session(db), _patch_watchlist([_movie_item()]), _patch_submit() as mock_submit, _patch_enqueue() as mock_enqueue:
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        _patch_submit() as mock_submit,
+        _patch_enqueue() as mock_enqueue,
+    ):
         await poll_watchlists()
 
     mock_submit.assert_not_called()
@@ -210,7 +215,12 @@ async def test_poll_already_existed_skips_notification(db):
     db.add(PlexUser(plex_user_id="alice", enabled=True))
     db.commit()
 
-    with _patch_session(db), _patch_watchlist([_movie_item()]), _patch_submit(already_existed=True), _patch_enqueue() as mock_enqueue:
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        _patch_submit(already_existed=True),
+        _patch_enqueue() as mock_enqueue,
+    ):
         await poll_watchlists()
 
     req = db.query(MediaRequest).first()
@@ -356,7 +366,11 @@ async def test_check_arr_show_becomes_available(db):
 async def test_check_arr_no_candidates_returns_early(db):
     """Aucune demande sent_to_arr → aucun check effectué."""
     db.add(_settings())
-    db.add(MediaRequest(plex_user_id="alice", plex_user="alice", title="X", media_type="movie", status=RequestStatus.available))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice", plex_user="alice", title="X", media_type="movie", status=RequestStatus.available
+        )
+    )
     db.commit()
 
     with _patch_session(db), patch("app.scheduler.is_movie_available", new=AsyncMock()) as mock_check:
@@ -402,7 +416,11 @@ async def test_check_arr_exception_does_not_crash_loop(db):
             raise Exception("network error")
         return (True, 2, None)
 
-    with _patch_session(db), patch("app.scheduler.is_movie_available", new=AsyncMock(side_effect=flaky)), _patch_enqueue():
+    with (
+        _patch_session(db),
+        patch("app.scheduler.is_movie_available", new=AsyncMock(side_effect=flaky)),
+        _patch_enqueue(),
+    ):
         await check_arr_statuses()
 
     statuses = {r.title: r.status for r in db.query(MediaRequest).all()}

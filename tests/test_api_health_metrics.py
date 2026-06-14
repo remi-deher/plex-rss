@@ -189,8 +189,26 @@ def test_metrics_empty_db(client, db):
 
 def test_metrics_counts_by_status(client, db):
     """/metrics compte correctement available et failed."""
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="A", media_type="movie", status=RequestStatus.available, available_mail_sent=True))
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="B", media_type="movie", status=RequestStatus.available, available_mail_sent=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="u",
+            plex_user="u",
+            title="A",
+            media_type="movie",
+            status=RequestStatus.available,
+            available_mail_sent=True,
+        )
+    )
+    db.add(
+        MediaRequest(
+            plex_user_id="u",
+            plex_user="u",
+            title="B",
+            media_type="movie",
+            status=RequestStatus.available,
+            available_mail_sent=True,
+        )
+    )
     db.add(MediaRequest(plex_user_id="u", plex_user="u", title="C", media_type="movie", status=RequestStatus.failed))
     db.commit()
 
@@ -205,9 +223,36 @@ def test_metrics_counts_by_status(client, db):
 def test_metrics_notification_failure_rate(client, db):
     """Taux d'échec notification calculé depuis available_mail_sent."""
     # 2 available avec mail envoyé, 1 available sans mail → 33.3%
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="A", media_type="movie", status=RequestStatus.available, available_mail_sent=True))
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="B", media_type="movie", status=RequestStatus.available, available_mail_sent=True))
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="C", media_type="movie", status=RequestStatus.available, available_mail_sent=False))
+    db.add(
+        MediaRequest(
+            plex_user_id="u",
+            plex_user="u",
+            title="A",
+            media_type="movie",
+            status=RequestStatus.available,
+            available_mail_sent=True,
+        )
+    )
+    db.add(
+        MediaRequest(
+            plex_user_id="u",
+            plex_user="u",
+            title="B",
+            media_type="movie",
+            status=RequestStatus.available,
+            available_mail_sent=True,
+        )
+    )
+    db.add(
+        MediaRequest(
+            plex_user_id="u",
+            plex_user="u",
+            title="C",
+            media_type="movie",
+            status=RequestStatus.available,
+            available_mail_sent=False,
+        )
+    )
     db.commit()
 
     resp = client.get("/api/metrics")
@@ -245,7 +290,9 @@ def test_stats_counts_correct_values(client, db):
     """/stats/counts reflète les vraies données DB."""
     db.add(MediaRequest(plex_user_id="u", plex_user="u", title="A", media_type="movie", status=RequestStatus.available))
     db.add(MediaRequest(plex_user_id="u", plex_user="u", title="B", media_type="movie", status=RequestStatus.failed))
-    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="C", media_type="movie", status=RequestStatus.sent_to_arr))
+    db.add(
+        MediaRequest(plex_user_id="u", plex_user="u", title="C", media_type="movie", status=RequestStatus.sent_to_arr)
+    )
     db.commit()
 
     resp = client.get("/api/stats/counts")
