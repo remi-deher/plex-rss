@@ -1,4 +1,4 @@
-"""Tests unitaires pour app/services/sonarr.py.
+"""Tests unitaires pour app/services/sonarr.py — Sonarr service.
 
 Tous les appels httpx sont mockés — aucune instance Sonarr réelle n'est requise.
 """
