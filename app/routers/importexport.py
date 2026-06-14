@@ -71,6 +71,16 @@ async def import_data(
             if hasattr(s, k):
                 if k == "smtp_password" and not v:
                     continue
+                # Forcer les types appropriés pour la DB
+                column = Settings.__table__.columns.get(k)
+                if column is not None:
+                    if column.type.python_type == bool and isinstance(v, str):
+                        v = v.lower() in ("true", "1", "on", "yes")
+                    elif column.type.python_type == int and v is not None:
+                        try:
+                            v = int(v)
+                        except (ValueError, TypeError):
+                            v = None
                 setattr(s, k, v)
         stats["settings"] = True
 
@@ -85,12 +95,16 @@ async def import_data(
             db.add(user)
         for k, v in u_data.items():
             if hasattr(user, k) and k != "id":
-                # Convertir les dates en objets datetime
-                if k in ("created_at",) and isinstance(v, str) and v:
-                    try:
-                        v = datetime.fromisoformat(v)
-                    except ValueError:
-                        pass
+                column = PlexUser.__table__.columns.get(k)
+                if column is not None:
+                    # Convertir les dates en objets datetime
+                    if column.type.python_type == datetime and isinstance(v, str) and v:
+                        try:
+                            v = datetime.fromisoformat(v)
+                        except ValueError:
+                            pass
+                    elif column.type.python_type == bool and isinstance(v, str):
+                        v = v.lower() in ("true", "1", "on", "yes")
                 setattr(user, k, v)
         stats["users_upserted"] += 1
 
@@ -106,12 +120,21 @@ async def import_data(
             db.add(existing)
         for k, v in r_data.items():
             if hasattr(existing, k) and k != "id":
-                # Convertir les dates en objets datetime
-                if k in ("requested_at", "available_at") and isinstance(v, str) and v:
-                    try:
-                        v = datetime.fromisoformat(v)
-                    except ValueError:
-                        pass
+                column = MediaRequest.__table__.columns.get(k)
+                if column is not None:
+                    # Convertir les dates en objets datetime
+                    if column.type.python_type == datetime and isinstance(v, str) and v:
+                        try:
+                            v = datetime.fromisoformat(v)
+                        except ValueError:
+                            pass
+                    elif column.type.python_type == bool and isinstance(v, str):
+                        v = v.lower() in ("true", "1", "on", "yes")
+                    elif column.type.python_type == int and v is not None:
+                        try:
+                            v = int(v)
+                        except (ValueError, TypeError):
+                            v = None
                 setattr(existing, k, v)
         stats["requests_upserted"] += 1
 
