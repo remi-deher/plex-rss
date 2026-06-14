@@ -8,6 +8,8 @@ on:
       - "app/**"
       - "Dockerfile"
       - "requirements.txt"
+    tags:
+      - "v*"
 
 jobs:
   build-and-push:
@@ -24,11 +26,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: mrcryllix/plex-rss
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: mrcryllix/plex-rss:latest
+          tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

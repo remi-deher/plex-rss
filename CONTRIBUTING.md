@@ -109,6 +109,7 @@ python -m pytest tests/test_scheduler.py::test_poll_new_item_creates_request_and
 | `test_api_requests.py` | Endpoints `/api/requests` |
 | `test_api_health_metrics.py` | Endpoints `/api/health` et `/api/metrics` |
 | `test_metrics.py` | Compteurs in-memory (`app/metrics.py`) |
+| `test_pages.py` | Pages HTML : rendu 200, redirections auth, contenu minimal |
 
 ---
 
@@ -257,3 +258,6 @@ Non. Tous les tests utilisent une base SQLite in-memory créée et détruite pou
 
 **Comment tester un webhook localement ?**
 Avec [ngrok](https://ngrok.com/) ou [localtunnel](https://theboroer.github.io/localtunnel-www/) pour exposer `localhost:8000` sur internet, puis configurez l'URL dans Sonarr/Radarr/Plex.
+
+**Pourquoi `test_pages.py` et pourquoi tester le rendu HTML ?**
+Starlette ≥ 0.36 a changé la signature de `TemplateResponse` : `(name, context)` → `(request, name, context_sans_request)`. Ce changement casse silencieusement toutes les pages en production avec un `TypeError: unhashable type: 'dict'` (HTTP 500), sans que les tests unitaires ou de lint ne le détectent. `test_pages.py` fait un GET réel sur chaque page via `TestClient` et vérifie qu'on reçoit 200 + `text/html` — ce genre de régression est attrapé immédiatement.

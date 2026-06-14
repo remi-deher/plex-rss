@@ -42,6 +42,11 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 - **Paramètres** — navigation par onglets (Connexions / Notifications / Avancé), bouton Enregistrer sticky, badges de connexion persistants, avertissements de configuration incomplète, chargement automatique des profils/dossiers Sonarr/Radarr
 - **Import / Export** JSON pour sauvegarde et restauration complète
 
+### Observabilité
+- **`/api/health`** — état structuré de chaque service (Sonarr, Radarr, Overseerr, Plex) avec latence en ms, statut global `healthy / degraded / down` et horodatage ISO 8601
+- **`/api/metrics`** — compteurs runtime (polls, soumissions *arr, notifications, taux d'erreur, latences moyennes) + agrégats DB par statut en temps réel
+- **Métriques in-memory** — réinitialisées au redémarrage, fenêtre glissante de 50 échantillons pour les latences
+
 ### Sécurité & Gestion
 - **Authentification** — bcrypt + session cookie, wizard de premier démarrage
 - **Clé secrète** — générée aléatoirement au premier lancement, persistée dans `data/.secret_key`
@@ -146,23 +151,24 @@ plex-rss/
 │   ├── database.py              # Moteur SQLite, session
 │   ├── scheduler.py             # Jobs APScheduler (poll_watchlists, check_arr_statuses)
 │   ├── notification_queue.py    # Worker asyncio pour les notifications
+│   ├── metrics.py               # Compteurs in-memory (latences, taux d'erreur runtime)
 │   ├── log_buffer.py            # Handler logging en mémoire (500 entrées)
 │   ├── routers/
 │   │   ├── auth.py              # Authentification (login, setup, logout)
-│   │   ├── api.py               # API REST JSON
+│   │   ├── api.py               # API REST JSON (/api/health, /api/metrics, /api/requests…)
 │   │   ├── pages.py             # Pages HTML (Jinja2)
 │   │   ├── webhook.py           # Webhooks entrants (Sonarr, Radarr, Plex)
 │   │   ├── importexport.py      # Import / Export JSON
 │   │   └── email_templates.py   # Éditeur de templates email
 │   ├── services/
 │   │   ├── auth.py              # Bcrypt + clés de session
-│   │   ├── watchlist.py         # Agrégateur API + RSS
+│   │   ├── watchlist.py         # Agrégateur API + RSS avec fallback automatique
 │   │   ├── plex_api.py          # Client API Plex officielle + SSO OAuth
 │   │   ├── plex_rss.py          # Parseur flux RSS Plex
 │   │   ├── sonarr.py            # Client API Sonarr v3
 │   │   ├── radarr.py            # Client API Radarr v3/v5
 │   │   ├── overseerr.py         # Client API Overseerr / Jellyseerr
-│   │   ├── email_service.py     # Envoi SMTP (aiosmtplib)
+│   │   ├── email_service.py     # Envoi SMTP (aiosmtplib), templates Jinja2
 │   │   └── notifications.py     # Discord & Telegram
 │   └── templates/               # HTML Bootstrap 5 dark
 │       ├── base.html
@@ -171,14 +177,37 @@ plex-rss/
 │       ├── users.html
 │       ├── logs.html
 │       ├── settings.html
+│       ├── email_templates.html
 │       ├── login.html
 │       └── setup.html
-├── alembic/                     # Migrations SQLite (0001 → 0007)
+├── tests/                       # Suite de tests (155 tests, pytest + pytest-asyncio)
+│   ├── test_sonarr.py
+│   ├── test_radarr.py
+│   ├── test_overseerr.py
+│   ├── test_plex_api.py
+│   ├── test_scheduler.py
+│   ├── test_notification_queue.py
+│   ├── test_watchlist.py
+│   ├── test_email_service.py
+│   ├── test_metrics.py
+│   ├── test_api_settings.py
+│   ├── test_api_requests.py
+│   ├── test_api_health_metrics.py
+│   └── test_pages.py
+├── alembic/                     # Migrations SQLite
 ├── data/                        # Base SQLite + clé secrète (volume, non versionné)
 ├── .github/workflows/
-│   └── dockerhub-description.yml
+│   ├── tests.yml                # CI : pytest sur chaque push / PR
+│   ├── lint.yml                 # CI : ruff check
+│   ├── docker-publish.yml       # Publication Docker Hub sur tag
+│   ├── release.yml              # Création de release GitHub sur tag
+│   ├── trivy.yml                # Scan de sécurité CVE (Trivy)
+│   └── dependabot-auto-merge.yml
 ├── Dockerfile
 ├── docker-compose.yml
+├── pytest.ini
+├── ruff.toml
+├── CONTRIBUTING.md
 ├── DOCKER_HUB.md
 └── requirements.txt
 ```
@@ -197,6 +226,19 @@ python -m venv .venv
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload
+```
+
+### Tests
+
+```bash
+# Lancer tous les tests
+python -m pytest -v
+
+# Lancer un fichier spécifique
+python -m pytest tests/test_scheduler.py -v
+
+# Lancer un test précis
+python -m pytest tests/test_scheduler.py::test_poll_new_item_creates_request_and_notifies -v
 ```
 
 ### Rebuild Docker après modification
@@ -228,6 +270,9 @@ alembic upgrade head
 | Parseur RSS | feedparser |
 | Email | aiosmtplib |
 | Templates | Jinja2 + Bootstrap 5 dark |
+| Tests | pytest + pytest-asyncio (155 tests, SQLite in-memory) |
+| Lint | ruff (E, F, W, I) |
+| CI | GitHub Actions (tests, lint, Trivy, Docker Hub) |
 | Conteneurisation | Docker + Docker Compose |
 
 ---
