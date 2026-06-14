@@ -49,5 +49,3 @@ logs/
 .pytest_cache/
 htmlcov/
 
-# Docker
-.dockerignore
