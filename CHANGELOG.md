@@ -9,10 +9,12 @@
 
 - migrate models to Mapped[T], fix UploadFile type in webhook — resolves 76 mypy errors ([645a338](https://github.com/remi-deher/plex-rss/commit/645a338b5363e2a8afcd7202f78dcf714671397c))
 - ruff linting + couverture tests 60% ([5d291e9](https://github.com/remi-deher/plex-rss/commit/5d291e915ed56938df98bf41ae9cc235f75d5ab3))
+- ruff format + couverture tests 60% ([70f2c2a](https://github.com/remi-deher/plex-rss/commit/70f2c2a47f3d234af6f85805a149731674d45ed2))
 
 ### 📖 Documentation
 
 - update CHANGELOG.md for v2.0.0 ([929def2](https://github.com/remi-deher/plex-rss/commit/929def28c30991a8d5ef2f6abc56f99521b16332))
+- update CHANGELOG.md for v2.0.0 ([83df62f](https://github.com/remi-deher/plex-rss/commit/83df62f8b084b580790f2e06e03bbb63fb70f86e))
 
 ### 🔧 Maintenance
 
