@@ -1,12 +1,17 @@
 """Utilitaires partagés entre les modules de l'application."""
 
 from contextlib import contextmanager
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-_T = TypeVar("_T")
+
+class _HasId(Protocol):
+    id: Any
+
+
+_T = TypeVar("_T", bound=_HasId)
 
 
 @contextmanager

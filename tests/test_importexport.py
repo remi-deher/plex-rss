@@ -14,7 +14,6 @@ from app.main import app
 from app.models import Base, MediaRequest, PlexUser, Settings
 from app.routers.importexport import require_auth as ie_require_auth
 
-
 # ---------------------------------------------------------------------------
 # Base de données en mémoire partagée entre les tests du module
 # StaticPool : toutes les connexions (y compris le thread du TestClient)
