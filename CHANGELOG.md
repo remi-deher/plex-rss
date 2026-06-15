@@ -11,12 +11,14 @@
 - ruff linting + couverture tests 60% ([5d291e9](https://github.com/remi-deher/plex-rss/commit/5d291e915ed56938df98bf41ae9cc235f75d5ab3))
 - ruff format + couverture tests 60% ([70f2c2a](https://github.com/remi-deher/plex-rss/commit/70f2c2a47f3d234af6f85805a149731674d45ed2))
 - guard null seer-loading element in loadSeerCells ([b2301f3](https://github.com/remi-deher/plex-rss/commit/b2301f35caf7b4f93ab09131bc46f28862d23f41))
+- upgrade pip >= 26.1 (CVE-2026-6357, CVE-2026-3219, CVE-2025-8869, CVE-2026-1703) ([11eb626](https://github.com/remi-deher/plex-rss/commit/11eb6262623e0ff4d7a2ff9a7614a7a650add51a))
 
 ### 📖 Documentation
 
 - update CHANGELOG.md for v2.0.0 ([929def2](https://github.com/remi-deher/plex-rss/commit/929def28c30991a8d5ef2f6abc56f99521b16332))
 - update CHANGELOG.md for v2.0.0 ([83df62f](https://github.com/remi-deher/plex-rss/commit/83df62f8b084b580790f2e06e03bbb63fb70f86e))
 - update CHANGELOG.md for v2.0.0 ([5a08f0d](https://github.com/remi-deher/plex-rss/commit/5a08f0d3a14b3a6b1733fb2e36d22300ac195f29))
+- update CHANGELOG.md for v2.0.0 ([95800ef](https://github.com/remi-deher/plex-rss/commit/95800eff5df5d780a2e63df38f846edec15d1aaf))
 
 ### 🔧 Maintenance
 
