@@ -15,7 +15,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, PlexUser, RequestStatus, Settings
+from .models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
 from .services.radarr import add_movie, is_movie_available
 from .services.seer import _headers as _seer_headers
@@ -45,11 +45,31 @@ scheduler = AsyncIOScheduler()
 # ---------------------------------------------------------------------------
 
 
+def _purge_notification_logs():
+    """Supprime les logs de notifications plus anciens que la rétention configurée."""
+    db: Session = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        days = settings.notification_log_retention_days if settings else None
+        if not days:
+            return
+        cutoff = datetime.now().replace(tzinfo=None) - timedelta(days=days)
+        deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
+        if deleted:
+            db.commit()
+            logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
+    except Exception as e:
+        logger.error(f"Erreur purge logs notifications : {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler(poll_minutes: int = 5):
-    """Enregistre les trois jobs et démarre le scheduler."""
+    """Enregistre les jobs et démarre le scheduler."""
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
+    scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
     scheduler.start()
     logger.info(f"Scheduler started (poll every {poll_minutes}m)")
 

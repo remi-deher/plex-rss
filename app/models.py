@@ -72,6 +72,9 @@ class Settings(Base):
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
 
+    # --- Notifications avancées ---
+    notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
+
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
     seer_api_key: Mapped[Optional[str]]

@@ -89,6 +89,9 @@ class SettingsUpdate(BaseModel):
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
     seer_enabled: Optional[bool] = None
+    notification_log_retention_days: Optional[int] = None
+    email_request_template: Optional[str] = None
+    email_available_template: Optional[str] = None
 
 
 @router.get("/settings")
@@ -109,10 +112,16 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if not s:
         raise HTTPException(status_code=404, detail="Paramètres non initialisés")
-    for key, val in data.model_dump(exclude_none=True).items():
-        # Ne pas écraser le vrai mot de passe par la valeur masquée affichée dans l'UI
+    # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
+    _nullable_fields = {"email_request_template", "email_available_template"}
+    payload = data.model_dump()
+    for key, val in payload.items():
+        if val is None and key not in _nullable_fields:
+            continue
         if key == "smtp_password" and val == "••••••••":
             continue
+        if key == "notification_log_retention_days" and val == 0:
+            val = None
         setattr(s, key, val)
     db.commit()
     if data.poll_interval_minutes:
@@ -880,6 +889,45 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
     return d
+
+
+@router.get("/email/preview")
+def preview_email_template(event: str = "request", db: Session = Depends(get_db)):
+    """Rend le template email avec des données fictives et retourne le HTML."""
+    from ..models import MediaRequest as MR
+    from ..services.email_service import (
+        DEFAULT_AVAILABLE_TEMPLATE,
+        DEFAULT_REQUEST_TEMPLATE,
+        render_template,
+    )
+
+    settings = db.query(Settings).first()
+    fake = MR(
+        title="Dune : Deuxième Partie",
+        year=2024,
+        media_type="movie",
+        plex_user="Jean Dupont",
+        overview="Paul Atréides s'unit aux Fremen pour mener la guerre sainte contre ceux qui ont détruit sa famille.",
+        poster_url="https://image.tmdb.org/t/p/w300/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+    )
+    ctx = {
+        "title": fake.title,
+        "year": fake.year,
+        "poster_url": fake.poster_url,
+        "plex_user": fake.plex_user,
+        "media_type": fake.media_type,
+        "media_type_label": "Film",
+        "media_type_label_cap": "Le film",
+        "overview": fake.overview,
+        "genres": "Science-Fiction, Aventure",
+    }
+    if event == "available":
+        tpl = (settings.email_available_template if settings else None) or DEFAULT_AVAILABLE_TEMPLATE
+    else:
+        tpl = (settings.email_request_template if settings else None) or DEFAULT_REQUEST_TEMPLATE
+    html = render_template(tpl, ctx)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 
 @router.get("/notifications/log")
