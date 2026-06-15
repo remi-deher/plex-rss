@@ -23,6 +23,7 @@
 - update CHANGELOG.md for v2.0.0 ([95800ef](https://github.com/remi-deher/plex-rss/commit/95800eff5df5d780a2e63df38f846edec15d1aaf))
 - update CHANGELOG.md for v2.0.0 ([cf3cf62](https://github.com/remi-deher/plex-rss/commit/cf3cf62bb5e144ed9f55902d1e0655e300f708e4))
 - update CHANGELOG.md for v2.0.0 ([db0a5a4](https://github.com/remi-deher/plex-rss/commit/db0a5a478c341a46e10022b2126dd0aaa597c7b5))
+- update CHANGELOG.md for v2.0.0 ([8f21a7e](https://github.com/remi-deher/plex-rss/commit/8f21a7e79d201819ee3c783956475672ec931972))
 
 ### 🔧 Maintenance
 
