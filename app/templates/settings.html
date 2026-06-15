@@ -247,6 +247,18 @@
               </div>
               <div class="form-text">Seer → Paramètres → Général → Clé API</div>
             </div>
+            <div class="col-12">
+              <hr class="border-secondary my-1">
+              <div class="d-flex gap-2 flex-wrap mt-2">
+                <button type="button" id="btn-seer-sync-users" class="btn btn-outline-info btn-sm" onclick="seerSyncUsers()">
+                  <i class="bi bi-people me-1"></i>Synchroniser les utilisateurs
+                </button>
+                <button type="button" id="btn-seer-sync-statuts" class="btn btn-outline-secondary btn-sm" onclick="seerSyncStatuts()">
+                  <i class="bi bi-arrow-repeat me-1"></i>Mettre à jour les statuts (Hybride / Seer)
+                </button>
+              </div>
+              <div class="form-text">Synchronise les comptes Seer avec les utilisateurs Plex et met à jour les badges Hybride / Seer.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -631,6 +643,26 @@ function updateSeerMode() {
   });
 }
 document.getElementById('seer_en').addEventListener('change', updateSeerMode);
+
+async function _seerAction(btnId, url, label) {
+  const btn = document.getElementById(btnId);
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + label + '…';
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    showToast(d.message || label + ' terminé', r.ok ? 'success' : 'danger');
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+function seerSyncUsers()   { _seerAction('btn-seer-sync-users',   '/api/seer/sync/users',    'Synchronisation'); }
+function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/sync/users',    'Mise à jour'); }
 
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
