@@ -947,7 +947,7 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
 @router.get("/activity")
 def activity_log(db: Session = Depends(get_db)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
         .filter(MediaRequest.requested_at >= cutoff)
