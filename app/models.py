@@ -107,6 +107,20 @@ class PlexUser(Base):
     created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
 
+class NotificationLog(Base):
+    __tablename__ = "notification_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    sent_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    event: Mapped[str]
+    recipient: Mapped[str]
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    media_title: Mapped[Optional[str]]
+    media_type: Mapped[Optional[str]]
+    success: Mapped[bool] = mapped_column(default=True)
+    error_msg: Mapped[Optional[str]]
+
+
 class MediaRequest(Base):
     __tablename__ = "media_requests"
 

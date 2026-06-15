@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
-from ..models import MediaRequest, PlexUser, Settings
+from ..models import MediaRequest, NotificationLog, PlexUser, Settings
 from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
 from ..services import email_service, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
@@ -880,6 +880,30 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
     return d
+
+
+@router.get("/notifications/log")
+def list_notification_logs(limit: int = 100, db: Session = Depends(get_db)):
+    logs = (
+        db.query(NotificationLog)
+        .order_by(NotificationLog.sent_at.desc())
+        .limit(min(limit, 500))
+        .all()
+    )
+    return [
+        {
+            "id": l.id,
+            "sent_at": l.sent_at.isoformat() if l.sent_at else None,
+            "event": l.event,
+            "recipient": l.recipient,
+            "is_admin": l.is_admin,
+            "media_title": l.media_title,
+            "media_type": l.media_type,
+            "success": l.success,
+            "error_msg": l.error_msg,
+        }
+        for l in logs
+    ]
 
 
 @router.post("/requests/{request_id}/retry")

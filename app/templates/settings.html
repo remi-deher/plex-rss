@@ -338,6 +338,19 @@
         </div>
       </div>
 
+      <!-- Historique emails -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
+          </div>
+          <div id="notif-log-wrap">
+            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Push -->
       <div class="col-12">
         <div class="card p-4">
@@ -663,6 +676,55 @@ async function _seerAction(btnId, url, label) {
 
 function seerSyncUsers()   { _seerAction('btn-seer-sync-users',   '/api/seer/sync/users',    'Synchronisation'); }
 function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/sync/users',    'Mise à jour'); }
+
+// ── Historique notifications ──────────────────────────────────────────────────
+const EVENT_LABELS = { request: 'Demande', available: 'Disponible', failed: 'Échec' };
+const EVENT_COLORS = { request: 'bg-primary', available: 'bg-success', failed: 'bg-danger' };
+const MEDIA_ICONS  = { show: 'bi-tv', movie: 'bi-camera-video' };
+
+async function loadNotifLog() {
+  const wrap = document.getElementById('notif-log-wrap');
+  wrap.innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>';
+  try {
+    const r = await fetch('/api/notifications/log?limit=100');
+    const logs = await r.json();
+    if (!logs.length) {
+      wrap.innerHTML = '<p class="text-muted mb-0">Aucun email envoyé pour l\'instant.</p>';
+      return;
+    }
+    const rows = logs.map(l => {
+      const date = l.sent_at ? new Date(l.sent_at).toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      const evBadge = `<span class="badge ${EVENT_COLORS[l.event] || 'bg-secondary'} me-1">${EVENT_LABELS[l.event] || l.event}</span>`;
+      const adminBadge = l.is_admin ? '<span class="badge bg-warning text-dark ms-1" title="Copie admin"><i class="bi bi-shield-fill"></i></span>' : '';
+      const mediaIcon = `<i class="bi ${MEDIA_ICONS[l.media_type] || 'bi-question'} me-1 text-muted"></i>`;
+      const statusIcon = l.success
+        ? '<i class="bi bi-check-circle-fill text-success"></i>'
+        : `<i class="bi bi-x-circle-fill text-danger" title="${l.error_msg || ''}"></i>`;
+      return `<tr>
+        <td class="text-muted small text-nowrap">${date}</td>
+        <td>${evBadge}${adminBadge}</td>
+        <td>${mediaIcon}<span class="small">${l.media_title || '—'}</span></td>
+        <td class="small text-break">${l.recipient}</td>
+        <td class="text-center">${statusIcon}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:13px">
+      <thead><tr>
+        <th class="text-muted fw-normal">Date</th>
+        <th class="text-muted fw-normal">Type</th>
+        <th class="text-muted fw-normal">Média</th>
+        <th class="text-muted fw-normal">Destinataire</th>
+        <th class="text-muted fw-normal text-center">Statut</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  } catch(e) {
+    wrap.innerHTML = `<p class="text-danger mb-0">Erreur : ${e.message}</p>`;
+  }
+}
+
+// Chargement automatique à l'ouverture de l'onglet Notifications
+document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', loadNotifLog);
 
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {

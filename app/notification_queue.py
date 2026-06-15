@@ -13,10 +13,11 @@ Cycle de vie :
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, Settings
+from .models import MediaRequest, NotificationLog, Settings
 from .services.email_service import (
     send_available_notification,
     send_failure_notification,
@@ -43,9 +44,16 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         if not settings or not req:
             return
 
+        # Résolution des emails admin pour marquer is_admin dans les logs
+        admin_emails: set[str] = set()
+        if settings.admin_notification_email:
+            admin_emails = {e.strip() for e in settings.admin_notification_email.split(",") if e.strip()}
+
         # Envoi email à chaque destinataire séparément
         all_ok = True
         for recipient in recipients:
+            error_msg = None
+            success = True
             try:
                 if event == "request":
                     await send_request_notification(settings, req, recipient)
@@ -56,7 +64,20 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 logger.info(f"Notification email [{event}] envoyée à {recipient} pour '{req.title}'")
             except Exception as e:
                 all_ok = False
+                success = False
+                error_msg = str(e)
                 logger.error(f"Notification email [{event}] échouée pour {recipient} / '{req.title}': {e}")
+            finally:
+                db.add(NotificationLog(
+                    sent_at=datetime.now(timezone.utc),
+                    event=event,
+                    recipient=recipient,
+                    is_admin=recipient in admin_emails,
+                    media_title=req.title,
+                    media_type=req.media_type,
+                    success=success,
+                    error_msg=error_msg,
+                ))
 
         # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
         app_metrics.record_notification(all_ok)
@@ -65,7 +86,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 req.request_mail_sent = True
             elif event == "available":
                 req.available_mail_sent = True
-            db.commit()
+        db.commit()
 
         # Push Discord + Telegram (indépendants de l'email)
         await send_discord(settings, req, event)
