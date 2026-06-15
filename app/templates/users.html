@@ -208,9 +208,14 @@
           <label class="form-check-label" for="fNotifyOnAvailable">Notifier à la disponibilité</label>
         </div>
       </div>
-      <div class="modal-footer border-secondary">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-        <button class="btn btn-warning" onclick="saveUser()">Enregistrer</button>
+      <div class="modal-footer border-secondary justify-content-between">
+        <button class="btn btn-sm btn-outline-info" id="btn-test-email" onclick="sendTestEmail()" style="display:none">
+          <i class="bi bi-envelope me-1"></i>Envoyer un test
+        </button>
+        <div class="d-flex gap-2">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-warning" onclick="saveUser()">Enregistrer</button>
+        </div>
       </div>
     </div>
   </div>
@@ -687,6 +692,7 @@ function openAdd(prefillId) {
   document.getElementById('fNotifEmail').value = '';
   document.getElementById('fEnabled').checked = true;
   document.getElementById('fNotifyAdmin').checked = true;
+  document.getElementById('btn-test-email').style.display = 'none';
 }
 
 function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, enabled, notifyAdmin, notifyOnRequest, notifyOnAvailable) {
@@ -702,7 +708,26 @@ function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, en
   document.getElementById('fNotifyAdmin').checked = notifyAdmin;
   document.getElementById('fNotifyOnRequest').checked = notifyOnRequest !== false;
   document.getElementById('fNotifyOnAvailable').checked = notifyOnAvailable !== false;
+  document.getElementById('btn-test-email').style.display = '';
   new bootstrap.Modal(document.getElementById('userModal')).show();
+}
+
+async function sendTestEmail() {
+  const btn = document.getElementById('btn-test-email');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Envoi…';
+  try {
+    const r = await fetch(`/api/users/${editingId}/test-email`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) showToast(`Email test envoyé à ${d.recipient}`, 'success');
+    else showToast(d.detail || 'Erreur SMTP', 'danger');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
 }
 
 async function saveUser() {

@@ -119,6 +119,7 @@ class NotificationLog(Base):
     media_type: Mapped[Optional[str]]
     success: Mapped[bool] = mapped_column(default=True)
     error_msg: Mapped[Optional[str]]
+    req_id: Mapped[Optional[int]]
 
 
 class MediaRequest(Base):

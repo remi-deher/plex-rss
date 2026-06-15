@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 _queue: asyncio.Queue = asyncio.Queue()
 _worker_task: asyncio.Task | None = None
 
+_RETRY_DELAYS = [2, 5]  # secondes entre chaque tentative
+
 
 def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
     """Empile une notification dans la queue (synchrone, sans await)."""
@@ -49,35 +51,42 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         if settings.admin_notification_email:
             admin_emails = {e.strip() for e in settings.admin_notification_email.split(",") if e.strip()}
 
-        # Envoi email à chaque destinataire séparément
+        # Envoi email à chaque destinataire avec retry automatique
         all_ok = True
         for recipient in recipients:
             error_msg = None
-            success = True
-            try:
-                if event == "request":
-                    await send_request_notification(settings, req, recipient)
-                elif event == "available":
-                    await send_available_notification(settings, req, recipient)
-                elif event == "failed":
-                    await send_failure_notification(settings, req, recipient, reason)
-                logger.info(f"Notification email [{event}] envoyée à {recipient} pour '{req.title}'")
-            except Exception as e:
-                all_ok = False
-                success = False
-                error_msg = str(e)
-                logger.error(f"Notification email [{event}] échouée pour {recipient} / '{req.title}': {e}")
-            finally:
-                db.add(NotificationLog(
-                    sent_at=datetime.now(timezone.utc),
-                    event=event,
-                    recipient=recipient,
-                    is_admin=recipient in admin_emails,
-                    media_title=req.title,
-                    media_type=req.media_type,
-                    success=success,
-                    error_msg=error_msg,
-                ))
+            success = False
+            for attempt in range(len(_RETRY_DELAYS) + 1):
+                try:
+                    if event == "request":
+                        await send_request_notification(settings, req, recipient)
+                    elif event == "available":
+                        await send_available_notification(settings, req, recipient)
+                    elif event == "failed":
+                        await send_failure_notification(settings, req, recipient, reason)
+                    logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
+                    success = True
+                    error_msg = None
+                    break
+                except Exception as e:
+                    error_msg = str(e)
+                    if attempt < len(_RETRY_DELAYS):
+                        logger.warning(f"Notification [{event}] échec tentative {attempt + 1}, retry dans {_RETRY_DELAYS[attempt]}s : {e}")
+                        await asyncio.sleep(_RETRY_DELAYS[attempt])
+                    else:
+                        all_ok = False
+                        logger.error(f"Notification [{event}] abandon après {attempt + 1} tentatives pour {recipient} / '{req.title}': {e}")
+            db.add(NotificationLog(
+                sent_at=datetime.now(timezone.utc),
+                event=event,
+                recipient=recipient,
+                is_admin=recipient in admin_emails,
+                media_title=req.title,
+                media_type=req.media_type,
+                success=success,
+                error_msg=error_msg,
+                req_id=req.id,
+            ))
 
         # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
         app_metrics.record_notification(all_ok)

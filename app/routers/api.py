@@ -883,27 +883,78 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/notifications/log")
-def list_notification_logs(limit: int = 100, db: Session = Depends(get_db)):
-    logs = (
-        db.query(NotificationLog)
-        .order_by(NotificationLog.sent_at.desc())
-        .limit(min(limit, 500))
-        .all()
-    )
-    return [
-        {
-            "id": l.id,
-            "sent_at": l.sent_at.isoformat() if l.sent_at else None,
-            "event": l.event,
-            "recipient": l.recipient,
-            "is_admin": l.is_admin,
-            "media_title": l.media_title,
-            "media_type": l.media_type,
-            "success": l.success,
-            "error_msg": l.error_msg,
-        }
-        for l in logs
-    ]
+def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    q = db.query(NotificationLog).order_by(NotificationLog.sent_at.desc())
+    total = q.count()
+    logs = q.offset(offset).limit(min(limit, 200)).all()
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": l.id,
+                "sent_at": l.sent_at.isoformat() if l.sent_at else None,
+                "event": l.event,
+                "recipient": l.recipient,
+                "is_admin": l.is_admin,
+                "media_title": l.media_title,
+                "media_type": l.media_type,
+                "success": l.success,
+                "error_msg": l.error_msg,
+                "req_id": l.req_id,
+            }
+            for l in logs
+        ],
+    }
+
+
+@router.post("/notifications/{log_id}/resend")
+async def resend_notification(log_id: int, db: Session = Depends(get_db)):
+    from ..notification_queue import enqueue as enqueue_notification
+
+    log = db.query(NotificationLog).filter(NotificationLog.id == log_id).first()
+    if not log:
+        raise HTTPException(404, "Log introuvable")
+    if not log.req_id:
+        raise HTTPException(400, "req_id manquant sur cette entrée de log (envoi antérieur à la v2.1)")
+    req = db.query(MediaRequest).filter(MediaRequest.id == log.req_id).first()
+    if not req:
+        raise HTTPException(404, "Demande originale introuvable")
+    enqueue_notification(log.event, req.id, [log.recipient])
+    return {"status": "queued", "recipient": log.recipient, "event": log.event}
+
+
+@router.post("/users/{user_id}/test-email")
+async def send_test_email(user_id: int, db: Session = Depends(get_db)):
+    import asyncio
+
+    from ..services.email_service import _send as smtp_send
+
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(500, "Settings manquants")
+    recipient = user.notification_email or user.plex_email
+    if not recipient:
+        raise HTTPException(400, "Aucune adresse email configurée pour cet utilisateur")
+    name = user.custom_name or user.display_name or user.plex_user_id
+    html = f"""<!DOCTYPE html>
+<html><body style="background:#141414;font-family:Arial,sans-serif;padding:32px">
+<div style="max-width:480px;margin:auto;background:#1f1f1f;border-radius:10px;padding:28px;color:#fff">
+  <h2 style="color:#e5a00d;margin:0 0 16px">Test de notification</h2>
+  <p style="color:#ccc">Bonjour <strong>{name}</strong>,</p>
+  <p style="color:#ccc">Cet email confirme que les notifications fonctionnent correctement pour ton compte Plex RSS Monitor.</p>
+  <p style="color:#888;font-size:12px;margin-top:24px">Plex RSS Monitor — email de test</p>
+</div>
+</body></html>"""
+    try:
+        await smtp_send(settings, recipient, "[Plex RSS] Test de notification", html)
+    except Exception as e:
+        raise HTTPException(500, f"Échec SMTP : {e}")
+    return {"status": "sent", "recipient": recipient}
 
 
 @router.post("/requests/{request_id}/retry")

@@ -681,14 +681,20 @@ function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/syn
 const EVENT_LABELS = { request: 'Demande', available: 'Disponible', failed: 'Échec' };
 const EVENT_COLORS = { request: 'bg-primary', available: 'bg-success', failed: 'bg-danger' };
 const MEDIA_ICONS  = { show: 'bi-tv', movie: 'bi-camera-video' };
+const NOTIF_PAGE_SIZE = 50;
+let _notifOffset = 0;
+let _notifTotal = 0;
 
-async function loadNotifLog() {
+async function loadNotifLog(offset = 0) {
+  _notifOffset = offset;
   const wrap = document.getElementById('notif-log-wrap');
   wrap.innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>';
   try {
-    const r = await fetch('/api/notifications/log?limit=100');
-    const logs = await r.json();
-    if (!logs.length) {
+    const r = await fetch(`/api/notifications/log?limit=${NOTIF_PAGE_SIZE}&offset=${offset}`);
+    const data = await r.json();
+    _notifTotal = data.total;
+    const logs = data.items;
+    if (!logs.length && offset === 0) {
       wrap.innerHTML = '<p class="text-muted mb-0">Aucun email envoyé pour l\'instant.</p>';
       return;
     }
@@ -699,15 +705,34 @@ async function loadNotifLog() {
       const mediaIcon = `<i class="bi ${MEDIA_ICONS[l.media_type] || 'bi-question'} me-1 text-muted"></i>`;
       const statusIcon = l.success
         ? '<i class="bi bi-check-circle-fill text-success"></i>'
-        : `<i class="bi bi-x-circle-fill text-danger" title="${l.error_msg || ''}"></i>`;
-      return `<tr>
+        : `<i class="bi bi-x-circle-fill text-danger" title="${(l.error_msg || '').replace(/"/g,'&quot;')}"></i>`;
+      const resendBtn = l.req_id
+        ? `<button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" onclick="resendNotif(${l.id}, this)" title="Renvoyer"><i class="bi bi-send"></i></button>`
+        : '';
+      return `<tr class="${l.success ? '' : 'table-danger bg-opacity-25'}">
         <td class="text-muted small text-nowrap">${date}</td>
         <td>${evBadge}${adminBadge}</td>
         <td>${mediaIcon}<span class="small">${l.media_title || '—'}</span></td>
         <td class="small text-break">${l.recipient}</td>
-        <td class="text-center">${statusIcon}</td>
+        <td class="text-center">${statusIcon}${resendBtn}</td>
       </tr>`;
     }).join('');
+
+    const totalPages = Math.ceil(_notifTotal / NOTIF_PAGE_SIZE);
+    const currentPage = Math.floor(offset / NOTIF_PAGE_SIZE) + 1;
+    const pagination = totalPages > 1 ? `
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <span class="text-muted small">${_notifTotal} entrées — page ${currentPage}/${totalPages}</span>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" onclick="loadNotifLog(${offset - NOTIF_PAGE_SIZE})" ${offset === 0 ? 'disabled' : ''}>
+            <i class="bi bi-chevron-left"></i> Précédent
+          </button>
+          <button class="btn btn-outline-secondary" onclick="loadNotifLog(${offset + NOTIF_PAGE_SIZE})" ${offset + NOTIF_PAGE_SIZE >= _notifTotal ? 'disabled' : ''}>
+            Suivant <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
+      </div>` : `<div class="text-muted small mt-1">${_notifTotal} entrée${_notifTotal > 1 ? 's' : ''}</div>`;
+
     wrap.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:13px">
       <thead><tr>
         <th class="text-muted fw-normal">Date</th>
@@ -717,14 +742,32 @@ async function loadNotifLog() {
         <th class="text-muted fw-normal text-center">Statut</th>
       </tr></thead>
       <tbody>${rows}</tbody>
-    </table></div>`;
+    </table></div>${pagination}`;
   } catch(e) {
     wrap.innerHTML = `<p class="text-danger mb-0">Erreur : ${e.message}</p>`;
   }
 }
 
+async function resendNotif(logId, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch(`/api/notifications/${logId}/resend`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) showToast(`Renvoi en cours vers ${d.recipient}`, 'success');
+    else showToast(d.detail || 'Erreur', 'danger');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    setTimeout(() => loadNotifLog(_notifOffset), 1500);
+  }
+}
+
 // Chargement automatique à l'ouverture de l'onglet Notifications
-document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', loadNotifLog);
+document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', () => loadNotifLog(0));
 
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
