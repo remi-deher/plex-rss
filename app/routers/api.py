@@ -98,6 +98,8 @@ class SettingsUpdate(BaseModel):
     notification_log_retention_days: Optional[int] = None
     email_request_template: Optional[str] = None
     email_available_template: Optional[str] = None
+    email_request_subject: Optional[str] = None
+    email_available_subject: Optional[str] = None
     digest_enabled: Optional[bool] = None
     digest_hour: Optional[int] = None
 
@@ -121,7 +123,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(status_code=404, detail="Paramètres non initialisés")
     # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
-    _nullable_fields = {"email_request_template", "email_available_template"}
+    _nullable_fields = {
+        "email_request_template",
+        "email_available_template",
+        "email_request_subject",
+        "email_available_subject",
+    }
     payload = data.model_dump()
     for key, val in payload.items():
         if val is None and key not in _nullable_fields:
@@ -891,14 +898,23 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/email/preview")
-def preview_email_template(event: str = "request", db: Session = Depends(get_db)):
+def preview_email_template(event: str = "request", user_id: Optional[int] = None, db: Session = Depends(get_db)):
     """Rend le template email avec des données fictives et retourne le HTML."""
     settings = db.query(Settings).first()
+
+    plex_user_name = "Jean Dupont"
+    recipient_email = "jean.dupont@plex.local"
+    if user_id:
+        user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+        if user:
+            plex_user_name = user.custom_name or user.display_name or user.plex_user_id
+            recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
+
     fake = MediaRequest(
         title="Dune : Deuxième Partie",
         year=2024,
         media_type="movie",
-        plex_user="Jean Dupont",
+        plex_user=plex_user_name,
         overview="Paul Atréides s'unit aux Fremen pour mener la guerre sainte contre ceux qui ont détruit sa famille.",
         poster_url="https://image.tmdb.org/t/p/w300/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
     )
@@ -913,11 +929,53 @@ def preview_email_template(event: str = "request", db: Session = Depends(get_db)
         "overview": fake.overview,
         "genres": "Science-Fiction, Aventure",
     }
+
     if event == "available":
-        tpl = (settings.email_available_template if settings else None) or DEFAULT_AVAILABLE_TEMPLATE
+        tpl = (
+            settings.email_available_template
+            if (settings and isinstance(settings.email_available_template, str))
+            else None
+        ) or DEFAULT_AVAILABLE_TEMPLATE
+        subject_tmpl = (
+            settings.email_available_subject
+            if (settings and isinstance(settings.email_available_subject, str))
+            else None
+        ) or "[Plex] Disponible : {{ title }}"
     else:
-        tpl = (settings.email_request_template if settings else None) or DEFAULT_REQUEST_TEMPLATE
+        tpl = (
+            settings.email_request_template if (settings and isinstance(settings.email_request_template, str)) else None
+        ) or DEFAULT_REQUEST_TEMPLATE
+        subject_tmpl = (
+            settings.email_request_subject if (settings and isinstance(settings.email_request_subject, str)) else None
+        ) or "[Plex] Nouvelle demande : {{ title }}"
+
+    rendered_subject = render_template(subject_tmpl, ctx)
+    if rendered_subject.startswith("<p>Erreur de template"):
+        rendered_subject = (
+            f"[Plex] Nouvelle demande : {fake.title}" if event == "request" else f"[Plex] Disponible : {fake.title}"
+        )
+
     html = render_template(tpl, ctx)
+
+    # Prepend email client headers
+    header_html = f"""
+    <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">
+      <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{rendered_subject}</span></div>
+      <div style="margin-bottom:4px;"><strong>De :</strong> {(settings.smtp_from if settings else None) or "plex-rss@monitor.local"}</div>
+      <div><strong>À :</strong> {recipient_email}</div>
+    </div>
+    """
+
+    if "<body>" in html:
+        html = html.replace("<body>", f"<body>{header_html}")
+    elif "<body style=" in html:
+        parts = html.split("<body", 1)
+        if len(parts) == 2:
+            body_tag, rest = parts[1].split(">", 1)
+            html = f"{parts[0]}<body{body_tag}>{header_html}{rest}"
+    else:
+        html = header_html + html
+
     return HTMLResponse(content=html)
 
 

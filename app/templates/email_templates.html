@@ -40,28 +40,48 @@
 
 <div class="row g-0" style="height:calc(100vh - 340px);min-height:500px">
   <!-- Éditeur -->
-  <div class="col-md-6" style="border:1px solid #333;border-top:none;border-right:none">
-    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333">
+  <div class="col-md-6" style="border:1px solid #333;border-top:none;border-right:none;display:flex;flex-direction:column">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333;flex-shrink:0">
       <span class="text-muted small">Éditeur HTML</span>
       <button class="btn btn-sm btn-outline-secondary" onclick="livePreview()">
         <i class="bi bi-eye me-1"></i>Prévisualiser
       </button>
     </div>
-    <textarea id="editor-request" class="form-control font-monospace border-0 h-100"
-      style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px"
-      oninput="scheduleLivePreview()" spellcheck="false">{{ request_template }}</textarea>
-    <textarea id="editor-available" class="form-control font-monospace border-0 h-100"
-      style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px;display:none"
-      oninput="scheduleLivePreview()" spellcheck="false">{{ available_template }}</textarea>
+    <div class="p-3 bg-dark border-bottom border-secondary" style="flex-shrink:0">
+      <div id="subject-group-request">
+        <label class="form-label small text-muted">Objet du message (Nouvelle demande)</label>
+        <input type="text" id="subject-request" class="form-control form-control-sm" value="{{ request_subject }}" placeholder="[Plex] Nouvelle demande : {{ title }}" oninput="scheduleLivePreview()">
+      </div>
+      <div id="subject-group-available" style="display:none">
+        <label class="form-label small text-muted">Objet du message (Disponible sur Plex)</label>
+        <input type="text" id="subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plex] Disponible : {{ title }}" oninput="scheduleLivePreview()">
+      </div>
+    </div>
+    <div style="flex-grow:1;position:relative">
+      <textarea id="editor-request" class="form-control font-monospace border-0"
+        style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px;position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%"
+        oninput="scheduleLivePreview()" spellcheck="false">{{ request_template }}</textarea>
+      <textarea id="editor-available" class="form-control font-monospace border-0"
+        style="resize:none;background:#0d1117;color:#c9d1d9;font-size:12px;border-radius:0;padding:16px;display:none;position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%"
+        oninput="scheduleLivePreview()" spellcheck="false">{{ available_template }}</textarea>
+    </div>
   </div>
 
   <!-- Prévisualisation -->
-  <div class="col-md-6" style="border:1px solid #333;border-top:none">
-    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333">
-      <span class="text-muted small">Prévisualisation</span>
+  <div class="col-md-6" style="border:1px solid #333;border-top:none;display:flex;flex-direction:column">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333;flex-shrink:0">
+      <div class="d-flex align-items-center gap-2">
+        <span class="text-muted small">Prévisualisation en tant que</span>
+        <select id="preview-user-select" class="form-select form-select-sm py-0 px-2" style="width:160px; font-size:11px; height:24px; background:#222; color:#fff; border-color:#444" onchange="livePreview()">
+          <option value="">(Par défaut)</option>
+          {% for u in users %}
+          <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <span class="badge bg-secondary" id="preview-status">En attente</span>
     </div>
-    <iframe id="preview-frame" style="width:100%;height:100%;border:none;background:#fff"></iframe>
+    <iframe id="preview-frame" style="width:100%;flex-grow:1;border:none;background:#fff"></iframe>
   </div>
 </div>
 
@@ -81,6 +101,8 @@ function switchTab(tab) {
   currentTab = tab;
   document.getElementById('editor-request').style.display = tab === 'request' ? '' : 'none';
   document.getElementById('editor-available').style.display = tab === 'available' ? '' : 'none';
+  document.getElementById('subject-group-request').style.display = tab === 'request' ? '' : 'none';
+  document.getElementById('subject-group-available').style.display = tab === 'available' ? '' : 'none';
   document.getElementById('tab-request').classList.toggle('active', tab === 'request');
   document.getElementById('tab-available').classList.toggle('active', tab === 'available');
   livePreview();
@@ -94,10 +116,17 @@ function scheduleLivePreview() {
 async function livePreview() {
   document.getElementById('preview-status').textContent = 'Chargement...';
   try {
+    const userId = document.getElementById('preview-user-select').value || null;
+    const subjectVal = document.getElementById('subject-' + currentTab).value;
     const r = await fetch('/api/email-preview', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({template: activeEditor().value, type: currentTab}),
+      body: JSON.stringify({
+        template: activeEditor().value,
+        subject: subjectVal,
+        type: currentTab,
+        user_id: userId ? parseInt(userId, 10) : null
+      }),
     });
     const html = await r.text();
     const frame = document.getElementById('preview-frame');
@@ -118,25 +147,39 @@ async function saveTemplates() {
       body: JSON.stringify({
         email_request_template: document.getElementById('editor-request').value,
         email_available_template: document.getElementById('editor-available').value,
+        email_request_subject: document.getElementById('subject-request').value,
+        email_available_subject: document.getElementById('subject-available').value,
       }),
     });
     if (!r.ok) throw new Error();
-    showToast('Templates enregistrés !', 'success');
+    showToast('Templates et objets enregistrés !', 'success');
   } catch {
     showToast('Erreur lors de l\'enregistrement', 'danger');
   }
 }
 
 async function resetTemplates() {
-  if (!confirm('Réinitialiser les deux templates par défaut ?')) return;
+  if (!confirm('Réinitialiser les deux templates et objets par défaut ?')) return;
   await fetch('/api/email-templates/reset', {method: 'POST'});
   showToast('Réinitialisé — rechargement...', 'success');
   setTimeout(() => location.reload(), 1000);
 }
 
 function insertVar(e, varName) {
-  navigator.clipboard.writeText(varName);
-  showToast(`${varName} copié !`, 'secondary');
+  // Obtenir l'input/textarea actif pour insérer la variable à la position du curseur
+  const editor = activeEditor();
+  const subjectInput = document.getElementById('subject-' + currentTab);
+  
+  // Préférer l'insertion dans l'élément ayant le focus actif, sinon par défaut dans le textarea
+  const target = document.activeElement === subjectInput ? subjectInput : editor;
+  
+  const start = target.selectionStart;
+  const end = target.selectionEnd;
+  const text = target.value;
+  target.value = text.substring(0, start) + varName + text.substring(end);
+  target.focus();
+  target.selectionStart = target.selectionEnd = start + varName.length;
+  scheduleLivePreview();
 }
 
 

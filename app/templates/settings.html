@@ -354,10 +354,24 @@
       <!-- Templates email -->
       <div class="col-12">
         <div class="card p-4">
-          <h5 class="mb-3"><i class="bi bi-code-slash text-secondary me-2"></i>Templates email <span class="badge bg-secondary ms-1" style="font-size:11px">Jinja2</span></h5>
-          <p class="text-muted small mb-3">Variables disponibles : <code>title</code>, <code>year</code>, <code>plex_user</code>, <code>media_type_label</code>, <code>overview</code>, <code>poster_url</code>, <code>genres</code>. Laissez vide pour utiliser le template par défaut.</p>
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-code-slash text-secondary me-2"></i>Templates email <span class="badge bg-secondary ms-1" style="font-size:11px">Jinja2</span></h5>
+            <div class="d-flex align-items-center gap-2">
+              <span class="text-muted small">Aperçu en tant que :</span>
+              <select id="preview-user-select" class="form-select form-select-sm" style="width:180px">
+                <option value="">(Par défaut)</option>
+                {% for u in users %}
+                <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <p class="text-muted small mb-3">Variables disponibles : <code>title</code>, <code>year</code>, <code>plex_user</code>, <code>media_type_label</code>, <code>overview</code>, <code>poster_url</code>, <code>genres</code>. Laissez vide pour utiliser le template/objet par défaut.</p>
           <div class="row g-3">
             <div class="col-12">
+              <label class="form-label">Objet du message — Nouvelle demande</label>
+              <input type="text" class="form-control mb-3" name="email_request_subject" value="{{ s.email_request_subject or '' }}" placeholder="[Plex] Nouvelle demande : {{ title }}">
+
               <div class="d-flex justify-content-between align-items-center mb-1">
                 <label class="form-label mb-0">Template — Nouvelle demande</label>
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previewTemplate('request')">
@@ -367,6 +381,9 @@
               <textarea class="form-control font-monospace" name="email_request_template" rows="6" placeholder="Laisser vide pour le template par défaut…" style="font-size:12px;resize:vertical">{{ s.email_request_template or '' }}</textarea>
             </div>
             <div class="col-12">
+              <label class="form-label">Objet du message — Disponible sur Plex</label>
+              <input type="text" class="form-control mb-3" name="email_available_subject" value="{{ s.email_available_subject or '' }}" placeholder="[Plex] Disponible : {{ title }}">
+
               <div class="d-flex justify-content-between align-items-center mb-1">
                 <label class="form-label mb-0">Template — Disponible sur Plex</label>
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previewTemplate('available')">
@@ -765,7 +782,8 @@ async function previewTemplate(event) {
   try {
     // Sauvegarder d'abord pour que le preview reflète les modifs en cours
     await saveSettings();
-    const r = await fetch(`/api/email/preview?event=${event}`);
+    const userId = document.getElementById('preview-user-select').value;
+    const r = await fetch(`/api/email/preview?event=${event}&user_id=${userId}`);
     const html = await r.text();
     frame.srcdoc = html;
   } catch(e) {

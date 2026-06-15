@@ -106,18 +106,28 @@ def render_template(template_str: str, context: dict) -> str:
 async def send_request_notification(settings: Settings, request: MediaRequest, recipient: str):
     """Envoie l'email de confirmation de demande."""
     ctx = _build_context(request)
-    template = settings.email_request_template or DEFAULT_REQUEST_TEMPLATE
+    template = settings.email_request_template if isinstance(settings.email_request_template, str) else None
+    template = template or DEFAULT_REQUEST_TEMPLATE
     html = render_template(template, ctx)
-    subject = f"[Plex] Nouvelle demande : {request.title}"
+    subject_tmpl = settings.email_request_subject if isinstance(settings.email_request_subject, str) else None
+    subject_tmpl = subject_tmpl or "[Plex] Nouvelle demande : {{ title }}"
+    subject = render_template(subject_tmpl, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plex] Nouvelle demande : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
 async def send_available_notification(settings: Settings, request: MediaRequest, recipient: str):
     """Envoie l'email de notification de disponibilité."""
     ctx = _build_context(request)
-    template = settings.email_available_template or DEFAULT_AVAILABLE_TEMPLATE
+    template = settings.email_available_template if isinstance(settings.email_available_template, str) else None
+    template = template or DEFAULT_AVAILABLE_TEMPLATE
     html = render_template(template, ctx)
-    subject = f"[Plex] Disponible : {request.title}"
+    subject_tmpl = settings.email_available_subject if isinstance(settings.email_available_subject, str) else None
+    subject_tmpl = subject_tmpl or "[Plex] Disponible : {{ title }}"
+    subject = render_template(subject_tmpl, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plex] Disponible : {request.title}"
     await _send(settings, recipient, subject, html)
 
 

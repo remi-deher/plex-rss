@@ -432,3 +432,25 @@ def test_preview_uses_custom_template():
         assert "CUSTOM_TEMPLATE_" in r.text
     finally:
         _cleanup()
+
+
+def test_preview_uses_custom_subject_and_user():
+    """Preview utilise l'objet custom et les informations de l'utilisateur spécifié."""
+    settings = _make_settings()
+    settings.email_request_subject = "Alerte pour {{ plex_user }} - {{ title }}"
+
+    user = _make_user(user_id=12, custom_name="Bob L'Eponge", notification_email="bob@bikini.bottom")
+
+    db = MagicMock()
+    # First query for settings, second query for user
+    db.query.return_value.first.return_value = settings
+    db.query.return_value.filter.return_value.first.return_value = user
+
+    client = _client_with_db(db)
+    try:
+        r = client.get("/api/email/preview?event=request&user_id=12")
+        assert r.status_code == 200
+        assert "Alerte pour Bob L'Eponge - Dune" in r.text
+        assert "bob@bikini.bottom" in r.text
+    finally:
+        _cleanup()
