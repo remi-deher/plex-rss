@@ -74,6 +74,8 @@ class Settings(Base):
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
+    digest_enabled: Mapped[bool] = mapped_column(default=False)
+    digest_hour: Mapped[int] = mapped_column(default=8)
 
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
@@ -102,7 +104,10 @@ class PlexUser(Base):
     notify_admin: Mapped[bool] = mapped_column(default=True)
     notify_on_request: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_on_available: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_digest: Mapped[Optional[bool]] = mapped_column(default=False)
     enabled: Mapped[bool] = mapped_column(default=True)
+    discord_webhook_url: Mapped[Optional[str]] = mapped_column(default=None)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(default=None)
     seer_user_id: Mapped[Optional[int]] = mapped_column(default=None)
     seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
     custom_name: Mapped[Optional[str]] = mapped_column(default=None)

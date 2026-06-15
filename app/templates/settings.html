@@ -407,6 +407,30 @@
         </div>
       </div>
 
+      <!-- Digest quotidien -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-newspaper text-warning me-2"></i>Digest quotidien</h5>
+          <p class="text-muted small mb-3">Envoie chaque jour un récapitulatif des demandes des 24h aux utilisateurs ayant activé l'option « Inclure dans le digest ».</p>
+          <div class="row g-3 align-items-end">
+            <div class="col-auto d-flex align-items-center gap-3 mt-1">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="digest_enabled" id="digest_enabled" {% if s.digest_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="digest_enabled">Activer le digest</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Heure d'envoi</label>
+              <select class="form-select" name="digest_hour">
+                {% for h in range(24) %}
+                <option value="{{ h }}" {% if (s.digest_hour or 8) == h %}selected{% endif %}>{{ '%02d'|format(h) }}:00</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Push -->
       <div class="col-12">
         <div class="card p-4">

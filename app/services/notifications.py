@@ -106,3 +106,39 @@ async def send_all(settings: Settings, request: MediaRequest, event: str):
     """Déclenche Discord et Telegram en séquence pour un événement donné."""
     await send_discord(settings, request, event)
     await send_telegram(settings, request, event)
+
+
+async def send_discord_to_webhook(webhook_url: str, request: MediaRequest, event: str):
+    """Envoie une notification Discord vers un webhook spécifique (par utilisateur)."""
+    if not webhook_url:
+        return
+    title, body = _build_message(event, request)
+    color = {"request": 0xE5A00D, "available": 0x1DB954, "failed": 0xDC3545}.get(event, 0x888888)
+    embed = {"title": title, "description": body, "color": color}
+    if request.poster_url:
+        embed["thumbnail"] = {"url": request.poster_url}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(webhook_url, json={"embeds": [embed]})
+            resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Discord per-user notif failed ({webhook_url[:40]}…): {e}")
+
+
+async def send_telegram_to_chat(bot_token: str, chat_id: str, request: MediaRequest, event: str):
+    """Envoie une notification Telegram vers un chat spécifique (par utilisateur)."""
+    if not bot_token or not chat_id:
+        return
+    title, body = _build_message(event, request)
+    text = f"*{title}*\n{body}"
+    if request.overview:
+        text += f"\n\n_{request.overview[:300]}_"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Telegram per-user notif failed (chat {chat_id}): {e}")

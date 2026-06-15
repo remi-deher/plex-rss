@@ -45,6 +45,106 @@ scheduler = AsyncIOScheduler()
 # ---------------------------------------------------------------------------
 
 
+async def _send_digest():
+    """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
+    import aiosmtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    db: Session = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings or not settings.digest_enabled:
+            return
+        if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
+            logger.warning("Digest : SMTP non configuré, skip")
+            return
+
+        # Demandes des dernières 24h
+        cutoff = datetime.now().replace(tzinfo=None) - timedelta(hours=24)
+        recent = (
+            db.query(MediaRequest)
+            .filter(MediaRequest.requested_at >= cutoff)
+            .order_by(MediaRequest.requested_at.desc())
+            .all()
+        )
+        if not recent:
+            logger.info("Digest : aucune demande dans les 24h, skip")
+            return
+
+        users = db.query(PlexUser).filter(
+            PlexUser.enabled == True,
+            PlexUser.notify_digest == True,
+        ).all()
+        if not users:
+            return
+
+        # Build HTML digest
+        rows = "".join(
+            f"<tr>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #333'>{r.title or '—'}"
+            f"{'<span style=\"color:#aaa;font-size:12px\"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{'Série' if r.media_type == 'show' else 'Film'}</td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{r.plex_user or r.plex_user_id}</td>"
+            f"<td style='padding:6px 12px;border-bottom:1px solid #333'>"
+            f"<span style='color:{'#1db954' if r.status == 'available' else '#e5a00d' if r.status == 'sent_to_arr' else '#888'}'>"
+            f"{'Disponible' if r.status == 'available' else 'Envoyé' if r.status == 'sent_to_arr' else r.status}"
+            f"</span></td>"
+            f"</tr>"
+            for r in recent
+        )
+        html = f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:auto">
+  <tr><td style="background:#e5a00d;padding:20px 24px">
+    <h1 style="color:#fff;margin:0;font-size:20px">📋 Récap quotidien Plex</h1>
+    <p style="color:#fff9;margin:4px 0 0;font-size:13px">{len(recent)} demande{'s' if len(recent)>1 else ''} dans les dernières 24h</p>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:20px 24px">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Titre</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Type</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Demandé par</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Statut</th>
+      </tr></thead>
+      <tbody style="color:#fff">{rows}</tbody>
+    </table>
+  </td></tr>
+  <tr><td style="background:#111;padding:12px 24px">
+    <p style="color:#555;font-size:11px;margin:0">Plex RSS Monitor — récapitulatif automatique quotidien</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+        for user in users:
+            recipient = user.notification_email or user.plex_email
+            if not recipient:
+                continue
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"[Plex] Récap du {datetime.now().strftime('%d/%m/%Y')} — {len(recent)} demande{'s' if len(recent)>1 else ''}"
+                msg["From"] = settings.smtp_from
+                msg["To"] = recipient
+                msg.attach(MIMEText(html, "html"))
+                await aiosmtplib.send(
+                    msg,
+                    hostname=settings.smtp_host,
+                    port=settings.smtp_port,
+                    username=settings.smtp_user,
+                    password=settings.smtp_password,
+                    use_tls=not settings.smtp_tls,
+                    start_tls=settings.smtp_tls,
+                )
+                logger.info(f"Digest envoyé à {recipient}")
+            except Exception as e:
+                logger.error(f"Digest échec pour {recipient}: {e}")
+    except Exception as e:
+        logger.error(f"Erreur job digest : {e}")
+    finally:
+        db.close()
+
+
 def _purge_notification_logs():
     """Supprime les logs de notifications plus anciens que la rétention configurée."""
     db: Session = SessionLocal()
@@ -66,10 +166,19 @@ def _purge_notification_logs():
 
 def start_scheduler(poll_minutes: int = 5):
     """Enregistre les jobs et démarre le scheduler."""
+    db: Session = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
+    finally:
+        db.close()
+
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
+    if digest_hour is not None:
+        scheduler.add_job(_send_digest, "cron", hour=digest_hour, minute=0, id="digest", replace_existing=True)
     scheduler.start()
     logger.info(f"Scheduler started (poll every {poll_minutes}m)")
 

@@ -17,13 +17,18 @@ from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, NotificationLog, Settings
 from .services.email_service import (
     send_available_notification,
     send_failure_notification,
     send_request_notification,
 )
-from .services.notifications import send_discord, send_telegram
+from .models import MediaRequest, NotificationLog, PlexUser, Settings
+from .services.notifications import (
+    send_discord,
+    send_discord_to_webhook,
+    send_telegram,
+    send_telegram_to_chat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,9 +102,17 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 req.available_mail_sent = True
         db.commit()
 
-        # Push Discord + Telegram (indépendants de l'email)
+        # Push global (Discord + Telegram configurés dans Settings)
         await send_discord(settings, req, event)
         await send_telegram(settings, req, event)
+
+        # Push par utilisateur (webhook Discord / chat_id Telegram individuels)
+        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+        if user_obj:
+            if user_obj.discord_webhook_url:
+                await send_discord_to_webhook(user_obj.discord_webhook_url, req, event)
+            if user_obj.telegram_chat_id and settings.telegram_bot_token:
+                await send_telegram_to_chat(settings.telegram_bot_token, user_obj.telegram_chat_id, req, event)
 
     except Exception as e:
         logger.error(f"Notification worker erreur inattendue [{event}] req#{req_id}: {e}")

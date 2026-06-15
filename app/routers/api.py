@@ -92,6 +92,8 @@ class SettingsUpdate(BaseModel):
     notification_log_retention_days: Optional[int] = None
     email_request_template: Optional[str] = None
     email_available_template: Optional[str] = None
+    digest_enabled: Optional[bool] = None
+    digest_hour: Optional[int] = None
 
 
 @router.get("/settings")
@@ -126,6 +128,18 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     db.commit()
     if data.poll_interval_minutes:
         update_poll_interval(data.poll_interval_minutes)
+    # Replanifier le digest si l'heure ou l'activation change
+    if data.digest_enabled is not None or data.digest_hour is not None:
+        from ..scheduler import scheduler, _send_digest
+        enabled = s.digest_enabled
+        hour = s.digest_hour or 8
+        if enabled:
+            scheduler.add_job(_send_digest, "cron", hour=hour, minute=0, id="digest", replace_existing=True)
+        else:
+            try:
+                scheduler.remove_job("digest")
+            except Exception:
+                pass
     return {"status": "ok"}
 
 
@@ -303,6 +317,9 @@ class UserCreate(BaseModel):
     notify_admin: bool = True
     notify_on_request: Optional[bool] = True
     notify_on_available: Optional[bool] = True
+    notify_digest: Optional[bool] = False
+    discord_webhook_url: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
 
 
