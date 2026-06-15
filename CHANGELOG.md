@@ -10,11 +10,13 @@
 - migrate models to Mapped[T], fix UploadFile type in webhook — resolves 76 mypy errors ([645a338](https://github.com/remi-deher/plex-rss/commit/645a338b5363e2a8afcd7202f78dcf714671397c))
 - ruff linting + couverture tests 60% ([5d291e9](https://github.com/remi-deher/plex-rss/commit/5d291e915ed56938df98bf41ae9cc235f75d5ab3))
 - ruff format + couverture tests 60% ([70f2c2a](https://github.com/remi-deher/plex-rss/commit/70f2c2a47f3d234af6f85805a149731674d45ed2))
+- guard null seer-loading element in loadSeerCells ([b2301f3](https://github.com/remi-deher/plex-rss/commit/b2301f35caf7b4f93ab09131bc46f28862d23f41))
 
 ### 📖 Documentation
 
 - update CHANGELOG.md for v2.0.0 ([929def2](https://github.com/remi-deher/plex-rss/commit/929def28c30991a8d5ef2f6abc56f99521b16332))
 - update CHANGELOG.md for v2.0.0 ([83df62f](https://github.com/remi-deher/plex-rss/commit/83df62f8b084b580790f2e06e03bbb63fb70f86e))
+- update CHANGELOG.md for v2.0.0 ([5a08f0d](https://github.com/remi-deher/plex-rss/commit/5a08f0d3a14b3a6b1733fb2e36d22300ac195f29))
 
 ### 🔧 Maintenance
 
