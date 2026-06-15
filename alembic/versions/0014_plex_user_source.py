@@ -8,7 +8,8 @@ Create Date: 2026-06-15
 from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
+
+from alembic import op  # noqa: F401
 
 revision: str = "0014"
 down_revision: Union[str, None] = "0013"

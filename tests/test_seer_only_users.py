@@ -21,7 +21,6 @@ from sqlalchemy.pool import StaticPool
 from app.models import Base, PlexUser, Settings
 from app.scheduler import sync_seer_users
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -279,6 +278,7 @@ def test_seer_only_seer_active_updated_when_requests_drop_to_zero(db):
 def test_sync_users_from_feed_does_not_overwrite_seer_source(db):
     """sync_users_from_feed ne doit pas écraser source='seer' sur un PlexUser seer-only."""
     import asyncio
+
     from app.scheduler import sync_users_from_feed
 
     db.add(PlexUser(

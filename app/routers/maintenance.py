@@ -375,10 +375,8 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
     db = SessionLocal()
     try:
-        from ..models import MediaRequest
+        from ..models import MediaRequest, Settings
         from ..services.seer import _headers, _resolve_tmdb_id
-
-        from ..models import Settings
         settings = db.query(Settings).first()
         if not settings or not settings.seer_url or not settings.seer_api_key:
             emit.warn("Seer non configuré — impossible de résoudre les tmdb_id.")
@@ -414,8 +412,10 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
         run.progress = 70
         emit.info("Fusion des doublons…")
 
+        import io
+        import sys
+
         from scripts.merge_duplicate_requests import merge_duplicates
-        import io, sys
         buf = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buf

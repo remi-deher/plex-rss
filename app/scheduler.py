@@ -24,14 +24,14 @@ from sqlalchemy.orm import Session
 from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, PlexUser, RequestStatus, Settings
+from .notification_queue import enqueue as enqueue_notification
+from .services.radarr import add_movie, is_movie_available
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
-from .notification_queue import enqueue as enqueue_notification
 from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services.radarr import add_movie, is_movie_available
 from .services.sonarr import add_series, is_series_available
 from .services.watchlist import fetch_watchlist
 

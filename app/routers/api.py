@@ -15,6 +15,8 @@ Endpoints regroupés par domaine :
 - /api/onboarding        : checklist de configuration initiale
 """
 
+import json as _json
+import os as _os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -29,9 +31,9 @@ from ..database import get_db
 from ..models import MediaRequest, PlexUser, Settings
 from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
 from ..services import email_service, radarr, sonarr
-from ..services.seer import check_connection as seer_test
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
+from ..services.seer import check_connection as seer_test
 
 
 def require_auth(request: Request, db: Session = Depends(get_db)):
@@ -464,14 +466,14 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
         rows = db.query(MR.tmdb_id).filter(MR.plex_user_id == user.plex_user_id, MR.tmdb_id.isnot(None)).all()
         user_tmdb_ids = {r[0] for r in rows}
         if len(user_tmdb_ids) >= 2:
-            best_id, best_count = None, 0
+            best_count = 0
             for seer_info in seer_users.values():
                 if seer_info["id"] in matched_ids:
                     continue
                 reqs = await seer_get_user_requests(s.seer_url, s.seer_api_key, seer_info["id"])
                 common = len(user_tmdb_ids & {r["tmdb_id"] for r in reqs if r.get("tmdb_id")})
                 if common >= 2 and common > best_count:
-                    best_count, best_id, info = common, seer_info["id"], seer_info
+                    best_count, info = common, seer_info
                     method = f"media/{common}"
 
     if info:
@@ -720,8 +722,6 @@ async def health_check(db: Session = Depends(get_db)):
 @router.get("/stats/timeline")
 def stats_timeline(db: Session = Depends(get_db)):
     """Retourne le nombre de demandes par jour sur les 30 derniers jours."""
-    from datetime import datetime, timedelta
-
     from sqlalchemy import func
 
     days = 30
@@ -940,8 +940,6 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
 @router.get("/activity")
 def activity_log(db: Session = Depends(get_db)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
-    from datetime import datetime, timedelta
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
@@ -1110,9 +1108,6 @@ def prometheus_metrics(db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Conflits de déduplication
 # ---------------------------------------------------------------------------
-
-import json as _json
-import os as _os
 
 _IGNORED_FILE = "data/ignored_conflicts.json"
 

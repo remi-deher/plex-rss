@@ -29,7 +29,6 @@ from app.routers import api as api_router
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -118,7 +117,7 @@ def test_conflicts_tmdb_detected(client, db):
 def test_conflicts_recommended_id_is_seer_entry(client, db):
     """L'entrée Seer est recommandée dans un conflit tmdb."""
     _user(db, plex_user_id="alice")
-    rss = _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
+    _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
     seer = _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
 
     with _no_ignored():
@@ -281,7 +280,7 @@ def test_resolve_unknown_keep_id_returns_404(client, db):
 def test_auto_resolve_keeps_seer_entry(client, db):
     """Auto-resolve : l'entrée Seer est conservée, l'entrée RSS supprimée."""
     _user(db, plex_user_id="alice")
-    rss  = _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
+    _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
     seer = _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
 
     r = client.post("/api/conflicts/auto-resolve")
@@ -307,7 +306,7 @@ def test_auto_resolve_no_conflicts_returns_zero(client, db):
 def test_auto_resolve_merges_co_requesters(client, db):
     """L'utilisateur RSS est ajouté en co-demandeur sur l'entrée Seer après auto-resolve."""
     _user(db, plex_user_id="alice")
-    rss  = _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
+    _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
     seer = _req(db, plex_user_id="bob",   tmdb_id="13967",  tvdb_id="81763", source="seer")
 
     client.post("/api/conflicts/auto-resolve")

@@ -356,3 +356,54 @@ def test_users_page_shows_rss_only_badge_when_no_seer(client, db):
     assert resp.status_code == 200
     # Le template doit rendre un badge RSS ou le bloc "Lier automatiquement"
     assert "RSS" in resp.text or "Lier" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Filtres de la page /requests (user, search, sort)
+# ---------------------------------------------------------------------------
+
+
+def test_requests_page_filter_by_user(client, db):
+    """GET /requests?user=alice → uniquement les demandes d'Alice."""
+    _seed(db)
+    db.add(PlexUser(plex_user_id="bob", display_name="Bob", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="bob",
+            plex_user="Bob",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?user=alice")
+    assert resp.status_code == 200
+    assert "Inception" in resp.text
+    assert "Dune" not in resp.text
+
+
+def test_requests_page_filter_by_search(client, db):
+    """GET /requests?search=Dune → filtre par titre."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?search=Dune")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
+def test_requests_page_sort_asc(client, db):
+    """GET /requests?sort=title&order=asc → 200 sans erreur."""
+    _seed(db)
+    resp = client.get("/requests?sort=title&order=asc")
+    assert resp.status_code == 200

@@ -25,7 +25,6 @@ from app.routers import api as api_router
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -215,7 +214,7 @@ def test_automatch_no_match(client, db):
 def test_automatch_already_matched_seer_id_not_reused(client, db):
     """Le seer_user_id 3 est déjà pris par un autre utilisateur → pas de match."""
     _settings(db)
-    other = _user(db, plex_user_id="bob", seer_user_id=3)
+    _user(db, plex_user_id="bob", seer_user_id=3)
     u = _user(db, plex_user_id="alice", plex_email="alice@example.com", seer_user_id=None)
 
     with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):

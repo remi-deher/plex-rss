@@ -6,6 +6,8 @@ Les données de contexte sont minimales : elles servent à l'affichage initial ;
 les mises à jour dynamiques passent par les endpoints API (api.py).
 """
 
+import json
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -15,8 +17,6 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
-
-import json
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
