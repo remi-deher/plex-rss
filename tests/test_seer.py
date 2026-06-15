@@ -1,13 +1,13 @@
-"""Tests unitaires pour app/services/overseerr.py."""
+"""Tests unitaires pour app/services/seer.py."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.overseerr import check_connection, is_request_available, request_media
+from app.services.seer import check_connection, is_request_available, request_media
 
-URL = "http://overseerr.local:5055"
-KEY = "testoverseerrkey"
+URL = "http://seer.local:5055"
+KEY = "testseerkey"
 MOVIE_ITEM = {"title": "Inception", "media_type": "movie", "tmdb_id": "27205"}
 SHOW_ITEM = {"title": "Breaking Bad", "media_type": "show", "tmdb_id": "1396"}
 
@@ -46,7 +46,7 @@ def _mock_client(*responses) -> AsyncMock:
 
 @pytest.mark.asyncio
 async def test_request_movie_success():
-    """Nouvelle demande film → retourne l'ID Overseerr, already_existed=False."""
+    """Nouvelle demande film → retourne l'ID Seer, already_existed=False."""
     post_resp = _resp(201, {"id": 42})
 
     client = AsyncMock()
@@ -54,7 +54,7 @@ async def test_request_movie_success():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         req_id, already_existed, slug = await request_media(URL, KEY, MOVIE_ITEM)
 
     assert req_id == 42
@@ -72,7 +72,7 @@ async def test_request_show_includes_seasons():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         await request_media(URL, KEY, SHOW_ITEM)
 
     call_kwargs = client.post.call_args
@@ -91,7 +91,7 @@ async def test_request_conflict_already_existed():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=conflict_resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         req_id, already_existed, slug = await request_media(URL, KEY, MOVIE_ITEM)
 
     assert req_id is None
@@ -112,7 +112,7 @@ async def test_request_no_tmdb_id_search_success():
     client.get = AsyncMock(return_value=search_resp)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         req_id, already_existed, _ = await request_media(URL, KEY, item)
 
     assert req_id == 55
@@ -129,7 +129,7 @@ async def test_request_no_tmdb_id_search_fails():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         with pytest.raises(ValueError, match="TMDB ID introuvable"):
             await request_media(URL, KEY, item)
 
@@ -146,7 +146,7 @@ async def test_request_search_no_matching_media_type():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(return_value=search_resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         with pytest.raises(ValueError, match="TMDB ID introuvable"):
             await request_media(URL, KEY, item)
 
@@ -162,8 +162,8 @@ async def test_is_request_available_status_5():
     resp = _resp(200, {"media": {"status": 5}})
     client = _mock_client(resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
-        available, req_id, _ = await is_request_available(URL, KEY, overseerr_request_id=42)
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+        available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is True
     assert req_id == 42
@@ -175,8 +175,8 @@ async def test_is_request_available_status_4():
     resp = _resp(200, {"media": {"status": 4}})
     client = _mock_client(resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
-        available, req_id, _ = await is_request_available(URL, KEY, overseerr_request_id=42)
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+        available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is True
 
@@ -187,15 +187,15 @@ async def test_is_request_available_status_pending():
     resp = _resp(200, {"media": {"status": 2}})
     client = _mock_client(resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
-        available, req_id, _ = await is_request_available(URL, KEY, overseerr_request_id=42)
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+        available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is False
 
 
 @pytest.mark.asyncio
 async def test_is_request_available_404():
-    """Demande introuvable dans Overseerr → (False, None, None)."""
+    """Demande introuvable dans Seer → (False, None, None)."""
     resp = _resp(404)
 
     client = AsyncMock()
@@ -203,8 +203,8 @@ async def test_is_request_available_404():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(return_value=resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
-        available, req_id, _ = await is_request_available(URL, KEY, overseerr_request_id=999)
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+        available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=999)
 
     assert available is False
     assert req_id is None
@@ -218,15 +218,15 @@ async def test_is_request_available_network_error():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
-        available, req_id, _ = await is_request_available(URL, KEY, overseerr_request_id=42)
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+        available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is False
     assert req_id is None
 
 
 # ---------------------------------------------------------------------------
-# test_connection
+# check_connection
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +235,7 @@ async def test_connection_success():
     resp = _resp(200, {"displayName": "admin", "email": "admin@example.com"})
     client = _mock_client(resp)
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, KEY)
 
     assert success is True
@@ -249,7 +249,7 @@ async def test_connection_failure():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("Connection refused"))
 
-    with patch("app.services.overseerr.httpx.AsyncClient", return_value=client):
+    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, KEY)
 
     assert success is False

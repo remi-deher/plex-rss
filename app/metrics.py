@@ -29,7 +29,7 @@ class _Metrics:
     # Temps de réponse *arr (liste des N derniers, en ms)
     _sonarr_latencies: list = field(default_factory=list)
     _radarr_latencies: list = field(default_factory=list)
-    _overseerr_latencies: list = field(default_factory=list)
+    _seer_latencies: list = field(default_factory=list)
 
     _MAX_LATENCY_SAMPLES: int = field(default=50, init=False, repr=False)
 
@@ -44,8 +44,8 @@ class _Metrics:
     def record_radarr_latency(self, ms: float):
         self._add_latency(self._radarr_latencies, ms)
 
-    def record_overseerr_latency(self, ms: float):
-        self._add_latency(self._overseerr_latencies, ms)
+    def record_seer_latency(self, ms: float):
+        self._add_latency(self._seer_latencies, ms)
 
     def avg_latency(self, bucket: list) -> Optional[float]:
         return round(sum(bucket) / len(bucket), 1) if bucket else None
@@ -59,8 +59,8 @@ class _Metrics:
         return self.avg_latency(self._radarr_latencies)
 
     @property
-    def overseerr_avg_ms(self) -> Optional[float]:
-        return self.avg_latency(self._overseerr_latencies)
+    def seer_avg_ms(self) -> Optional[float]:
+        return self.avg_latency(self._seer_latencies)
 
     @property
     def notification_failure_rate(self) -> Optional[float]:
@@ -115,8 +115,8 @@ def record_radarr_latency(ms: float):
     _m.record_radarr_latency(ms)
 
 
-def record_overseerr_latency(ms: float):
-    _m.record_overseerr_latency(ms)
+def record_seer_latency(ms: float):
+    _m.record_seer_latency(ms)
 
 
 def snapshot() -> dict:
@@ -134,7 +134,7 @@ def snapshot() -> dict:
             "error_rate_pct": _m.arr_error_rate,
             "sonarr_avg_response_ms": _m.sonarr_avg_ms,
             "radarr_avg_response_ms": _m.radarr_avg_ms,
-            "overseerr_avg_response_ms": _m.overseerr_avg_ms,
+            "seer_avg_response_ms": _m.seer_avg_ms,
         },
         "notifications": {
             "sent": _m.notifications_sent,

@@ -7,7 +7,7 @@ en mémoire. Utilisé par l'endpoint /api/logs pour afficher les logs dans l'UI.
 
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 
 MAX_LOGS = 500
 
@@ -27,7 +27,7 @@ class MemoryLogHandler(logging.Handler):
         try:
             _buffer.append(
                 {
-                    "time": datetime.utcfromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+                    "time": datetime.fromtimestamp(record.created, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "level": record.levelname,
                     "color": LEVEL_COLORS.get(record.levelname, "secondary"),
                     "logger": record.name,

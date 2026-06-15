@@ -1,88 +1,163 @@
 {% extends "base.html" %}
 {% set page = "users" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2>Utilisateurs surveillés</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Utilisateurs</h2>
   <div class="d-flex gap-2">
-    <button class="btn btn-outline-secondary" onclick="discoverUsers()">
-      <i class="bi bi-arrow-repeat me-1"></i>Synchroniser depuis le RSS
+    {% if seer_enabled %}
+    <button id="btn-seer-sync" class="btn btn-outline-info btn-sm" onclick="syncSeer()">
+      <i class="bi bi-cloud-arrow-down me-1"></i>Sync Seer
     </button>
+    {% endif %}
     <button class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#userModal" onclick="openAdd()">
-      <i class="bi bi-plus-lg me-1"></i>Ajouter manuellement
+      <i class="bi bi-plus-lg me-1"></i>Ajouter
     </button>
   </div>
 </div>
 
-<div class="alert alert-secondary border-0 mb-3" style="background:#2a2a2a">
-  <i class="bi bi-info-circle me-2"></i>
-  Les utilisateurs sont <strong>détectés automatiquement</strong> depuis le flux RSS à chaque polling.
-  Cliquez sur <strong>Synchroniser</strong> pour les importer immédiatement.
-  Désactivez un utilisateur pour ignorer ses demandes (ex. : il utilise déjà Overseerr).
+<!-- Barre de tri + compteur -->
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="text-muted small">{{ users | length }} utilisateur{% if users | length > 1 %}s{% endif %}</div>
+  <div class="d-flex align-items-center gap-2">
+    <label class="text-muted small mb-0">Trier par</label>
+    <select class="form-select form-select-sm bg-dark border-secondary text-light" style="width:auto" id="userSort" onchange="sortUsers()">
+      <option value="name">Nom</option>
+      <option value="requests">Demandes</option>
+      <option value="seer">Statut Seer</option>
+      <option value="status">Actif / Ignoré</option>
+    </select>
+  </div>
 </div>
 
-<div class="card">
-  <div class="table-responsive">
-    <table class="table table-dark table-hover mb-0">
-      <thead><tr>
-        <th>ID Plex (hex)</th>
-        <th>Nom affiché</th>
-        <th>Demandes</th>
-        <th>Email notification</th>
-        <th>Actif</th>
-        <th>Notif admin</th>
-        <th>Actions</th>
-      </tr></thead>
-      <tbody id="users-table">
-        {% for u in users %}
-        {% set c = counts_map.get(u.plex_user_id, {}) %}
-        <tr id="user-{{ u.id }}">
-          <td><code class="text-warning" style="font-size:12px">{{ u.plex_user_id }}</code></td>
-          <td>
-            <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none fw-bold">
-              {{ u.display_name or u.plex_user_id }}
-            </a>
-          </td>
-          <td>
-            {% if c %}
+<div id="users-grid" class="row g-3">
+  {% for u in users %}
+  {% set c = counts_map.get(u.plex_user_id, {}) %}
+  {% set av_colors = ['text-primary','text-info','text-success','text-warning','text-danger'] %}
+  {% set av_bgs = ['bg-primary bg-opacity-25','bg-info bg-opacity-25','bg-success bg-opacity-25','bg-warning bg-opacity-25','bg-danger bg-opacity-25'] %}
+  {% set ci = u.id % 5 %}
+  {% set initials = ((u.custom_name or u.display_name or u.plex_user_id)[:1] | upper) %}
+  <div class="col-md-6 col-xl-4" id="card-wrapper-{{ u.id }}">
+    <div class="card h-100 border-secondary" style="background:#1e1e1e"
+         data-user-id="{{ u.id }}"
+         data-seer-user-id="{{ u.seer_user_id or '' }}">
+
+      <div class="card-body">
+
+        <!-- Identité -->
+        <div class="d-flex gap-3 align-items-start mb-3">
+          <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 {{ av_bgs[ci] }} {{ av_colors[ci] }}"
+               style="width:44px;height:44px;font-weight:600;font-size:15px">
+            {{ initials }}
+          </div>
+          <div class="flex-grow-1 min-w-0">
+            <div id="custom-name-cell-{{ u.id }}">
+              {% if u.custom_name %}
+              <span class="fw-semibold" style="font-size:15px;border-bottom:1px dashed #555;cursor:pointer"
+                    onclick="editCustomName({{ u.id }}, '{{ u.custom_name | replace("'", "\\'") }}')">
+                {{ u.custom_name }}
+              </span>
+              {% else %}
+              <span class="text-muted fst-italic" style="font-size:13px;cursor:pointer"
+                    onclick="editCustomName({{ u.id }}, '')">
+                <i class="bi bi-pencil me-1" style="font-size:11px"></i>Définir un nom d'usage
+              </span>
+              {% endif %}
+            </div>
+            <div class="text-muted" style="font-size:12px">{{ u.display_name or '—' }}</div>
             <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none">
-              <span class="badge bg-secondary me-1" title="Total">{{ c.get('total', 0) }}</span>
-              {% if c.get('available', 0) %}<span class="badge badge-available me-1" title="Disponibles"><i class="bi bi-check-circle-fill"></i> {{ c.get('available', 0) }}</span>{% endif %}
-              {% if c.get('failed', 0) %}<span class="badge badge-failed" title="Echecs"><i class="bi bi-x-circle-fill"></i> {{ c.get('failed', 0) }}</span>{% endif %}
+              <code class="text-muted" style="font-size:10px">{{ u.plex_user_id }}</code>
             </a>
+          </div>
+          <div class="d-flex flex-column gap-1 align-items-end flex-shrink-0">
+            {% if u.source == 'seer' %}
+            <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Utilisateur Seer uniquement — pas de flux RSS"><i class="bi bi-stars me-1"></i>Seer</span>
+            {% elif u.seer_user_id and u.seer_active %}
+            <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Utilisateur RSS actif sur Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect me-1"></i>Hybride</span>
+            {% elif u.seer_user_id %}
+            <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Lié à Seer — synchronisez pour mettre à jour le statut"><i class="bi bi-stars me-1"></i>Seer</span>
             {% else %}
-            <span class="text-muted small">—</span>
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Utilisateur RSS uniquement — pas de compte Seer lié"><i class="bi bi-rss me-1"></i>RSS</span>
             {% endif %}
-          </td>
-          <td class="text-muted small">
-            {% if u.notification_email %}{{ u.notification_email }}
-            {% else %}<span class="fst-italic">SMTP par défaut</span>{% endif %}
-          </td>
-          <td>
-            {% if u.enabled %}<span class="badge bg-success">Actif</span>
-            {% else %}<span class="badge bg-secondary">Ignoré</span>{% endif %}
-          </td>
-          <td>
-            {% if u.notify_admin %}<span class="badge bg-warning text-dark"><i class="bi bi-bell-fill me-1"></i>Oui</span>
-            {% else %}<span class="badge bg-secondary"><i class="bi bi-bell-slash me-1"></i>Non</span>{% endif %}
-          </td>
-          <td>
-            <button class="btn btn-sm btn-outline-secondary me-1"
-              onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ u.display_name or '' }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }}, {{ 'true' if u.notify_admin else 'false' }})">
-              <i class="bi bi-pencil"></i>
-            </button>
-            <button class="btn btn-sm btn-outline-danger" onclick="deleteUser({{ u.id }})">
-              <i class="bi bi-trash"></i>
-            </button>
-          </td>
-        </tr>
+            {% if u.source != 'seer' %}
+            {% if u.enabled %}
+            <span class="badge bg-success" style="font-size:10px">Actif</span>
+            {% else %}
+            <span class="badge" style="font-size:10px;background:#444">Ignoré</span>
+            {% endif %}
+            {% endif %}
+            {% if u.notify_admin %}
+            <span class="badge bg-warning text-dark" style="font-size:10px"><i class="bi bi-bell-fill me-1"></i>Admin</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Stats + email -->
+        <div class="d-flex flex-wrap gap-1 mb-2">
+          {% if c %}
+          <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none">
+            <span class="badge bg-secondary">{{ c.get('total', 0) }} demandes</span>
+          </a>
+          {% if c.get('available', 0) %}
+          <span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>{{ c.get('available', 0) }}</span>
+          {% endif %}
+          {% if c.get('failed', 0) %}
+          <span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>{{ c.get('failed', 0) }}</span>
+          {% endif %}
+          {% else %}
+          <span class="badge bg-secondary opacity-50">0 demandes</span>
+          {% endif %}
+        </div>
+        <div class="mb-3" style="font-size:12px">
+          {% if u.notification_email %}
+          <span class="text-muted"><i class="bi bi-envelope me-1"></i>{{ u.notification_email }}</span>
+          {% else %}
+          <span class="text-warning opacity-75" data-bs-toggle="tooltip" title="Aucun email de notification — les alertes passeront par le SMTP par défaut">
+            <i class="bi bi-envelope-exclamation me-1"></i><span class="fst-italic">Aucun email configuré</span>
+          </span>
+          {% endif %}
+        </div>
+
+        <!-- Section Seer -->
+        {% if seer_enabled or u.seer_user_id %}
+        <div id="seer-cell-{{ u.id }}" class="rounded p-2" style="background:#161616;border:1px solid #2a2a2a;min-height:44px">
+          <span class="text-muted small fst-italic">
+            <span class="spinner-border spinner-border-sm me-1"></span>Chargement…
+          </span>
+        </div>
         {% else %}
-        <tr><td colspan="7" class="text-center text-muted py-4">
-          Aucun utilisateur configuré — cliquez sur <strong>Synchroniser depuis le RSS</strong>.
-        </td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        <div id="seer-cell-{{ u.id }}" style="display:none"></div>
+        {% endif %}
+
+      </div>
+
+      <div class="card-footer d-flex justify-content-end gap-2 border-secondary" style="background:#181818">
+        {% if u.source == 'seer' %}
+        <button class="btn btn-sm btn-outline-info"
+          onclick="openMergeSeerOnly({{ u.id }}, '{{ (u.custom_name or u.display_name or u.plex_user_id) | replace("'", "\\'") }}')"
+          data-bs-toggle="tooltip" title="Associer cet utilisateur Seer-only à un utilisateur RSS existant">
+          <i class="bi bi-arrow-left-right me-1"></i>Associer
+        </button>
+        {% else %}
+        <button class="btn btn-sm btn-outline-secondary"
+          onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ (u.display_name or '') | replace("'", "\\'") }}', '{{ (u.custom_name or '') | replace("'", "\\'") }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }}, {{ 'true' if u.notify_admin else 'false' }})">
+          <i class="bi bi-pencil me-1"></i>Modifier
+        </button>
+        {% endif %}
+        <button class="btn btn-sm btn-outline-danger"
+          onclick="confirmDeleteUser({{ u.id }}, '{{ (u.custom_name or u.display_name or u.plex_user_id) | replace("'", "\\'") }}', {{ c.get('total', 0) }})">
+          <i class="bi bi-trash me-1"></i>Supprimer
+        </button>
+      </div>
+
+    </div>
   </div>
+  {% else %}
+  <div class="col-12">
+    <div class="text-center text-muted py-5">
+      Aucun utilisateur configuré — cliquez sur <strong>Sync RSS</strong>.
+    </div>
+  </div>
+  {% endfor %}
 </div>
 
 <!-- Modal ajout/édition -->
@@ -96,13 +171,16 @@
       <div class="modal-body">
         <input type="hidden" id="editId">
         <div class="mb-3">
-          <label class="form-label">ID Plex <span class="text-muted">(hex, depuis le champ &lt;author&gt; du RSS)</span></label>
+          <label class="form-label">ID Plex <span class="text-muted">(hex)</span></label>
           <input type="text" class="form-control font-monospace" id="fUserId" placeholder="eead4af03aaec372">
-          <div class="form-text">Récupéré automatiquement via "Découvrir depuis le RSS"</div>
         </div>
         <div class="mb-3">
-          <label class="form-label">Nom affiché <span class="text-muted">(libre)</span></label>
+          <label class="form-label">Nom affiché <span class="text-muted">(depuis Plex/RSS)</span></label>
           <input type="text" class="form-control" id="fDisplayName" placeholder="Jean Dupont">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nom d'usage <span class="text-muted">(personnalisé)</span></label>
+          <input type="text" class="form-control" id="fCustomName" placeholder="Ex : Jean (famille)">
         </div>
         <div class="mb-3">
           <label class="form-label">Email Plex</label>
@@ -110,20 +188,16 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Email(s) de notification</label>
-          <input type="text" class="form-control" id="fNotifEmail" placeholder="ex: alice@mail.com, bob@mail.com">
-          <div class="form-text">Plusieurs adresses séparées par des virgules. Vide = adresse SMTP par défaut.</div>
+          <input type="text" class="form-control" id="fNotifEmail" placeholder="alice@mail.com, bob@mail.com">
+          <div class="form-text">Plusieurs adresses séparées par des virgules.</div>
         </div>
         <div class="form-check form-switch mb-2">
           <input class="form-check-input" type="checkbox" id="fEnabled" checked>
-          <label class="form-check-label" for="fEnabled">
-            Traiter les demandes de cet utilisateur
-          </label>
+          <label class="form-check-label" for="fEnabled">Traiter les demandes</label>
         </div>
         <div class="form-check form-switch">
           <input class="form-check-input" type="checkbox" id="fNotifyAdmin" checked>
-          <label class="form-check-label" for="fNotifyAdmin">
-            Notifier l'admin pour cet utilisateur
-          </label>
+          <label class="form-check-label" for="fNotifyAdmin">Notifier l'admin</label>
         </div>
       </div>
       <div class="modal-footer border-secondary">
@@ -134,7 +208,46 @@
   </div>
 </div>
 
-<!-- Modal découverte -->
+<!-- Modal confirmation suppression utilisateur -->
+<div class="modal fade" id="deleteUserModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content" style="background:#1f1f1f">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-danger"><i class="bi bi-trash me-2"></i>Supprimer l'utilisateur</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1">Supprimer <strong id="deleteUserName"></strong> ?</p>
+        <p class="text-muted small mb-0" id="deleteUserInfo"></p>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-danger btn-sm" id="deleteUserConfirmBtn"><i class="bi bi-trash me-1"></i>Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal confirmation déliaison Seer -->
+<div class="modal fade" id="unlinkSeerModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content" style="background:#1f1f1f">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-x-circle me-2 text-warning"></i>Délier de Seer</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-0">La liaison Seer sera supprimée. Les demandes existantes ne sont pas affectées.</p>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-outline-danger btn-sm" id="unlinkSeerConfirmBtn"><i class="bi bi-x-lg me-1"></i>Délier</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal découverte RSS -->
 <div class="modal fade" id="discoverModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content" style="background:#1f1f1f">
@@ -152,12 +265,408 @@
   </div>
 </div>
 
+<!-- Modal fusion Seer-only → RSS -->
+<div class="modal fade" id="mergeSeerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:#1f1f1f">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2 text-info"></i>Associer un utilisateur Seer-only</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">
+          L'utilisateur <strong id="mergeSeerName"></strong> (Seer-only) sera fusionné avec l'utilisateur RSS sélectionné.
+          Ses demandes seront réattribuées et son entrée supprimée.
+        </p>
+        <div class="mb-3">
+          <label class="form-label">Utilisateur RSS cible</label>
+          <select class="form-select" id="mergeTargetSelect" style="background:#2a2a2a;color:#eee;border-color:#444">
+            <option value="">— Choisir un utilisateur —</option>
+          </select>
+        </div>
+        <div id="mergeWarning" class="alert alert-warning d-none small py-2">
+          Cet utilisateur RSS est déjà lié à Seer. La liaison existante sera remplacée.
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-info text-dark" id="mergeSeerConfirmBtn" onclick="doMergeSeerOnly()" disabled>
+          <i class="bi bi-arrow-left-right me-1"></i>Fusionner
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let editingId = null;
+let _seerUsers = [];
+let _seerById = {};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSeerCells();
+  initTooltips();
+  // Vue grille : basculer en grille automatiquement sur mobile
+  if (window.innerWidth < 640 && !localStorage.getItem('requests_view')) {
+    localStorage.setItem('requests_view', 'grid');
+  }
+});
+
+function initTooltips() {
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    new bootstrap.Tooltip(el, {trigger: 'hover'});
+  });
+}
+
+async function loadSeerCells() {
+  const loader = document.getElementById('seer-loading');
+  if (loader) loader.style.display = '';
+  try {
+    const r = await fetch('/api/seer/users');
+    const data = await r.json();
+    if (!data.error && data.seer_users?.length) {
+      _seerUsers = data.seer_users;
+      _seerById = Object.fromEntries(_seerUsers.map(u => [String(u.id), u]));
+    }
+  } catch(e) {}
+  finally {
+    if (loader) loader.style.display = 'none';
+  }
+  renderAllSeerCells();
+}
+
+function renderAllSeerCells() {
+  document.querySelectorAll('.card[data-user-id]').forEach(card => {
+    renderSeerCell(card.dataset.userId, card.dataset.seerUserId || null);
+  });
+  initTooltips();
+}
+
+function renderSeerCell(userId, linkedSeerUserId) {
+  const cell = document.getElementById(`seer-cell-${userId}`);
+  if (!cell) return;
+
+  const takenIds = new Set(
+    [...document.querySelectorAll('.card[data-seer-user-id]')]
+      .map(c => c.dataset.seerUserId)
+      .filter(id => id && id !== String(linkedSeerUserId))
+  );
+
+  if (linkedSeerUserId && _seerById[String(linkedSeerUserId)]) {
+    const su = _seerById[String(linkedSeerUserId)];
+    const typeIcon = su.user_type === 2
+      ? '<i class="bi bi-easel2 text-warning me-1" title="Compte Plex"></i>'
+      : su.user_type === 3
+      ? '<i class="bi bi-collection-play text-purple me-1" title="Compte Jellyfin"></i>'
+      : '<i class="bi bi-person me-1" title="Compte local"></i>';
+    const sub = su.plex_username
+      ? `<span class="text-muted" style="font-size:11px">@${su.plex_username}</span>`
+      : `<span class="text-muted" style="font-size:11px">${su.email}</span>`;
+    cell.innerHTML = `
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <span class="badge bg-info text-dark">${typeIcon}${su.display_name || su.email}
+            <span class="ms-1 opacity-75">(${su.request_count})</span>
+          </span>
+          <div class="mt-1">${sub}</div>
+        </div>
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-warning py-0 px-2"
+            data-bs-toggle="tooltip" data-bs-placement="top" title="Compléter depuis Seer (copie nom et email)"
+            onclick="completeSeer(${userId})" aria-label="Compléter depuis Seer"><i class="bi bi-clipboard-check"></i></button>
+          <button class="btn btn-sm btn-outline-danger py-0 px-2"
+            data-bs-toggle="tooltip" data-bs-placement="top" title="Délier ce compte Seer"
+            onclick="confirmUnlinkSeer(${userId})" aria-label="Délier Seer"><i class="bi bi-x-lg"></i></button>
+        </div>
+      </div>`;
+  } else if (!_seerUsers.length) {
+    cell.innerHTML = '<span class="text-muted small">— Seer non configuré —</span>';
+  } else {
+    // État non lié : auto en premier, manuel en secondaire
+    const opts = _seerUsers
+      .filter(su => !takenIds.has(String(su.id)))
+      .map(su => {
+        const t = su.user_type === 2 ? '🟠' : su.user_type === 3 ? '🟣' : '⚪';
+        const sub = su.plex_username ? ` (@${su.plex_username})` : ` <${su.email}>`;
+        return `<option value="${su.id}" data-email="${su.email}">${t} ${su.display_name || su.email}${sub} — ${su.request_count} req.</option>`;
+      }).join('');
+    cell.innerHTML = `
+      <div>
+        <div class="d-flex align-items-center justify-content-between mb-1">
+          <span class="badge bg-secondary opacity-75" style="font-size:10px"><i class="bi bi-rss me-1"></i>RSS uniquement</span>
+        </div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="autoMatchSeer(${userId})" id="auto-btn-${userId}">
+            <i class="bi bi-magic me-1"></i>Lier automatiquement
+          </button>
+          <button class="btn btn-link btn-sm p-0 text-muted" style="font-size:11px"
+            onclick="toggleManualLink(${userId})">Lier manuellement</button>
+        </div>
+        <div id="manual-link-${userId}" style="display:none" class="mt-2">
+          <div class="d-flex gap-1">
+            <select class="form-select form-select-sm bg-dark text-light border-secondary" id="seer-sel-${userId}">
+              <option value="">— Choisir un compte Seer —</option>${opts}
+            </select>
+            <button class="btn btn-sm btn-outline-info py-0 px-2" onclick="linkSeer(${userId})" title="Confirmer">
+              <i class="bi bi-link-45deg"></i>
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }
+}
+
+function toggleManualLink(userId) {
+  const div = document.getElementById(`manual-link-${userId}`);
+  if (div) div.style.display = div.style.display === 'none' ? '' : 'none';
+}
+
+// ── Tri des cartes ────────────────────────────────────────────────────────────
+
+function sortUsers() {
+  const key = document.getElementById('userSort').value;
+  const grid = document.getElementById('users-grid');
+  const cards = [...grid.querySelectorAll('[id^=card-wrapper-]')];
+
+  cards.sort((a, b) => {
+    const cardA = a.querySelector('.card');
+    const cardB = b.querySelector('.card');
+    if (key === 'name') {
+      const na = (a.querySelector('[id^=custom-name-cell-] .fw-semibold, [id^=custom-name-cell-] .fst-italic')?.textContent || '').trim().toLowerCase();
+      const nb = (b.querySelector('[id^=custom-name-cell-] .fw-semibold, [id^=custom-name-cell-] .fst-italic')?.textContent || '').trim().toLowerCase();
+      return na.localeCompare(nb, 'fr');
+    }
+    if (key === 'requests') {
+      const ra = parseInt(a.querySelector('.badge.bg-secondary')?.textContent) || 0;
+      const rb = parseInt(b.querySelector('.badge.bg-secondary')?.textContent) || 0;
+      return rb - ra;
+    }
+    if (key === 'seer') {
+      const sa = cardA?.dataset.seerUserId ? 0 : 1;
+      const sb = cardB?.dataset.seerUserId ? 0 : 1;
+      return sa - sb;
+    }
+    if (key === 'status') {
+      const ea = a.querySelector('.badge.bg-success') ? 0 : 1;
+      const eb = b.querySelector('.badge.bg-success') ? 0 : 1;
+      return ea - eb;
+    }
+    return 0;
+  });
+  cards.forEach(c => grid.appendChild(c));
+}
+
+// ── Automatch unitaire ────────────────────────────────────────────────────────
+
+async function autoMatchSeer(userId) {
+  const btn = document.getElementById(`auto-btn-${userId}`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  try {
+    const r = await fetch(`/api/users/${userId}/seer-automatch`, {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const data = await r.json();
+    if (data.matched) {
+      const card = document.querySelector(`.card[data-user-id="${userId}"]`);
+      if (card) card.dataset.seerUserId = String(data.seer_user_id);
+      renderAllSeerCells();
+      showToast(`Lié automatiquement à "${data.display_name}" (${data.method})`, 'success');
+    } else {
+      showToast('Aucune correspondance Seer trouvée automatiquement', 'warning');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic me-1"></i>Lier automatiquement'; }
+    }
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-magic me-1"></i>Lier automatiquement'; }
+  }
+}
+
+// ── Liaison manuelle / déliaison ──────────────────────────────────────────────
+
+async function linkSeer(userId) {
+  const sel = document.getElementById(`seer-sel-${userId}`);
+  if (!sel?.value) return showToast('Sélectionnez un compte Seer', 'warning');
+  const seerEmail = sel.options[sel.selectedIndex]?.dataset.email || null;
+  try {
+    const r = await fetch(`/api/users/${userId}/seer-link`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({seer_user_id: parseInt(sel.value), seer_email: seerEmail}),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const card = document.querySelector(`.card[data-user-id="${userId}"]`);
+    if (card) card.dataset.seerUserId = sel.value;
+    renderAllSeerCells();
+    showToast('Liaison Seer enregistrée', 'success');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+function confirmUnlinkSeer(userId) {
+  const modal = new bootstrap.Modal(document.getElementById('unlinkSeerModal'));
+  document.getElementById('unlinkSeerConfirmBtn').onclick = async () => {
+    modal.hide();
+    try {
+      const r = await fetch(`/api/users/${userId}/seer-link`, {method: 'DELETE'});
+      if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+      const card = document.querySelector(`.card[data-user-id="${userId}"]`);
+      if (card) card.dataset.seerUserId = '';
+      renderAllSeerCells();
+      showToast('Liaison supprimée', 'success');
+    } catch(e) {
+      showToast('Erreur : ' + e.message, 'danger');
+    }
+  };
+  modal.show();
+}
+
+// ── Fusion Seer-only → RSS ────────────────────────────────────────────────────
+
+let _mergeSeerOnlyId = null;
+
+function openMergeSeerOnly(seerOnlyUserId, seerOnlyName) {
+  _mergeSeerOnlyId = seerOnlyUserId;
+  document.getElementById('mergeSeerName').textContent = seerOnlyName;
+
+  // Construire la liste des users RSS (sans source="seer") depuis les cards en DOM
+  const select = document.getElementById('mergeTargetSelect');
+  select.innerHTML = '<option value="">— Choisir un utilisateur —</option>';
+
+  document.querySelectorAll('.card[data-user-id]').forEach(card => {
+    const uid = parseInt(card.dataset.userId);
+    if (uid === seerOnlyUserId) return;
+    if (card.closest('[id^="card-wrapper-"]')?.querySelector('.badge.bg-info.text-dark')) return; // seer-only
+    const name = card.querySelector('[id^="custom-name-cell-"] .fw-semibold')?.textContent.trim()
+              || card.querySelector('[id^="custom-name-cell-"] .fst-italic') && null
+              || card.querySelector('.text-muted[style*="12px"]')?.textContent.trim()
+              || `#${uid}`;
+    const hasSeer = !!card.dataset.seerUserId;
+    const opt = new Option((hasSeer ? '⚠ ' : '') + name, uid);
+    opt.dataset.hasSeer = hasSeer ? '1' : '';
+    select.appendChild(opt);
+  });
+
+  select.value = '';
+  document.getElementById('mergeSeerConfirmBtn').disabled = true;
+  document.getElementById('mergeWarning').classList.add('d-none');
+
+  select.onchange = () => {
+    const opt = select.options[select.selectedIndex];
+    const hasSeer = opt?.dataset.hasSeer === '1';
+    document.getElementById('mergeWarning').classList.toggle('d-none', !hasSeer);
+    document.getElementById('mergeSeerConfirmBtn').disabled = !select.value;
+  };
+
+  new bootstrap.Modal(document.getElementById('mergeSeerModal')).show();
+}
+
+async function doMergeSeerOnly() {
+  const targetId = document.getElementById('mergeTargetSelect').value;
+  if (!targetId || !_mergeSeerOnlyId) return;
+
+  const btn = document.getElementById('mergeSeerConfirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Fusion…';
+
+  try {
+    const r = await fetch(`/api/users/${_mergeSeerOnlyId}/merge-into/${targetId}`, {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const data = await r.json();
+    bootstrap.Modal.getInstance(document.getElementById('mergeSeerModal'))?.hide();
+    showToast(`Fusion effectuée — ${data.requests_moved} demande(s) transférée(s)`, 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-left-right me-1"></i>Fusionner';
+  }
+}
+
+// ── Nom d'usage ───────────────────────────────────────────────────────────────
+
+function editCustomName(userId, currentValue) {
+  const cell = document.getElementById(`custom-name-cell-${userId}`);
+  const esc = (currentValue || '').replace(/'/g, "\\'");
+  cell.innerHTML = `
+    <div class="d-flex align-items-center gap-1">
+      <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+        id="custom-name-input-${userId}" value="${currentValue}" style="max-width:160px" placeholder="Nom d'usage">
+      <button class="btn btn-sm btn-outline-success py-0 px-1" onclick="saveCustomName(${userId})">
+        <i class="bi bi-check-lg"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="cancelCustomName(${userId}, '${esc}')">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>`;
+  const input = document.getElementById(`custom-name-input-${userId}`);
+  input?.focus();
+  input?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveCustomName(userId);
+    if (e.key === 'Escape') cancelCustomName(userId, currentValue);
+  });
+}
+
+function cancelCustomName(userId, originalValue) {
+  const cell = document.getElementById(`custom-name-cell-${userId}`);
+  const esc = (originalValue || '').replace(/'/g, "\\'");
+  cell.innerHTML = originalValue
+    ? `<span class="fw-semibold" style="font-size:15px;border-bottom:1px dashed #555;cursor:pointer"
+         onclick="editCustomName(${userId}, '${esc}')">${originalValue}</span>`
+    : `<span class="text-muted fst-italic" style="font-size:13px;cursor:pointer"
+         onclick="editCustomName(${userId}, '')">
+         <i class="bi bi-pencil me-1" style="font-size:11px"></i>Définir un nom d'usage</span>`;
+}
+
+async function saveCustomName(userId) {
+  const input = document.getElementById(`custom-name-input-${userId}`);
+  const value = input?.value.trim() || null;
+  try {
+    const r = await fetch(`/api/users/${userId}/custom-name`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({custom_name: value}),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const cell = document.getElementById(`custom-name-cell-${userId}`);
+    const esc = (value || '').replace(/'/g, "\\'");
+    cell.innerHTML = value
+      ? `<span class="fw-semibold" style="font-size:15px;border-bottom:1px dashed #555;cursor:pointer"
+           onclick="editCustomName(${userId}, '${esc}')">${value}</span>`
+      : `<span class="text-muted fst-italic" style="font-size:13px;cursor:pointer"
+           onclick="editCustomName(${userId}, '')">
+           <i class="bi bi-pencil me-1" style="font-size:11px"></i>Définir un nom d'usage</span>`;
+    showToast('Nom d\'usage enregistré', 'success');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+// ── Compléter depuis Seer ─────────────────────────────────────────────────────
+
+async function completeSeer(userId) {
+  try {
+    const r = await fetch(`/api/users/${userId}/seer-complete`, {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const data = await r.json();
+    const changed = Object.keys(data.changes || {});
+    if (!changed.length) {
+      showToast('Aucune info à compléter (déjà renseigné)', 'secondary');
+    } else {
+      showToast(`Complété : ${changed.join(', ')}`, 'success');
+      setTimeout(() => location.reload(), 800);
+    }
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+// ── CRUD utilisateurs ─────────────────────────────────────────────────────────
 
 function openAdd(prefillId) {
   editingId = null;
@@ -165,18 +674,20 @@ function openAdd(prefillId) {
   document.getElementById('fUserId').value = prefillId || '';
   document.getElementById('fUserId').readOnly = !!prefillId;
   document.getElementById('fDisplayName').value = '';
+  document.getElementById('fCustomName').value = '';
   document.getElementById('fPlexEmail').value = '';
   document.getElementById('fNotifEmail').value = '';
   document.getElementById('fEnabled').checked = true;
   document.getElementById('fNotifyAdmin').checked = true;
 }
 
-function openEdit(id, userId, displayName, plexEmail, notifEmail, enabled, notifyAdmin) {
+function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, enabled, notifyAdmin) {
   editingId = id;
   document.getElementById('modalTitle').textContent = 'Modifier un utilisateur';
   document.getElementById('fUserId').value = userId;
   document.getElementById('fUserId').readOnly = true;
   document.getElementById('fDisplayName').value = displayName;
+  document.getElementById('fCustomName').value = customName;
   document.getElementById('fPlexEmail').value = plexEmail;
   document.getElementById('fNotifEmail').value = notifEmail;
   document.getElementById('fEnabled').checked = enabled;
@@ -188,13 +699,13 @@ async function saveUser() {
   const data = {
     plex_user_id: document.getElementById('fUserId').value.trim(),
     display_name: document.getElementById('fDisplayName').value.trim() || null,
+    custom_name: document.getElementById('fCustomName').value.trim() || null,
     plex_email: document.getElementById('fPlexEmail').value.trim() || null,
     notification_email: document.getElementById('fNotifEmail').value.trim() || null,
     enabled: document.getElementById('fEnabled').checked,
     notify_admin: document.getElementById('fNotifyAdmin').checked,
   };
   if (!data.plex_user_id) return showToast('ID Plex requis', 'danger');
-
   const url = editingId ? `/api/users/${editingId}` : '/api/users';
   const method = editingId ? 'PUT' : 'POST';
   try {
@@ -208,11 +719,43 @@ async function saveUser() {
   }
 }
 
-async function deleteUser(id) {
-  if (!confirm('Supprimer cet utilisateur ?')) return;
-  await fetch(`/api/users/${id}`, {method:'DELETE'});
-  document.getElementById(`user-${id}`)?.remove();
-  showToast('Supprimé', 'success');
+function confirmDeleteUser(id, name, requestCount) {
+  const modal = new bootstrap.Modal(document.getElementById('deleteUserModal'));
+  document.getElementById('deleteUserName').textContent = name;
+  document.getElementById('deleteUserInfo').textContent = requestCount
+    ? `Ses ${requestCount} demande${requestCount > 1 ? 's' : ''} seront conservées.`
+    : 'Cet utilisateur n\'a aucune demande.';
+  document.getElementById('deleteUserConfirmBtn').onclick = async () => {
+    modal.hide();
+    try {
+      const r = await fetch(`/api/users/${id}`, {method: 'DELETE'});
+      if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+      document.getElementById(`card-wrapper-${id}`)?.remove();
+      showToast('Utilisateur supprimé', 'success');
+    } catch(e) {
+      showToast('Erreur : ' + e.message, 'danger');
+    }
+  };
+  modal.show();
+}
+
+// ── Synchronisations ──────────────────────────────────────────────────────────
+
+async function syncSeer() {
+  const btn = document.getElementById('btn-seer-sync');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Sync Seer…';
+  try {
+    const r = await fetch('/api/seer/sync/users', {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast('Synchronisation Seer terminée', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch(e) {
+    showToast('Erreur Seer : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-arrow-down me-1"></i>Sync Seer';
+  }
 }
 
 async function discoverUsers() {
@@ -223,45 +766,29 @@ async function discoverUsers() {
       <p class="mt-2 text-muted">Lecture du flux RSS en cours...</p>
     </div>`;
   modal.show();
-
   try {
     const r = await fetch('/api/users/discover', {method:'POST'});
     if (!r.ok) throw new Error((await r.json()).detail);
     const data = await r.json();
-
-    const all = data.users;
-
-    if (!all || all.length === 0) {
-      document.getElementById('discoverBody').innerHTML = '<p class="text-muted text-center py-3">Aucun utilisateur trouvé dans le flux RSS.</p>';
+    if (!data.users?.length) {
+      document.getElementById('discoverBody').innerHTML = '<p class="text-muted text-center py-3">Aucun utilisateur trouvé.</p>';
       return;
     }
-
-    let html = `<p class="text-muted mb-3">${all.length} utilisateur(s) au total.
-      <span class="badge bg-warning text-dark">${data.added} nouveau(x) ajouté(s)</span></p>
-      <table class="table table-dark table-sm">
-        <thead><tr><th>ID Plex</th><th>Nom affiché</th><th>Actif</th></tr></thead><tbody>`;
-
-    for (const u of all) {
+    let html = `<p class="text-muted mb-3">${data.users.length} utilisateur(s) — <span class="badge bg-warning text-dark">${data.added} nouveau(x)</span></p>
+      <table class="table table-dark table-sm"><thead><tr><th>ID Plex</th><th>Nom</th><th>Statut</th></tr></thead><tbody>`;
+    for (const u of data.users) {
       html += `<tr>
         <td><code class="text-warning">${u.plex_user_id}</code></td>
-        <td>${u.display_name || '<span class="text-muted fst-italic">Non défini</span>'}</td>
+        <td>${u.display_name || '<span class="text-muted fst-italic">—</span>'}</td>
         <td>${u.enabled ? '<span class="badge bg-success">Actif</span>' : '<span class="badge bg-secondary">Ignoré</span>'}</td>
       </tr>`;
     }
     html += '</tbody></table>';
-    if (data.added > 0) html += `<div class="alert alert-success mt-2">${data.added} nouvel(aux) utilisateur(s) ajoute(s). Actualisez la page pour les voir.</div>`;
+    if (data.added > 0) html += `<div class="alert alert-success mt-2">${data.added} nouvel(aux) utilisateur(s) ajouté(s). Actualisez la page.</div>`;
     document.getElementById('discoverBody').innerHTML = html;
   } catch(e) {
     document.getElementById('discoverBody').innerHTML = `<div class="alert alert-danger">${e.message}</div>`;
   }
 }
-
-function addDiscovered(userId) {
-  bootstrap.Modal.getInstance(document.getElementById('discoverModal')).hide();
-  openAdd(userId);
-  setTimeout(() => new bootstrap.Modal(document.getElementById('userModal')).show(), 300);
-}
-
-
 </script>
 {% endblock %}

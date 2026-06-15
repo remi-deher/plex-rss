@@ -232,3 +232,287 @@ def test_users_page_empty_db_still_renders(client, db):
     resp = client.get("/users")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Régression : variable `page` (conflit nav vs. pagination)
+# ---------------------------------------------------------------------------
+
+
+def test_requests_page_pagination_no_500(client, db):
+    """Régression : le template ne crashe plus sur `page - 1` (TypeError str - int).
+
+    Avant le fix, {% set page = "requests" %} dans le nav écrasait la variable
+    entière `page` du contexte backend. Le renommage en `current_page` corrige ça.
+    """
+    _seed(db)
+    resp = client.get("/requests?page=2")
+    # Page 2 vide mais pas 500
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_requests_page_first_page(client, db):
+    """La page 1 de /requests se rend sans erreur."""
+    _seed(db)
+    resp = client.get("/requests?page=1")
+    assert resp.status_code == 200
+    assert "Inception" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Affichage co-demandeurs (filtre Jinja `fromjson`)
+# ---------------------------------------------------------------------------
+
+
+def _seed_with_co_requesters(db):
+    import json
+
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="Alice", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            tmdb_id="438631",
+            status=RequestStatus.sent_to_arr,
+            extra_requesters=json.dumps([{"plex_user_id": "bob", "display_name": "Bob"}]),
+        )
+    )
+    db.commit()
+
+
+def test_requests_page_shows_co_requester(client, db):
+    """La page demandes affiche les co-demandeurs depuis extra_requesters."""
+    _seed_with_co_requesters(db)
+    resp = client.get("/requests")
+    assert resp.status_code == 200
+    assert "Bob" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Page utilisateurs : disposition carte + custom_name
+# ---------------------------------------------------------------------------
+
+
+def test_users_page_shows_custom_name(client, db):
+    """La page utilisateurs affiche le custom_name quand il est défini."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="alice_plex", custom_name="Alice IRL", enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    assert "Alice IRL" in resp.text
+
+
+def test_users_page_shows_display_name_when_no_custom(client, db):
+    """Sans custom_name, la page affiche le display_name Plex."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="bob", display_name="Bob Plex", custom_name=None, enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    assert "Bob Plex" in resp.text
+
+
+def test_users_page_shows_rss_only_badge_when_no_seer(client, db):
+    """Un utilisateur sans seer_user_id affiche un indicateur 'RSS' (RSS uniquement)."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="charlie", display_name="Charlie", seer_user_id=None, enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    # Le template doit rendre un badge RSS ou le bloc "Lier automatiquement"
+    assert "RSS" in resp.text or "Lier" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Filtres de la page /requests (user, search, sort)
+# ---------------------------------------------------------------------------
+
+
+def test_requests_page_filter_by_user(client, db):
+    """GET /requests?user=alice → uniquement les demandes d'Alice."""
+    _seed(db)
+    db.add(PlexUser(plex_user_id="bob", display_name="Bob", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="bob",
+            plex_user="Bob",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?user=alice")
+    assert resp.status_code == 200
+    assert "Inception" in resp.text
+    assert "Dune" not in resp.text
+
+
+def test_requests_page_filter_by_search(client, db):
+    """GET /requests?search=Dune → filtre par titre."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?search=Dune")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
+def test_requests_page_sort_asc(client, db):
+    """GET /requests?sort=title&order=asc → 200 sans erreur."""
+    _seed(db)
+    resp = client.get("/requests?sort=title&order=asc")
+    assert resp.status_code == 200
+
+
+def test_users_page_counts_available_and_failed(client, db):
+    """La page utilisateurs calcule les compteurs available et failed (lignes 150/152)."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="Alice", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Inception",
+            media_type="movie",
+            status=RequestStatus.available,
+        )
+    )
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.failed,
+        )
+    )
+    db.commit()
+    resp = client.get("/users")
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Auth : POST /setup et POST /login
+# ---------------------------------------------------------------------------
+
+
+def test_setup_post_creates_account(client_no_auth, db):
+    """POST /setup crée le compte et redirige vers /."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "secret123", "password_confirm": "secret123"},
+    )
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/"
+    from app.models import Settings
+
+    s = db.query(Settings).first()
+    assert s is not None
+    assert s.auth_username == "admin"
+
+
+def test_setup_post_password_too_short(client_no_auth, db):
+    """POST /setup avec mot de passe < 8 caractères → erreur."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "short", "password_confirm": "short"},
+    )
+    assert resp.status_code == 200
+    assert "8" in resp.text
+
+
+def test_setup_post_passwords_mismatch(client_no_auth, db):
+    """POST /setup avec mots de passe différents → erreur."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "secret123", "password_confirm": "different"},
+    )
+    assert resp.status_code == 200
+    assert "correspondent" in resp.text
+
+
+def test_login_post_valid_credentials(client_no_auth, db):
+    """POST /login avec bons identifiants → redirige vers /."""
+    from app.services.auth import hash_password
+
+    db.add(Settings(auth_username="admin", auth_password_hash=hash_password("secret123")))
+    db.commit()
+    resp = client_no_auth.post(
+        "/login",
+        data={"username": "admin", "password": "secret123", "next": "/"},
+    )
+    assert resp.status_code == 302
+
+
+def test_login_post_wrong_password(client_no_auth, db):
+    """POST /login avec mauvais mot de passe → affiche erreur."""
+    from app.services.auth import hash_password
+
+    db.add(Settings(auth_username="admin", auth_password_hash=hash_password("secret123")))
+    db.commit()
+    resp = client_no_auth.post(
+        "/login",
+        data={"username": "admin", "password": "wrong", "next": "/"},
+    )
+    assert resp.status_code == 200
+    assert "Identifiants" in resp.text
+
+
+def test_logout_clears_session(client_no_auth, db):
+    """GET /logout redirige vers /login."""
+    resp = client_no_auth.get("/logout")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["location"]

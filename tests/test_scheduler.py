@@ -37,7 +37,7 @@ def _settings(**kwargs) -> Settings:
         radarr_quality_profile_id=1,
         radarr_root_folder="/movies",
         radarr_minimum_availability="released",
-        overseerr_enabled=False,
+        seer_enabled=False,
         email_on_request=True,
         email_on_available=True,
         smtp_from="admin@example.com",
@@ -275,7 +275,7 @@ async def test_poll_show_item_routes_to_sonarr(db):
         await poll_watchlists()
 
     mock_submit.assert_called_once()
-    _, item_arg = mock_submit.call_args[0]
+    _, item_arg, _user = mock_submit.call_args[0]
     assert item_arg["media_type"] == "show"
 
     req = db.query(MediaRequest).first()
@@ -380,22 +380,22 @@ async def test_check_arr_no_candidates_returns_early(db):
 
 
 @pytest.mark.asyncio
-async def test_check_arr_overseerr_used_when_enabled(db):
-    """Overseerr activé → overseerr_available utilisé à la place de is_movie_available."""
-    s = _settings(overseerr_enabled=True, overseerr_url="http://overseerr.local", overseerr_api_key="key")
+async def test_check_arr_seer_used_when_enabled(db):
+    """Seer activé → seer_available utilisé à la place de is_movie_available."""
+    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
     db.add(_sent_request())
     db.commit()
 
     with (
         _patch_session(db),
-        patch("app.scheduler.overseerr_available", new=AsyncMock(return_value=(True, 42, None))) as mock_ov,
+        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(True, 42, None))) as mock_seer,
         patch("app.scheduler.is_movie_available", new=AsyncMock()) as mock_radarr,
         _patch_enqueue(),
     ):
         await check_arr_statuses()
 
-    mock_ov.assert_called_once()
+    mock_seer.assert_called_once()
     mock_radarr.assert_not_called()
 
 

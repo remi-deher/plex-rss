@@ -81,12 +81,12 @@ def test_list_requests_returns_all(client, db):
 
 def test_list_requests_ordered_by_date_desc(client, db):
     """Les demandes sont triées par requested_at décroissant."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     older = _req(title="Old Movie")
-    older.requested_at = datetime.utcnow() - timedelta(hours=2)
+    older.requested_at = datetime.now(timezone.utc) - timedelta(hours=2)
     newer = _req(title="New Movie")
-    newer.requested_at = datetime.utcnow()
+    newer.requested_at = datetime.now(timezone.utc)
     db.add(older)
     db.add(newer)
     db.commit()

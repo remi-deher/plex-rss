@@ -1,4 +1,4 @@
-"""Tests unitaires pour GET /api/health et GET /api/metrics."""
+"""Tests unitaires pour GET /api/health, GET /api/metrics et authentification API token."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -42,13 +42,22 @@ def client(db):
     app.dependency_overrides.pop(get_db, None)
 
 
+@pytest.fixture()
+def client_real_auth(db):
+    """Client sans bypass d'auth — teste la vraie logique require_auth."""
+    app.dependency_overrides[get_db] = lambda: db
+    c = TestClient(app, raise_server_exceptions=False)
+    yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
 def _settings(**kwargs) -> Settings:
     defaults = dict(
         sonarr_url="http://sonarr.local",
         sonarr_api_key="key",
         radarr_url="http://radarr.local",
         radarr_api_key="key",
-        overseerr_enabled=False,
+        seer_enabled=False,
         plex_url="http://plex.local",
         plex_token="token",
         smtp_host="smtp.example.com",
@@ -80,7 +89,7 @@ def test_health_returns_top_level_fields(client, db):
     assert "status" in data
     assert "checked_at" in data
     assert "services" in data
-    assert set(data["services"].keys()) >= {"sonarr", "radarr", "plex", "smtp", "rss", "overseerr"}
+    assert set(data["services"].keys()) >= {"sonarr", "radarr", "plex", "smtp", "rss", "seer"}
 
 
 def test_health_all_ok_returns_healthy(client, db):
@@ -115,13 +124,13 @@ def test_health_sonarr_down_returns_down(client, db):
     assert data["services"]["sonarr"]["ok"] is False
 
 
-def test_health_overseerr_down_returns_degraded(client, db):
-    """Sonarr+Radarr+Plex OK mais Overseerr KO → status = degraded."""
+def test_health_seer_down_returns_degraded(client, db):
+    """Sonarr+Radarr+Plex OK mais Seer KO → status = degraded."""
     db.add(
         _settings(
-            overseerr_enabled=True,
-            overseerr_url="http://overseerr.local",
-            overseerr_api_key="key",
+            seer_enabled=True,
+            seer_url="http://seer.local",
+            seer_api_key="key",
         )
     )
     db.commit()
@@ -130,7 +139,7 @@ def test_health_overseerr_down_returns_degraded(client, db):
         patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
         patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
         patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.overseerr_test", new=AsyncMock(return_value=(False, "refused"))),
+        patch("app.routers.api.seer_test", new=AsyncMock(return_value=(False, "refused"))),
     ):
         resp = client.get("/api/health")
 
@@ -301,3 +310,157 @@ def test_stats_counts_correct_values(client, db):
     assert data["failed"] == 1
     assert data["sent_to_arr"] == 1
     assert data["total"] == 3
+
+
+# ---------------------------------------------------------------------------
+# API token — gestion
+# ---------------------------------------------------------------------------
+
+
+def test_generate_token_returns_token(client, db):
+    """POST /api/settings/token génère et retourne un token."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    resp = client.post("/api/settings/token")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "api_token" in data
+    assert len(data["api_token"]) > 20
+
+
+def test_generate_token_stores_in_db(client, db):
+    """Le token généré est persisté dans Settings."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    resp = client.post("/api/settings/token")
+    token = resp.json()["api_token"]
+
+    s = db.query(Settings).first()
+    assert s.api_token == token
+
+
+def test_token_status_active(client, db):
+    """GET /api/settings/token indique active=True quand un token existe."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="mytoken"))
+    db.commit()
+
+    resp = client.get("/api/settings/token")
+    assert resp.status_code == 200
+    assert resp.json()["active"] is True
+
+
+def test_token_status_inactive(client, db):
+    """GET /api/settings/token indique active=False sans token."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    resp = client.get("/api/settings/token")
+    assert resp.json()["active"] is False
+
+
+def test_revoke_token(client, db):
+    """DELETE /api/settings/token supprime le token."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="mytoken"))
+    db.commit()
+
+    resp = client.delete("/api/settings/token")
+    assert resp.status_code == 200
+
+    s = db.query(Settings).first()
+    assert s.api_token is None
+
+
+def test_generate_token_regenerates(client, db):
+    """Deux appels successifs génèrent deux tokens différents."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    t1 = client.post("/api/settings/token").json()["api_token"]
+    t2 = client.post("/api/settings/token").json()["api_token"]
+    assert t1 != t2
+
+
+# ---------------------------------------------------------------------------
+# API token — authentification
+# ---------------------------------------------------------------------------
+
+
+def test_api_key_header_authenticates(client_real_auth, db):
+    """X-Api-Key valide → 200 sans session cookie."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="secret-token"))
+    db.commit()
+
+    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "secret-token"})
+    assert resp.status_code == 200
+
+
+def test_wrong_api_key_returns_401(client_real_auth, db):
+    """X-Api-Key invalide → 401."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="correct"))
+    db.commit()
+
+    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "wrong"})
+    assert resp.status_code == 401
+
+
+def test_no_auth_returns_401(client_real_auth, db):
+    """Ni session ni header → 401."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    resp = client_real_auth.get("/api/stats/counts")
+    assert resp.status_code == 401
+
+
+def test_no_token_configured_rejects_any_key(client_real_auth, db):
+    """Pas de token en DB → header X-Api-Key refusé."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.commit()
+
+    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "anything"})
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# GET /api/metrics/prometheus
+# ---------------------------------------------------------------------------
+
+
+def test_prometheus_returns_plain_text(client, db):
+    """/api/metrics/prometheus retourne du text/plain."""
+    resp = client.get("/api/metrics/prometheus")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+
+
+def test_prometheus_contains_expected_metrics(client, db):
+    """Le corps contient les noms de métriques Prometheus attendus."""
+    resp = client.get("/api/metrics/prometheus")
+    body = resp.text
+    assert "plex_rss_poll_total" in body
+    assert "plex_rss_arr_submissions_total" in body
+    assert "plex_rss_notifications_sent_total" in body
+    assert "plex_rss_requests_total" in body
+    assert "plex_rss_requests_by_status" in body
+
+
+def test_prometheus_reflects_db_counts(client, db):
+    """Les gauges de statut reflètent les données DB."""
+    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="A", media_type="movie", status=RequestStatus.available))
+    db.add(MediaRequest(plex_user_id="u", plex_user="u", title="B", media_type="movie", status=RequestStatus.failed))
+    db.commit()
+
+    body = client.get("/api/metrics/prometheus").text
+    assert 'plex_rss_requests_by_status{status="available"} 1' in body
+    assert 'plex_rss_requests_by_status{status="failed"} 1' in body
+    assert "plex_rss_requests_total 2" in body
+
+
+def test_prometheus_help_and_type_lines(client, db):
+    """Chaque métrique a une ligne # HELP et # TYPE."""
+    body = client.get("/api/metrics/prometheus").text
+    assert "# HELP plex_rss_poll_total" in body
+    assert "# TYPE plex_rss_poll_total counter" in body
+    assert "# TYPE plex_rss_requests_by_status gauge" in body

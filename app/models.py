@@ -8,10 +8,11 @@ Tables :
 """
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
@@ -24,112 +25,111 @@ class WatchlistSource(str, enum.Enum):
 
 
 class RequestStatus(str, enum.Enum):
-    pending = "pending"  # en attente d'envoi à Sonarr/Radarr
-    sent_to_arr = "sent_to_arr"  # transmis, en attente de disponibilité
-    available = "available"  # fichier présent dans Sonarr/Radarr
-    failed = "failed"  # échec de transmission
+    pending = "pending"
+    sent_to_arr = "sent_to_arr"
+    available = "available"
+    failed = "failed"
 
 
 class Settings(Base):
     __tablename__ = "settings"
 
-    id = Column(Integer, primary_key=True, default=1)
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
 
     # --- Plex ---
-    plex_url = Column(String, nullable=True)
-    plex_token = Column(String, nullable=True)
-    plex_rss_url = Column(String, nullable=True)
-    watchlist_source_priority = Column(String, default="api")  # "api" ou "rss"
-    watchlist_fallback_enabled = Column(Boolean, default=True)
-    poll_interval_minutes = Column(Integer, default=5)
+    plex_url: Mapped[Optional[str]]
+    plex_token: Mapped[Optional[str]]
+    plex_rss_url: Mapped[Optional[str]]
+    watchlist_source_priority: Mapped[str] = mapped_column(default="api")
+    watchlist_fallback_enabled: Mapped[bool] = mapped_column(default=True)
+    poll_interval_minutes: Mapped[int] = mapped_column(default=5)
 
     # --- Sonarr ---
-    sonarr_url = Column(String, nullable=True)
-    sonarr_api_key = Column(String, nullable=True)
-    sonarr_quality_profile_id = Column(Integer, nullable=True)
-    sonarr_root_folder = Column(String, nullable=True)
-    sonarr_enabled = Column(Boolean, default=True)
+    sonarr_url: Mapped[Optional[str]]
+    sonarr_api_key: Mapped[Optional[str]]
+    sonarr_quality_profile_id: Mapped[Optional[int]]
+    sonarr_root_folder: Mapped[Optional[str]]
+    sonarr_enabled: Mapped[bool] = mapped_column(default=True)
 
     # --- Radarr ---
-    radarr_url = Column(String, nullable=True)
-    radarr_api_key = Column(String, nullable=True)
-    radarr_quality_profile_id = Column(Integer, nullable=True)
-    radarr_root_folder = Column(String, nullable=True)
-    radarr_enabled = Column(Boolean, default=True)
-    radarr_minimum_availability = Column(String, default="released")  # announced|inCinemas|released|tba
+    radarr_url: Mapped[Optional[str]]
+    radarr_api_key: Mapped[Optional[str]]
+    radarr_quality_profile_id: Mapped[Optional[int]]
+    radarr_root_folder: Mapped[Optional[str]]
+    radarr_enabled: Mapped[bool] = mapped_column(default=True)
+    radarr_minimum_availability: Mapped[str] = mapped_column(default="released")
 
     # --- Email (SMTP) ---
-    smtp_host = Column(String, nullable=True)
-    smtp_port = Column(Integer, default=587)
-    smtp_user = Column(String, nullable=True)
-    smtp_password = Column(String, nullable=True)
-    smtp_from = Column(String, nullable=True)
-    smtp_tls = Column(Boolean, default=True)
-    admin_notification_email = Column(
-        String, nullable=True
-    )  # reçoit une copie si notify_admin activé sur l'utilisateur
-    email_on_request = Column(Boolean, default=True)
-    email_on_available = Column(Boolean, default=True)
-    email_request_template = Column(Text, nullable=True)  # template Jinja2 HTML custom
-    email_available_template = Column(Text, nullable=True)  # template Jinja2 HTML custom
+    smtp_host: Mapped[Optional[str]]
+    smtp_port: Mapped[int] = mapped_column(default=587)
+    smtp_user: Mapped[Optional[str]]
+    smtp_password: Mapped[Optional[str]]
+    smtp_from: Mapped[Optional[str]]
+    smtp_tls: Mapped[bool] = mapped_column(default=True)
+    admin_notification_email: Mapped[Optional[str]]
+    email_on_request: Mapped[bool] = mapped_column(default=True)
+    email_on_available: Mapped[bool] = mapped_column(default=True)
+    email_request_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_available_template: Mapped[Optional[str]] = mapped_column(Text)
 
-    # --- Overseerr ---
-    overseerr_url = Column(String, nullable=True)
-    overseerr_api_key = Column(String, nullable=True)
-    overseerr_enabled = Column(Boolean, default=False)  # True = envoyer à Overseerr plutôt qu'à Sonarr/Radarr
+    # --- Seer ---
+    seer_url: Mapped[Optional[str]]
+    seer_api_key: Mapped[Optional[str]]
+    seer_enabled: Mapped[bool] = mapped_column(default=False)
 
     # --- Notifications push (Discord / Telegram) ---
-    # Si l'URL/token est renseigné, les notifications sont envoyées automatiquement.
-    discord_webhook_url = Column(String, nullable=True)
-    telegram_bot_token = Column(String, nullable=True)
-    telegram_chat_id = Column(String, nullable=True)
+    discord_webhook_url: Mapped[Optional[str]]
+    telegram_bot_token: Mapped[Optional[str]]
+    telegram_chat_id: Mapped[Optional[str]]
 
     # --- Authentification ---
-    # Si auth_username est NULL, l'app affiche le wizard de configuration initiale.
-    auth_username = Column(String, nullable=True)
-    auth_password_hash = Column(String, nullable=True)  # bcrypt hash
+    auth_username: Mapped[Optional[str]]
+    auth_password_hash: Mapped[Optional[str]]
+    api_token: Mapped[Optional[str]]
 
 
 class PlexUser(Base):
     __tablename__ = "plex_users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    plex_user_id = Column(String, unique=True, nullable=False)  # ID hex issu du champ <author> du RSS
-    display_name = Column(String, nullable=True)  # nom lisible défini par l'admin
-    plex_email = Column(String, nullable=True)
-    notification_email = Column(String, nullable=True)  # surcharge l'email SMTP par défaut
-    notify_admin = Column(Boolean, default=True)  # True = l'admin reçoit aussi une copie
-    enabled = Column(Boolean, default=True)  # False = demandes ignorées
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plex_user_id: Mapped[str] = mapped_column(unique=True)
+    display_name: Mapped[Optional[str]]
+    plex_email: Mapped[Optional[str]]
+    notification_email: Mapped[Optional[str]]
+    notify_admin: Mapped[bool] = mapped_column(default=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    seer_user_id: Mapped[Optional[int]] = mapped_column(default=None)
+    seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
+    custom_name: Mapped[Optional[str]] = mapped_column(default=None)
+    source: Mapped[Optional[str]] = mapped_column(default=None)
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
 
 class MediaRequest(Base):
     __tablename__ = "media_requests"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    plex_user_id = Column(String, nullable=False)  # ID hex issu du RSS
-    plex_user = Column(String, nullable=True)  # display_name résolu au moment de la création
-    title = Column(String, nullable=False)
-    year = Column(Integer, nullable=True)
-    media_type = Column(String, nullable=False)  # "movie" ou "show"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plex_user_id: Mapped[str]
+    plex_user: Mapped[Optional[str]]
+    title: Mapped[str]
+    year: Mapped[Optional[int]]
+    media_type: Mapped[str]
 
-    # Identifiants externes — utilisés pour le lookup dans Sonarr/Radarr
-    tmdb_id = Column(String, nullable=True)
-    tvdb_id = Column(String, nullable=True)
-    imdb_id = Column(String, nullable=True)
-    plex_guid = Column(String, nullable=True)
+    tmdb_id: Mapped[Optional[str]]
+    tvdb_id: Mapped[Optional[str]]
+    imdb_id: Mapped[Optional[str]]
+    plex_guid: Mapped[Optional[str]]
 
-    status = Column(String, default=RequestStatus.pending)
-    source = Column(String, nullable=True)  # "api" ou "rss" selon la source du polling
-    arr_id = Column(Integer, nullable=True)  # ID interne Sonarr ou Radarr
-    arr_slug = Column(
-        String, nullable=True
-    )  # titleSlug (Sonarr) ou tmdbId string (Radarr) pour construire des liens directs
+    status: Mapped[str] = mapped_column(default=RequestStatus.pending)
+    source: Mapped[Optional[str]]
+    arr_id: Mapped[Optional[int]]
+    arr_slug: Mapped[Optional[str]]
 
-    request_mail_sent = Column(Boolean, default=False)  # évite les doublons d'email de demande
-    available_mail_sent = Column(Boolean, default=False)  # évite les doublons d'email de disponibilité
+    request_mail_sent: Mapped[bool] = mapped_column(default=False)
+    available_mail_sent: Mapped[bool] = mapped_column(default=False)
 
-    requested_at = Column(DateTime, default=datetime.utcnow)
-    available_at = Column(DateTime, nullable=True)
-    poster_url = Column(String, nullable=True)
-    overview = Column(Text, nullable=True)
+    requested_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    available_at: Mapped[Optional[datetime]]
+    poster_url: Mapped[Optional[str]]
+    overview: Mapped[Optional[str]] = mapped_column(Text)
+    extra_requesters: Mapped[Optional[str]] = mapped_column(Text)

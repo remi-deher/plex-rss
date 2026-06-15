@@ -1,20 +1,30 @@
+FROM python:3.12-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache gcc musl-dev libffi-dev
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ---
+
 FROM python:3.12-alpine
 
 WORKDIR /app
 
-RUN apk update && apk upgrade && \
-    apk add --no-cache --virtual .build-deps gcc musl-dev libffi-dev && \
-    apk add --no-cache libffi
+RUN apk add --no-cache libffi
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip uninstall -y pip setuptools && \
-    apk del .build-deps
+COPY --from=builder /install /usr/local
 
-COPY . .
+COPY alembic/ alembic/
+COPY alembic.ini .
+COPY app/ app/
+COPY scripts/ scripts/
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && \
+    pip uninstall -y pip setuptools
 
 EXPOSE 8000
 
