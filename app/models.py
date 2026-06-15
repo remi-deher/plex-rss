@@ -97,6 +97,8 @@ class PlexUser(Base):
     plex_email: Mapped[Optional[str]]
     notification_email: Mapped[Optional[str]]
     notify_admin: Mapped[bool] = mapped_column(default=True)
+    notify_on_request: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_on_available: Mapped[Optional[bool]] = mapped_column(default=True)
     enabled: Mapped[bool] = mapped_column(default=True)
     seer_user_id: Mapped[Optional[int]] = mapped_column(default=None)
     seer_active: Mapped[Optional[bool]] = mapped_column(default=None)

@@ -292,6 +292,8 @@ class UserCreate(BaseModel):
     notification_email: Optional[str] = None
     enabled: bool = True
     notify_admin: bool = True
+    notify_on_request: Optional[bool] = True
+    notify_on_available: Optional[bool] = True
     seer_active: Optional[bool] = None
 
 

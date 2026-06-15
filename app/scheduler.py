@@ -495,12 +495,24 @@ def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -
     return True
 
 
-def _get_recipients(user_obj, settings: Settings) -> list[str]:
+def _get_recipients(user_obj, settings: Settings, event: str = "request") -> list[str]:
     """Résout la liste des destinataires email pour un utilisateur.
 
+    - Si l'utilisateur est inactif (enabled=False) : aucune notification.
     - Adresse(s) de l'utilisateur (séparées par virgules), ou smtp_from par défaut.
-    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie séparée.
+    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie.
+    - Respecte les flags notify_on_request / notify_on_available par utilisateur.
     """
+    if user_obj and not user_obj.enabled:
+        return []
+
+    # Vérification des flags par utilisateur
+    if user_obj:
+        if event == "request" and user_obj.notify_on_request is False:
+            return []
+        if event == "available" and user_obj.notify_on_available is False:
+            return []
+
     raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
     recipients = [e.strip() for e in raw.split(",") if e.strip()]
 
@@ -517,14 +529,14 @@ def _notify_request(settings: Settings, req: MediaRequest, db: Session):
     """Empile la notification de nouvelle demande dans la queue."""
     if not req.request_mail_sent:
         user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
+        recipients = _get_recipients(user_obj, settings, "request") if settings.email_on_request else []
         enqueue_notification("request", req.id, recipients)
 
 
 def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
     """Empile la notification d'échec dans la queue."""
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
+    recipients = _get_recipients(user_obj, settings, "request") if settings.email_on_request else []
     arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
     enqueue_notification(
         "failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
@@ -535,7 +547,7 @@ def _notify_available(settings: Settings, req: MediaRequest, db: Session):
     """Empile la notification de disponibilité dans la queue."""
     if not req.available_mail_sent:
         user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings) if settings.email_on_available else []
+        recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
         enqueue_notification("available", req.id, recipients)
 
 
