@@ -606,6 +606,12 @@ function renderDetail(d) {
         <i class="bi bi-arrow-clockwise me-1"></i>Réessayer
       </button>`);
   }
+  if (d.status !== 'available') {
+    footer.insertAdjacentHTML('beforeend', `
+      <button class="btn btn-outline-success" onclick="markProcessedFromModal(${d.id}, this)">
+        <i class="bi bi-check-all me-1"></i>Marquer traité (sans email)
+      </button>`);
+  }
   if (d.arr_slug) {
     const arrBase = d.media_type === 'show' ? '{{ sonarr_url }}' : '{{ radarr_url }}';
     const arrPath = d.media_type === 'show' ? 'series' : 'movie';
@@ -647,6 +653,24 @@ async function retryFromModal(id) {
     setTimeout(() => location.reload(), 3000);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function markProcessedFromModal(id, btn) {
+  if (!confirm('Marquer cette demande comme traitée / disponible ? (Aucun email ne sera envoyé)')) return;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...';
+  try {
+    const r = await fetch(`/api/requests/${id}/mark-processed`, {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast('Demande marquée comme traitée', 'success');
+    detailModal.hide();
+    setTimeout(() => location.reload(), 600);
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-all me-1"></i>Marquer traité (sans email)';
   }
 }
 

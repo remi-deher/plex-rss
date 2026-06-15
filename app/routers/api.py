@@ -1113,6 +1113,19 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
+@router.post("/requests/{request_id}/mark-processed")
+def mark_request_processed(request_id: int, db: Session = Depends(get_db)):
+    """Marque une demande comme traitée / disponible sans envoyer d'emails."""
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req.status = "available"
+    req.request_mail_sent = True
+    req.available_mail_sent = True
+    if not req.available_at:
+        req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"status": "success", "message": "Demande marquée comme traitée"}
+
+
 # ---------------------------------------------------------------------------
 # Activité et notifications
 # ---------------------------------------------------------------------------

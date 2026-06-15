@@ -247,3 +247,21 @@ def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
     assert resp.status_code == 200
     data = resp.json()
     assert data["requested_at"].endswith("Z") or "+00:00" in data["requested_at"]
+
+
+def test_mark_request_processed_skips_emails(client, db):
+    """POST /requests/{id}/mark-processed passe la demande en available et marque les mails comme envoyés."""
+    req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.post(f"/api/requests/{req.id}/mark-processed")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "success"
+
+    db.refresh(req)
+    assert req.status == RequestStatus.available
+    assert req.request_mail_sent is True
+    assert req.available_mail_sent is True
+    assert req.available_at is not None
