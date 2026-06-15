@@ -76,6 +76,7 @@ def requests_page(
     search: str = None,
     status: str = None,
     type: str = None,
+    source: str = None,
     page: int = 1,
     per_page: int = 50,
     sort: str = "date",
@@ -87,6 +88,7 @@ def requests_page(
     sort_col = {
         "title": MediaRequest.title,
         "date": MediaRequest.requested_at,
+        "available_date": MediaRequest.available_at,
         "status": MediaRequest.status,
         "type": MediaRequest.media_type,
     }.get(sort, MediaRequest.requested_at)
@@ -98,8 +100,10 @@ def requests_page(
         q = q.filter(MediaRequest.plex_user_id == user)
     if search:
         q = q.filter(MediaRequest.title.ilike(f"%{search}%"))
+    if source:
+        q = q.filter(MediaRequest.source == source)
 
-    # Compteurs globaux (avant filtre statut/type et pagination, après filtre user/search)
+    # Compteurs globaux (avant filtre statut/type et pagination, après filtre user/search/source)
     all_unfiltered_status = q.all()
     status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
     for r in all_unfiltered_status:
@@ -119,6 +123,9 @@ def requests_page(
     page = max(1, min(page, total_pages))
     requests_page_data = all_filtered[(page - 1) * per_page : page * per_page]
 
+    # Extraire les sources uniques pour le filtre
+    distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
+
     settings = db.query(Settings).first()
     return templates.TemplateResponse(
         request,
@@ -128,10 +135,12 @@ def requests_page(
             "users_map": build_users_map(db),
             "users_obj_map": {u.plex_user_id: u for u in db.query(PlexUser).all()},
             "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
+            "sources": distinct_sources,
             "active_user": user,
             "active_search": search or "",
             "active_status": status or "",
             "active_type": type or "",
+            "active_source": source or "",
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
             "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
             "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",

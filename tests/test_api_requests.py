@@ -265,3 +265,71 @@ def test_mark_request_processed_skips_emails(client, db):
     assert req.request_mail_sent is True
     assert req.available_mail_sent is True
     assert req.available_at is not None
+
+
+def test_bulk_retry_requests(client, db):
+    """POST /api/requests/bulk/retry repasse les demandes failed/pending en pending."""
+    r1 = _req(status=RequestStatus.failed)
+    r2 = _req(status=RequestStatus.pending)
+    r3 = _req(status=RequestStatus.sent_to_arr)
+    db.add_all([r1, r2, r3])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+    db.refresh(r3)
+
+    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+        resp = client.post("/api/requests/bulk/retry", json={"ids": [r1.id, r2.id, r3.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    db.refresh(r1)
+    db.refresh(r2)
+    db.refresh(r3)
+    assert r1.status == RequestStatus.pending
+    assert r2.status == RequestStatus.pending
+    assert r3.status == RequestStatus.sent_to_arr
+    mock_poll.assert_called_once()
+
+
+def test_bulk_mark_requests_processed(client, db):
+    """POST /api/requests/bulk/mark-processed marque plusieurs demandes comme disponibles."""
+    r1 = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
+    r2 = _req(status=RequestStatus.failed, request_mail_sent=False, available_mail_sent=False)
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/mark-processed", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    db.refresh(r1)
+    db.refresh(r2)
+    assert r1.status == RequestStatus.available
+    assert r1.request_mail_sent is True
+    assert r1.available_mail_sent is True
+    assert r1.available_at is not None
+
+    assert r2.status == RequestStatus.available
+    assert r2.request_mail_sent is True
+    assert r2.available_mail_sent is True
+    assert r2.available_at is not None
+
+
+def test_bulk_delete_requests(client, db):
+    """POST /api/requests/bulk/delete supprime plusieurs demandes."""
+    r1 = _req()
+    r2 = _req()
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/delete", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    assert db.query(MediaRequest).filter(MediaRequest.id == r1.id).first() is None
+    assert db.query(MediaRequest).filter(MediaRequest.id == r2.id).first() is None

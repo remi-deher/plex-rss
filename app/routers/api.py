@@ -1055,6 +1055,51 @@ async def send_test_email(user_id: int, db: Session = Depends(get_db)):
     return {"status": "sent", "recipient": recipient}
 
 
+class BulkAction(BaseModel):
+    ids: list[int]
+
+
+@router.post("/requests/bulk/retry")
+async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
+    """Repasse plusieurs demandes en pending et lance un polling."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    count = 0
+    for req in reqs:
+        if req.status in ("failed", "pending"):
+            req.status = "pending"
+            count += 1
+    if count > 0:
+        db.commit()
+        await poll_watchlists()
+    return {"status": "success", "count": count}
+
+
+@router.post("/requests/bulk/mark-processed")
+def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)):
+    """Marque plusieurs demandes comme traitées (disponibles) sans email."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for req in reqs:
+        req.status = "available"
+        req.request_mail_sent = True
+        req.available_mail_sent = True
+        if not req.available_at:
+            req.available_at = now
+    db.commit()
+    return {"status": "success", "count": len(reqs)}
+
+
+@router.post("/requests/bulk/delete")
+def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
+    """Supprime plusieurs demandes définitivement."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    count = len(reqs)
+    for req in reqs:
+        db.delete(req)
+    db.commit()
+    return {"status": "success", "count": count}
+
+
 @router.post("/requests/{request_id}/retry")
 async def retry_request(request_id: int, db: Session = Depends(get_db)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
