@@ -409,6 +409,9 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     user.seer_user_id = int(seer_id)
     if seer_email and not user.plex_email:
         user.plex_email = seer_email
+    # Liaison Seer = désactiver les emails par défaut (Seer gère ses propres notifs)
+    user.notify_on_request = False
+    user.notify_on_available = False
     db.commit()
     return {"status": "linked", "seer_user_id": user.seer_user_id}
 

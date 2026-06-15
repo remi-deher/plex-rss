@@ -117,6 +117,7 @@ def requests_page(
         {
             "requests": requests_page_data,
             "users_map": build_users_map(db),
+            "users_obj_map": {u.plex_user_id: u for u in db.query(PlexUser).all()},
             "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
             "active_user": user,
             "active_search": search or "",

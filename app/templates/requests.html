@@ -269,10 +269,24 @@
               {% endif %}
             </td>
             <td class="d-none d-lg-table-cell text-center">
-              {% if r.request_mail_sent %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-x-circle text-muted"></i>{% endif %}
+              {% set _u = users_obj_map.get(r.plex_user_id) %}
+              {% if r.request_mail_sent and (_u is none or _u.notify_on_request is not false) %}
+                <i class="bi bi-check-circle-fill text-success" title="Email envoyé"></i>
+              {% elif _u and _u.notify_on_request is false %}
+                <i class="bi bi-bell-slash text-secondary" title="Notifications désactivées"></i>
+              {% else %}
+                <i class="bi bi-x-circle text-warning" title="Email non encore envoyé"></i>
+              {% endif %}
             </td>
             <td class="d-none d-lg-table-cell text-center">
-              {% if r.available_mail_sent %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-x-circle text-muted"></i>{% endif %}
+              {% set _u = users_obj_map.get(r.plex_user_id) %}
+              {% if r.available_mail_sent and (_u is none or _u.notify_on_available is not false) %}
+                <i class="bi bi-check-circle-fill text-success" title="Email envoyé"></i>
+              {% elif _u and _u.notify_on_available is false %}
+                <i class="bi bi-bell-slash text-secondary" title="Notifications désactivées"></i>
+              {% else %}
+                <i class="bi bi-x-circle text-muted" title="En attente de disponibilité"></i>
+              {% endif %}
             </td>
             <td class="d-none d-md-table-cell text-muted small">
               {{ r.requested_at.strftime('%d/%m/%Y %H:%M') if r.requested_at else '' }}

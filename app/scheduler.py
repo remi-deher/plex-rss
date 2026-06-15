@@ -223,6 +223,8 @@ async def sync_seer_users():
                 source="seer",
                 enabled=True,
                 notify_admin=True,
+                notify_on_request=False,
+                notify_on_available=False,
             )
             db.add(new_user)
             matched_seer_ids.add(info["id"])
