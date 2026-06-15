@@ -71,10 +71,10 @@
           <div class="d-flex flex-column gap-1 align-items-end flex-shrink-0">
             {% if u.source == 'seer' %}
             <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Utilisateur Seer uniquement — pas de flux RSS"><i class="bi bi-stars me-1"></i>Seer</span>
-            {% elif u.seer_user_id and u.seer_active %}
-            <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Utilisateur RSS actif sur Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect me-1"></i>Hybride</span>
+            {% elif u.seer_user_id %}
+            <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Utilisateur RSS lié à Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect me-1"></i>Hybride</span>
             {% else %}
-            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="{% if u.seer_user_id %}Lié à Seer mais jamais connecté — watchlist RSS uniquement{% else %}Utilisateur RSS uniquement{% endif %}"><i class="bi bi-rss me-1"></i>RSS</span>
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Utilisateur RSS uniquement"><i class="bi bi-rss me-1"></i>RSS</span>
             {% endif %}
             {% if u.source != 'seer' %}
             {% if u.enabled %}

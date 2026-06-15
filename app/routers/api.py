@@ -405,6 +405,7 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     if seer_id is None:
         raise HTTPException(400, "seer_user_id requis")
     user.seer_user_id = int(seer_id)
+    user.seer_active = True
     if seer_email and not user.plex_email:
         user.plex_email = seer_email
     db.commit()
