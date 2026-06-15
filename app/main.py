@@ -20,7 +20,7 @@ from .database import init_db
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
-from .routers import api, auth, email_templates, importexport, pages, webhook
+from .routers import api, auth, email_templates, importexport, maintenance, pages, webhook
 from .routers.pages import RedirectException
 from .scheduler import scheduler, start_scheduler
 from .services.auth import get_secret_key
@@ -92,3 +92,4 @@ app.include_router(api.router)
 app.include_router(webhook.router)
 app.include_router(importexport.router)
 app.include_router(email_templates.router)
+app.include_router(maintenance.router)

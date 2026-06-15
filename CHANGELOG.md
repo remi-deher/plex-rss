@@ -1,25 +1,25 @@
-# Changelog
+## [2.0.0] - 2026-06-15
 
-Toutes les modifications notables de ce projet sont documentées dans ce fichier.
+### Ajouté
+- Intégration Seer (Overseerr/Jellyseerr) : sync utilisateurs et demandes
+- Utilisateurs Seer-only avec ID synthétique `seer:{id}`, liaison manuelle/auto (email, plexUsername)
+- Déduplication tvdb/tmdb : fallback tvdb_id pour réconcilier RSS (TVDB) et Seer (TMDB)
+- Conservation de la date la plus ancienne lors de la sync Seer
+- Tab Conflits : détection tmdb_conflicts, orphelines, pending >30j, résolution manuelle/auto, ignore persistant
+- Page Maintenance : 8 actions avec logs temps réel et historique du dernier run
+- Action "Enrichir & Fusionner" : résolution tmdb via Seer Search + merge des doublons
+- Lien direct vers Seer depuis la page des demandes
+- 272 tests unitaires
 
-Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/), et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
+### Corrigé
+- Dates affichant la date du jour au lieu de la vraie date Seer
+- Doublons RSS/Seer sur séries avec titres traduits
+- Conflit tmdb_id entre Plex RSS et Seer pour la même série (tvdb identique)
 
-> Ce fichier est généré automatiquement par [git-cliff](https://git-cliff.org/) lors de chaque release.
+## [1.0.0] - 2026-06-14
 
-## [v1] - 2026-06-15
-
-### ✨ Nouveautés
-
-- Surveillance des watchlists Plex via API officielle et flux RSS
-- Transmission automatique vers Sonarr, Radarr et Overseerr
-- Polling configurable (défaut : 5 minutes)
-- Détection de disponibilité via webhooks Sonarr, Radarr et Plex
-- Notifications Email (SMTP), Discord et Telegram
-- Interface web Bootstrap 5 dark (dashboard, demandes, utilisateurs, logs, paramètres)
-- Authentification bcrypt + session cookie, wizard de premier démarrage
-- Import / Export JSON
-- Éditeur de templates email Jinja2
-- Endpoint `/api/health` structuré avec latences par service
-- Endpoint `/api/metrics` avec compteurs runtime
-- Suite de tests (155 tests, pytest + pytest-asyncio)
-- Publication Docker Hub (`mrcryllix/plex-rss`) et GHCR (`ghcr.io/remi-deher/plex-rss`)
+### Ajouté
+- Configuration initiale de l'application FastAPI
+- Authentification sécurisée et assistant de configuration (wizard)
+- Synchronisation avec les utilisateurs Plex et listes d'attente
+- Intégration de Sonarr et Radarr avec import/export des données historiques

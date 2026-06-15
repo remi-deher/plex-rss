@@ -232,3 +232,127 @@ def test_users_page_empty_db_still_renders(client, db):
     resp = client.get("/users")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Régression : variable `page` (conflit nav vs. pagination)
+# ---------------------------------------------------------------------------
+
+
+def test_requests_page_pagination_no_500(client, db):
+    """Régression : le template ne crashe plus sur `page - 1` (TypeError str - int).
+
+    Avant le fix, {% set page = "requests" %} dans le nav écrasait la variable
+    entière `page` du contexte backend. Le renommage en `current_page` corrige ça.
+    """
+    _seed(db)
+    resp = client.get("/requests?page=2")
+    # Page 2 vide mais pas 500
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+
+
+def test_requests_page_first_page(client, db):
+    """La page 1 de /requests se rend sans erreur."""
+    _seed(db)
+    resp = client.get("/requests?page=1")
+    assert resp.status_code == 200
+    assert "Inception" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Affichage co-demandeurs (filtre Jinja `fromjson`)
+# ---------------------------------------------------------------------------
+
+
+def _seed_with_co_requesters(db):
+    import json
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="Alice", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            tmdb_id="438631",
+            status=RequestStatus.sent_to_arr,
+            extra_requesters=json.dumps([{"plex_user_id": "bob", "display_name": "Bob"}]),
+        )
+    )
+    db.commit()
+
+
+def test_requests_page_shows_co_requester(client, db):
+    """La page demandes affiche les co-demandeurs depuis extra_requesters."""
+    _seed_with_co_requesters(db)
+    resp = client.get("/requests")
+    assert resp.status_code == 200
+    assert "Bob" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Page utilisateurs : disposition carte + custom_name
+# ---------------------------------------------------------------------------
+
+
+def test_users_page_shows_custom_name(client, db):
+    """La page utilisateurs affiche le custom_name quand il est défini."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="alice_plex", custom_name="Alice IRL", enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    assert "Alice IRL" in resp.text
+
+
+def test_users_page_shows_display_name_when_no_custom(client, db):
+    """Sans custom_name, la page affiche le display_name Plex."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="bob", display_name="Bob Plex", custom_name=None, enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    assert "Bob Plex" in resp.text
+
+
+def test_users_page_shows_rss_only_badge_when_no_seer(client, db):
+    """Un utilisateur sans seer_user_id affiche un indicateur 'RSS' (RSS uniquement)."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="charlie", display_name="Charlie", seer_user_id=None, enabled=True))
+    db.commit()
+
+    resp = client.get("/users")
+    assert resp.status_code == 200
+    # Le template doit rendre un badge RSS ou le bloc "Lier automatiquement"
+    assert "RSS" in resp.text or "Lier" in resp.text

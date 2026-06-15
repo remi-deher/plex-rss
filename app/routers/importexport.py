@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -31,14 +31,14 @@ def export_data(db: Session = Depends(get_db)):
 
     payload = {
         "version": EXPORT_VERSION,
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "settings": row(s, exclude=["id"]) if s else {},
         "users": [row(u) for u in users],
         "requests": [row(r) for r in requests],
     }
 
     content = json.dumps(payload, indent=2, default=str)
-    filename = f"plex-rss-export-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"plex-rss-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
     return StreamingResponse(
         iter([content]),
         media_type="application/json",

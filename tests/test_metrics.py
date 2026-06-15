@@ -113,18 +113,18 @@ def test_radarr_avg_latency():
     assert m._m.radarr_avg_ms == 50.0
 
 
-def test_overseerr_avg_latency():
+def test_seer_avg_latency():
     _reset()
-    m.record_overseerr_latency(300.0)
-    m.record_overseerr_latency(100.0)
-    assert m._m.overseerr_avg_ms == 200.0
+    m.record_seer_latency(300.0)
+    m.record_seer_latency(100.0)
+    assert m._m.seer_avg_ms == 200.0
 
 
 def test_latency_none_when_no_samples():
     _reset()
     assert m._m.sonarr_avg_ms is None
     assert m._m.radarr_avg_ms is None
-    assert m._m.overseerr_avg_ms is None
+    assert m._m.seer_avg_ms is None
 
 
 def test_latency_window_capped_at_50():

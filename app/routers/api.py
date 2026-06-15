@@ -16,7 +16,8 @@ Endpoints regroupés par domaine :
 """
 
 import time
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,15 +29,21 @@ from ..database import get_db
 from ..models import MediaRequest, PlexUser, Settings
 from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
 from ..services import email_service, radarr, sonarr
-from ..services.overseerr import check_connection as overseerr_test
+from ..services.seer import check_connection as seer_test
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 
 
-def require_auth(request: Request):
-    """Dépendance API : retourne 401 si la session n'est pas authentifiée."""
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Non authentifié")
+def require_auth(request: Request, db: Session = Depends(get_db)):
+    """Dépendance API : session cookie OU header X-Api-Key."""
+    if request.session.get("authenticated"):
+        return
+    token = request.headers.get("X-Api-Key")
+    if token:
+        s = db.query(Settings).first()
+        if s and s.api_token and s.api_token == token:
+            return
+    raise HTTPException(status_code=401, detail="Non authentifié")
 
 
 router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_auth)])
@@ -77,9 +84,9 @@ class SettingsUpdate(BaseModel):
     telegram_chat_id: Optional[str] = None
     admin_notification_email: Optional[str] = None
     radarr_minimum_availability: Optional[str] = None
-    overseerr_url: Optional[str] = None
-    overseerr_api_key: Optional[str] = None
-    overseerr_enabled: Optional[bool] = None
+    seer_url: Optional[str] = None
+    seer_api_key: Optional[str] = None
+    seer_enabled: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -219,14 +226,14 @@ async def test_telegram(db: Session = Depends(get_db)):
         return {"success": False, "message": str(e)}
 
 
-@router.post("/test/overseerr")
-async def test_overseerr(db: Session = Depends(get_db)):
-    from ..services.overseerr import check_connection as overseerr_test
+@router.post("/test/seer")
+async def test_seer(db: Session = Depends(get_db)):
+    from ..services.seer import check_connection as seer_test
 
     s = db.query(Settings).first()
-    if not s or not s.overseerr_url or not s.overseerr_api_key:
-        return {"success": False, "message": "Overseerr non configuré"}
-    ok, msg = await overseerr_test(s.overseerr_url, s.overseerr_api_key)
+    if not s or not s.seer_url or not s.seer_api_key:
+        return {"success": False, "message": "Seer non configuré"}
+    ok, msg = await seer_test(s.seer_url, s.seer_api_key)
     return {"success": ok, "message": msg}
 
 
@@ -278,10 +285,12 @@ async def radarr_folders(db: Session = Depends(get_db)):
 class UserCreate(BaseModel):
     plex_user_id: str
     display_name: Optional[str] = None
+    custom_name: Optional[str] = None
     plex_email: Optional[str] = None
     notification_email: Optional[str] = None
     enabled: bool = True
     notify_admin: bool = True
+    seer_active: Optional[bool] = None
 
 
 @router.get("/users")
@@ -323,6 +332,255 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.delete(user)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/seer/sync/users")
+async def seer_sync_users():
+    """Synchronise uniquement les liaisons utilisateurs Plex ↔ Seer."""
+    from ..scheduler import sync_seer_users
+    await sync_seer_users()
+    return {"status": "ok"}
+
+
+@router.post("/seer/sync/requests")
+async def seer_sync_requests():
+    """Synchronise uniquement les demandes Seer (titres, statuts, historique)."""
+    from ..scheduler import sync_seer_requests
+    await sync_seer_requests()
+    return {"status": "ok"}
+
+
+@router.post("/seer/sync")
+async def seer_sync():
+    """Déclenche manuellement la synchronisation Seer complète : utilisateurs + demandes."""
+    from ..scheduler import sync_seer_requests, sync_seer_users
+    await sync_seer_users()
+    await sync_seer_requests()
+    return {"status": "ok"}
+
+
+@router.get("/seer/users")
+async def list_seer_users(db: Session = Depends(get_db)):
+    """Retourne la liste des utilisateurs Seer avec leur statut de liaison."""
+    from ..services.seer import get_users as seer_get_users
+
+    s = db.query(Settings).first()
+    if not s or not s.seer_enabled or not s.seer_url or not s.seer_api_key:
+        return {"seer_users": [], "error": "Seer non configuré"}
+
+    seer_users = await seer_get_users(s.seer_url, s.seer_api_key)
+    linked_ids = {u.seer_user_id for u in db.query(PlexUser).filter(PlexUser.seer_user_id.isnot(None)).all()}
+
+    result = []
+    for email, info in seer_users.items():
+        result.append({
+            "id": info["id"],
+            "email": email,
+            "display_name": info["display_name"],
+            "plex_username": info.get("plex_username", ""),
+            "plex_id": info.get("plex_id"),
+            "user_type": info.get("user_type", 1),
+            "request_count": info["request_count"],
+            "linked": info["id"] in linked_ids,
+        })
+    result.sort(key=lambda x: (x["display_name"] or x["email"]).lower())
+    return {"seer_users": result}
+
+
+@router.put("/users/{user_id}/seer-link")
+def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
+    """Lie manuellement un PlexUser à un compte Seer."""
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    seer_id = data.get("seer_user_id")
+    seer_email = data.get("seer_email")
+    if seer_id is None:
+        raise HTTPException(400, "seer_user_id requis")
+    user.seer_user_id = int(seer_id)
+    if seer_email and not user.plex_email:
+        user.plex_email = seer_email
+    db.commit()
+    return {"status": "linked", "seer_user_id": user.seer_user_id}
+
+
+@router.delete("/users/{user_id}/seer-link")
+def unlink_seer_user(user_id: int, db: Session = Depends(get_db)):
+    """Supprime la liaison Seer d'un PlexUser."""
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.seer_user_id = None
+    user.seer_active = None
+    db.commit()
+    return {"status": "unlinked"}
+
+
+@router.post("/users/{user_id}/seer-automatch")
+async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
+    """Lance l'automatch Seer (3 passes) pour un seul utilisateur."""
+    from ..models import MediaRequest as MR
+    from ..services.seer import get_user_requests as seer_get_user_requests
+    from ..services.seer import get_users as seer_get_users
+
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    s = db.query(Settings).first()
+    if not s or not s.seer_url or not s.seer_api_key:
+        raise HTTPException(400, "Seer non configuré")
+
+    seer_users = await seer_get_users(s.seer_url, s.seer_api_key)
+    if not seer_users:
+        return {"matched": False, "method": None}
+
+    matched_ids = {
+        u.seer_user_id
+        for u in db.query(PlexUser).filter(PlexUser.id != user_id, PlexUser.seer_user_id.isnot(None)).all()
+    }
+    by_plex_username = {
+        (info.get("plex_username") or "").lower().strip(): info
+        for info in seer_users.values()
+        if info.get("plex_username")
+    }
+
+    info = None
+    method = None
+
+    email = (user.plex_email or "").lower().strip()
+    if email and email in seer_users:
+        cand = seer_users[email]
+        if cand["id"] not in matched_ids:
+            info, method = cand, "email"
+
+    if not info:
+        name = (user.display_name or "").lower().strip()
+        if name and name in by_plex_username:
+            cand = by_plex_username[name]
+            if cand["id"] not in matched_ids:
+                info, method = cand, "plex_username"
+
+    if not info:
+        rows = db.query(MR.tmdb_id).filter(MR.plex_user_id == user.plex_user_id, MR.tmdb_id.isnot(None)).all()
+        user_tmdb_ids = {r[0] for r in rows}
+        if len(user_tmdb_ids) >= 2:
+            best_id, best_count = None, 0
+            for seer_info in seer_users.values():
+                if seer_info["id"] in matched_ids:
+                    continue
+                reqs = await seer_get_user_requests(s.seer_url, s.seer_api_key, seer_info["id"])
+                common = len(user_tmdb_ids & {r["tmdb_id"] for r in reqs if r.get("tmdb_id")})
+                if common >= 2 and common > best_count:
+                    best_count, best_id, info = common, seer_info["id"], seer_info
+                    method = f"media/{common}"
+
+    if info:
+        user.seer_user_id = info["id"]
+        user.seer_active = info["request_count"] > 0
+        db.commit()
+        return {"matched": True, "method": method, "seer_user_id": info["id"], "display_name": info["display_name"]}
+
+    return {"matched": False, "method": None}
+
+
+@router.post("/users/{seer_only_id}/merge-into/{target_id}")
+def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = Depends(get_db)):
+    """Fusionne un utilisateur Seer-only vers un utilisateur RSS existant.
+
+    - Copie seer_user_id + seer_active sur le user cible
+    - Réattribue les MediaRequest du user seer-only vers le user cible
+    - Supprime l'entrée seer-only
+    """
+    seer_user = db.query(PlexUser).filter(PlexUser.id == seer_only_id).first()
+    if not seer_user:
+        raise HTTPException(404, "Utilisateur Seer-only introuvable")
+    if seer_user.source != "seer":
+        raise HTTPException(400, "Cet utilisateur n'est pas un utilisateur Seer-only")
+
+    target = db.query(PlexUser).filter(PlexUser.id == target_id).first()
+    if not target:
+        raise HTTPException(404, "Utilisateur cible introuvable")
+    if target.source == "seer":
+        raise HTTPException(400, "La cible ne peut pas être un utilisateur Seer-only")
+
+    # Transférer la liaison Seer
+    target.seer_user_id = seer_user.seer_user_id
+    target.seer_active = seer_user.seer_active
+
+    # Réattribuer les demandes
+    old_pid = seer_user.plex_user_id
+    new_pid = target.plex_user_id
+    new_name = target.custom_name or target.display_name or new_pid
+    requests_moved = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.plex_user_id == old_pid)
+        .update({"plex_user_id": new_pid, "plex_user": new_name})
+    )
+
+    db.delete(seer_user)
+    db.commit()
+
+    return {
+        "status": "merged",
+        "requests_moved": requests_moved,
+        "target_plex_user_id": new_pid,
+        "seer_user_id": target.seer_user_id,
+    }
+
+
+@router.put("/users/{user_id}/custom-name")
+def update_custom_name(user_id: int, data: dict, db: Session = Depends(get_db)):
+    """Met à jour le nom d'usage personnalisé d'un utilisateur."""
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.custom_name = data.get("custom_name") or None
+    db.commit()
+    return {"status": "ok", "custom_name": user.custom_name}
+
+
+@router.post("/users/{user_id}/seer-complete")
+async def seer_complete_user(user_id: int, db: Session = Depends(get_db)):
+    """Complète les infos d'un PlexUser depuis son compte Seer lié.
+
+    Copie : display_name Seer → custom_name (si vide), email Seer → plex_email (si vide).
+    """
+    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not user.seer_user_id:
+        raise HTTPException(400, "Utilisateur non lié à Seer")
+    s = db.query(Settings).first()
+    if not s or not s.seer_url or not s.seer_api_key:
+        raise HTTPException(400, "Seer non configuré")
+
+    from ..services.seer import get_users as seer_get_users
+
+    seer_users = await seer_get_users(s.seer_url, s.seer_api_key)
+    seer_email = None
+    seer_info = None
+    for email, info in seer_users.items():
+        if info["id"] == user.seer_user_id:
+            seer_email = email
+            seer_info = info
+            break
+
+    if not seer_info:
+        raise HTTPException(404, "Compte Seer introuvable (id inconnu)")
+
+    changes: dict = {}
+    if seer_info.get("display_name") and not user.custom_name:
+        user.custom_name = seer_info["display_name"]
+        changes["custom_name"] = user.custom_name
+    if seer_email:
+        if not user.plex_email:
+            user.plex_email = seer_email
+            changes["plex_email"] = user.plex_email
+        if not user.notification_email:
+            user.notification_email = seer_email
+            changes["notification_email"] = user.notification_email
+    db.commit()
+    return {"status": "ok", "changes": changes}
 
 
 @router.post("/users/discover")
@@ -410,14 +668,14 @@ async def health_check(db: Session = Depends(get_db)):
     else:
         services["radarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
 
-    # Overseerr
-    if s and s.overseerr_enabled and s.overseerr_url and s.overseerr_api_key:
-        ok, msg, ms = await _timed_check(overseerr_test(s.overseerr_url, s.overseerr_api_key))
-        services["overseerr"] = {"ok": ok, "message": msg, "response_ms": ms}
+    # Seer
+    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
+        ok, msg, ms = await _timed_check(seer_test(s.seer_url, s.seer_api_key))
+        services["seer"] = {"ok": ok, "message": msg, "response_ms": ms}
         if not ok:
             degraded += 1
     else:
-        services["overseerr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
+        services["seer"] = {"ok": None, "message": "Non configuré", "response_ms": None}
 
     # Plex API
     if s and s.plex_url and s.plex_token:
@@ -467,7 +725,7 @@ def stats_timeline(db: Session = Depends(get_db)):
     from sqlalchemy import func
 
     days = 30
-    start = datetime.utcnow() - timedelta(days=days)
+    start = datetime.now(timezone.utc) - timedelta(days=days)
     rows = (
         db.query(
             func.date(MediaRequest.requested_at).label("day"),
@@ -628,6 +886,34 @@ async def retry_request(request_id: int, db: Session = Depends(get_db)):
     return {"status": "retrying"}
 
 
+@router.post("/requests/retry-failed")
+async def retry_all_failed(db: Session = Depends(get_db)):
+    """Repasse toutes les demandes 'failed' en 'pending' et déclenche un polling."""
+    failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").all()
+    count = len(failed)
+    for req in failed:
+        req.status = "pending"
+    db.commit()
+    await poll_watchlists()
+    return {"status": "ok", "retried": count}
+
+
+@router.post("/requests/recalculate-dates")
+async def recalculate_dates():
+    """Re-joue sync_seer_requests pour corriger requested_at et available_at depuis Seer."""
+    from ..scheduler import sync_seer_requests
+    await sync_seer_requests()
+    return {"status": "ok"}
+
+
+@router.post("/requests/merge-duplicates")
+def merge_duplicates_endpoint():
+    """Fusionne les MediaRequest en double (même tmdb_id toutes sources)."""
+    from scripts.merge_duplicate_requests import merge_duplicates
+    merge_duplicates(dry_run=False)
+    return {"status": "ok"}
+
+
 @router.post("/requests/poll")
 async def trigger_poll():
     """Déclenche manuellement le polling des watchlists ET la vérification des statuts *arr."""
@@ -656,7 +942,7 @@ def activity_log(db: Session = Depends(get_db)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
     from datetime import datetime, timedelta
 
-    cutoff = datetime.utcnow() - timedelta(days=7)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
         .filter(MediaRequest.requested_at >= cutoff)
@@ -724,3 +1010,311 @@ def get_logs(_: None = Depends(require_auth)):
     from ..log_buffer import get_logs as _get_logs
 
     return _get_logs()
+
+
+# ---------------------------------------------------------------------------
+# API token
+# ---------------------------------------------------------------------------
+
+
+@router.post("/settings/token")
+def generate_api_token(db: Session = Depends(get_db)):
+    """Génère un nouveau token d'API et le stocke dans les paramètres."""
+    import secrets
+
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Paramètres non initialisés")
+    token = secrets.token_urlsafe(32)
+    s.api_token = token
+    db.commit()
+    return {"api_token": token}
+
+
+@router.delete("/settings/token")
+def revoke_api_token(db: Session = Depends(get_db)):
+    """Révoque le token d'API courant."""
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Paramètres non initialisés")
+    s.api_token = None
+    db.commit()
+    return {"status": "revoked"}
+
+
+@router.get("/settings/token")
+def get_api_token_status(db: Session = Depends(get_db)):
+    """Indique si un token d'API est actif (sans révéler sa valeur)."""
+    s = db.query(Settings).first()
+    return {"active": bool(s and s.api_token)}
+
+
+# ---------------------------------------------------------------------------
+# Métriques Prometheus
+# ---------------------------------------------------------------------------
+
+
+@router.get("/metrics/prometheus", response_class=__import__("fastapi").responses.PlainTextResponse)
+def prometheus_metrics(db: Session = Depends(get_db)):
+    """Expose les métriques au format Prometheus text (scraping externe)."""
+    from fastapi.responses import PlainTextResponse
+    from sqlalchemy import func
+
+    snap = app_metrics.snapshot()
+
+    total = db.query(MediaRequest).count()
+    available = db.query(MediaRequest).filter(MediaRequest.status == "available").count()
+    failed_db = db.query(MediaRequest).filter(MediaRequest.status == "failed").count()
+    pending = db.query(MediaRequest).filter(MediaRequest.status == "pending").count()
+    sent = db.query(MediaRequest).filter(MediaRequest.status == "sent_to_arr").count()
+
+    lines = [
+        "# HELP plex_rss_poll_total Total number of watchlist polls since startup",
+        "# TYPE plex_rss_poll_total counter",
+        f"plex_rss_poll_total {snap['poll']['count']}",
+        "# HELP plex_rss_poll_errors_total Total number of failed polls since startup",
+        "# TYPE plex_rss_poll_errors_total counter",
+        f"plex_rss_poll_errors_total {snap['poll']['errors']}",
+        "# HELP plex_rss_arr_submissions_total Total submissions to Sonarr/Radarr/Seer since startup",
+        "# TYPE plex_rss_arr_submissions_total counter",
+        f"plex_rss_arr_submissions_total {snap['arr']['submissions']}",
+        "# HELP plex_rss_arr_errors_total Total failed submissions since startup",
+        "# TYPE plex_rss_arr_errors_total counter",
+        f"plex_rss_arr_errors_total {snap['arr']['errors']}",
+        "# HELP plex_rss_notifications_sent_total Total notifications sent since startup",
+        "# TYPE plex_rss_notifications_sent_total counter",
+        f"plex_rss_notifications_sent_total {snap['notifications']['sent']}",
+        "# HELP plex_rss_notifications_failed_total Total failed notifications since startup",
+        "# TYPE plex_rss_notifications_failed_total counter",
+        f"plex_rss_notifications_failed_total {snap['notifications']['failed']}",
+        "# HELP plex_rss_sonarr_response_ms Average Sonarr response time (ms, last 50 calls)",
+        "# TYPE plex_rss_sonarr_response_ms gauge",
+        f"plex_rss_sonarr_response_ms {snap['arr']['sonarr_avg_response_ms'] or 0}",
+        "# HELP plex_rss_radarr_response_ms Average Radarr response time (ms, last 50 calls)",
+        "# TYPE plex_rss_radarr_response_ms gauge",
+        f"plex_rss_radarr_response_ms {snap['arr']['radarr_avg_response_ms'] or 0}",
+        "# HELP plex_rss_requests_total Total media requests in database",
+        "# TYPE plex_rss_requests_total gauge",
+        f"plex_rss_requests_total {total}",
+        "# HELP plex_rss_requests_by_status Media requests grouped by status",
+        "# TYPE plex_rss_requests_by_status gauge",
+        f'plex_rss_requests_by_status{{status="available"}} {available}',
+        f'plex_rss_requests_by_status{{status="failed"}} {failed_db}',
+        f'plex_rss_requests_by_status{{status="pending"}} {pending}',
+        f'plex_rss_requests_by_status{{status="sent_to_arr"}} {sent}',
+    ]
+
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
+# ---------------------------------------------------------------------------
+# Conflits de déduplication
+# ---------------------------------------------------------------------------
+
+import json as _json
+import os as _os
+
+_IGNORED_FILE = "data/ignored_conflicts.json"
+
+
+def _load_ignored() -> set[str]:
+    try:
+        with open(_IGNORED_FILE) as f:
+            return set(_json.load(f))
+    except Exception:
+        return set()
+
+
+def _save_ignored(keys: set[str]):
+    _os.makedirs("data", exist_ok=True)
+    with open(_IGNORED_FILE, "w") as f:
+        _json.dump(sorted(keys), f)
+
+
+def _req_dict(r: MediaRequest) -> dict:
+    return {
+        "id": r.id,
+        "title": r.title,
+        "tmdb_id": r.tmdb_id,
+        "tvdb_id": r.tvdb_id,
+        "source": r.source,
+        "status": r.status,
+        "plex_user": r.plex_user,
+        "plex_user_id": r.plex_user_id,
+        "arr_id": r.arr_id,
+        "poster_url": r.poster_url,
+        "requested_at": r.requested_at.isoformat() if r.requested_at else None,
+        "available_at": r.available_at.isoformat() if r.available_at else None,
+    }
+
+
+def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db):
+    """Fusionne dup dans keeper : co-demandeurs + champs manquants."""
+    extras: list[dict] = _json.loads(keeper.extra_requesters or "[]")
+    existing_ids = {keeper.plex_user_id} | {e["plex_user_id"] for e in extras}
+    for e in _json.loads(dup.extra_requesters or "[]"):
+        if e["plex_user_id"] not in existing_ids:
+            extras.append(e)
+            existing_ids.add(e["plex_user_id"])
+    if dup.plex_user_id not in existing_ids:
+        extras.append({"plex_user_id": dup.plex_user_id, "display_name": dup.plex_user or dup.plex_user_id})
+    # Seer tmdb_id fait référence
+    if dup.source == "seer" and dup.tmdb_id:
+        keeper.tmdb_id = dup.tmdb_id
+    elif not keeper.tmdb_id and dup.tmdb_id:
+        keeper.tmdb_id = dup.tmdb_id
+    if not keeper.tvdb_id and dup.tvdb_id:
+        keeper.tvdb_id = dup.tvdb_id
+    if not keeper.poster_url and dup.poster_url:
+        keeper.poster_url = dup.poster_url
+    keeper.extra_requesters = _json.dumps(extras, ensure_ascii=False)
+    db.delete(dup)
+
+
+@router.get("/conflicts")
+def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    """Retourne tous les conflits détectés, filtrés des ignorés."""
+    ignored = _load_ignored()
+    all_reqs = db.query(MediaRequest).all()
+    known_user_ids = {u.plex_user_id for u in db.query(PlexUser).all()}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # ── 1. Conflit tmdb via tvdb (Plex ≠ Seer) ──────────────────────────────
+    tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
+    for r in all_reqs:
+        if r.tvdb_id:
+            tvdb_groups[(r.media_type, r.tvdb_id)].append(r)
+
+    tmdb_conflicts = []
+    for (media_type, tvdb_id), rows in tvdb_groups.items():
+        tmdb_ids = {r.tmdb_id for r in rows if r.tmdb_id}
+        if len(tmdb_ids) <= 1:
+            continue
+        key = f"tmdb:{media_type}:{tvdb_id}"
+        if key in ignored:
+            continue
+        seer_entry = next((r for r in rows if r.source == "seer"), None)
+        recommended_id = seer_entry.id if seer_entry else None
+        tmdb_conflicts.append({
+            "type": "tmdb_conflict",
+            "key": key,
+            "media_type": media_type,
+            "tvdb_id": tvdb_id,
+            "recommended_id": recommended_id,
+            "entries": [_req_dict(r) for r in sorted(rows, key=lambda x: (x.source != "seer", x.id))],
+        })
+
+    # ── 2. Demandes orphelines (utilisateur supprimé) ────────────────────────
+    orphaned = []
+    for r in all_reqs:
+        if r.plex_user_id not in known_user_ids:
+            key = f"orphan:{r.id}"
+            if key in ignored:
+                continue
+            orphaned.append({"key": key, **_req_dict(r)})
+
+    # ── 3. Jamais transmis à Sonarr/Radarr depuis >30 jours ─────────────────
+    long_pending = []
+    for r in all_reqs:
+        if r.status != "pending":
+            continue
+        if not r.requested_at:
+            continue
+        age = (now - r.requested_at).days
+        if age < 30:
+            continue
+        key = f"pending:{r.id}"
+        if key in ignored:
+            continue
+        long_pending.append({"key": key, "age_days": age, **_req_dict(r)})
+
+    return {
+        "tmdb_conflicts": tmdb_conflicts,
+        "orphaned": orphaned,
+        "long_pending": long_pending,
+    }
+
+
+@router.post("/conflicts/resolve")
+def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    keep_id: int = body.get("keep_id")
+    delete_ids: list[int] = body.get("delete_ids", [])
+    if not keep_id or not delete_ids:
+        raise HTTPException(400, "keep_id et delete_ids requis")
+    keeper = db.get(MediaRequest, keep_id)
+    if not keeper:
+        raise HTTPException(404, f"Entrée {keep_id} introuvable")
+    for del_id in delete_ids:
+        dup = db.get(MediaRequest, del_id)
+        if dup:
+            _merge_entries(keeper, dup, db)
+    db.commit()
+    return {"ok": True, "kept": keep_id, "deleted": delete_ids}
+
+
+@router.post("/conflicts/auto-resolve")
+def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    """Résout automatiquement tous les conflits tmdb : garde l'entrée Seer."""
+    all_reqs = db.query(MediaRequest).all()
+    tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
+    for r in all_reqs:
+        if r.tvdb_id:
+            tvdb_groups[(r.media_type, r.tvdb_id)].append(r)
+
+    resolved = 0
+    for (media_type, tvdb_id), rows in tvdb_groups.items():
+        tmdb_ids = {r.tmdb_id for r in rows if r.tmdb_id}
+        if len(tmdb_ids) <= 1:
+            continue
+        seer = next((r for r in rows if r.source == "seer"), None)
+        keeper = seer or min(rows, key=lambda x: x.id)
+        for dup in rows:
+            if dup.id != keeper.id:
+                _merge_entries(keeper, dup, db)
+        resolved += 1
+
+    db.commit()
+    return {"ok": True, "resolved": resolved}
+
+
+@router.post("/conflicts/ignore")
+def ignore_conflict(body: dict, _: None = Depends(require_auth)):
+    """Marque un conflit comme ignoré (ne réapparaîtra plus)."""
+    key: str = body.get("key")
+    if not key:
+        raise HTTPException(400, "key requis")
+    ignored = _load_ignored()
+    ignored.add(key)
+    _save_ignored(ignored)
+    return {"ok": True}
+
+
+@router.delete("/conflicts/ignore/{key:path}")
+def unignore_conflict(key: str, _: None = Depends(require_auth)):
+    """Retire un conflit de la liste des ignorés."""
+    ignored = _load_ignored()
+    ignored.discard(key)
+    _save_ignored(ignored)
+    return {"ok": True}
+
+
+@router.delete("/conflicts/no-tmdb/{request_id}")
+def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    req = db.get(MediaRequest, request_id)
+    if not req:
+        raise HTTPException(404, "Entrée introuvable")
+    if req.tmdb_id:
+        raise HTTPException(400, "Cette entrée a un tmdb_id — utilisez /conflicts/resolve")
+    db.delete(req)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/conflicts/orphan/{request_id}")
+def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    req = db.get(MediaRequest, request_id)
+    if not req:
+        raise HTTPException(404, "Entrée introuvable")
+    db.delete(req)
+    db.commit()
+    return {"ok": True}

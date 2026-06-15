@@ -8,7 +8,7 @@ Tables :
 """
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import Text
@@ -72,10 +72,10 @@ class Settings(Base):
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
 
-    # --- Overseerr ---
-    overseerr_url: Mapped[Optional[str]]
-    overseerr_api_key: Mapped[Optional[str]]
-    overseerr_enabled: Mapped[bool] = mapped_column(default=False)
+    # --- Seer ---
+    seer_url: Mapped[Optional[str]]
+    seer_api_key: Mapped[Optional[str]]
+    seer_enabled: Mapped[bool] = mapped_column(default=False)
 
     # --- Notifications push (Discord / Telegram) ---
     discord_webhook_url: Mapped[Optional[str]]
@@ -85,6 +85,7 @@ class Settings(Base):
     # --- Authentification ---
     auth_username: Mapped[Optional[str]]
     auth_password_hash: Mapped[Optional[str]]
+    api_token: Mapped[Optional[str]]
 
 
 class PlexUser(Base):
@@ -97,7 +98,11 @@ class PlexUser(Base):
     notification_email: Mapped[Optional[str]]
     notify_admin: Mapped[bool] = mapped_column(default=True)
     enabled: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[Optional[datetime]] = mapped_column(default=datetime.utcnow)
+    seer_user_id: Mapped[Optional[int]] = mapped_column(default=None)
+    seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
+    custom_name: Mapped[Optional[str]] = mapped_column(default=None)
+    source: Mapped[Optional[str]] = mapped_column(default=None)
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
 
 class MediaRequest(Base):
@@ -123,7 +128,8 @@ class MediaRequest(Base):
     request_mail_sent: Mapped[bool] = mapped_column(default=False)
     available_mail_sent: Mapped[bool] = mapped_column(default=False)
 
-    requested_at: Mapped[Optional[datetime]] = mapped_column(default=datetime.utcnow)
+    requested_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
     available_at: Mapped[Optional[datetime]]
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
+    extra_requesters: Mapped[Optional[str]] = mapped_column(Text)

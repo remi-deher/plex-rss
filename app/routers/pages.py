@@ -16,8 +16,11 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 
+import json
+
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else []
 
 
 class RedirectException(Exception):
@@ -70,6 +73,7 @@ def dashboard(request: Request, _: None = Depends(require_auth), db: Session = D
 def requests_page(
     request: Request,
     user: str = None,
+    search: str = None,
     page: int = 1,
     per_page: int = 50,
     sort: str = "date",
@@ -77,7 +81,7 @@ def requests_page(
     _: None = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
-    """Page des demandes avec tri et pagination côté serveur."""
+    """Page des demandes avec tri, recherche et pagination côté serveur."""
     sort_col = {
         "title": MediaRequest.title,
         "date": MediaRequest.requested_at,
@@ -90,11 +94,21 @@ def requests_page(
 
     if user:
         q = q.filter(MediaRequest.plex_user_id == user)
+    if search:
+        q = q.filter(MediaRequest.title.ilike(f"%{search}%"))
 
-    total = q.count()
+    # Compteurs globaux (avant filtre page, après filtre user/search)
+    all_filtered = q.all()
+    status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
+    for r in all_filtered:
+        s = r.status.value if hasattr(r.status, "value") else str(r.status)
+        if s in status_counts:
+            status_counts[s] += 1
+
+    total = len(all_filtered)
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = max(1, min(page, total_pages))
-    requests_page_data = q.offset((page - 1) * per_page).limit(per_page).all()
+    requests_page_data = all_filtered[(page - 1) * per_page : page * per_page]
 
     settings = db.query(Settings).first()
     return templates.TemplateResponse(
@@ -105,14 +119,17 @@ def requests_page(
             "users_map": build_users_map(db),
             "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
             "active_user": user,
+            "active_search": search or "",
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
             "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
-            "page": page,
+            "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",
+            "current_page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
             "sort": sort,
             "order": order,
+            "status_counts": status_counts,
         },
     )
 
@@ -136,12 +153,16 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
         elif r.status == "sent_to_arr":
             counts_map[uid]["sent"] += 1
 
+    settings = db.query(Settings).first()
+    seer_enabled = bool(settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key)
+
     return templates.TemplateResponse(
         request,
         "users.html",
         {
             "users": users,
             "counts_map": counts_map,
+            "seer_enabled": seer_enabled,
         },
     )
 

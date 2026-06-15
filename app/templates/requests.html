@@ -9,28 +9,62 @@
       Demandes
       {% if active_user %}
       <span class="fs-5 text-warning ms-2">— {{ users_map.get(active_user, active_user) }}</span>
-      <a href="/requests" class="btn btn-sm btn-outline-secondary ms-2" title="Effacer filtre"><i class="bi bi-x"></i></a>
+      <a href="/requests{% if active_search %}?search={{ active_search }}{% endif %}" class="btn btn-sm btn-outline-secondary ms-2" title="Effacer filtre utilisateur"><i class="bi bi-x"></i></a>
       {% endif %}
     </h2>
-    <div class="text-muted small mt-1">{{ total }} demande{% if total > 1 %}s{% endif %} au total</div>
+    <div class="text-muted small mt-1">{{ total }} demande{% if total > 1 %}s{% endif %}{% if active_search %} pour « {{ active_search }} »{% endif %}</div>
   </div>
-  <div class="btn-group btn-group-sm">
-    <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille">
-      <i class="bi bi-grid-3x3-gap"></i>
-    </button>
-    <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste">
-      <i class="bi bi-list-ul"></i>
-    </button>
+  <div class="d-flex gap-2 align-items-center">
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille">
+        <i class="bi bi-grid-3x3-gap"></i>
+      </button>
+      <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste">
+        <i class="bi bi-list-ul"></i>
+      </button>
+    </div>
   </div>
 </div>
 
+<!-- Compteurs récapitulatifs statuts -->
+{% if status_counts %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% if status_counts.failed %}
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=failed&page=1" class="text-decoration-none">
+    <span class="badge badge-failed py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} échouée{% if status_counts.failed > 1 %}s{% endif %}</span>
+  </a>
+  {% endif %}
+  {% if status_counts.pending %}
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=pending&page=1" class="text-decoration-none">
+    <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} en attente</span>
+  </a>
+  {% endif %}
+  {% if status_counts.sent_to_arr %}
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=sent_to_arr&page=1" class="text-decoration-none">
+    <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} envoyée{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
+  </a>
+  {% endif %}
+  {% if status_counts.available %}
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=available&page=1" class="text-decoration-none">
+    <span class="badge badge-available py-1 px-2"><i class="bi bi-check-circle-fill me-1"></i>{{ status_counts.available }} disponible{% if status_counts.available > 1 %}s{% endif %}</span>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- Barre de filtres -->
-<div class="row g-2 mb-3">
+<form id="search-form" method="get" action="/requests" class="row g-2 mb-3">
+  {% if active_user %}<input type="hidden" name="user" value="{{ active_user }}">{% endif %}
+  <input type="hidden" name="page" value="1">
   <div class="col-12 col-md-4">
     <div class="input-group input-group-sm">
       <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
       <input type="search" class="form-control bg-dark border-secondary text-white"
-             id="searchInput" placeholder="Rechercher un titre..." oninput="filterItems()">
+             id="searchInput" name="search" placeholder="Rechercher un titre…"
+             value="{{ active_search }}" oninput="debounceSearch()">
+      {% if active_search %}
+      <a href="/requests?{% if active_user %}user={{ active_user }}&{% endif %}page=1" class="btn btn-outline-secondary" title="Effacer la recherche"><i class="bi bi-x"></i></a>
+      {% endif %}
     </div>
   </div>
   <div class="col-6 col-md-3">
@@ -59,7 +93,7 @@
       <option value="show">Séries</option>
     </select>
   </div>
-</div>
+</form>
 
 <!-- Vue grille (cards) -->
 <div id="view-grid" class="row g-3" style="display:none!important">
@@ -93,6 +127,9 @@
             </div>
             <div class="text-white-50" style="font-size:11px">
               <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
+              {% for co in r.extra_requesters | fromjson %}
+              <span class="opacity-75">, {{ co.display_name }}</span>
+              {% endfor %}
             </div>
           </div>
           <div class="d-flex gap-1 flex-shrink-0" onclick="event.stopPropagation()">
@@ -134,24 +171,25 @@
       <table class="table table-dark table-hover mb-0" id="requests-table">
         <thead><tr>
           <th style="width:56px">Poster</th>
+          {% set sq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}page=1&per_page={{ per_page }}{% endset %}
           <th>{% set ns='title' %}{% set no='asc' if sort=='title' and order=='desc' else 'desc' %}
-            <a href="?{% if active_user %}user={{ active_user }}&{% endif %}sort={{ ns }}&order={{ no }}&page=1&per_page={{ per_page }}" class="text-decoration-none text-white">
+            <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Titre {% if sort=='title' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
             </a></th>
           <th class="d-none d-md-table-cell">{% set ns='type' %}{% set no='asc' if sort=='type' and order=='desc' else 'desc' %}
-            <a href="?{% if active_user %}user={{ active_user }}&{% endif %}sort={{ ns }}&order={{ no }}&page=1&per_page={{ per_page }}" class="text-decoration-none text-white">
+            <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Type {% if sort=='type' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
             </a></th>
           <th>Utilisateur</th>
           <th>{% set ns='status' %}{% set no='asc' if sort=='status' and order=='desc' else 'desc' %}
-            <a href="?{% if active_user %}user={{ active_user }}&{% endif %}sort={{ ns }}&order={{ no }}&page=1&per_page={{ per_page }}" class="text-decoration-none text-white">
+            <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Statut {% if sort=='status' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
             </a></th>
           <th class="d-none d-lg-table-cell">Source / Lien</th>
           <th class="d-none d-lg-table-cell text-center">✉ dem.</th>
           <th class="d-none d-lg-table-cell text-center">✉ dispo</th>
           <th class="d-none d-md-table-cell">{% set ns='date' %}{% set no='asc' if sort=='date' and order=='desc' else 'desc' %}
-            <a href="?{% if active_user %}user={{ active_user }}&{% endif %}sort={{ ns }}&order={{ no }}&page=1&per_page={{ per_page }}" class="text-decoration-none text-white">
+            <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Date {% if sort=='date' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
             </a></th>
           <th></th>
@@ -182,28 +220,51 @@
               <span class="badge bg-primary"><i class="bi bi-camera-video me-1"></i>Film</span>
               {% endif %}
             </td>
-            <td>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}</td>
+            <td>
+              {{ users_map.get(r.plex_user_id, r.plex_user_id) }}
+              {% for co in r.extra_requesters | fromjson %}
+              <span class="text-muted">, {{ co.display_name }}</span>
+              {% endfor %}
+            </td>
             <td>
               <span class="status-badge">
               {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Dispo</span>
-              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoye</span>
-              {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>
+              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>
+              {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>
               {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Attente</span>{% endif %}
               </span>
             </td>
             <td class="d-none d-lg-table-cell" onclick="event.stopPropagation()">
-              <span class="badge bg-secondary">{{ r.source or '?' }}</span>
-              {% if r.arr_slug %}
-                {% if r.media_type == 'show' and sonarr_url %}
-                <a href="{{ sonarr_url }}/series/{{ r.arr_slug }}" target="_blank" rel="noopener"
-                   class="btn btn-sm py-0 px-1 btn-outline-secondary ms-1" title="Voir dans Sonarr">
+              {% if r.source == 'seer' %}
+                {% if r.arr_id %}
+                  <span class="badge bg-info text-dark" title="Traité par Seer (ID #{{ r.arr_id }})">
+                    <i class="bi bi-stars me-1"></i>Seer <i class="bi bi-check-lg"></i>
+                  </span>
+                {% else %}
+                  <span class="badge bg-info text-dark opacity-75" title="Source Seer — ID non encore confirmé">
+                    <i class="bi bi-stars me-1"></i>Seer <i class="bi bi-question-lg"></i>
+                  </span>
+                {% endif %}
+                {% if seer_url and r.arr_id %}
+                <a href="{{ seer_url }}/requests/{{ r.arr_id }}" target="_blank" rel="noopener"
+                   class="btn btn-sm py-0 px-1 btn-outline-info ms-1" title="Voir dans Seer">
                   <i class="bi bi-box-arrow-up-right"></i>
                 </a>
-                {% elif r.media_type == 'movie' and radarr_url %}
-                <a href="{{ radarr_url }}/movie/{{ r.arr_slug }}" target="_blank" rel="noopener"
-                   class="btn btn-sm py-0 px-1 btn-outline-secondary ms-1" title="Voir dans Radarr">
-                  <i class="bi bi-box-arrow-up-right"></i>
-                </a>
+                {% endif %}
+              {% else %}
+                <span class="badge bg-secondary"><i class="bi bi-rss me-1"></i>{{ r.source or '?' }}</span>
+                {% if r.arr_slug %}
+                  {% if r.media_type == 'show' and sonarr_url %}
+                  <a href="{{ sonarr_url }}/series/{{ r.arr_slug }}" target="_blank" rel="noopener"
+                     class="btn btn-sm py-0 px-1 btn-outline-secondary ms-1" title="Voir dans Sonarr">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                  {% elif r.media_type == 'movie' and radarr_url %}
+                  <a href="{{ radarr_url }}/movie/{{ r.arr_slug }}" target="_blank" rel="noopener"
+                     class="btn btn-sm py-0 px-1 btn-outline-secondary ms-1" title="Voir dans Radarr">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                  {% endif %}
                 {% endif %}
               {% endif %}
             </td>
@@ -240,28 +301,29 @@
 
 <!-- Pagination -->
 {% if total_pages > 1 %}
+{% set pq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}per_page={{ per_page }}{% endset %}
 <nav class="mt-3">
   <ul class="pagination pagination-sm justify-content-center flex-wrap gap-1 mb-0">
-    <li class="page-item {% if page == 1 %}disabled{% endif %}">
-      <a class="page-link" href="?{% if active_user %}user={{ active_user }}&{% endif %}page={{ page - 1 }}&per_page={{ per_page }}">‹</a>
+    <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
+      <a class="page-link" href="?{{ pq }}&page={{ current_page - 1 }}">‹</a>
     </li>
     {% for p in range(1, total_pages + 1) %}
-      {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-      <li class="page-item {% if p == page %}active{% endif %}">
-        <a class="page-link" href="?{% if active_user %}user={{ active_user }}&{% endif %}page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
+      {% if p == 1 or p == total_pages or (p >= current_page - 2 and p <= current_page + 2) %}
+      <li class="page-item {% if p == current_page %}active{% endif %}">
+        <a class="page-link" href="?{{ pq }}&page={{ p }}">{{ p }}</a>
       </li>
-      {% elif p == page - 3 or p == page + 3 %}
+      {% elif p == current_page - 3 or p == current_page + 3 %}
       <li class="page-item disabled"><span class="page-link">…</span></li>
       {% endif %}
     {% endfor %}
-    <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-      <a class="page-link" href="?{% if active_user %}user={{ active_user }}&{% endif %}page={{ page + 1 }}&per_page={{ per_page }}">›</a>
+    <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
+      <a class="page-link" href="?{{ pq }}&page={{ current_page + 1 }}">›</a>
     </li>
   </ul>
   <div class="text-center text-muted small mt-2">
-    Page {{ page }} / {{ total_pages }} — {{ total }} demande{% if total > 1 %}s{% endif %}
+    Page {{ current_page }} / {{ total_pages }} — {{ total }} demande{% if total > 1 %}s{% endif %}
     <select class="form-select form-select-sm d-inline-block ms-2" style="width:auto"
-            onchange="window.location='?{% if active_user %}user={{ active_user }}&{% endif %}page=1&per_page='+this.value">
+            onchange="window.location='?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}page=1&per_page='+this.value">
       {% for n in [25, 50, 100] %}
       <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
@@ -339,10 +401,46 @@ function applyUserFilter() {
   const url = new URL(window.location.href);
   uid ? url.searchParams.set('user', uid) : url.searchParams.delete('user');
   url.searchParams.set('page', '1');
+  const search = document.getElementById('searchInput').value.trim();
+  search ? url.searchParams.set('search', search) : url.searchParams.delete('search');
   window.location.href = url.toString();
 }
 
+let _searchTimer = null;
+function debounceSearch() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    document.getElementById('search-form').submit();
+  }, 400);
+}
+
 // Retry inline (sans reload)
+async function syncSeerRequests() {
+  const btn = document.getElementById('btn-seer-req-sync');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Synchronisation…';
+  try {
+    const r = await fetch('/api/seer/sync/requests', {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast('Demandes Seer synchronisées', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-arrow-down me-1"></i>Synchroniser les demandes Seer';
+  }
+}
+
+function formatRequesters(d) {
+  const names = [d.plex_user || d.plex_user_id];
+  try {
+    const extras = JSON.parse(d.extra_requesters || '[]');
+    for (const e of extras) names.push(e.display_name || e.plex_user_id);
+  } catch(_) {}
+  return names.join(', ');
+}
+
 async function retryRequest(id, btn) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -417,8 +515,8 @@ async function openDetail(id) {
 function statusBadge(s) {
   const map = {
     available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
-    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoye</span>',
-    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>',
+    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>',
+    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
     pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>En attente</span>',
   };
   return map[s] || `<span class="badge bg-secondary">${s}</span>`;
@@ -459,7 +557,7 @@ function renderDetail(d) {
           <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
         </div>
         <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
-          <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${d.plex_user || d.plex_user_id}</td></tr>
+          <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${formatRequesters(d)}</td></tr>
           <tr><td class="text-muted">Date demande</td><td>${reqDate}</td></tr>
           ${d.available_at ? `<tr><td class="text-muted">Disponible le</td><td class="text-success">${availDate}</td></tr>` : ''}
           <tr><td class="text-muted">Email dem.</td><td>${d.request_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}${d._user_emails?.length ? ' <span class="text-muted" style="font-size:11px">→ ' + d._user_emails.join(', ') + '</span>' : ''}</td></tr>
@@ -532,15 +630,26 @@ async function retryFromModal(id) {
   }
 }
 
-// Auto-refresh discret
+// Auto-refresh discret — point pulsant dans le titre après 2 min
 setTimeout(() => {
-  const banner = document.createElement('div');
-  banner.className = 'alert alert-secondary border-secondary py-2 px-3 d-flex align-items-center gap-2 mb-3';
-  banner.style.cssText = 'font-size:13px;background:#2a2a2a;cursor:pointer';
-  banner.innerHTML = '<i class="bi bi-arrow-clockwise text-warning"></i> Des statuts ont peut-être changé — <strong>cliquer pour actualiser</strong>';
-  banner.onclick = () => location.reload();
-  document.querySelector('h2')?.closest('.d-flex')?.insertAdjacentElement('afterend', banner);
+  const dot = document.createElement('span');
+  dot.id = 'refresh-dot';
+  dot.title = 'Des statuts ont peut-être changé — cliquer pour actualiser';
+  dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffc107;margin-left:8px;cursor:pointer;animation:pulse 1.5s infinite';
+  dot.onclick = () => location.reload();
+  document.querySelector('h2')?.appendChild(dot);
+  if (!document.getElementById('pulse-style')) {
+    const s = document.createElement('style');
+    s.id = 'pulse-style';
+    s.textContent = '@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}';
+    document.head.appendChild(s);
+  }
 }, 120000);
+
+// Vue grille automatique sur mobile (première visite)
+if (window.innerWidth < 640 && !localStorage.getItem('requests_view')) {
+  localStorage.setItem('requests_view', 'grid');
+}
 
 // Pré-sélection filtre depuis l'URL (?status=failed etc.)
 (function applyUrlFilter() {

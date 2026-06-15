@@ -33,6 +33,17 @@
       <i class="bi bi-gear"></i> Avancé
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-conflits" type="button" role="tab" onclick="initConflictsTab()">
+      <i class="bi bi-exclamation-triangle"></i> Conflits
+      <span id="conflicts-badge" class="badge bg-danger ms-1 d-none">0</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-maintenance" type="button" role="tab" onclick="initMaintenanceTab()">
+      <i class="bi bi-tools"></i> Maintenance
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="settingsTabContent">
@@ -201,40 +212,40 @@
         </div>
       </div>
 
-      <!-- Overseerr -->
+      <!-- Seer -->
       <div class="col-12">
         <div class="card p-4">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">
-              <i class="bi bi-send text-warning me-2"></i>Overseerr
+              <i class="bi bi-send text-warning me-2"></i>Seer
               <span class="badge bg-secondary ms-2" style="font-size:11px">Mode alternatif</span>
             </h5>
             <div class="d-flex align-items-center gap-3">
-              <span id="conn-badge-overseerr" class="conn-badge"></span>
+              <span id="conn-badge-seer" class="conn-badge"></span>
               <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" name="overseerr_enabled" id="overseerr_en" {% if s.overseerr_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="overseerr_en">Activé</label>
+                <input class="form-check-input" type="checkbox" name="seer_enabled" id="seer_en" {% if s.seer_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="seer_en">Activé</label>
               </div>
             </div>
           </div>
           <div class="alert alert-secondary border-0 py-2 mb-3" style="background:#2a2a2a;font-size:13px">
             <i class="bi bi-info-circle me-1"></i>
-            Quand activé, les demandes sont envoyées à <strong>Overseerr</strong> plutôt que directement à Sonarr/Radarr.
-            Overseerr gère le routage et les profils de qualité selon sa propre configuration.
+            Quand activé, les demandes sont envoyées à <strong>Seer</strong> plutôt que directement à Sonarr/Radarr.
+            Seer gère le routage et les profils de qualité selon sa propre configuration.
           </div>
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label">URL Overseerr</label>
-              <input type="url" class="form-control" name="overseerr_url" value="{{ s.overseerr_url or '' }}" placeholder="http://192.168.1.10:5055">
+              <label class="form-label">URL Seer</label>
+              <input type="url" class="form-control" name="seer_url" value="{{ s.seer_url or '' }}" placeholder="http://192.168.1.10:5055">
             </div>
             <div class="col-md-6">
               <label class="form-label">Clé API</label>
               <div class="input-group">
-                <input type="password" class="form-control" name="overseerr_api_key" value="{{ s.overseerr_api_key or '' }}" id="overseerr_key">
-                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('overseerr_key')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('overseerr')">Tester</button>
+                <input type="password" class="form-control" name="seer_api_key" value="{{ s.seer_api_key or '' }}" id="seer_key">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('seer_key')"><i class="bi bi-eye"></i></button>
+                <button type="button" class="btn btn-outline-warning" onclick="testConn('seer')">Tester</button>
               </div>
-              <div class="form-text">Overseerr → Paramètres → Général → Clé API</div>
+              <div class="form-text">Seer → Paramètres → Général → Clé API</div>
             </div>
           </div>
         </div>
@@ -472,6 +483,91 @@
     </div>
   </div>
 
+  <!-- ════════════════════════ TAB : CONFLITS ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-conflits" role="tabpanel">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h5 class="mb-0"><i class="bi bi-exclamation-triangle text-warning me-2"></i>Conflits de déduplication</h5>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-warning" id="btn-auto-resolve" onclick="autoResolveAll(this)">
+          <i class="bi bi-magic me-1"></i>Tout résoudre automatiquement
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadConflicts()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Rafraîchir
+        </button>
+      </div>
+    </div>
+
+    <div id="conflicts-loading" class="text-center text-muted py-5 d-none">
+      <div class="spinner-border spinner-border-sm me-2"></div>Chargement…
+    </div>
+
+    <!-- 1. Conflits tmdb -->
+    <div id="section-tmdb-conflicts" class="d-none mb-4">
+      <h6 class="text-uppercase text-muted mb-3" style="font-size:11px;letter-spacing:.08em">
+        <i class="bi bi-intersect me-1"></i>Conflits tmdb_id — même série, identifiants différents
+      </h6>
+      <div id="tmdb-conflicts-list"></div>
+    </div>
+
+    <!-- 2. Demandes orphelines -->
+    <div id="section-orphaned" class="mb-4 d-none">
+      <h6 class="text-uppercase text-muted mb-3" style="font-size:11px;letter-spacing:.08em">
+        <i class="bi bi-person-x me-1"></i>Demandes orphelines — utilisateur supprimé
+      </h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-dark align-middle mb-0">
+          <thead><tr><th>Titre</th><th>Type</th><th>Utilisateur (ID)</th><th>Statut</th><th>Date</th><th></th></tr></thead>
+          <tbody id="orphaned-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4. En attente trop longtemps -->
+    <div id="section-long-pending" class="mb-4 d-none">
+      <h6 class="text-uppercase text-muted mb-3" style="font-size:11px;letter-spacing:.08em">
+        <i class="bi bi-hourglass-split me-1"></i>En attente depuis plus de 30 jours
+      </h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-dark align-middle mb-0">
+          <thead><tr><th>Titre</th><th>Type</th><th>Utilisateur</th><th>Source</th><th>Ancienneté</th><th></th></tr></thead>
+          <tbody id="long-pending-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="conflicts-empty" class="text-center text-muted py-5 d-none">
+      <i class="bi bi-check-circle text-success fs-3 d-block mb-2"></i>
+      Aucun conflit détecté.
+    </div>
+  </div>
+
+  <!-- ════════════════════════ TAB : MAINTENANCE ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-maintenance" role="tabpanel">
+
+<style>
+.maint-card {
+  background:#1e1e1e;border:1px solid #2a2a2a;border-radius:8px;
+  transition:border-color .2s,box-shadow .2s;cursor:pointer;
+}
+.maint-card:hover { border-color:#444;box-shadow:0 0 0 1px #444; }
+.maint-card.running { border-color:#0d6efd55; }
+.maint-card.done    { border-color:#19875455; }
+.maint-card.error   { border-color:#dc354555; }
+.maint-log {
+  font-family:monospace;font-size:12px;line-height:1.6;
+  background:#111;border-radius:4px;padding:10px;max-height:260px;
+  overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+}
+.maint-log .log-ok   { color:#4ade80; }
+.maint-log .log-warn { color:#fbbf24; }
+.maint-log .log-err  { color:#f87171; }
+.maint-log .log-info { color:#9ca3af; }
+</style>
+
+<div class="row g-3 p-1" id="maint-grid"></div>
+
+  </div>
+
 </div>
 </form>
 
@@ -515,7 +611,7 @@ function setConnBadge(service, success, label) {
   try { sessionStorage.setItem(`conn_${service}`, JSON.stringify({success, label})); } catch(e) {}
 }
 function restoreConnBadges() {
-  ['plex-api','plex-rss','sonarr','radarr','overseerr','discord','telegram','smtp'].forEach(s => {
+  ['plex-api','plex-rss','sonarr','radarr','seer','discord','telegram','smtp'].forEach(s => {
     try {
       const stored = sessionStorage.getItem(`conn_${s}`);
       if (stored) { const d = JSON.parse(stored); setConnBadge(s, d.success, d.label); }
@@ -523,18 +619,18 @@ function restoreConnBadges() {
   });
 }
 
-// ── Overseerr → dim Sonarr/Radarr ────────────────────────────────────────────
-function updateOverseerrMode() {
-  const enabled = document.getElementById('overseerr_en').checked;
+// ── Seer → dim Sonarr/Radarr ────────────────────────────────────────────
+function updateSeerMode() {
+  const enabled = document.getElementById('seer_en').checked;
   ['sonarr','radarr'].forEach(arr => {
     const wrap = document.getElementById(`card-wrap-${arr}`);
     if (!wrap) return;
     wrap.style.opacity = enabled ? '0.4' : '1';
     wrap.style.pointerEvents = enabled ? 'none' : '';
-    wrap.title = enabled ? 'Géré par Overseerr — désactivez Overseerr pour modifier' : '';
+    wrap.title = enabled ? 'Géré par Seer — désactivez Seer pour modifier' : '';
   });
 }
-document.getElementById('overseerr_en').addEventListener('change', updateOverseerrMode);
+document.getElementById('seer_en').addEventListener('change', updateSeerMode);
 
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
@@ -613,6 +709,37 @@ async function saveSettings() {
     showToast('Paramètres enregistrés !', 'success');
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+// ── Maintenance ──────────────────────────────────────────────────────────────
+
+const MAINTENANCE_ACTIONS = {
+  'discover-users':     { url: '/api/users/discover',            method: 'POST', label: 'Sync RSS',                        btn: 'btn-m-discover'    },
+  'seer-sync-users':    { url: '/api/seer/sync/users',           method: 'POST', label: 'Sync utilisateurs Seer',          btn: 'btn-m-seer-users'  },
+  'seer-sync-requests': { url: '/api/seer/sync/requests',        method: 'POST', label: 'Sync demandes Seer',              btn: 'btn-m-seer-req'    },
+  'retry-failed':       { url: '/api/requests/retry-failed',     method: 'POST', label: 'Relancer les échouées',           btn: 'btn-m-retry'       },
+  'recalculate-dates':  { url: '/api/requests/recalculate-dates',method: 'POST', label: 'Recalculer les dates',            btn: 'btn-m-dates'       },
+  'merge-duplicates':   { url: '/api/requests/merge-duplicates', method: 'POST', label: 'Fusionner les doublons',          btn: 'btn-m-merge'       },
+};
+
+async function maintenance(action) {
+  const cfg = MAINTENANCE_ACTIONS[action];
+  if (!cfg) return;
+  const btn = document.getElementById(cfg.btn);
+  const origHtml = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${cfg.label}…`; }
+  try {
+    const r = await fetch(cfg.url, { method: cfg.method });
+    if (!r.ok) throw new Error((await r.json()).detail || await r.text());
+    const data = await r.json();
+    let msg = cfg.label + ' terminé';
+    if (data.retried != null) msg += ` — ${data.retried} relancée(s)`;
+    showToast(msg, 'success');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
   }
 }
 
@@ -746,7 +873,470 @@ function copyEl(id) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 restoreConnBadges();
-updateOverseerrMode();
+updateSeerMode();
 checkSectionWarnings();
+
+// ── Maintenance tab ───────────────────────────────────────────────────────────
+
+const MAINT_COLORS = {
+  info:      { border:'#0dcaf055', label:'text-info'    },
+  success:   { border:'#19875455', label:'text-success'  },
+  warning:   { border:'#ffc10755', label:'text-warning'  },
+  secondary: { border:'#6c757d55', label:'text-secondary'},
+};
+
+// ── Conflicts tab ─────────────────────────────────────────────────────────────
+
+let _conflictsInited = false;
+
+async function initConflictsTab() {
+  if (_conflictsInited) return;
+  await loadConflicts();
+}
+
+function _showSection(id, show) {
+  document.getElementById(id).classList.toggle('d-none', !show);
+}
+
+function _statusBadge(s) {
+  const map = {available:'success',sent_to_arr:'primary',pending:'warning text-dark',failed:'danger'};
+  const labels = {available:'Dispo',sent_to_arr:'Envoyé',pending:'En attente',failed:'Échec'};
+  return `<span class="badge bg-${map[s]||'secondary'}">${labels[s]||s}</span>`;
+}
+
+function _typeBadge(t) {
+  return t === 'show'
+    ? `<span class="badge bg-info text-dark">Série</span>`
+    : `<span class="badge bg-primary">Film</span>`;
+}
+
+function _srcBadge(s) {
+  return s === 'seer'
+    ? `<span class="badge bg-info text-dark"><i class="bi bi-stars me-1"></i>Seer</span>`
+    : `<span class="badge bg-secondary"><i class="bi bi-rss me-1"></i>${s}</span>`;
+}
+
+function _fmtDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString('fr-FR') : '—';
+}
+
+function _ignoreBtn(key) {
+  return `<button class="btn btn-xs btn-outline-secondary py-0 px-1 ms-1" title="Ignorer ce conflit"
+    onclick="ignoreConflict('${_esc(key)}', this)"><i class="bi bi-eye-slash"></i></button>`;
+}
+
+// ── Tmdb conflict card (B : comparaison visuelle côte à côte) ─────────────────
+function _tmdbConflictCard(c) {
+  const poster = c.entries.find(e => e.poster_url)?.poster_url;
+  const posterHtml = poster
+    ? `<img src="${_esc(poster)}" style="width:64px;border-radius:4px;object-fit:cover" class="me-3 flex-shrink-0">`
+    : `<div class="me-3 flex-shrink-0 bg-secondary rounded" style="width:64px;height:90px"></div>`;
+
+  const fields = [
+    ['Titre',   e => _esc(e.title)],
+    ['tmdb_id', e => e.tmdb_id ? `<code>${e.tmdb_id}</code>` : '<span class="text-muted">—</span>'],
+    ['Source',  e => _srcBadge(e.source)],
+    ['Statut',  e => _statusBadge(e.status)],
+    ['Utilisateur', e => _esc(e.plex_user || '—')],
+    ['Date',    e => `<span class="text-muted small">${_fmtDate(e.requested_at)}</span>`],
+  ];
+
+  const entryCards = c.entries.map(e => {
+    const isRec = e.id === c.recommended_id;
+    const rows = fields.map(([label, fn]) => `
+      <tr>
+        <td class="text-muted small pe-2" style="white-space:nowrap">${label}</td>
+        <td>${fn(e)}</td>
+      </tr>`).join('');
+    return `
+      <div class="col">
+        <div class="card h-100 ${isRec ? 'border-success' : 'border-secondary bg-dark'}" style="background:#1a1a1a">
+          ${isRec ? '<div class="card-header py-1 px-2 bg-success bg-opacity-25 small text-success"><i class="bi bi-stars me-1"></i>Recommandé (Seer)</div>' : ''}
+          <div class="card-body p-2">
+            <table class="table table-sm table-dark mb-2" style="font-size:.85rem">${rows}</table>
+            <button class="btn btn-sm w-100 ${isRec ? 'btn-success' : 'btn-outline-secondary'}"
+              onclick="resolveConflict(${e.id}, [${c.entries.filter(x=>x.id!==e.id).map(x=>x.id).join(',')}], this)">
+              <i class="bi bi-check-lg me-1"></i>Garder celle-ci
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="card bg-dark border-warning mb-3">
+      <div class="card-header d-flex align-items-center gap-2 py-2">
+        ${posterHtml}
+        <div class="flex-grow-1">
+          <span class="fw-semibold">${_esc(c.entries[0]?.title || '?')}</span>
+          <span class="ms-2">${_typeBadge(c.media_type)}</span>
+          <span class="text-muted small ms-2">tvdb=${c.tvdb_id}</span>
+        </div>
+        ${_ignoreBtn(c.key)}
+      </div>
+      <div class="card-body">
+        <div class="row row-cols-1 row-cols-md-${Math.min(c.entries.length, 3)} g-2">${entryCards}</div>
+      </div>
+    </div>`;
+}
+
+// ── Table row helpers ─────────────────────────────────────────────────────────
+function _simpleRow(e, actionHtml) {
+  return `<tr>
+    <td>${_esc(e.title)}</td>
+    <td>${_typeBadge(e.media_type)}</td>
+    <td>${_esc(e.plex_user || e.plex_user_id || '—')}</td>
+    <td>${_srcBadge(e.source)}</td>
+    <td>${_statusBadge(e.status)}</td>
+    <td class="text-muted small">${_fmtDate(e.requested_at)}</td>
+    <td class="text-end">${actionHtml}</td>
+  </tr>`;
+}
+
+async function loadConflicts() {
+  _conflictsInited = true;
+  _showSection('conflicts-loading', true);
+  ['section-tmdb-conflicts','section-orphaned','section-long-pending','conflicts-empty']
+    .forEach(id => _showSection(id, false));
+
+  let data;
+  try {
+    const r = await fetch('/api/conflicts');
+    data = await r.json();
+  } catch(e) {
+    showToast('Erreur lors du chargement des conflits', 'danger');
+    _showSection('conflicts-loading', false);
+    return;
+  }
+  _showSection('conflicts-loading', false);
+
+  const total = (data.tmdb_conflicts?.length||0) + (data.orphaned?.length||0) + (data.long_pending?.length||0);
+  const badge = document.getElementById('conflicts-badge');
+  badge.textContent = total;
+  badge.classList.toggle('d-none', total === 0);
+
+  const btnAuto = document.getElementById('btn-auto-resolve');
+  if (btnAuto) btnAuto.classList.toggle('d-none', (data.tmdb_conflicts?.length||0) === 0);
+
+  if (total === 0) { _showSection('conflicts-empty', true); return; }
+
+  // 1. tmdb conflicts
+  if (data.tmdb_conflicts?.length) {
+    _showSection('section-tmdb-conflicts', true);
+    document.getElementById('tmdb-conflicts-list').innerHTML =
+      data.tmdb_conflicts.map(_tmdbConflictCard).join('');
+  }
+
+  // 2. orphaned
+  if (data.orphaned?.length) {
+    _showSection('section-orphaned', true);
+    document.getElementById('orphaned-body').innerHTML = data.orphaned.map(e => `<tr>
+      <td>${_esc(e.title)}</td>
+      <td>${_typeBadge(e.media_type)}</td>
+      <td><code class="small">${_esc(e.plex_user_id)}</code></td>
+      <td>${_statusBadge(e.status)}</td>
+      <td class="text-muted small">${_fmtDate(e.requested_at)}</td>
+      <td class="text-end">
+        <button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="deleteConflictEntry('orphan',${e.id},this)">
+          <i class="bi bi-trash"></i>
+        </button>
+        ${_ignoreBtn(e.key)}
+      </td>
+    </tr>`).join('');
+  }
+
+  // 3. long_pending
+  if (data.long_pending?.length) {
+    _showSection('section-long-pending', true);
+    document.getElementById('long-pending-body').innerHTML = data.long_pending.map(e => `<tr>
+      <td>${_esc(e.title)}</td>
+      <td>${_typeBadge(e.media_type)}</td>
+      <td>${_esc(e.plex_user || '—')}</td>
+      <td>${_srcBadge(e.source)}</td>
+      <td><span class="badge bg-warning text-dark">${e.age_days}j</span></td>
+      <td class="text-end">${_ignoreBtn(e.key)}</td>
+    </tr>`).join('');
+  }
+
+}
+
+async function resolveConflict(keepId, deleteIds, btn) {
+  if (!confirm(`Garder l'entrée #${keepId} et fusionner ${deleteIds.length} doublon(s) ?`)) return;
+  btn.disabled = true;
+  const r = await fetch('/api/conflicts/resolve', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({keep_id: keepId, delete_ids: deleteIds})
+  });
+  if (r.ok) {
+    showToast('Conflit résolu', 'success');
+    _conflictsInited = false;
+    await loadConflicts();
+  } else {
+    showToast('Erreur lors de la résolution', 'danger');
+    btn.disabled = false;
+  }
+}
+
+async function autoResolveAll(btn) {
+  if (!confirm('Résoudre automatiquement tous les conflits tmdb ? (garde l\'entrée Seer dans chaque cas)')) return;
+  btn.disabled = true;
+  const r = await fetch('/api/conflicts/auto-resolve', {method:'POST'});
+  if (r.ok) {
+    const d = await r.json();
+    showToast(`${d.resolved} conflit(s) résolu(s)`, 'success');
+    _conflictsInited = false;
+    await loadConflicts();
+  } else {
+    showToast('Erreur lors de la résolution automatique', 'danger');
+  }
+  btn.disabled = false;
+}
+
+async function deleteConflictEntry(type, id, btn) {
+  const labels = {'no-tmdb': 'sans tmdb_id', 'orphan': 'orpheline'};
+  if (!confirm(`Supprimer cette demande ${labels[type]||''} ?`)) return;
+  btn.disabled = true;
+  const url = type === 'no-tmdb' ? `/api/conflicts/no-tmdb/${id}` : `/api/conflicts/orphan/${id}`;
+  const r = await fetch(url, {method:'DELETE'});
+  if (r.ok) {
+    showToast('Entrée supprimée', 'success');
+    _conflictsInited = false;
+    await loadConflicts();
+  } else {
+    showToast('Erreur lors de la suppression', 'danger');
+    btn.disabled = false;
+  }
+}
+
+async function ignoreConflict(key, btn) {
+  btn.disabled = true;
+  const r = await fetch('/api/conflicts/ignore', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({key})
+  });
+  if (r.ok) {
+    showToast('Conflit ignoré', 'secondary');
+    _conflictsInited = false;
+    await loadConflicts();
+  } else {
+    btn.disabled = false;
+  }
+}
+
+// Précharge le badge au chargement de la page
+(async () => {
+  try {
+    const r = await fetch('/api/conflicts');
+    const d = await r.json();
+    const n = (d.tmdb_conflicts?.length||0) + (d.orphaned?.length||0) + (d.long_pending?.length||0);
+    if (n > 0) {
+      const b = document.getElementById('conflicts-badge');
+      b.textContent = n;
+      b.classList.remove('d-none');
+    }
+  } catch {}
+})();
+
+// ── Maintenance tab ────────────────────────────────────────────────────────────
+
+const MAINT_GROUPS = [
+  { title:'Utilisateurs', icon:'bi-people',
+    actions:['discover-users','seer-sync-users'] },
+  { title:'Demandes',     icon:'bi-film',
+    actions:['seer-sync-requests','retry-failed','recalculate-dates','merge-duplicates','enrich-and-merge'] },
+  { title:'Système',      icon:'bi-heart-pulse',
+    actions:['check-arr-statuses','health-check'] },
+];
+
+let _maintMeta   = {};      // action → méta
+let _activeRuns  = {};      // action → { run_id, interval }
+let _tabInited   = false;
+
+async function initMaintenanceTab() {
+  if (_tabInited) return;
+  _tabInited = true;
+  try {
+    const r = await fetch('/api/maintenance/actions');
+    _maintMeta = await r.json();
+  } catch(e) { console.error('maintenance meta:', e); return; }
+  _renderGrid();
+}
+
+function _renderGrid() {
+  const grid = document.getElementById('maint-grid');
+  grid.innerHTML = '';
+
+  for (const group of MAINT_GROUPS) {
+    const actions = group.actions.filter(a => _maintMeta[a]);
+    if (!actions.length) continue;
+
+    const header = document.createElement('div');
+    header.className = 'col-12 mt-2';
+    header.innerHTML = `<h6 class="text-muted text-uppercase mb-2" style="font-size:11px;letter-spacing:.08em">
+      <i class="bi ${group.icon} me-1"></i>${group.title}</h6>`;
+    grid.appendChild(header);
+
+    for (const action of actions) {
+      const meta  = _maintMeta[action];
+      const col   = document.createElement('div');
+      col.className = 'col-md-6 col-xl-4';
+      col.innerHTML = _cardHtml(action, meta);
+      grid.appendChild(col);
+    }
+  }
+}
+
+function _cardHtml(action, meta) {
+  const c = MAINT_COLORS[meta.color] || MAINT_COLORS.secondary;
+  const lr = meta.last_run;
+  let lastRunHtml = '';
+  if (lr) {
+    const dt = lr.finished_at ? new Date(lr.finished_at).toLocaleString('fr-FR') : '—';
+    const icon = lr.status === 'done' ? 'bi-check-circle-fill text-success'
+               : lr.status === 'error' ? 'bi-x-circle-fill text-danger'
+               : 'bi-hourglass-split text-warning';
+    lastRunHtml = `<div class="text-muted d-flex align-items-center gap-1" style="font-size:10px">
+      <i class="bi ${icon}"></i><span>Dernier : ${dt}</span>
+    </div>`;
+  }
+  return `
+<div class="maint-card p-3 h-100 d-flex flex-column gap-2" id="mcard-${action}"
+     style="border-color:${c.border}">
+  <div class="d-flex align-items-start justify-content-between gap-2">
+    <div>
+      <div class="fw-semibold d-flex align-items-center gap-2">
+        <i class="bi ${meta.icon} ${c.label}"></i>${meta.label}
+      </div>
+      <div class="text-muted mt-1" style="font-size:12px">${meta.description}</div>
+      ${lastRunHtml}
+    </div>
+    <span class="badge rounded-pill bg-secondary" id="mstatus-${action}" style="white-space:nowrap;font-size:10px">—</span>
+  </div>
+
+  <div class="progress" style="height:4px;background:#2a2a2a;border-radius:2px">
+    <div class="progress-bar" id="mprog-${action}" role="progressbar"
+         style="width:0%;transition:width .4s;background:${c.border.replace('55','cc')}"></div>
+  </div>
+
+  <div id="mlogs-wrap-${action}" style="display:none">
+    <div class="maint-log" id="mlogs-${action}"></div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mt-auto pt-1">
+    <button class="btn btn-sm btn-outline-secondary" style="font-size:11px"
+            onclick="toggleLogs('${action}')">
+      <i class="bi bi-terminal me-1"></i><span id="mlogtoggle-${action}">Logs</span>
+    </button>
+    <button class="btn btn-sm btn-outline-${meta.color === 'secondary' ? 'light' : meta.color}"
+            id="mbtn-${action}" onclick="launchMaint('${action}')">
+      <i class="bi bi-play-fill me-1"></i>Lancer
+    </button>
+  </div>
+</div>`;
+}
+
+function toggleLogs(action) {
+  const wrap   = document.getElementById(`mlogs-wrap-${action}`);
+  const toggle = document.getElementById(`mlogtoggle-${action}`);
+  const open   = wrap.style.display === 'none';
+  wrap.style.display = open ? '' : 'none';
+  toggle.textContent = open ? 'Masquer' : 'Logs';
+  if (open) _scrollLogs(action);
+}
+
+function _scrollLogs(action) {
+  const el = document.getElementById(`mlogs-${action}`);
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function _renderLogs(action, logs) {
+  const el = document.getElementById(`mlogs-${action}`);
+  if (!el) return;
+  el.innerHTML = logs.map(line => {
+    if (line.startsWith('[OK]'))   return `<div class="log-ok">${_esc(line)}</div>`;
+    if (line.startsWith('[WARN]')) return `<div class="log-warn">${_esc(line)}</div>`;
+    if (line.startsWith('[ERR]'))  return `<div class="log-err">${_esc(line)}</div>`;
+    return `<div class="log-info">${_esc(line)}</div>`;
+  }).join('');
+  _scrollLogs(action);
+}
+
+function _esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function launchMaint(action) {
+  if (_activeRuns[action]) return;
+
+  const btn    = document.getElementById(`mbtn-${action}`);
+  const card   = document.getElementById(`mcard-${action}`);
+  const status = document.getElementById(`mstatus-${action}`);
+  const prog   = document.getElementById(`mprog-${action}`);
+  const wrap   = document.getElementById(`mlogs-wrap-${action}`);
+  const toggle = document.getElementById(`mlogtoggle-${action}`);
+
+  // Ouvrir les logs automatiquement au lancement
+  wrap.style.display = '';
+  toggle.textContent = 'Masquer';
+  document.getElementById(`mlogs-${action}`).innerHTML = '';
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  card.classList.add('running');
+  status.className = 'badge rounded-pill bg-primary';
+  status.textContent = 'En cours…';
+  prog.style.width = '2%';
+
+  try {
+    const r = await fetch(`/api/maintenance/run/${action}`, { method: 'POST' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const { run_id } = await r.json();
+
+    _activeRuns[action] = setInterval(async () => {
+      try {
+        const rs = await fetch(`/api/maintenance/run/${run_id}`);
+        const data = await rs.json();
+
+        prog.style.width = data.progress + '%';
+        _renderLogs(action, data.logs);
+
+        if (data.status !== 'running') {
+          clearInterval(_activeRuns[action]);
+          delete _activeRuns[action];
+
+          const ok = data.status === 'done';
+          card.classList.remove('running');
+          card.classList.add(ok ? 'done' : 'error');
+          status.className = `badge rounded-pill ${ok ? 'bg-success' : 'bg-danger'}`;
+          const dur = data.finished_at
+            ? Math.round((new Date(data.finished_at) - new Date(data.started_at)) / 1000)
+            : '?';
+          status.textContent = ok ? `OK · ${dur}s` : `Erreur · ${dur}s`;
+          prog.style.width = '100%';
+
+          btn.disabled = false;
+          const meta = _maintMeta[action];
+          btn.innerHTML = `<i class="bi bi-play-fill me-1"></i>Relancer`;
+        }
+      } catch(e) {
+        clearInterval(_activeRuns[action]);
+        delete _activeRuns[action];
+        status.className = 'badge rounded-pill bg-danger';
+        status.textContent = 'Erreur réseau';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Relancer';
+      }
+    }, 500);
+
+  } catch(e) {
+    card.classList.remove('running');
+    status.className = 'badge rounded-pill bg-danger';
+    status.textContent = 'Erreur';
+    prog.style.width = '0%';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Lancer';
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
 </script>
 {% endblock %}

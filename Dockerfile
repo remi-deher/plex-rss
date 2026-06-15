@@ -20,6 +20,7 @@ COPY --from=builder /install /usr/local
 COPY alembic/ alembic/
 COPY alembic.ini .
 COPY app/ app/
+COPY scripts/ scripts/
 
 RUN mkdir -p /app/data
 
