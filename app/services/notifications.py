@@ -42,87 +42,71 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
     return title, body
 
 
-async def send_discord(settings: Settings, request: MediaRequest, event: str):
-    """Envoie une notification Discord via webhook (embed coloré).
-
-    Les couleurs correspondent aux statuts : orange (demande), vert (dispo), rouge (échec).
-    """
-    if not settings.discord_webhook_url:
-        return
-
+def _build_discord_embed(event: str, request: MediaRequest, include_synopsis: bool = False) -> dict:
+    """Construit un embed Discord pour un événement donné."""
     title, body = _build_message(event, request)
     color = {"request": 0xE5A00D, "available": 0x1DB954, "failed": 0xDC3545}.get(event, 0x888888)
-
-    embed = {
-        "title": title,
-        "description": body,
-        "color": color,
-    }
+    embed: dict = {"title": title, "description": body, "color": color}
     if request.poster_url:
         embed["thumbnail"] = {"url": request.poster_url}
-    if request.overview:
-        # Tronquer pour rester dans les limites Discord (4096 chars par embed)
+    if include_synopsis and request.overview:
         embed["fields"] = [{"name": "Synopsis", "value": request.overview[:500], "inline": False}]
+    return embed
 
+
+async def _post_discord_embed(webhook_url: str, embed: dict):
+    """Envoie un embed Discord vers un webhook URL. Lève une exception en cas d'erreur."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(webhook_url, json={"embeds": [embed]})
+        resp.raise_for_status()
+
+
+async def _post_telegram_message(bot_token: str, chat_id: str, text: str):
+    """Envoie un message Telegram. Lève une exception en cas d'erreur."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+        )
+        resp.raise_for_status()
+
+
+async def send_discord(settings: Settings, request: MediaRequest, event: str):
+    """Envoie une notification Discord via webhook global (embed coloré avec synopsis)."""
+    if not settings.discord_webhook_url:
+        return
+    embed = _build_discord_embed(event, request, include_synopsis=True)
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(settings.discord_webhook_url, json={"embeds": [embed]})
-            resp.raise_for_status()
-            logger.info(f"Discord notif sent for '{request.title}' ({event})")
+        await _post_discord_embed(settings.discord_webhook_url, embed)
+        logger.info(f"Discord notif sent for '{request.title}' ({event})")
     except Exception as e:
         logger.error(f"Discord notification failed: {e}")
-
-
-async def send_telegram(settings: Settings, request: MediaRequest, event: str):
-    """Envoie une notification Telegram via Bot API (sendMessage en Markdown).
-
-    Le synopsis est tronqué à 300 caractères pour garder les messages lisibles.
-    """
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        return
-
-    title, body = _build_message(event, request)
-    text = f"*{title}*\n{body}"
-    if request.overview:
-        text += f"\n\n_{request.overview[:300]}_"
-
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                json={
-                    "chat_id": settings.telegram_chat_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                },
-            )
-            resp.raise_for_status()
-            logger.info(f"Telegram notif sent for '{request.title}' ({event})")
-    except Exception as e:
-        logger.error(f"Telegram notification failed: {e}")
-
-
-async def send_all(settings: Settings, request: MediaRequest, event: str):
-    """Déclenche Discord et Telegram en séquence pour un événement donné."""
-    await send_discord(settings, request, event)
-    await send_telegram(settings, request, event)
 
 
 async def send_discord_to_webhook(webhook_url: str, request: MediaRequest, event: str):
     """Envoie une notification Discord vers un webhook spécifique (par utilisateur)."""
     if not webhook_url:
         return
-    title, body = _build_message(event, request)
-    color = {"request": 0xE5A00D, "available": 0x1DB954, "failed": 0xDC3545}.get(event, 0x888888)
-    embed = {"title": title, "description": body, "color": color}
-    if request.poster_url:
-        embed["thumbnail"] = {"url": request.poster_url}
+    embed = _build_discord_embed(event, request)
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(webhook_url, json={"embeds": [embed]})
-            resp.raise_for_status()
+        await _post_discord_embed(webhook_url, embed)
     except Exception as e:
         logger.error(f"Discord per-user notif failed ({webhook_url[:40]}…): {e}")
+
+
+async def send_telegram(settings: Settings, request: MediaRequest, event: str):
+    """Envoie une notification Telegram via Bot API global (sendMessage en Markdown)."""
+    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+        return
+    title, body = _build_message(event, request)
+    text = f"*{title}*\n{body}"
+    if request.overview:
+        text += f"\n\n_{request.overview[:300]}_"
+    try:
+        await _post_telegram_message(settings.telegram_bot_token, settings.telegram_chat_id, text)
+        logger.info(f"Telegram notif sent for '{request.title}' ({event})")
+    except Exception as e:
+        logger.error(f"Telegram notification failed: {e}")
 
 
 async def send_telegram_to_chat(bot_token: str, chat_id: str, request: MediaRequest, event: str):
@@ -134,11 +118,12 @@ async def send_telegram_to_chat(bot_token: str, chat_id: str, request: MediaRequ
     if request.overview:
         text += f"\n\n_{request.overview[:300]}_"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
-            )
-            resp.raise_for_status()
+        await _post_telegram_message(bot_token, chat_id, text)
     except Exception as e:
         logger.error(f"Telegram per-user notif failed (chat {chat_id}): {e}")
+
+
+async def send_all(settings: Settings, request: MediaRequest, event: str):
+    """Déclenche Discord et Telegram en séquence pour un événement donné."""
+    await send_discord(settings, request, event)
+    await send_telegram(settings, request, event)

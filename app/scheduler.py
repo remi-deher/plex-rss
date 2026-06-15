@@ -34,6 +34,7 @@ from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
 from .services.sonarr import add_series, is_series_available
 from .services.watchlist import fetch_watchlist
+from .utils import db_session, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -47,58 +48,57 @@ scheduler = AsyncIOScheduler()
 
 async def _send_digest():
     """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
-    import aiosmtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
+    from .services.email_service import _send as smtp_send
 
-    db: Session = SessionLocal()
     try:
-        settings = db.query(Settings).first()
-        if not settings or not settings.digest_enabled:
-            return
-        if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
-            logger.warning("Digest : SMTP non configuré, skip")
-            return
+        with db_session(SessionLocal) as db:
+            settings = db.query(Settings).first()
+            if not settings or not settings.digest_enabled:
+                return
+            if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
+                logger.warning("Digest : SMTP non configuré, skip")
+                return
 
-        # Demandes des dernières 24h
-        cutoff = datetime.now().replace(tzinfo=None) - timedelta(hours=24)
-        recent = (
-            db.query(MediaRequest)
-            .filter(MediaRequest.requested_at >= cutoff)
-            .order_by(MediaRequest.requested_at.desc())
-            .all()
-        )
-        if not recent:
-            logger.info("Digest : aucune demande dans les 24h, skip")
-            return
+            cutoff = datetime.now() - timedelta(hours=24)
+            recent = (
+                db.query(MediaRequest)
+                .filter(MediaRequest.requested_at >= cutoff)
+                .order_by(MediaRequest.requested_at.desc())
+                .all()
+            )
+            if not recent:
+                logger.info("Digest : aucune demande dans les 24h, skip")
+                return
 
-        users = db.query(PlexUser).filter(
-            PlexUser.enabled == True,
-            PlexUser.notify_digest == True,
-        ).all()
-        if not users:
-            return
+            users = db.query(PlexUser).filter(
+                PlexUser.enabled.is_(True),
+                PlexUser.notify_digest.is_(True),
+            ).all()
+            if not users:
+                return
 
-        # Build HTML digest
-        rows = "".join(
-            f"<tr>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #333'>{r.title or '—'}"
-            f"{'<span style=\"color:#aaa;font-size:12px\"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{'Série' if r.media_type == 'show' else 'Film'}</td>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{r.plex_user or r.plex_user_id}</td>"
-            f"<td style='padding:6px 12px;border-bottom:1px solid #333'>"
-            f"<span style='color:{'#1db954' if r.status == 'available' else '#e5a00d' if r.status == 'sent_to_arr' else '#888'}'>"
-            f"{'Disponible' if r.status == 'available' else 'Envoyé' if r.status == 'sent_to_arr' else r.status}"
-            f"</span></td>"
-            f"</tr>"
-            for r in recent
-        )
-        html = f"""<!DOCTYPE html>
+            count = len(recent)
+            plural = "s" if count > 1 else ""
+
+            rows = "".join(
+                f"<tr>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333'>{r.title or '—'}"
+                f"{'<span style=\"color:#aaa;font-size:12px\"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{'Série' if r.media_type == 'show' else 'Film'}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{r.plex_user or r.plex_user_id}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333'>"
+                f"<span style='color:{'#1db954' if r.status == 'available' else '#e5a00d' if r.status == 'sent_to_arr' else '#888'}'>"
+                f"{'Disponible' if r.status == 'available' else 'Envoyé' if r.status == 'sent_to_arr' else r.status}"
+                f"</span></td>"
+                f"</tr>"
+                for r in recent
+            )
+            html = f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:auto">
   <tr><td style="background:#e5a00d;padding:20px 24px">
     <h1 style="color:#fff;margin:0;font-size:20px">📋 Récap quotidien Plex</h1>
-    <p style="color:#fff9;margin:4px 0 0;font-size:13px">{len(recent)} demande{'s' if len(recent)>1 else ''} dans les dernières 24h</p>
+    <p style="color:#fff9;margin:4px 0 0;font-size:13px">{count} demande{plural} dans les dernières 24h</p>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:20px 24px">
     <table width="100%" cellpadding="0" cellspacing="0">
@@ -117,61 +117,42 @@ async def _send_digest():
 </table>
 </body></html>"""
 
-        for user in users:
-            recipient = user.notification_email or user.plex_email
-            if not recipient:
-                continue
-            try:
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = f"[Plex] Récap du {datetime.now().strftime('%d/%m/%Y')} — {len(recent)} demande{'s' if len(recent)>1 else ''}"
-                msg["From"] = settings.smtp_from
-                msg["To"] = recipient
-                msg.attach(MIMEText(html, "html"))
-                await aiosmtplib.send(
-                    msg,
-                    hostname=settings.smtp_host,
-                    port=settings.smtp_port,
-                    username=settings.smtp_user,
-                    password=settings.smtp_password,
-                    use_tls=not settings.smtp_tls,
-                    start_tls=settings.smtp_tls,
-                )
-                logger.info(f"Digest envoyé à {recipient}")
-            except Exception as e:
-                logger.error(f"Digest échec pour {recipient}: {e}")
+            subject = f"[Plex] Récap du {datetime.now().strftime('%d/%m/%Y')} — {count} demande{plural}"
+            for user in users:
+                recipient = user.notification_email or user.plex_email
+                if not recipient:
+                    continue
+                try:
+                    await smtp_send(settings, recipient, subject, html)
+                    logger.info(f"Digest envoyé à {recipient}")
+                except Exception as e:
+                    logger.error(f"Digest échec pour {recipient}: {e}")
     except Exception as e:
         logger.error(f"Erreur job digest : {e}")
-    finally:
-        db.close()
 
 
 def _purge_notification_logs():
     """Supprime les logs de notifications plus anciens que la rétention configurée."""
-    db: Session = SessionLocal()
     try:
-        settings = db.query(Settings).first()
-        days = settings.notification_log_retention_days if settings else None
-        if not days:
-            return
-        cutoff = datetime.now().replace(tzinfo=None) - timedelta(days=days)
-        deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
-        if deleted:
-            db.commit()
-            logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
+        with db_session(SessionLocal) as db:
+            settings = db.query(Settings).first()
+            days = settings.notification_log_retention_days if settings else None
+            if not days:
+                return
+            cutoff = datetime.now() - timedelta(days=days)
+            deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
+            if deleted:
+                db.commit()
+                logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
     except Exception as e:
         logger.error(f"Erreur purge logs notifications : {e}")
-    finally:
-        db.close()
 
 
 def start_scheduler(poll_minutes: int = 5):
     """Enregistre les jobs et démarre le scheduler."""
-    db: Session = SessionLocal()
-    try:
+    with db_session(SessionLocal) as db:
         settings = db.query(Settings).first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
-    finally:
-        db.close()
 
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
@@ -210,7 +191,7 @@ async def sync_seer_users():
     Met à jour seer_user_id, seer_active. Ne touche pas aux liaisons
     déjà faites manuellement sauf si l'email correspond (plus fiable).
     """
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
@@ -393,7 +374,7 @@ async def sync_seer_requests():
     Statut : available si media.status 4 ou 5, sinon sent_to_arr.
     Cela permet d'outrepasser la limite des 50 items du flux RSS.
     """
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
@@ -645,41 +626,27 @@ def _get_recipients(user_obj, settings: Settings, event: str = "request") -> lis
             return []
 
     raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
-    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    recipients = parse_email_list(raw)
 
     admin_email = (settings.admin_notification_email or "").strip()
     if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
-        for addr in [e.strip() for e in admin_email.split(",") if e.strip()]:
+        for addr in parse_email_list(admin_email):
             if addr not in recipients:
                 recipients.append(addr)
 
     return recipients
 
 
-def _notify_request(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification de nouvelle demande dans la queue."""
-    if not req.request_mail_sent:
-        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings, "request") if settings.email_on_request else []
-        enqueue_notification("request", req.id, recipients)
-
-
-def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification d'échec dans la queue."""
+def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = ""):
+    """Empile une notification dans la queue après résolution des destinataires."""
+    if event == "request" and req.request_mail_sent:
+        return
+    if event == "available" and req.available_mail_sent:
+        return
+    email_flag = settings.email_on_available if event == "available" else settings.email_on_request
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings, "request") if settings.email_on_request else []
-    arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-    enqueue_notification(
-        "failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
-    )
-
-
-def _notify_available(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification de disponibilité dans la queue."""
-    if not req.available_mail_sent:
-        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
-        enqueue_notification("available", req.id, recipients)
+    recipients = _get_recipients(user_obj, settings, event) if email_flag else []
+    enqueue_notification(event, req.id, recipients, reason)
 
 
 # ---------------------------------------------------------------------------
@@ -701,7 +668,7 @@ async def poll_watchlists():
     """
     logger.info("Polling watchlists...")
     _poll_start = time.monotonic()
-    db: Session = SessionLocal()
+    db = SessionLocal()
     _poll_error = False
     try:
         settings = db.query(Settings).first()
@@ -847,9 +814,10 @@ async def poll_watchlists():
                 # Média déjà dans *arr : pas de notification (évite le spam au redémarrage)
                 logger.info(f"'{item['title']}' already in arr — skipping notifications")
             elif req.status == RequestStatus.sent_to_arr:
-                _notify_request(settings, req, db)
+                _notify("request", settings, req, db)
             elif req.status == RequestStatus.failed:
-                _notify_failure(settings, req, db)
+                arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
+                _notify("failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration.")
 
         logger.info(f"Poll complete: {new_count} requests processed")
 
@@ -874,7 +842,7 @@ async def check_arr_statuses():
     - Radarr : hasFile == true
     """
     logger.info("Checking arr statuses...")
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings:
@@ -934,7 +902,7 @@ async def check_arr_statuses():
                 req.available_at = datetime.now(timezone.utc)
                 db.commit()
                 logger.info(f"'{req.title}' is now available")
-                _notify_available(settings, req, db)
+                _notify("available", settings, req, db)
             elif new_arr_id or new_slug:
                 db.commit()
 

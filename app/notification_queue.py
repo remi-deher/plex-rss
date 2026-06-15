@@ -17,18 +17,19 @@ from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
+from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.email_service import (
     send_available_notification,
     send_failure_notification,
     send_request_notification,
 )
-from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.notifications import (
     send_discord,
     send_discord_to_webhook,
     send_telegram,
     send_telegram_to_chat,
 )
+from .utils import parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,35 @@ def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
     _queue.put_nowait((event, req_id, recipients, reason))
 
 
+async def _send_with_retry(
+    settings: Settings, req: MediaRequest, event: str, recipient: str, reason: str
+) -> tuple[bool, str | None]:
+    """Tente d'envoyer un email avec retry automatique.
+
+    Returns:
+        (success, error_msg)
+    """
+    error_msg = None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            if event == "request":
+                await send_request_notification(settings, req, recipient)
+            elif event == "available":
+                await send_available_notification(settings, req, recipient)
+            elif event == "failed":
+                await send_failure_notification(settings, req, recipient, reason)
+            logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
+            return True, None
+        except Exception as e:
+            error_msg = str(e)
+            if attempt < len(_RETRY_DELAYS):
+                logger.warning(f"Notification [{event}] échec tentative {attempt + 1}, retry dans {_RETRY_DELAYS[attempt]}s : {e}")
+                await asyncio.sleep(_RETRY_DELAYS[attempt])
+            else:
+                logger.error(f"Notification [{event}] abandon après {attempt + 1} tentatives pour {recipient} / '{req.title}': {e}")
+    return False, error_msg
+
+
 async def _process(event: str, req_id: int, recipients: list[str], reason: str):
     db = SessionLocal()
     try:
@@ -52,35 +82,14 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
             return
 
         # Résolution des emails admin pour marquer is_admin dans les logs
-        admin_emails: set[str] = set()
-        if settings.admin_notification_email:
-            admin_emails = {e.strip() for e in settings.admin_notification_email.split(",") if e.strip()}
+        admin_emails = set(parse_email_list(settings.admin_notification_email))
 
         # Envoi email à chaque destinataire avec retry automatique
         all_ok = True
         for recipient in recipients:
-            error_msg = None
-            success = False
-            for attempt in range(len(_RETRY_DELAYS) + 1):
-                try:
-                    if event == "request":
-                        await send_request_notification(settings, req, recipient)
-                    elif event == "available":
-                        await send_available_notification(settings, req, recipient)
-                    elif event == "failed":
-                        await send_failure_notification(settings, req, recipient, reason)
-                    logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
-                    success = True
-                    error_msg = None
-                    break
-                except Exception as e:
-                    error_msg = str(e)
-                    if attempt < len(_RETRY_DELAYS):
-                        logger.warning(f"Notification [{event}] échec tentative {attempt + 1}, retry dans {_RETRY_DELAYS[attempt]}s : {e}")
-                        await asyncio.sleep(_RETRY_DELAYS[attempt])
-                    else:
-                        all_ok = False
-                        logger.error(f"Notification [{event}] abandon après {attempt + 1} tentatives pour {recipient} / '{req.title}': {e}")
+            success, error_msg = await _send_with_retry(settings, req, event, recipient, reason)
+            if not success:
+                all_ok = False
             db.add(NotificationLog(
                 sent_at=datetime.now(timezone.utc),
                 event=event,

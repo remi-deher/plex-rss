@@ -23,17 +23,23 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
 from ..models import MediaRequest, NotificationLog, PlexUser, Settings
-from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
+from ..notification_queue import enqueue as enqueue_notification
+from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
+from ..scheduler import scheduler as _scheduler
 from ..services import email_service, radarr, sonarr
+from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
+from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
+from ..utils import get_or_404, parse_email_list
 
 
 def require_auth(request: Request, db: Session = Depends(get_db)):
@@ -130,14 +136,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         update_poll_interval(data.poll_interval_minutes)
     # Replanifier le digest si l'heure ou l'activation change
     if data.digest_enabled is not None or data.digest_hour is not None:
-        from ..scheduler import scheduler, _send_digest
-        enabled = s.digest_enabled
         hour = s.digest_hour or 8
-        if enabled:
-            scheduler.add_job(_send_digest, "cron", hour=hour, minute=0, id="digest", replace_existing=True)
+        if s.digest_enabled:
+            _scheduler.add_job(_send_digest, "cron", hour=hour, minute=0, id="digest", replace_existing=True)
         else:
             try:
-                scheduler.remove_job("digest")
+                _scheduler.remove_job("digest")
             except Exception:
                 pass
     return {"status": "ok"}
@@ -342,9 +346,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
 
 @router.put("/users/{user_id}")
 def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     for k, v in data.model_dump().items():
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
@@ -356,9 +358,7 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     db.delete(user)
     db.commit()
     return {"status": "deleted"}
@@ -425,9 +425,7 @@ async def list_seer_users(db: Session = Depends(get_db)):
 @router.put("/users/{user_id}/seer-link")
 def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     """Lie manuellement un PlexUser à un compte Seer."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     seer_id = data.get("seer_user_id")
     seer_email = data.get("seer_email")
     if seer_id is None:
@@ -445,9 +443,7 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
 @router.delete("/users/{user_id}/seer-link")
 def unlink_seer_user(user_id: int, db: Session = Depends(get_db)):
     """Supprime la liaison Seer d'un PlexUser."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     user.seer_user_id = None
     user.seer_active = None
     db.commit()
@@ -461,9 +457,7 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
     from ..services.seer import get_user_requests as seer_get_user_requests
     from ..services.seer import get_users as seer_get_users
 
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     s = db.query(Settings).first()
     if not s or not s.seer_url or not s.seer_api_key:
         raise HTTPException(400, "Seer non configuré")
@@ -529,15 +523,11 @@ def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = De
     - Réattribue les MediaRequest du user seer-only vers le user cible
     - Supprime l'entrée seer-only
     """
-    seer_user = db.query(PlexUser).filter(PlexUser.id == seer_only_id).first()
-    if not seer_user:
-        raise HTTPException(404, "Utilisateur Seer-only introuvable")
+    seer_user = get_or_404(db, PlexUser, seer_only_id, "Utilisateur Seer-only introuvable")
     if seer_user.source != "seer":
         raise HTTPException(400, "Cet utilisateur n'est pas un utilisateur Seer-only")
 
-    target = db.query(PlexUser).filter(PlexUser.id == target_id).first()
-    if not target:
-        raise HTTPException(404, "Utilisateur cible introuvable")
+    target = get_or_404(db, PlexUser, target_id, "Utilisateur cible introuvable")
     if target.source == "seer":
         raise HTTPException(400, "La cible ne peut pas être un utilisateur Seer-only")
 
@@ -569,9 +559,7 @@ def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = De
 @router.put("/users/{user_id}/custom-name")
 def update_custom_name(user_id: int, data: dict, db: Session = Depends(get_db)):
     """Met à jour le nom d'usage personnalisé d'un utilisateur."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     user.custom_name = data.get("custom_name") or None
     db.commit()
     return {"status": "ok", "custom_name": user.custom_name}
@@ -583,9 +571,7 @@ async def seer_complete_user(user_id: int, db: Session = Depends(get_db)):
 
     Copie : display_name Seer → custom_name (si vide), email Seer → plex_email (si vide).
     """
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     if not user.seer_user_id:
         raise HTTPException(400, "Utilisateur non lié à Seer")
     s = db.query(Settings).first()
@@ -889,19 +875,15 @@ def list_requests(db: Session = Depends(get_db)):
 
 @router.get("/requests/{request_id}")
 def get_request(request_id: int, db: Session = Depends(get_db)):
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
 
     settings = db.query(Settings).first()
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     raw = (user_obj.notification_email if user_obj else None) or (settings.smtp_from if settings else "") or ""
-    user_emails = [e.strip() for e in raw.split(",") if e.strip()]
-    admin_emails: list[str] = []
+    user_emails = parse_email_list(raw)
     notify_admin = bool(user_obj and getattr(user_obj, "notify_admin", True))
-    if settings and settings.admin_notification_email and notify_admin:
-        admin_emails = [e.strip() for e in settings.admin_notification_email.split(",") if e.strip()]
+    admin_emails = parse_email_list(settings.admin_notification_email if settings and notify_admin else None)
     d["_user_emails"] = user_emails
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
@@ -911,15 +893,8 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
 @router.get("/email/preview")
 def preview_email_template(event: str = "request", db: Session = Depends(get_db)):
     """Rend le template email avec des données fictives et retourne le HTML."""
-    from ..models import MediaRequest as MR
-    from ..services.email_service import (
-        DEFAULT_AVAILABLE_TEMPLATE,
-        DEFAULT_REQUEST_TEMPLATE,
-        render_template,
-    )
-
     settings = db.query(Settings).first()
-    fake = MR(
+    fake = MediaRequest(
         title="Dune : Deuxième Partie",
         year=2024,
         media_type="movie",
@@ -943,7 +918,6 @@ def preview_email_template(event: str = "request", db: Session = Depends(get_db)
     else:
         tpl = (settings.email_request_template if settings else None) or DEFAULT_REQUEST_TEMPLATE
     html = render_template(tpl, ctx)
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
 
 
@@ -958,47 +932,37 @@ def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depen
         "limit": limit,
         "items": [
             {
-                "id": l.id,
-                "sent_at": l.sent_at.isoformat() if l.sent_at else None,
-                "event": l.event,
-                "recipient": l.recipient,
-                "is_admin": l.is_admin,
-                "media_title": l.media_title,
-                "media_type": l.media_type,
-                "success": l.success,
-                "error_msg": l.error_msg,
-                "req_id": l.req_id,
+                "id": log.id,
+                "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+                "event": log.event,
+                "recipient": log.recipient,
+                "is_admin": log.is_admin,
+                "media_title": log.media_title,
+                "media_type": log.media_type,
+                "success": log.success,
+                "error_msg": log.error_msg,
+                "req_id": log.req_id,
             }
-            for l in logs
+            for log in logs
         ],
     }
 
 
 @router.post("/notifications/{log_id}/resend")
 async def resend_notification(log_id: int, db: Session = Depends(get_db)):
-    from ..notification_queue import enqueue as enqueue_notification
-
     log = db.query(NotificationLog).filter(NotificationLog.id == log_id).first()
     if not log:
         raise HTTPException(404, "Log introuvable")
     if not log.req_id:
         raise HTTPException(400, "req_id manquant sur cette entrée de log (envoi antérieur à la v2.1)")
-    req = db.query(MediaRequest).filter(MediaRequest.id == log.req_id).first()
-    if not req:
-        raise HTTPException(404, "Demande originale introuvable")
+    req = get_or_404(db, MediaRequest, log.req_id, "Demande originale introuvable")
     enqueue_notification(log.event, req.id, [log.recipient])
     return {"status": "queued", "recipient": log.recipient, "event": log.event}
 
 
 @router.post("/users/{user_id}/test-email")
 async def send_test_email(user_id: int, db: Session = Depends(get_db)):
-    import asyncio
-
-    from ..services.email_service import _send as smtp_send
-
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(500, "Settings manquants")
@@ -1025,9 +989,7 @@ async def send_test_email(user_id: int, db: Session = Depends(get_db)):
 @router.post("/requests/{request_id}/retry")
 async def retry_request(request_id: int, db: Session = Depends(get_db)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status not in ("failed", "pending"):
         raise HTTPException(400, "Only failed or pending requests can be retried")
     req.status = "pending"
@@ -1076,9 +1038,7 @@ async def trigger_poll():
 
 @router.delete("/requests/{request_id}")
 def delete_request(request_id: int, db: Session = Depends(get_db)):
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     db.delete(req)
     db.commit()
     return {"status": "deleted"}
