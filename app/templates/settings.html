@@ -783,7 +783,8 @@ async function previewTemplate(event) {
     // Sauvegarder d'abord pour que le preview reflète les modifs en cours
     await saveSettings();
     const userId = document.getElementById('preview-user-select').value;
-    const r = await fetch(`/api/email/preview?event=${event}&user_id=${userId}`);
+    const url = userId ? `/api/email/preview?event=${event}&user_id=${userId}` : `/api/email/preview?event=${event}`;
+    const r = await fetch(url);
     const html = await r.text();
     frame.srcdoc = html;
   } catch(e) {
