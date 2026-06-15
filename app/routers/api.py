@@ -42,6 +42,15 @@ from ..services.seer import check_connection as seer_test
 from ..utils import get_or_404, parse_email_list
 
 
+def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
+    """Force timezone info to UTC for serialization, resolving timezone offset issues in client-side JS."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    return dt.isoformat()
+
+
 def require_auth(request: Request, db: Session = Depends(get_db)):
     """Dépendance API : session cookie OU header X-Api-Key."""
     if request.session.get("authenticated"):
@@ -884,6 +893,8 @@ def list_requests(db: Session = Depends(get_db)):
 def get_request(request_id: int, db: Session = Depends(get_db)):
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
+    d["requested_at"] = _format_datetime(req.requested_at)
+    d["available_at"] = _format_datetime(req.available_at)
 
     settings = db.query(Settings).first()
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
@@ -991,7 +1002,7 @@ def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depen
         "items": [
             {
                 "id": log.id,
-                "sent_at": log.sent_at.isoformat() if log.sent_at else None,
+                "sent_at": _format_datetime(log.sent_at),
                 "event": log.event,
                 "recipient": log.recipient,
                 "is_admin": log.is_admin,
@@ -1127,7 +1138,7 @@ def activity_log(db: Session = Depends(get_db)):
                     "title": r.title,
                     "user": r.plex_user or r.plex_user_id or "?",
                     "media_type": r.media_type,
-                    "time": r.requested_at.isoformat(),
+                    "time": _format_datetime(r.requested_at),
                 }
             )
         if r.available_at and r.available_at >= cutoff:
@@ -1137,7 +1148,7 @@ def activity_log(db: Session = Depends(get_db)):
                     "title": r.title,
                     "user": r.plex_user or r.plex_user_id or "?",
                     "media_type": r.media_type,
-                    "time": r.available_at.isoformat(),
+                    "time": _format_datetime(r.available_at),
                 }
             )
     events.sort(key=lambda e: e["time"], reverse=True)
@@ -1162,7 +1173,7 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
             pass
     items = q.order_by(MediaRequest.available_at.desc()).limit(10).all()
     return [
-        {"id": r.id, "title": r.title, "available_at": r.available_at.isoformat() if r.available_at else None}
+        {"id": r.id, "title": r.title, "available_at": _format_datetime(r.available_at)}
         for r in items
     ]
 
@@ -1308,8 +1319,8 @@ def _req_dict(r: MediaRequest) -> dict:
         "plex_user_id": r.plex_user_id,
         "arr_id": r.arr_id,
         "poster_url": r.poster_url,
-        "requested_at": r.requested_at.isoformat() if r.requested_at else None,
-        "available_at": r.available_at.isoformat() if r.available_at else None,
+        "requested_at": _format_datetime(r.requested_at),
+        "available_at": _format_datetime(r.available_at),
     }
 
 

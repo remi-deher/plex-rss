@@ -366,7 +366,19 @@
               </select>
             </div>
           </div>
-          <p class="text-muted small mb-3">Variables disponibles : <code>title</code>, <code>year</code>, <code>plex_user</code>, <code>media_type_label</code>, <code>overview</code>, <code>poster_url</code>, <code>genres</code>. Laissez vide pour utiliser le template/objet par défaut.</p>
+          <div class="card bg-dark bg-opacity-25 border-secondary border-opacity-25 p-3 mb-4">
+            <span class="text-muted small fw-semibold d-block mb-2"><i class="bi bi-info-circle me-1"></i>Variables disponibles — Cliquez pour les insérer à la position du curseur :</span>
+            <div class="d-flex flex-wrap gap-2">
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ title }}' }}')" title="Titre du film ou de la série (ex: Interstellar)"><i class="bi bi-tag-fill me-1"></i>title</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ year }}' }}')" title="Année de sortie (ex: 2014)"><i class="bi bi-tag-fill me-1"></i>year</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ plex_user }}' }}')" title="Nom d'usage de l'utilisateur (ex: Papa)"><i class="bi bi-tag-fill me-1"></i>plex_user</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ media_type_label }}' }}')" title="Type de média (ex: Film ou Série)"><i class="bi bi-tag-fill me-1"></i>media_type_label</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ overview }}' }}')" title="Résumé du média (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>overview</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ poster_url }}' }}')" title="URL de l'affiche (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>poster_url</span>
+              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ genres }}' }}')" title="Genres du média (ex: Action, Drame) (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>genres</span>
+            </div>
+            <small class="text-muted d-block mt-2">Laissez les templates ou objets vides pour utiliser la configuration par défaut.</small>
+          </div>
           <div class="row g-3">
             <div class="col-12">
               <label class="form-label">Objet du message — Nouvelle demande</label>
@@ -774,6 +786,46 @@ async function _seerAction(btnId, url, label) {
 function seerSyncUsers()   { _seerAction('btn-seer-sync-users',   '/api/seer/sync/users',    'Synchronisation'); }
 function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/sync/users',    'Mise à jour'); }
 
+// ── Aide à l'insertion des variables de notification ───────────────────────────
+let lastFocusedNotificationInput = null;
+
+const notifFieldNames = [
+  'email_request_subject',
+  'email_request_template',
+  'email_available_subject',
+  'email_available_template'
+];
+
+document.addEventListener('DOMContentLoaded', () => {
+  notifFieldNames.forEach(name => {
+    const el = document.querySelector(`[name="${name}"]`);
+    if (el) {
+      el.addEventListener('focus', () => {
+        lastFocusedNotificationInput = el;
+      });
+    }
+  });
+});
+
+function insertVarAtLastCursor(varName) {
+  let target = lastFocusedNotificationInput;
+  if (!target) {
+    target = document.querySelector('[name="email_request_subject"]');
+  }
+  if (!target) return;
+
+  const start = target.selectionStart;
+  const end = target.selectionEnd;
+  const text = target.value;
+  target.value = text.substring(0, start) + varName + text.substring(end);
+  target.focus();
+  target.selectionStart = target.selectionEnd = start + varName.length;
+
+  // Déclencher les événements pour que l'app détecte les changements
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 // ── Aperçu template email ─────────────────────────────────────────────────────
 async function previewTemplate(event) {
   const frame = document.getElementById('emailPreviewFrame');
@@ -814,7 +866,7 @@ async function loadNotifLog(offset = 0) {
       return;
     }
     const rows = logs.map(l => {
-      const date = l.sent_at ? new Date(l.sent_at).toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      const date = l.sent_at ? new Date(l.sent_at.endsWith('Z') || l.sent_at.includes('+') ? l.sent_at : l.sent_at + 'Z').toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
       const evBadge = `<span class="badge ${EVENT_COLORS[l.event] || 'bg-secondary'} me-1">${EVENT_LABELS[l.event] || l.event}</span>`;
       const adminBadge = l.is_admin ? '<span class="badge bg-warning text-dark ms-1" title="Copie admin"><i class="bi bi-shield-fill"></i></span>' : '';
       const mediaIcon = `<i class="bi ${MEDIA_ICONS[l.media_type] || 'bi-question'} me-1 text-muted"></i>`;

@@ -289,7 +289,7 @@
               {% endif %}
             </td>
             <td class="d-none d-md-table-cell text-muted small">
-              {{ r.requested_at.strftime('%d/%m/%Y %H:%M') if r.requested_at else '' }}
+              <span class="local-date" data-utc="{{ r.requested_at.isoformat() if r.requested_at else '' }}">{{ r.requested_at.strftime('%d/%m/%Y %H:%M') if r.requested_at else '' }}</span>
             </td>
             <td onclick="event.stopPropagation()">
               {% if r.status in ('failed', 'pending') %}
@@ -540,8 +540,14 @@ function renderDetail(d) {
   document.getElementById('modalTitle').textContent = `${d.title}${d.year ? ' (' + d.year + ')' : ''}`;
   const typeLabel = d.media_type === 'show' ? 'Série' : 'Film';
   const typeColor = d.media_type === 'show' ? 'info' : 'primary';
-  const reqDate = d.requested_at ? new Date(d.requested_at).toLocaleString('fr-FR') : '—';
-  const availDate = d.available_at ? new Date(d.available_at).toLocaleString('fr-FR') : '—';
+  const toLocalDate = (isoStr) => {
+    if (!isoStr) return '—';
+    const cleanStr = isoStr.endsWith('Z') || isoStr.includes('+') ? isoStr : isoStr + 'Z';
+    const date = new Date(cleanStr);
+    return isNaN(date.getTime()) ? '—' : date.toLocaleString('fr-FR');
+  };
+  const reqDate = toLocalDate(d.requested_at);
+  const availDate = toLocalDate(d.available_at);
 
   const ids = [
     d.imdb_id ? `<span class="badge bg-secondary me-1">IMDB: ${d.imdb_id}</span>` : '',
@@ -674,6 +680,26 @@ if (window.innerWidth < 640 && !localStorage.getItem('requests_view')) {
     if (sel) { sel.value = status; filterItems(); }
   }
 })();
+
+// Formater toutes les dates du tableau en heure locale
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.local-date').forEach(el => {
+    const utc = el.dataset.utc;
+    if (utc) {
+      const dateStr = utc.endsWith('Z') || utc.includes('+') ? utc : utc + 'Z';
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        el.textContent = d.toLocaleString('fr-FR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    }
+  });
+});
 
 // Init
 setView(currentView);
