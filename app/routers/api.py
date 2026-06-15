@@ -1172,10 +1172,7 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
         except ValueError:
             pass
     items = q.order_by(MediaRequest.available_at.desc()).limit(10).all()
-    return [
-        {"id": r.id, "title": r.title, "available_at": _format_datetime(r.available_at)}
-        for r in items
-    ]
+    return [{"id": r.id, "title": r.title, "available_at": _format_datetime(r.available_at)} for r in items]
 
 
 # ---------------------------------------------------------------------------

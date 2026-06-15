@@ -237,7 +237,8 @@ def test_trigger_poll_calls_both_jobs(client, db):
 def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
     """Vérifie que les dates retournées ont bien un suffixe Z/timezone offset."""
     from datetime import datetime
-    req = _req(requested_at=datetime(2026, 6, 15, 21, 30, 0)) # naive UTC datetime
+
+    req = _req(requested_at=datetime(2026, 6, 15, 21, 30, 0))  # naive UTC datetime
     db.add(req)
     db.commit()
     db.refresh(req)
@@ -246,4 +247,3 @@ def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
     assert resp.status_code == 200
     data = resp.json()
     assert data["requested_at"].endswith("Z") or "+00:00" in data["requested_at"]
-
