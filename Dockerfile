@@ -4,10 +4,9 @@ WORKDIR /app
 
 RUN apk add --no-cache gcc musl-dev libffi-dev
 
-RUN pip install --no-cache-dir "pip>=26.1"
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---
 
@@ -24,7 +23,8 @@ COPY alembic.ini .
 COPY app/ app/
 COPY scripts/ scripts/
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data && \
+    pip uninstall -y pip setuptools
 
 EXPOSE 8000
 
