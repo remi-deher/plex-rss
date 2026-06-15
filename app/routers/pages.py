@@ -74,6 +74,8 @@ def requests_page(
     request: Request,
     user: str = None,
     search: str = None,
+    status: str = None,
+    type: str = None,
     page: int = 1,
     per_page: int = 50,
     sort: str = "date",
@@ -97,14 +99,21 @@ def requests_page(
     if search:
         q = q.filter(MediaRequest.title.ilike(f"%{search}%"))
 
-    # Compteurs globaux (avant filtre page, après filtre user/search)
-    all_filtered = q.all()
+    # Compteurs globaux (avant filtre statut/type et pagination, après filtre user/search)
+    all_unfiltered_status = q.all()
     status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
-    for r in all_filtered:
+    for r in all_unfiltered_status:
         s = r.status.value if hasattr(r.status, "value") else str(r.status)
         if s in status_counts:
             status_counts[s] += 1
 
+    # Appliquer les filtres de statut et de type de média
+    if status:
+        q = q.filter(MediaRequest.status == status)
+    if type:
+        q = q.filter(MediaRequest.media_type == type)
+
+    all_filtered = q.all()
     total = len(all_filtered)
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = max(1, min(page, total_pages))
@@ -121,6 +130,8 @@ def requests_page(
             "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
             "active_user": user,
             "active_search": search or "",
+            "active_status": status or "",
+            "active_type": type or "",
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
             "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
             "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",

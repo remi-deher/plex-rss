@@ -403,6 +403,44 @@ def test_requests_page_filter_by_search(client, db):
     assert "Inception" not in resp.text
 
 
+def test_requests_page_filter_by_status(client, db):
+    """GET /requests?status=available → uniquement les demandes disponibles."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.available,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?status=available")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
+def test_requests_page_filter_by_type(client, db):
+    """GET /requests?type=show → uniquement les séries."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="show",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?type=show")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
 def test_requests_page_sort_asc(client, db):
     """GET /requests?sort=title&order=asc → 200 sans erreur."""
     _seed(db)
