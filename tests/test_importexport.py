@@ -123,12 +123,14 @@ def test_import_creates_settings(client, db_session):
     db_session.query(Settings).delete()
     db_session.commit()
 
-    payload = json.dumps({
-        "version": 1,
-        "settings": {"smtp_host": "smtp.test.com", "smtp_from": "test@test.com"},
-        "users": [],
-        "requests": [],
-    }).encode()
+    payload = json.dumps(
+        {
+            "version": 1,
+            "settings": {"smtp_host": "smtp.test.com", "smtp_from": "test@test.com"},
+            "users": [],
+            "requests": [],
+        }
+    ).encode()
     r = client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     assert r.status_code == 200
     data = r.json()
@@ -144,15 +146,17 @@ def test_import_upserts_users(client, db_session):
     db_session.query(PlexUser).delete()
     db_session.commit()
 
-    payload = json.dumps({
-        "version": 1,
-        "settings": {},
-        "users": [
-            {"plex_user_id": "bob", "display_name": "Bob", "enabled": True},
-            {"plex_user_id": "carol", "display_name": "Carol", "enabled": False},
-        ],
-        "requests": [],
-    }).encode()
+    payload = json.dumps(
+        {
+            "version": 1,
+            "settings": {},
+            "users": [
+                {"plex_user_id": "bob", "display_name": "Bob", "enabled": True},
+                {"plex_user_id": "carol", "display_name": "Carol", "enabled": False},
+            ],
+            "requests": [],
+        }
+    ).encode()
     r = client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     assert r.status_code == 200
     assert r.json()["stats"]["users_upserted"] == 2
@@ -166,19 +170,21 @@ def test_import_upserts_requests(client, db_session):
     db_session.query(PlexUser).delete()
     db_session.commit()
 
-    payload = json.dumps({
-        "version": 1,
-        "settings": {},
-        "users": [],
-        "requests": [
-            {
-                "plex_user_id": "alice",
-                "title": "Dune",
-                "media_type": "movie",
-                "status": "sent_to_arr",
-            }
-        ],
-    }).encode()
+    payload = json.dumps(
+        {
+            "version": 1,
+            "settings": {},
+            "users": [],
+            "requests": [
+                {
+                    "plex_user_id": "alice",
+                    "title": "Dune",
+                    "media_type": "movie",
+                    "status": "sent_to_arr",
+                }
+            ],
+        }
+    ).encode()
     r = client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     assert r.status_code == 200
     assert r.json()["stats"]["requests_upserted"] == 1
@@ -193,12 +199,14 @@ def test_import_does_not_overwrite_smtp_password_if_empty(client, db_session):
     db_session.add(s)
     db_session.commit()
 
-    payload = json.dumps({
-        "version": 1,
-        "settings": {"smtp_password": ""},
-        "users": [],
-        "requests": [],
-    }).encode()
+    payload = json.dumps(
+        {
+            "version": 1,
+            "settings": {"smtp_password": ""},
+            "users": [],
+            "requests": [],
+        }
+    ).encode()
     client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
 
     db_session.expire_all()
@@ -211,12 +219,14 @@ def test_import_idempotent_on_second_call(client, db_session):
     db_session.query(PlexUser).delete()
     db_session.commit()
 
-    payload = json.dumps({
-        "version": 1,
-        "settings": {},
-        "users": [{"plex_user_id": "dave", "display_name": "Dave"}],
-        "requests": [],
-    }).encode()
+    payload = json.dumps(
+        {
+            "version": 1,
+            "settings": {},
+            "users": [{"plex_user_id": "dave", "display_name": "Dave"}],
+            "requests": [],
+        }
+    ).encode()
 
     client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     client.post("/api/import", files={"file": ("export.json", payload, "application/json")})

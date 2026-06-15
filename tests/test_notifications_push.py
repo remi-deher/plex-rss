@@ -21,9 +21,15 @@ from app.services.notifications import (
 # ---------------------------------------------------------------------------
 
 
-def _req(title="Dune", media_type="movie", year=2021,
-         plex_user="Alice", plex_user_id="alice",
-         overview="Un épopée.", poster_url=None):
+def _req(
+    title="Dune",
+    media_type="movie",
+    year=2021,
+    plex_user="Alice",
+    plex_user_id="alice",
+    overview="Un épopée.",
+    poster_url=None,
+):
     r = MagicMock()
     r.title = title
     r.media_type = media_type
@@ -210,7 +216,9 @@ async def test_send_discord_sends_embed():
 @pytest.mark.asyncio
 async def test_send_discord_logs_exception_on_failure():
     s = _settings(discord_webhook_url="https://hook.example.com")
-    with patch("app.services.notifications._post_discord_embed", new_callable=AsyncMock, side_effect=Exception("Network error")):
+    with patch(
+        "app.services.notifications._post_discord_embed", new_callable=AsyncMock, side_effect=Exception("Network error")
+    ):
         # Ne doit pas remonter l'exception
         await send_discord(s, _req(), "request")
 
@@ -268,7 +276,9 @@ async def test_send_telegram_sends_message():
 @pytest.mark.asyncio
 async def test_send_telegram_logs_exception():
     s = _settings(telegram_bot_token="tok", telegram_chat_id="chat")
-    with patch("app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("Timeout")):
+    with patch(
+        "app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("Timeout")
+    ):
         await send_telegram(s, _req(), "request")
 
 
@@ -287,7 +297,9 @@ async def test_send_telegram_to_chat_sends():
 
 @pytest.mark.asyncio
 async def test_send_telegram_to_chat_exception_logged():
-    with patch("app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("err")):
+    with patch(
+        "app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("err")
+    ):
         await send_telegram_to_chat("tok", "chat", _req(), "request")
 
 

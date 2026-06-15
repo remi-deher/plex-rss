@@ -43,6 +43,7 @@ def _make_log(
     sent_at=None,
 ):
     from datetime import datetime, timezone
+
     log = MagicMock()
     log.id = log_id
     log.event = event
@@ -57,8 +58,9 @@ def _make_log(
     return log
 
 
-def _make_user(user_id=1, notification_email="user@example.com",
-               plex_email=None, display_name="Alice", custom_name=None):
+def _make_user(
+    user_id=1, notification_email="user@example.com", plex_email=None, display_name="Alice", custom_name=None
+):
     u = MagicMock()
     u.id = user_id
     u.notification_email = notification_email
@@ -119,9 +121,15 @@ def test_list_logs_returns_paginated_structure():
 def test_list_logs_item_fields():
     """Chaque item contient tous les champs attendus."""
     log = _make_log(
-        log_id=7, event="available", recipient="admin@b.com",
-        is_admin=True, media_title="Dune", media_type="movie",
-        success=False, error_msg="SMTP down", req_id=10,
+        log_id=7,
+        event="available",
+        recipient="admin@b.com",
+        is_admin=True,
+        media_title="Dune",
+        media_type="movie",
+        success=False,
+        error_msg="SMTP down",
+        req_id=10,
     )
     db = MagicMock()
     q = db.query.return_value.order_by.return_value

@@ -70,10 +70,14 @@ async def _send_digest():
                 logger.info("Digest : aucune demande dans les 24h, skip")
                 return
 
-            users = db.query(PlexUser).filter(
-                PlexUser.enabled.is_(True),
-                PlexUser.notify_digest.is_(True),
-            ).all()
+            users = (
+                db.query(PlexUser)
+                .filter(
+                    PlexUser.enabled.is_(True),
+                    PlexUser.notify_digest.is_(True),
+                )
+                .all()
+            )
             if not users:
                 return
 
@@ -83,7 +87,7 @@ async def _send_digest():
             rows = "".join(
                 f"<tr>"
                 f"<td style='padding:6px 12px;border-bottom:1px solid #333'>{r.title or '—'}"
-                f"{'<span style=\"color:#aaa;font-size:12px\"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
+                f"{'<span style="color:#aaa;font-size:12px"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
                 f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{'Série' if r.media_type == 'show' else 'Film'}</td>"
                 f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{r.plex_user or r.plex_user_id}</td>"
                 f"<td style='padding:6px 12px;border-bottom:1px solid #333'>"
@@ -817,7 +821,9 @@ async def poll_watchlists():
                 _notify("request", settings, req, db)
             elif req.status == RequestStatus.failed:
                 arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-                _notify("failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration.")
+                _notify(
+                    "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
+                )
 
         logger.info(f"Poll complete: {new_count} requests processed")
 

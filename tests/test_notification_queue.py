@@ -20,8 +20,7 @@ def _make_settings(**kwargs):
     return s
 
 
-def _make_req(req_id=1, title="Inception", media_type="movie",
-              request_mail_sent=False, available_mail_sent=False):
+def _make_req(req_id=1, title="Inception", media_type="movie", request_mail_sent=False, available_mail_sent=False):
     r = MagicMock()
     r.id = req_id
     r.title = title
@@ -234,8 +233,8 @@ async def test_process_partial_failure_all_retries_flag_not_set():
     ):
         await _process("request", 1, ["ok@b.com", "fail@b.com"], "")
 
-    assert success_calls == 1   # ok@b.com réussit du premier coup
-    assert fail_calls == 3      # fail@b.com: 3 tentatives (1 + 2 retries)
+    assert success_calls == 1  # ok@b.com réussit du premier coup
+    assert fail_calls == 3  # fail@b.com: 3 tentatives (1 + 2 retries)
     assert req.request_mail_sent is False
 
 
@@ -291,6 +290,7 @@ async def test_process_logs_success_entry():
         await _process("request", 1, ["a@b.com"], "")
 
     from app.models import NotificationLog
+
     logs = [o for o in added_logs if isinstance(o, NotificationLog)]
     assert len(logs) == 1
     assert logs[0].recipient == "a@b.com"
@@ -321,6 +321,7 @@ async def test_process_logs_failure_entry_with_error_msg():
         await _process("request", 1, ["a@b.com"], "")
 
     from app.models import NotificationLog
+
     logs = [o for o in added_logs if isinstance(o, NotificationLog)]
     assert len(logs) == 1
     assert logs[0].success is False
@@ -347,6 +348,7 @@ async def test_process_logs_one_entry_per_recipient():
         await _process("request", 1, ["a@b.com", "c@d.com"], "")
 
     from app.models import NotificationLog
+
     logs = [o for o in added_logs if isinstance(o, NotificationLog)]
     assert len(logs) == 2
     recipients = {log.recipient for log in logs}
@@ -373,6 +375,7 @@ async def test_process_logs_is_admin_flag():
         await _process("request", 1, ["user@b.com", "admin@example.com"], "")
 
     from app.models import NotificationLog
+
     logs = {log.recipient: log for log in added_logs if isinstance(log, NotificationLog)}
     assert logs["admin@example.com"].is_admin is True
     assert logs["user@b.com"].is_admin is False
@@ -402,9 +405,7 @@ async def test_process_per_user_discord_webhook_called():
     ):
         await _process("request", 1, ["a@b.com"], "")
 
-    mock_discord_user.assert_called_once_with(
-        "https://discord.com/api/webhooks/xxx", req, "request"
-    )
+    mock_discord_user.assert_called_once_with("https://discord.com/api/webhooks/xxx", req, "request")
 
 
 @pytest.mark.asyncio

@@ -33,8 +33,14 @@ def _user(notification_email=None, notify_admin=True):
     return u
 
 
-def _req(title="Dune", media_type="movie", arr_id=10, status_val="sent_to_arr",
-         plex_user_id="alice", available_mail_sent=False):
+def _req(
+    title="Dune",
+    media_type="movie",
+    arr_id=10,
+    status_val="sent_to_arr",
+    plex_user_id="alice",
+    available_mail_sent=False,
+):
     r = MagicMock()
     r.title = title
     r.media_type = media_type
@@ -160,10 +166,13 @@ def test_sonarr_webhook_download_event():
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
     with _db_patch(db):
-        r = client.post("/webhook/sonarr", json={
-            "eventType": "Download",
-            "series": {"title": "Breaking Bad", "tvdbId": 81189},
-        })
+        r = client.post(
+            "/webhook/sonarr",
+            json={
+                "eventType": "Download",
+                "series": {"title": "Breaking Bad", "tvdbId": 81189},
+            },
+        )
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "ok"
@@ -176,10 +185,13 @@ def test_sonarr_webhook_import_event():
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
     with _db_patch(db):
-        r = client.post("/webhook/sonarr", json={
-            "eventType": "Import",
-            "series": {"title": "Lost", "tvdbId": 73739},
-        })
+        r = client.post(
+            "/webhook/sonarr",
+            json={
+                "eventType": "Import",
+                "series": {"title": "Lost", "tvdbId": 73739},
+            },
+        )
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
@@ -201,10 +213,13 @@ def test_radarr_webhook_download_event():
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
     with _db_patch(db):
-        r = client.post("/webhook/radarr", json={
-            "eventType": "Download",
-            "movie": {"title": "Dune", "tmdbId": 438631},
-        })
+        r = client.post(
+            "/webhook/radarr",
+            json={
+                "eventType": "Download",
+                "movie": {"title": "Dune", "tmdbId": 438631},
+            },
+        )
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
@@ -215,10 +230,13 @@ def test_radarr_webhook_movie_added():
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
     with _db_patch(db):
-        r = client.post("/webhook/radarr", json={
-            "eventType": "MovieAdded",
-            "movie": {"title": "Oppenheimer", "tmdbId": 872585},
-        })
+        r = client.post(
+            "/webhook/radarr",
+            json={
+                "eventType": "MovieAdded",
+                "movie": {"title": "Oppenheimer", "tmdbId": 872585},
+            },
+        )
     assert r.status_code == 200
 
 
@@ -246,14 +264,16 @@ def test_plex_webhook_library_new_movie():
     db.query.return_value.first.return_value = _settings()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
-    payload = json.dumps({
-        "event": "library.new",
-        "Metadata": {
-            "type": "movie",
-            "title": "Dune",
-            "Guid": [{"id": "tmdb://438631"}],
-        },
-    })
+    payload = json.dumps(
+        {
+            "event": "library.new",
+            "Metadata": {
+                "type": "movie",
+                "title": "Dune",
+                "Guid": [{"id": "tmdb://438631"}],
+            },
+        }
+    )
     with _db_patch(db):
         r = client.post("/webhook/plex", data={"payload": payload})
     assert r.status_code == 200
@@ -267,15 +287,17 @@ def test_plex_webhook_episode_uses_show_title():
     db.query.return_value.first.return_value = _settings()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
 
-    payload = json.dumps({
-        "event": "library.new",
-        "Metadata": {
-            "type": "episode",
-            "title": "Pilot",
-            "grandparentTitle": "Breaking Bad",
-            "Guid": [{"id": "tvdb://81189"}],
-        },
-    })
+    payload = json.dumps(
+        {
+            "event": "library.new",
+            "Metadata": {
+                "type": "episode",
+                "title": "Pilot",
+                "grandparentTitle": "Breaking Bad",
+                "Guid": [{"id": "tvdb://81189"}],
+            },
+        }
+    )
     with _db_patch(db):
         r = client.post("/webhook/plex", data={"payload": payload})
     assert r.status_code == 200
@@ -283,10 +305,12 @@ def test_plex_webhook_episode_uses_show_title():
 
 
 def test_plex_webhook_unsupported_media_type():
-    payload = json.dumps({
-        "event": "library.new",
-        "Metadata": {"type": "track", "title": "A song"},
-    })
+    payload = json.dumps(
+        {
+            "event": "library.new",
+            "Metadata": {"type": "track", "title": "A song"},
+        }
+    )
     r = client.post("/webhook/plex", data={"payload": payload})
     assert r.status_code == 200
     assert r.json()["status"] == "ignored"

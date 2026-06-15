@@ -66,10 +66,14 @@ async def _send_with_retry(
         except Exception as e:
             error_msg = str(e)
             if attempt < len(_RETRY_DELAYS):
-                logger.warning(f"Notification [{event}] échec tentative {attempt + 1}, retry dans {_RETRY_DELAYS[attempt]}s : {e}")
+                logger.warning(
+                    f"Notification [{event}] échec tentative {attempt + 1}, retry dans {_RETRY_DELAYS[attempt]}s : {e}"
+                )
                 await asyncio.sleep(_RETRY_DELAYS[attempt])
             else:
-                logger.error(f"Notification [{event}] abandon après {attempt + 1} tentatives pour {recipient} / '{req.title}': {e}")
+                logger.error(
+                    f"Notification [{event}] abandon après {attempt + 1} tentatives pour {recipient} / '{req.title}': {e}"
+                )
     return False, error_msg
 
 
@@ -90,17 +94,19 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
             success, error_msg = await _send_with_retry(settings, req, event, recipient, reason)
             if not success:
                 all_ok = False
-            db.add(NotificationLog(
-                sent_at=datetime.now(timezone.utc),
-                event=event,
-                recipient=recipient,
-                is_admin=recipient in admin_emails,
-                media_title=req.title,
-                media_type=req.media_type,
-                success=success,
-                error_msg=error_msg,
-                req_id=req.id,
-            ))
+            db.add(
+                NotificationLog(
+                    sent_at=datetime.now(timezone.utc),
+                    event=event,
+                    recipient=recipient,
+                    is_admin=recipient in admin_emails,
+                    media_title=req.title,
+                    media_type=req.media_type,
+                    success=success,
+                    error_msg=error_msg,
+                    req_id=req.id,
+                )
+            )
 
         # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
         app_metrics.record_notification(all_ok)

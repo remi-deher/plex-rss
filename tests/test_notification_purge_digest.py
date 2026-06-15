@@ -38,8 +38,9 @@ def _make_user(notification_email="user@example.com", plex_email=None, notify_di
     return u
 
 
-def _make_req(title="Inception", media_type="movie", status="available",
-               requested_at=None, year=2010, plex_user="alice"):
+def _make_req(
+    title="Inception", media_type="movie", status="available", requested_at=None, year=2010, plex_user="alice"
+):
     r = MagicMock()
     r.title = title
     r.media_type = media_type
