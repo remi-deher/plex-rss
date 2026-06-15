@@ -14,6 +14,7 @@
 - upgrade pip >= 26.1 (CVE-2026-6357, CVE-2026-3219, CVE-2025-8869, CVE-2026-1703) ([11eb626](https://github.com/remi-deher/plex-rss/commit/11eb6262623e0ff4d7a2ff9a7614a7a650add51a))
 - upgrade pip then remove it post-install to eliminate pip CVEs ([76035b2](https://github.com/remi-deher/plex-rss/commit/76035b24ca90f4355c9fffce3191d0b86421d1ff))
 - naive datetime for activity_log cutoff (500 on /api/activity) ([500e08d](https://github.com/remi-deher/plex-rss/commit/500e08d61a1879f8c8def887612836381ec2f5cc))
+- restore bouton Sync Seer sur la page utilisateurs ([a73690f](https://github.com/remi-deher/plex-rss/commit/a73690f5af9f92a9d2b256e6bc80270ebd0e34ac))
 
 ### 📖 Documentation
 
@@ -24,6 +25,7 @@
 - update CHANGELOG.md for v2.0.0 ([cf3cf62](https://github.com/remi-deher/plex-rss/commit/cf3cf62bb5e144ed9f55902d1e0655e300f708e4))
 - update CHANGELOG.md for v2.0.0 ([db0a5a4](https://github.com/remi-deher/plex-rss/commit/db0a5a478c341a46e10022b2126dd0aaa597c7b5))
 - update CHANGELOG.md for v2.0.0 ([8f21a7e](https://github.com/remi-deher/plex-rss/commit/8f21a7e79d201819ee3c783956475672ec931972))
+- update CHANGELOG.md for v2.0.0 ([42fd37b](https://github.com/remi-deher/plex-rss/commit/42fd37b5263b2360b36771c727d8dcdd55255f74))
 
 ### 🔧 Maintenance
 
