@@ -340,6 +340,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
 async def seer_sync_users():
     """Synchronise uniquement les liaisons utilisateurs Plex ↔ Seer."""
     from ..scheduler import sync_seer_users
+
     await sync_seer_users()
     return {"status": "ok"}
 
@@ -348,6 +349,7 @@ async def seer_sync_users():
 async def seer_sync_requests():
     """Synchronise uniquement les demandes Seer (titres, statuts, historique)."""
     from ..scheduler import sync_seer_requests
+
     await sync_seer_requests()
     return {"status": "ok"}
 
@@ -356,6 +358,7 @@ async def seer_sync_requests():
 async def seer_sync():
     """Déclenche manuellement la synchronisation Seer complète : utilisateurs + demandes."""
     from ..scheduler import sync_seer_requests, sync_seer_users
+
     await sync_seer_users()
     await sync_seer_requests()
     return {"status": "ok"}
@@ -375,16 +378,18 @@ async def list_seer_users(db: Session = Depends(get_db)):
 
     result = []
     for email, info in seer_users.items():
-        result.append({
-            "id": info["id"],
-            "email": email,
-            "display_name": info["display_name"],
-            "plex_username": info.get("plex_username", ""),
-            "plex_id": info.get("plex_id"),
-            "user_type": info.get("user_type", 1),
-            "request_count": info["request_count"],
-            "linked": info["id"] in linked_ids,
-        })
+        result.append(
+            {
+                "id": info["id"],
+                "email": email,
+                "display_name": info["display_name"],
+                "plex_username": info.get("plex_username", ""),
+                "plex_id": info.get("plex_id"),
+                "user_type": info.get("user_type", 1),
+                "request_count": info["request_count"],
+                "linked": info["id"] in linked_ids,
+            }
+        )
     result.sort(key=lambda x: (x["display_name"] or x["email"]).lower())
     return {"seer_users": result}
 
@@ -902,6 +907,7 @@ async def retry_all_failed(db: Session = Depends(get_db)):
 async def recalculate_dates():
     """Re-joue sync_seer_requests pour corriger requested_at et available_at depuis Seer."""
     from ..scheduler import sync_seer_requests
+
     await sync_seer_requests()
     return {"status": "ok"}
 
@@ -910,6 +916,7 @@ async def recalculate_dates():
 def merge_duplicates_endpoint():
     """Fusionne les MediaRequest en double (même tmdb_id toutes sources)."""
     from scripts.merge_duplicate_requests import merge_duplicates
+
     merge_duplicates(dry_run=False)
     return {"status": "ok"}
 
@@ -1190,14 +1197,16 @@ def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth
             continue
         seer_entry = next((r for r in rows if r.source == "seer"), None)
         recommended_id = seer_entry.id if seer_entry else None
-        tmdb_conflicts.append({
-            "type": "tmdb_conflict",
-            "key": key,
-            "media_type": media_type,
-            "tvdb_id": tvdb_id,
-            "recommended_id": recommended_id,
-            "entries": [_req_dict(r) for r in sorted(rows, key=lambda x: (x.source != "seer", x.id))],
-        })
+        tmdb_conflicts.append(
+            {
+                "type": "tmdb_conflict",
+                "key": key,
+                "media_type": media_type,
+                "tvdb_id": tvdb_id,
+                "recommended_id": recommended_id,
+                "entries": [_req_dict(r) for r in sorted(rows, key=lambda x: (x.source != "seer", x.id))],
+            }
+        )
 
     # ── 2. Demandes orphelines (utilisateur supprimé) ────────────────────────
     orphaned = []

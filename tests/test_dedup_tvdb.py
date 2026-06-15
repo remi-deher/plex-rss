@@ -65,8 +65,15 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
-def _req(plex_user_id="alice", title="Invincible", media_type="show",
-         tmdb_id=None, tvdb_id="81763", status=RequestStatus.sent_to_arr, **kwargs) -> MediaRequest:
+def _req(
+    plex_user_id="alice",
+    title="Invincible",
+    media_type="show",
+    tmdb_id=None,
+    tvdb_id="81763",
+    status=RequestStatus.sent_to_arr,
+    **kwargs,
+) -> MediaRequest:
     return MediaRequest(
         plex_user_id=plex_user_id,
         plex_user=plex_user_id,
@@ -149,7 +156,7 @@ def test_find_global_request_tvdb_after_tmdb_miss(db):
 def test_find_global_request_tmdb_takes_priority_over_tvdb(db):
     """tmdb_id prioritaire : si deux entrées, retourne celle avec le bon tmdb_id."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205", tvdb_id="81763"))
-    db.add(_req(plex_user_id="bob",   tmdb_id="99999", tvdb_id="00000"))
+    db.add(_req(plex_user_id="bob", tmdb_id="99999", tvdb_id="00000"))
     db.commit()
 
     result = _find_global_request(db, "show", "27205", "Liar Game", tvdb_id="00000")
@@ -200,12 +207,18 @@ async def test_seer_sync_keeps_older_rss_date(db):
     """Si la demande RSS est plus ancienne que Seer, la date RSS est conservée."""
     old_date = datetime(2026, 1, 1, 10, 0, 0)  # antérieure à createdAt Seer (29 janv)
     db.add(PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True))
-    db.add(MediaRequest(
-        plex_user_id="alice", plex_user="alice",
-        title="Inception", media_type="movie", tmdb_id="27205",
-        status=RequestStatus.sent_to_arr,
-        requested_at=old_date, source="rss",
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="alice",
+            title="Inception",
+            media_type="movie",
+            tmdb_id="27205",
+            status=RequestStatus.sent_to_arr,
+            requested_at=old_date,
+            source="rss",
+        )
+    )
     db.add(_settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key"))
     db.commit()
 
@@ -224,12 +237,18 @@ async def test_seer_sync_replaces_newer_rss_date_with_seer(db):
     """Si la date RSS est plus récente que Seer, la date Seer (plus ancienne) est utilisée."""
     newer_date = datetime(2026, 2, 15, 10, 0, 0)  # postérieure au 29 janv Seer
     db.add(PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True))
-    db.add(MediaRequest(
-        plex_user_id="alice", plex_user="alice",
-        title="Inception", media_type="movie", tmdb_id="27205",
-        status=RequestStatus.sent_to_arr,
-        requested_at=newer_date, source="rss",
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="alice",
+            title="Inception",
+            media_type="movie",
+            tmdb_id="27205",
+            status=RequestStatus.sent_to_arr,
+            requested_at=newer_date,
+            source="rss",
+        )
+    )
     db.add(_settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key"))
     db.commit()
 
@@ -250,12 +269,18 @@ async def test_seer_sync_date_preserved_if_no_created_at(db):
     """Si createdAt absent dans la réponse Seer, la date existante est conservée."""
     original_date = datetime(2026, 3, 1, 0, 0, 0)
     db.add(PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True))
-    db.add(MediaRequest(
-        plex_user_id="alice", plex_user="alice",
-        title="Inception", media_type="movie", tmdb_id="27205",
-        status=RequestStatus.sent_to_arr,
-        requested_at=original_date, source="rss",
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="alice",
+            title="Inception",
+            media_type="movie",
+            tmdb_id="27205",
+            status=RequestStatus.sent_to_arr,
+            requested_at=original_date,
+            source="rss",
+        )
+    )
     db.add(_settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key"))
     db.commit()
 
@@ -278,10 +303,18 @@ async def test_seer_sync_date_preserved_if_no_created_at(db):
 
 def _show_item(user="alice", user_id="alice", tvdb_id="81763", tmdb_id=None):
     return dict(
-        title="Invincible", year=2021, media_type="show",
-        plex_user=user, plex_user_id=user_id,
-        tmdb_id=tmdb_id, tvdb_id=tvdb_id, imdb_id=None,
-        plex_guid=None, poster_url=None, overview="", source="rss",
+        title="Invincible",
+        year=2021,
+        media_type="show",
+        plex_user=user,
+        plex_user_id=user_id,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        imdb_id=None,
+        plex_guid=None,
+        poster_url=None,
+        overview="",
+        source="rss",
     )
 
 

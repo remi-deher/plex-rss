@@ -66,10 +66,18 @@ def _user(db, plex_user_id="alice", **kwargs) -> PlexUser:
     return u
 
 
-def _req(db, plex_user_id="alice", title="Liar Game", media_type="show",
-         tmdb_id="13967", tvdb_id="81763", source="rss",
-         status=RequestStatus.sent_to_arr,
-         requested_at=None, **kwargs) -> MediaRequest:
+def _req(
+    db,
+    plex_user_id="alice",
+    title="Liar Game",
+    media_type="show",
+    tmdb_id="13967",
+    tvdb_id="81763",
+    source="rss",
+    status=RequestStatus.sent_to_arr,
+    requested_at=None,
+    **kwargs,
+) -> MediaRequest:
     r = MediaRequest(
         plex_user_id=plex_user_id,
         plex_user=plex_user_id,
@@ -101,7 +109,7 @@ def test_conflicts_tmdb_detected(client, db):
     """Deux entrées avec même tvdb_id mais tmdb_ids différents → conflit détecté."""
     _user(db, plex_user_id="alice")
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
+    _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     with _no_ignored():
         r = client.get("/api/conflicts")
@@ -118,7 +126,7 @@ def test_conflicts_recommended_id_is_seer_entry(client, db):
     """L'entrée Seer est recommandée dans un conflit tmdb."""
     _user(db, plex_user_id="alice")
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    seer = _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
+    seer = _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     with _no_ignored():
         r = client.get("/api/conflicts")
@@ -132,7 +140,7 @@ def test_conflicts_no_conflict_same_tmdb(client, db):
     _user(db, plex_user_id="alice")
     _user(db, plex_user_id="bob")
     _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763")
-    _req(db, plex_user_id="bob",   tmdb_id="13967", tvdb_id="81763")
+    _req(db, plex_user_id="bob", tmdb_id="13967", tvdb_id="81763")
 
     with _no_ignored():
         r = client.get("/api/conflicts")
@@ -159,12 +167,16 @@ def test_conflicts_no_conflict_no_tvdb(client, db):
 def test_conflicts_orphaned_user_deleted(client, db):
     """Demande d'un utilisateur absent de PlexUser → orpheline."""
     # Pas d'utilisateur en base pour "ghost"
-    db.add(MediaRequest(
-        plex_user_id="ghost", plex_user="ghost",
-        title="Ghost Show", media_type="show",
-        status=RequestStatus.pending,
-        requested_at=datetime(2026, 1, 1),
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="ghost",
+            plex_user="ghost",
+            title="Ghost Show",
+            media_type="show",
+            status=RequestStatus.pending,
+            requested_at=datetime(2026, 1, 1),
+        )
+    )
     db.commit()
 
     with _no_ignored():
@@ -238,7 +250,7 @@ def test_resolve_merges_and_deletes(client, db):
     """Résoudre un conflit : keeper conservé, dup supprimé, co-demandeur transféré."""
     _user(db, plex_user_id="alice")
     keeper = _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    dup    = _req(db, plex_user_id="bob",   tmdb_id="13967",  tvdb_id="81763", source="seer")
+    dup = _req(db, plex_user_id="bob", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     r = client.post("/api/conflicts/resolve", json={"keep_id": keeper.id, "delete_ids": [dup.id]})
 
@@ -254,7 +266,7 @@ def test_resolve_seer_tmdb_wins(client, db):
     """Le tmdb_id de l'entrée Seer remplace celui du keeper RSS."""
     _user(db, plex_user_id="alice")
     keeper = _req(db, plex_user_id="alice", tmdb_id="300126", source="rss")
-    dup    = _req(db, plex_user_id="alice", tmdb_id="13967",  source="seer")
+    dup = _req(db, plex_user_id="alice", tmdb_id="13967", source="seer")
 
     client.post("/api/conflicts/resolve", json={"keep_id": keeper.id, "delete_ids": [dup.id]})
 
@@ -281,7 +293,7 @@ def test_auto_resolve_keeps_seer_entry(client, db):
     """Auto-resolve : l'entrée Seer est conservée, l'entrée RSS supprimée."""
     _user(db, plex_user_id="alice")
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    seer = _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
+    seer = _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     r = client.post("/api/conflicts/auto-resolve")
 
@@ -307,7 +319,7 @@ def test_auto_resolve_merges_co_requesters(client, db):
     """L'utilisateur RSS est ajouté en co-demandeur sur l'entrée Seer après auto-resolve."""
     _user(db, plex_user_id="alice")
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    seer = _req(db, plex_user_id="bob",   tmdb_id="13967",  tvdb_id="81763", source="seer")
+    seer = _req(db, plex_user_id="bob", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     client.post("/api/conflicts/auto-resolve")
 
@@ -364,7 +376,7 @@ def test_ignored_conflict_not_returned(client, db):
     """Un conflit ignoré n'apparaît pas dans GET /api/conflicts."""
     _user(db, plex_user_id="alice")
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
-    _req(db, plex_user_id="alice", tmdb_id="13967",  tvdb_id="81763", source="seer")
+    _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763", source="seer")
 
     with patch("app.routers.api._load_ignored", return_value={"tmdb:show:81763"}):
         r = client.get("/api/conflicts")
@@ -407,11 +419,15 @@ def test_delete_no_tmdb_not_found(client, db):
 
 
 def test_delete_orphan_removes_entry(client, db):
-    db.add(MediaRequest(
-        plex_user_id="ghost", plex_user="ghost",
-        title="Ghost Show", media_type="show",
-        status=RequestStatus.pending,
-    ))
+    db.add(
+        MediaRequest(
+            plex_user_id="ghost",
+            plex_user="ghost",
+            title="Ghost Show",
+            media_type="show",
+            status=RequestStatus.pending,
+        )
+    )
     db.commit()
     orphan = db.query(MediaRequest).first()
 

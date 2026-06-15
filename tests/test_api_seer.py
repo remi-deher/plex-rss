@@ -251,7 +251,9 @@ def _seer_only_user(db, seer_id=99, display_name="Charlie Seer", **kwargs) -> Pl
 
 
 def _req(db, plex_user_id: str, title="Inception") -> MediaRequest:
-    r = MediaRequest(plex_user_id=plex_user_id, plex_user=plex_user_id, title=title, media_type="movie", status="pending")
+    r = MediaRequest(
+        plex_user_id=plex_user_id, plex_user=plex_user_id, title=title, media_type="movie", status="pending"
+    )
     db.add(r)
     db.commit()
     return r

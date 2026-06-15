@@ -243,12 +243,10 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
                         d = r.json()
                         return (media_type, tmdb_id), {
                             "title": (
-                                d.get("title") or d.get("name")
-                                or d.get("originalTitle") or d.get("originalName")
+                                d.get("title") or d.get("name") or d.get("originalTitle") or d.get("originalName")
                             ),
                             "poster_url": (
-                                f"https://image.tmdb.org/t/p/w200{d['posterPath']}"
-                                if d.get("posterPath") else None
+                                f"https://image.tmdb.org/t/p/w200{d['posterPath']}" if d.get("posterPath") else None
                             ),
                             "overview": d.get("overview"),
                         }
@@ -280,19 +278,21 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
         title = info.get("title") or f"[Seer #{req.get('id')}]"
         if not req.get("createdAt"):
             logger.warning(f"Seer request #{req.get('id')} ({title}): createdAt absent — champs = {list(req.keys())}")
-        results.append({
-            "seer_request_id": req.get("id"),
-            "media_type": media_type,
-            "tmdb_id": str(tmdb_id) if tmdb_id else None,
-            "tvdb_id": str(media.get("tvdbId")) if media.get("tvdbId") else None,
-            "imdb_id": media.get("imdbId"),
-            "title": title,
-            "overview": info.get("overview"),
-            "status": status,
-            "poster_url": info.get("poster_url"),
-            "requested_at": req.get("createdAt"),
-            "updated_at": req.get("updatedAt"),
-        })
+        results.append(
+            {
+                "seer_request_id": req.get("id"),
+                "media_type": media_type,
+                "tmdb_id": str(tmdb_id) if tmdb_id else None,
+                "tvdb_id": str(media.get("tvdbId")) if media.get("tvdbId") else None,
+                "imdb_id": media.get("imdbId"),
+                "title": title,
+                "overview": info.get("overview"),
+                "status": status,
+                "poster_url": info.get("poster_url"),
+                "requested_at": req.get("createdAt"),
+                "updated_at": req.get("updatedAt"),
+            }
+        )
 
     return results
 

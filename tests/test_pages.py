@@ -267,6 +267,7 @@ def test_requests_page_first_page(client, db):
 
 def _seed_with_co_requesters(db):
     import json
+
     db.add(
         Settings(
             sonarr_url="http://sonarr.local",
@@ -407,3 +408,111 @@ def test_requests_page_sort_asc(client, db):
     _seed(db)
     resp = client.get("/requests?sort=title&order=asc")
     assert resp.status_code == 200
+
+
+def test_users_page_counts_available_and_failed(client, db):
+    """La page utilisateurs calcule les compteurs available et failed (lignes 150/152)."""
+    db.add(
+        Settings(
+            sonarr_url="http://sonarr.local",
+            radarr_url="http://radarr.local",
+            auth_username="admin",
+            auth_password_hash="hash",
+        )
+    )
+    db.add(PlexUser(plex_user_id="alice", display_name="Alice", enabled=True))
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Inception",
+            media_type="movie",
+            status=RequestStatus.available,
+        )
+    )
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.failed,
+        )
+    )
+    db.commit()
+    resp = client.get("/users")
+    assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Auth : POST /setup et POST /login
+# ---------------------------------------------------------------------------
+
+
+def test_setup_post_creates_account(client_no_auth, db):
+    """POST /setup crée le compte et redirige vers /."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "secret123", "password_confirm": "secret123"},
+    )
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/"
+    from app.models import Settings
+
+    s = db.query(Settings).first()
+    assert s is not None
+    assert s.auth_username == "admin"
+
+
+def test_setup_post_password_too_short(client_no_auth, db):
+    """POST /setup avec mot de passe < 8 caractères → erreur."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "short", "password_confirm": "short"},
+    )
+    assert resp.status_code == 200
+    assert "8" in resp.text
+
+
+def test_setup_post_passwords_mismatch(client_no_auth, db):
+    """POST /setup avec mots de passe différents → erreur."""
+    resp = client_no_auth.post(
+        "/setup",
+        data={"username": "admin", "password": "secret123", "password_confirm": "different"},
+    )
+    assert resp.status_code == 200
+    assert "correspondent" in resp.text
+
+
+def test_login_post_valid_credentials(client_no_auth, db):
+    """POST /login avec bons identifiants → redirige vers /."""
+    from app.services.auth import hash_password
+
+    db.add(Settings(auth_username="admin", auth_password_hash=hash_password("secret123")))
+    db.commit()
+    resp = client_no_auth.post(
+        "/login",
+        data={"username": "admin", "password": "secret123", "next": "/"},
+    )
+    assert resp.status_code == 302
+
+
+def test_login_post_wrong_password(client_no_auth, db):
+    """POST /login avec mauvais mot de passe → affiche erreur."""
+    from app.services.auth import hash_password
+
+    db.add(Settings(auth_username="admin", auth_password_hash=hash_password("secret123")))
+    db.commit()
+    resp = client_no_auth.post(
+        "/login",
+        data={"username": "admin", "password": "wrong", "next": "/"},
+    )
+    assert resp.status_code == 200
+    assert "Identifiants" in resp.text
+
+
+def test_logout_clears_session(client_no_auth, db):
+    """GET /logout redirige vers /login."""
+    resp = client_no_auth.get("/logout")
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["location"]

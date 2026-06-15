@@ -58,8 +58,11 @@ def merge_duplicates(dry_run: bool = False):
                         existing_key = tvdb_to_key[vkey]
                         # Choisir la clé Seer comme cible principale
                         seer_key = next(
-                            (k for k in [existing_key, (media_type, tmdb_id)]
-                             if any(x.source == "seer" for x in groups[k])),
+                            (
+                                k
+                                for k in [existing_key, (media_type, tmdb_id)]
+                                if any(x.source == "seer" for x in groups[k])
+                            ),
                             existing_key,
                         )
                         other_key = (media_type, tmdb_id) if seer_key == existing_key else existing_key
@@ -84,9 +87,9 @@ def merge_duplicates(dry_run: bool = False):
 
         remaining_no_tmdb: list[MediaRequest] = []
         for req in no_tmdb:
-            key = (
-                tvdb_to_key2.get((req.media_type, req.tvdb_id)) if req.tvdb_id else None
-            ) or title_to_key.get((req.media_type, req.title))
+            key = (tvdb_to_key2.get((req.media_type, req.tvdb_id)) if req.tvdb_id else None) or title_to_key.get(
+                (req.media_type, req.title)
+            )
             if key:
                 groups[key].append(req)
             else:
@@ -119,10 +122,12 @@ def merge_duplicates(dry_run: bool = False):
 
             for dup in others:
                 if dup.plex_user_id not in existing_ids:
-                    new_extras.append({
-                        "plex_user_id": dup.plex_user_id,
-                        "display_name": dup.plex_user or dup.plex_user_id,
-                    })
+                    new_extras.append(
+                        {
+                            "plex_user_id": dup.plex_user_id,
+                            "display_name": dup.plex_user or dup.plex_user_id,
+                        }
+                    )
                     existing_ids.add(dup.plex_user_id)
 
                 # Si le doublon est Seer, son tmdb_id fait référence (Plex RSS peut donner un mauvais tmdb)
@@ -175,7 +180,9 @@ def merge_duplicates(dry_run: bool = False):
         if remaining_no_tmdb:
             print(f"⚠  {len(remaining_no_tmdb)} demande(s) sans tmdb_id sans correspondance (ignorées).")
 
-        print(f"\n{'[DRY-RUN] ' if dry_run else ''}Résultat : {total_merged} groupe(s) fusionné(s), {total_deleted} ligne(s) supprimée(s).")
+        print(
+            f"\n{'[DRY-RUN] ' if dry_run else ''}Résultat : {total_merged} groupe(s) fusionné(s), {total_deleted} ligne(s) supprimée(s)."
+        )
 
         if not dry_run:
             db.commit()

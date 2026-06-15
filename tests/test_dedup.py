@@ -66,8 +66,14 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
-def _req(plex_user_id="alice", title="Inception", media_type="movie", tmdb_id="27205",
-         status=RequestStatus.sent_to_arr, **kwargs) -> MediaRequest:
+def _req(
+    plex_user_id="alice",
+    title="Inception",
+    media_type="movie",
+    tmdb_id="27205",
+    status=RequestStatus.sent_to_arr,
+    **kwargs,
+) -> MediaRequest:
     return MediaRequest(
         plex_user_id=plex_user_id,
         plex_user=plex_user_id,
@@ -197,10 +203,18 @@ def _patch_enqueue():
 
 def _movie_item(user="alice", user_id="alice", tmdb_id="27205"):
     return dict(
-        title="Inception", year=2010, media_type="movie",
-        plex_user=user, plex_user_id=user_id,
-        tmdb_id=tmdb_id, tvdb_id=None, imdb_id=None,
-        plex_guid=None, poster_url=None, overview="", source="rss",
+        title="Inception",
+        year=2010,
+        media_type="movie",
+        plex_user=user,
+        plex_user_id=user_id,
+        tmdb_id=tmdb_id,
+        tvdb_id=None,
+        imdb_id=None,
+        plex_guid=None,
+        poster_url=None,
+        overview="",
+        source="rss",
     )
 
 

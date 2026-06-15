@@ -26,10 +26,11 @@ router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 # Store en mémoire des runs
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MaintenanceRun:
     action: str
-    status: str = "running"   # running | done | error
+    status: str = "running"  # running | done | error
     progress: float = 0.0
     logs: list = field(default_factory=list)
     started_at: str = ""
@@ -37,7 +38,7 @@ class MaintenanceRun:
 
 
 _runs: dict[str, MaintenanceRun] = {}
-_last_runs: dict[str, MaintenanceRun] = {}   # action → dernier run terminé
+_last_runs: dict[str, MaintenanceRun] = {}  # action → dernier run terminé
 _MAX_RUNS = 30
 
 
@@ -63,10 +64,17 @@ class _Emit:
         self._run.logs.append(f"{self._PREFIXES[level]} {msg}")
         getattr(self._log, "warning" if level == "warn" else ("error" if level == "err" else "info"))(msg)
 
-    def info(self, msg: str): self._push("info", msg)
-    def ok(self, msg: str):   self._push("ok",   msg)
-    def warn(self, msg: str): self._push("warn",  msg)
-    def err(self, msg: str):  self._push("err",   msg)
+    def info(self, msg: str):
+        self._push("info", msg)
+
+    def ok(self, msg: str):
+        self._push("ok", msg)
+
+    def warn(self, msg: str):
+        self._push("warn", msg)
+
+    def err(self, msg: str):
+        self._push("err", msg)
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +143,7 @@ ACTIONS_META = {
 # Exécuteurs d'actions
 # ---------------------------------------------------------------------------
 
+
 async def _run_check_arr_statuses(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
     db = SessionLocal()
@@ -152,11 +161,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
             emit.warn("Aucun paramètre configuré.")
             return
 
-        candidates = (
-            db.query(MediaRequest)
-            .filter(MediaRequest.status == RequestStatus.sent_to_arr)
-            .all()
-        )
+        candidates = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.sent_to_arr).all()
 
         if not candidates:
             emit.info("Aucune demande en statut 'sent_to_arr' à vérifier.")
@@ -171,18 +176,21 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
             available = False
             try:
                 if settings.seer_enabled and settings.seer_url and settings.seer_api_key and req.arr_id:
-                    available, *_ = await seer_available(
-                        settings.seer_url, settings.seer_api_key, req.arr_id
-                    )
+                    available, *_ = await seer_available(settings.seer_url, settings.seer_api_key, req.arr_id)
                 elif req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
                     available, *_ = await is_series_available(
-                        settings.sonarr_url, settings.sonarr_api_key,
-                        arr_id=req.arr_id, tvdb_id=req.tvdb_id,
+                        settings.sonarr_url,
+                        settings.sonarr_api_key,
+                        arr_id=req.arr_id,
+                        tvdb_id=req.tvdb_id,
                     )
                 elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
                     available, *_ = await is_movie_available(
-                        settings.radarr_url, settings.radarr_api_key,
-                        arr_id=req.arr_id, tmdb_id=req.tmdb_id, imdb_id=req.imdb_id,
+                        settings.radarr_url,
+                        settings.radarr_api_key,
+                        arr_id=req.arr_id,
+                        tmdb_id=req.tmdb_id,
+                        imdb_id=req.imdb_id,
                     )
             except Exception as e:
                 emit.warn(f"Erreur pour '{req.title}' : {e}")
@@ -261,6 +269,7 @@ async def _run_health_check(run: MaintenanceRun):
                         emit.ok(f"✓ {label} — OK v{version} ({r.elapsed.microseconds // 1000} ms)")
                     elif key == "seer":
                         from ..services.seer import check_connection
+
                         ok, msg = await check_connection(settings.seer_url, settings.seer_api_key)
                         if ok:
                             emit.ok(f"✓ {label} — {msg}")
@@ -287,6 +296,7 @@ async def _run_seer_sync_users(run: MaintenanceRun):
         emit.info("Démarrage sync utilisateurs Seer…")
         run.progress = 10
         from ..scheduler import sync_seer_users
+
         await sync_seer_users()
         run.progress = 100
         emit.ok("Sync utilisateurs terminée.")
@@ -306,6 +316,7 @@ async def _run_seer_sync_requests(run: MaintenanceRun):
         emit.info("Démarrage sync demandes Seer…")
         run.progress = 10
         from ..scheduler import sync_seer_requests
+
         await sync_seer_requests()
         run.progress = 100
         emit.ok("Sync demandes terminée.")
@@ -322,6 +333,7 @@ async def _run_discover_users(run: MaintenanceRun):
         emit.info("Lecture du flux RSS…")
         run.progress = 20
         from ..scheduler import poll_watchlists
+
         await poll_watchlists()
         run.progress = 100
         emit.ok("Sync RSS terminée.")
@@ -336,6 +348,7 @@ async def _run_retry_failed(run: MaintenanceRun):
     try:
         from ..models import MediaRequest, RequestStatus
         from ..scheduler import poll_watchlists
+
         failed = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.failed).all()
         if not failed:
             emit.info("Aucune demande en échec.")
@@ -363,6 +376,7 @@ async def _run_recalculate_dates(run: MaintenanceRun):
         emit.info("Resynchronisation des dates depuis Seer…")
         run.progress = 10
         from ..scheduler import sync_seer_requests
+
         await sync_seer_requests()
         run.progress = 100
         emit.ok("Dates recalculées.")
@@ -377,6 +391,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
     try:
         from ..models import MediaRequest, Settings
         from ..services.seer import _headers, _resolve_tmdb_id
+
         settings = db.query(Settings).first()
         if not settings or not settings.seer_url or not settings.seer_api_key:
             emit.warn("Seer non configuré — impossible de résoudre les tmdb_id.")
@@ -394,6 +409,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
             run.progress = round((i / max(len(no_tmdb), 1)) * 60)
             try:
                 from ..scheduler import _clean_title
+
                 item = {"title": _clean_title(req.title), "media_type": req.media_type}
                 resolved = await _resolve_tmdb_id(base, headers, item)
                 if resolved:
@@ -416,6 +432,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
         import sys
 
         from scripts.merge_duplicate_requests import merge_duplicates
+
         buf = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buf
@@ -448,6 +465,7 @@ async def _run_merge_duplicates(run: MaintenanceRun):
         emit.info("Analyse des doublons…")
         run.progress = 20
         from scripts.merge_duplicate_requests import merge_duplicates
+
         merge_duplicates(dry_run=False)
         run.progress = 100
         emit.ok("Fusion terminée.")
@@ -458,6 +476,7 @@ async def _run_merge_duplicates(run: MaintenanceRun):
 
 class _LogCaptureHandler(logging.Handler):
     """Capture les logs du scheduler et les injecte dans le run."""
+
     _LEVEL_MAP = {
         logging.INFO: "[INFO]",
         logging.WARNING: "[WARN]",
@@ -476,20 +495,21 @@ class _LogCaptureHandler(logging.Handler):
 
 _ACTION_RUNNERS = {
     "check-arr-statuses": _run_check_arr_statuses,
-    "health-check":       _run_health_check,
-    "seer-sync-users":    _run_seer_sync_users,
+    "health-check": _run_health_check,
+    "seer-sync-users": _run_seer_sync_users,
     "seer-sync-requests": _run_seer_sync_requests,
-    "discover-users":     _run_discover_users,
-    "retry-failed":       _run_retry_failed,
-    "recalculate-dates":  _run_recalculate_dates,
-    "merge-duplicates":   _run_merge_duplicates,
-    "enrich-and-merge":   _run_enrich_and_merge,
+    "discover-users": _run_discover_users,
+    "retry-failed": _run_retry_failed,
+    "recalculate-dates": _run_recalculate_dates,
+    "merge-duplicates": _run_merge_duplicates,
+    "enrich-and-merge": _run_enrich_and_merge,
 }
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/actions")
 def list_actions(_: None = Depends(require_auth)):
@@ -502,7 +522,9 @@ def list_actions(_: None = Depends(require_auth)):
                 "status": last.status,
                 "finished_at": last.finished_at,
                 "log_count": len(last.logs),
-            } if last else None,
+            }
+            if last
+            else None,
         }
     return result
 

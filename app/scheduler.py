@@ -101,9 +101,7 @@ async def sync_seer_users():
         updated = 0
         # Les utilisateurs source="seer" sont gérés en passe 4, pas ici
         matched_seer_ids: set[int] = {
-            u.seer_user_id
-            for u in db.query(PlexUser).all()
-            if u.seer_user_id and u.source != "seer"
+            u.seer_user_id for u in db.query(PlexUser).all() if u.seer_user_id and u.source != "seer"
         }
 
         all_plex_users = db.query(PlexUser).all()
@@ -322,10 +320,7 @@ async def sync_seer_requests():
                     if seer_requested_at:
                         if existing.source == "seer" or is_hybrid:
                             # Garder la date la plus ancienne (première demande tous utilisateurs confondus)
-                            should_update = (
-                                existing.requested_at is None
-                                or seer_requested_at < existing.requested_at
-                            )
+                            should_update = existing.requested_at is None or seer_requested_at < existing.requested_at
                             if should_update:
                                 logger.info(
                                     f"Date corrigée pour '{existing.title}': "
@@ -455,24 +450,36 @@ def _find_global_request(
     Le fallback titre rattrape les anciennes entrées RSS créées sans identifiant.
     """
     if tmdb_id:
-        found = db.query(MediaRequest).filter(
-            MediaRequest.media_type == media_type,
-            MediaRequest.tmdb_id == tmdb_id,
-        ).first()
+        found = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.media_type == media_type,
+                MediaRequest.tmdb_id == tmdb_id,
+            )
+            .first()
+        )
         if found:
             return found
     if tvdb_id:
-        found = db.query(MediaRequest).filter(
-            MediaRequest.media_type == media_type,
-            MediaRequest.tvdb_id == tvdb_id,
-        ).first()
+        found = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.media_type == media_type,
+                MediaRequest.tvdb_id == tvdb_id,
+            )
+            .first()
+        )
         if found:
             return found
     if title:
-        return db.query(MediaRequest).filter(
-            MediaRequest.media_type == media_type,
-            MediaRequest.title == title,
-        ).first()
+        return (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.media_type == media_type,
+                MediaRequest.title == title,
+            )
+            .first()
+        )
     return None
 
 
@@ -584,7 +591,13 @@ async def poll_watchlists():
             # Pour utilisateurs hybrides sans tmdb_id NI tvdb_id dans le flux RSS :
             # les séries sont maintenant déduplicées par tvdb_id → appel Seer utile uniquement
             # pour les films sans identifiant (imdb seul, cas rare).
-            if not item.get("tmdb_id") and not item.get("tvdb_id") and user_obj and user_obj.seer_user_id and user_obj.seer_active:
+            if (
+                not item.get("tmdb_id")
+                and not item.get("tvdb_id")
+                and user_obj
+                and user_obj.seer_user_id
+                and user_obj.seer_active
+            ):
                 if settings and settings.seer_url and settings.seer_api_key:
                     base = settings.seer_url.rstrip("/")
                     headers = _seer_headers(settings.seer_api_key)
@@ -612,12 +625,16 @@ async def poll_watchlists():
 
             # Fallback : même utilisateur, même titre — ancienne demande sans identifiant
             if not existing and item.get("title"):
-                existing = db.query(MediaRequest).filter(
-                    MediaRequest.plex_user_id == uid,
-                    MediaRequest.media_type == item["media_type"],
-                    MediaRequest.title == item["title"],
-                    MediaRequest.tmdb_id.is_(None),
-                ).first()
+                existing = (
+                    db.query(MediaRequest)
+                    .filter(
+                        MediaRequest.plex_user_id == uid,
+                        MediaRequest.media_type == item["media_type"],
+                        MediaRequest.title == item["title"],
+                        MediaRequest.tmdb_id.is_(None),
+                    )
+                    .first()
+                )
                 if existing:
                     if item.get("tmdb_id"):
                         existing.tmdb_id = item["tmdb_id"]
@@ -655,20 +672,18 @@ async def poll_watchlists():
             # Si non → RSS sert de fallback et soumet lui-même.
             if user_obj and user_obj.seer_user_id and user_obj.seer_active:
                 tmdb_id = item.get("tmdb_id")
-                seer_id_filter = (
-                    (MediaRequest.tmdb_id == tmdb_id)
-                    if tmdb_id
-                    else (MediaRequest.title == item["title"])
-                )
-                seer_handled = db.query(MediaRequest).filter(
-                    MediaRequest.plex_user_id == uid,
-                    MediaRequest.source == "seer",
-                    seer_id_filter,
-                ).first()
-                if seer_handled:
-                    logger.debug(
-                        f"Routage Hybride : '{item['title']}' déjà géré par Seer pour {uid}, RSS skip"
+                seer_id_filter = (MediaRequest.tmdb_id == tmdb_id) if tmdb_id else (MediaRequest.title == item["title"])
+                seer_handled = (
+                    db.query(MediaRequest)
+                    .filter(
+                        MediaRequest.plex_user_id == uid,
+                        MediaRequest.source == "seer",
+                        seer_id_filter,
                     )
+                    .first()
+                )
+                if seer_handled:
+                    logger.debug(f"Routage Hybride : '{item['title']}' déjà géré par Seer pour {uid}, RSS skip")
                     db.commit()
                     continue
 
