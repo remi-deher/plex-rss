@@ -37,7 +37,7 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 
 ### Interface web
 - **Dashboard** — cartes stats cliquables (filtre par statut), affiches en arrière-plan, santé auto-rafraîchie
-- **Demandes** — vue grille et tableau, modal enrichi, bouton Retry inline (sans rechargement)
+- **Demandes** — vue grille et tableau, filtrage AJAX sans rechargement, chips de filtres actifs, sélection multiple en grille, suppression avec annulation (undo 5 s), auto-rafraîchissement des statuts en cours, modal enrichi, retry inline
 - **Utilisateurs** — gestion des comptes Plex, emails multiples, toggle admin, toggle actif/inactif
 - **Logs** — vue en temps réel avec filtre par niveau, recherche textuelle, filtre temporel
 - **Paramètres** — navigation par onglets (Connexions / Notifications / Avancé), bouton Enregistrer sticky, badges de connexion persistants, avertissements de configuration incomplète, chargement automatique des profils/dossiers Sonarr/Radarr
@@ -181,7 +181,7 @@ plex-rss/
 │       ├── email_templates.html
 │       ├── login.html
 │       └── setup.html
-├── tests/                       # Suite de tests (155 tests, pytest + pytest-asyncio)
+├── tests/                       # Suite de tests (452 tests, pytest + pytest-asyncio)
 │   ├── test_sonarr.py
 │   ├── test_radarr.py
 │   ├── test_overseerr.py
@@ -271,7 +271,7 @@ alembic upgrade head
 | Parseur RSS | feedparser |
 | Email | aiosmtplib |
 | Templates | Jinja2 + Bootstrap 5 dark |
-| Tests | pytest + pytest-asyncio (155 tests, SQLite in-memory) |
+| Tests | pytest + pytest-asyncio (452 tests, SQLite in-memory) |
 | Lint | ruff (E, F, W, I) |
 | CI | GitHub Actions (tests, lint, Trivy, Docker Hub) |
 | Conteneurisation | Docker + Docker Compose |
