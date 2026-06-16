@@ -801,16 +801,6 @@ if (window.innerWidth < 640 && !localStorage.getItem('requests_view')) {
   localStorage.setItem('requests_view', 'grid');
 }
 
-// Pré-sélection filtre depuis l'URL (?status=failed etc.)
-(function applyUrlFilter() {
-  const params = new URLSearchParams(window.location.search);
-  const status = params.get('status');
-  if (status) {
-    const sel = document.getElementById('filterStatus');
-    if (sel) { sel.value = status; filterItems(); }
-  }
-})();
-
 // Formater toutes les dates du tableau en heure locale
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.local-date').forEach(el => {
