@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
-from ..models import MediaRequest, NotificationLog, PlexUser, Settings
+from ..models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
 from ..notification_queue import enqueue as enqueue_notification
 from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
 from ..scheduler import scheduler as _scheduler
@@ -1159,16 +1159,49 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/requests/{request_id}/mark-processed")
-def mark_request_processed(request_id: int, db: Session = Depends(get_db)):
-    """Marque une demande comme traitée / disponible sans envoyer d'emails."""
+def mark_request_processed(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+    """Marque une demande comme traitée ET envoie le mail approprié selon le statut.
+
+    Logique :
+    - available + !available_mail_sent → envoyer mail "disponible"
+    - sent_to_arr/pending + !request_mail_sent → envoyer mail "demande reçue"
+    - sinon → skip (déjà envoyé)
+    """
+    from ..scheduler import _notify
+
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
-    req.status = "available"
-    req.request_mail_sent = True
-    req.available_mail_sent = True
+    settings = db.query(Settings).first()
+    notified = False
+    event = None
+
+    # Déterminer quel mail envoyer selon le statut et les flags
+    if req.status == RequestStatus.available and not req.available_mail_sent:
+        event = "available"
+        notified = True
+    elif req.status in (RequestStatus.pending, RequestStatus.sent_to_arr) and not req.request_mail_sent:
+        event = "request"
+        notified = True
+
+    # Envoyer la notification si applicable
+    if notified and settings:
+        _notify(event, settings, req, db)
+
+    # Marquer comme disponible et traité
+    req.status = RequestStatus.available
+    if event == "request":
+        req.request_mail_sent = True
+    elif event == "available":
+        req.available_mail_sent = True
     if not req.available_at:
         req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
-    return {"status": "success", "message": "Demande marquée comme traitée"}
+
+    return {
+        "status": "success",
+        "message": "Demande marquée comme traitée",
+        "notified": notified,
+        "event": event,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -250,21 +250,28 @@ def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
 
 
 def test_mark_request_processed_skips_emails(client, db):
-    """POST /requests/{id}/mark-processed passe la demande en available et marque les mails comme envoyés."""
+    """POST /requests/{id}/mark-processed envoie le mail "request" pour une demande en pending."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
     req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
-    db.add(req)
+    db.add_all([settings, req])
     db.commit()
     db.refresh(req)
 
-    resp = client.post(f"/api/requests/{req.id}/mark-processed")
+    with patch("app.scheduler._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/mark-processed")
+
     assert resp.status_code == 200
-    assert resp.json()["status"] == "success"
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["notified"] is True
+    assert data["event"] == "request"
 
     db.refresh(req)
     assert req.status == RequestStatus.available
     assert req.request_mail_sent is True
-    assert req.available_mail_sent is True
+    assert req.available_mail_sent is False  # Seulement request_mail_sent est marqué
     assert req.available_at is not None
+    mock_notify.assert_called_once()
 
 
 def test_bulk_retry_requests(client, db):
