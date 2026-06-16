@@ -14,7 +14,7 @@
 </div>
 
 <!-- Variables disponibles -->
-<div class="card p-3 mb-4" style="background:#2a2a2a">
+<div class="card p-3 mb-4" style="background:var(--pr-surface-2)">
   <h6 class="mb-2 text-muted">Variables disponibles</h6>
   <div class="d-flex flex-wrap gap-2">
     {% for var, desc in variables %}
@@ -40,8 +40,8 @@
 
 <div class="row g-0" style="height:calc(100vh - 340px);min-height:500px">
   <!-- Éditeur -->
-  <div class="col-md-6" style="border:1px solid #333;border-top:none;border-right:none;display:flex;flex-direction:column">
-    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333;flex-shrink:0">
+  <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;border-right:none;display:flex;flex-direction:column">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
       <span class="text-muted small">Éditeur HTML</span>
       <button class="btn btn-sm btn-outline-secondary" onclick="livePreview()">
         <i class="bi bi-eye me-1"></i>Prévisualiser
@@ -68,11 +68,11 @@
   </div>
 
   <!-- Prévisualisation -->
-  <div class="col-md-6" style="border:1px solid #333;border-top:none;display:flex;flex-direction:column">
-    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:#1a1a1a;border-bottom:1px solid #333;flex-shrink:0">
+  <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;display:flex;flex-direction:column">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
       <div class="d-flex align-items-center gap-2">
         <span class="text-muted small">Prévisualisation en tant que</span>
-        <select id="preview-user-select" class="form-select form-select-sm py-0 px-2" style="width:160px; font-size:11px; height:24px; background:#222; color:#fff; border-color:#444" onchange="livePreview()">
+        <select id="preview-user-select" class="form-select form-select-sm py-0 px-2" style="width:160px; font-size:11px; height:24px; background:var(--pr-surface-2); color:var(--bs-body-color); border-color:var(--pr-border)" onchange="livePreview()">
           <option value="">(Par défaut)</option>
           {% for u in users %}
           <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>

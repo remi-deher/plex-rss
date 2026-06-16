@@ -37,7 +37,7 @@
   {% set ci = u.id % 5 %}
   {% set initials = ((u.custom_name or u.display_name or u.plex_user_id)[:1] | upper) %}
   <div class="col-md-6 col-xl-4" id="card-wrapper-{{ u.id }}">
-    <div class="card h-100 border-secondary" style="background:#1e1e1e"
+    <div class="card h-100 border-secondary" style="background:var(--pr-surface)"
          data-user-id="{{ u.id }}"
          data-seer-user-id="{{ u.seer_user_id or '' }}"
          data-source="{{ u.source or 'rss' }}">
@@ -123,7 +123,7 @@
 
         <!-- Section Seer -->
         {% if seer_enabled or u.seer_user_id %}
-        <div id="seer-cell-{{ u.id }}" class="rounded p-2" style="background:#161616;border:1px solid #2a2a2a;min-height:44px">
+        <div id="seer-cell-{{ u.id }}" class="rounded p-2" style="background:var(--pr-bg);border:1px solid var(--pr-border);min-height:44px">
           <span class="text-muted small fst-italic">
             <span class="spinner-border spinner-border-sm me-1"></span>Chargement…
           </span>
@@ -134,7 +134,7 @@
 
       </div>
 
-      <div class="card-footer d-flex justify-content-end gap-2 border-secondary" style="background:#181818">
+      <div class="card-footer d-flex justify-content-end gap-2 border-secondary" style="background:var(--pr-surface-2)">
         <a class="btn btn-sm btn-outline-secondary" href="/users/{{ u.id }}" data-bs-toggle="tooltip" title="Voir le détail et l'historique">
           <i class="bi bi-person-lines-fill me-1"></i>Détail
         </a>
@@ -170,7 +170,7 @@
 <!-- Modal ajout/édition -->
 <div class="modal fade" id="userModal" tabindex="-1">
   <div class="modal-dialog">
-    <div class="modal-content" style="background:#1f1f1f">
+    <div class="modal-content" style="background:var(--pr-surface)">
       <div class="modal-header border-secondary">
         <h5 class="modal-title" id="modalTitle">Ajouter un utilisateur</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -244,7 +244,7 @@
 <!-- Modal confirmation suppression utilisateur -->
 <div class="modal fade" id="deleteUserModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
-    <div class="modal-content" style="background:#1f1f1f">
+    <div class="modal-content" style="background:var(--pr-surface)">
       <div class="modal-header border-secondary">
         <h5 class="modal-title text-danger"><i class="bi bi-trash me-2"></i>Supprimer l'utilisateur</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -264,7 +264,7 @@
 <!-- Modal confirmation déliaison Seer -->
 <div class="modal fade" id="unlinkSeerModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
-    <div class="modal-content" style="background:#1f1f1f">
+    <div class="modal-content" style="background:var(--pr-surface)">
       <div class="modal-header border-secondary">
         <h5 class="modal-title"><i class="bi bi-x-circle me-2 text-warning"></i>Délier de Seer</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -283,7 +283,7 @@
 <!-- Modal découverte RSS -->
 <div class="modal fade" id="discoverModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
-    <div class="modal-content" style="background:#1f1f1f">
+    <div class="modal-content" style="background:var(--pr-surface)">
       <div class="modal-header border-secondary">
         <h5 class="modal-title">Utilisateurs découverts dans le flux RSS</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -301,7 +301,7 @@
 <!-- Modal fusion Seer-only → RSS -->
 <div class="modal fade" id="mergeSeerModal" tabindex="-1">
   <div class="modal-dialog">
-    <div class="modal-content" style="background:#1f1f1f">
+    <div class="modal-content" style="background:var(--pr-surface)">
       <div class="modal-header border-secondary">
         <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2 text-info"></i>Associer un utilisateur Seer-only</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -313,7 +313,7 @@
         </p>
         <div class="mb-3">
           <label class="form-label">Utilisateur RSS cible</label>
-          <select class="form-select" id="mergeTargetSelect" style="background:#2a2a2a;color:#eee;border-color:#444">
+          <select class="form-select" id="mergeTargetSelect" style="background:var(--pr-surface-2);color:var(--bs-body-color);border-color:var(--pr-border)">
             <option value="">— Choisir un utilisateur —</option>
           </select>
         </div>

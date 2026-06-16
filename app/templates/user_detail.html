@@ -48,12 +48,12 @@
   {% for r in requests %}
   <div class="col-6 col-md-4 col-lg-3">
     <a href="/requests?user={{ user.plex_user_id }}" class="text-decoration-none">
-      <div class="card h-100 position-relative overflow-hidden" style="border-color:#333;min-height:220px;cursor:pointer">
+      <div class="card h-100 position-relative overflow-hidden" style="border-color:var(--pr-border);min-height:220px;cursor:pointer">
         {% if r.poster_url %}
         <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
         <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.15) 0%,rgba(20,20,20,.92) 58%)"></div>
         {% else %}
-        <div style="position:absolute;inset:0;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
+        <div style="position:absolute;inset:0;background:var(--pr-surface-2);display:flex;align-items:center;justify-content:center">
           <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:2.5rem;opacity:.3"></i>
         </div>
         {% endif %}

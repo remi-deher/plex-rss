@@ -114,7 +114,7 @@
       <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.1) 0%,rgba(20,20,20,.93) 55%)"></div>
       {% else %}
-      <div style="position:absolute;inset:0;background:#1f1f1f;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;inset:0;background:var(--pr-surface);display:flex;align-items:center;justify-content:center">
         <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:3rem;opacity:.2"></i>
       </div>
       {% endif %}
@@ -234,7 +234,7 @@
               <img src="{{ r.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px"
                    onerror="this.style.display='none'">
               {% else %}
-              <div style="width:40px;height:60px;background:#2a2a2a;border-radius:4px;display:flex;align-items:center;justify-content:center">
+              <div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px;display:flex;align-items:center;justify-content:center">
                 <i class="bi bi-image text-muted" style="font-size:10px"></i>
               </div>
               {% endif %}

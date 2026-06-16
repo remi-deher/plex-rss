@@ -69,6 +69,30 @@
     /* Compteurs animés : évite le saut visuel pendant le count-up */
     .count-up { font-variant-numeric: tabular-nums; }
 
+    /* ---- Parité thème clair : neutralise les classes/figées « toujours sombres ----
+       Bootstrap 5.3 adapte déjà tables/modales/formulaires via data-bs-theme ; il reste
+       les utilitaires à couleur fixe (bg-dark, table-dark, text-white) à reteindre. */
+    [data-bs-theme="light"] .bg-dark { background-color: var(--pr-surface) !important; }
+    [data-bs-theme="light"] .table-dark {
+      --bs-table-color: var(--bs-body-color);
+      --bs-table-bg: var(--pr-surface);
+      --bs-table-border-color: var(--pr-border);
+      --bs-table-striped-color: var(--bs-body-color);
+      --bs-table-active-color: var(--bs-body-color);
+      --bs-table-active-bg: var(--pr-surface-2);
+      --bs-table-hover-color: var(--bs-body-color);
+      --bs-table-hover-bg: var(--pr-surface-2);
+      color: var(--bs-body-color);
+    }
+    /* text-white posé sur des surfaces (entêtes de table, barres, sélecteurs) — pas sur
+       les affiches (dégradé sombre permanent), qui restent volontairement en blanc. */
+    [data-bs-theme="light"] .table-dark a.text-white,
+    [data-bs-theme="light"] .bg-dark .text-white,
+    [data-bs-theme="light"] #stats-by-user a.text-white { color: var(--bs-body-color) !important; }
+    [data-bs-theme="light"] .form-control.text-white,
+    [data-bs-theme="light"] .form-select.text-white { color: var(--bs-body-color) !important; }
+    [data-bs-theme="light"] .btn-close-white { filter: none; }
+
     /* Status badges */
     .badge-pending  { background: #555; }
     .badge-sent     { background: #0d6efd; }

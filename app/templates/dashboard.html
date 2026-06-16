@@ -164,12 +164,12 @@
   {% for r in recent_requests %}
   <div class="col-6 col-md-4 col-lg-3">
     <a href="/requests" class="text-decoration-none">
-      <div class="card h-100 position-relative overflow-hidden" style="border-color:#333;min-height:220px;cursor:pointer">
+      <div class="card h-100 position-relative overflow-hidden" style="border-color:var(--pr-border);min-height:220px;cursor:pointer">
         {% if r.poster_url %}
         <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
         <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.15) 0%,rgba(20,20,20,.92) 58%)"></div>
         {% else %}
-        <div style="position:absolute;inset:0;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
+        <div style="position:absolute;inset:0;background:var(--pr-surface-2);display:flex;align-items:center;justify-content:center">
           <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:2.5rem;opacity:.3"></i>
         </div>
         {% endif %}
@@ -267,6 +267,10 @@ async function loadChart() {
   const total = d.values.reduce((a, b) => a + b, 0);
   document.getElementById('chart-total').textContent = `${total} demande(s) sur la periode`;
   const labels = d.labels.map(l => { const [, m, day] = l.split('-'); return `${day}/${m}`; });
+  // Couleurs grille/ticks lues depuis le thème courant (s'adaptent au clair/sombre)
+  const css = getComputedStyle(document.documentElement);
+  const gridColor = css.getPropertyValue('--pr-border').trim() || '#333';
+  const tickColor = css.getPropertyValue('--pr-text-muted').trim() || '#aaa';
   new Chart(document.getElementById('timelineChart'), {
     type: 'bar',
     data: {
@@ -277,8 +281,8 @@ async function loadChart() {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { color: '#333' }, ticks: { color: '#aaa', maxTicksLimit: 10 } },
-        y: { grid: { color: '#333' }, ticks: { color: '#aaa', stepSize: 1 }, beginAtZero: true },
+        x: { grid: { color: gridColor }, ticks: { color: tickColor, maxTicksLimit: 10 } },
+        y: { grid: { color: gridColor }, ticks: { color: tickColor, stepSize: 1 }, beginAtZero: true },
       }
     }
   });
@@ -382,7 +386,7 @@ async function loadStatsByUser() {
           <a href="/requests?user=${r.plex_user_id}" class="text-decoration-none text-white">${r.display_name}</a>
         </div>
         <div class="flex-grow-1">
-          <div class="progress" style="height:8px;background:#2a2a2a">
+          <div class="progress" style="height:8px;background:var(--pr-surface-2)">
             <div class="progress-bar bg-warning" style="width:${Math.round(r.total / max * 100)}%"></div>
           </div>
         </div>
@@ -443,7 +447,7 @@ async function loadDiskSpace() {
             <span>${v.path} <span class="text-muted opacity-50">(${v.sources.join(', ')})</span></span>
             <span>${fmt(v.free_bytes)} libres / ${fmt(v.total_bytes)}</span>
           </div>
-          <div class="progress" style="height:8px;background:#2a2a2a">
+          <div class="progress" style="height:8px;background:var(--pr-surface-2)">
             <div class="progress-bar ${color}" style="width:${pct}%"></div>
           </div>
         </div>`;

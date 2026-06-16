@@ -93,14 +93,14 @@
           <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <div class="card h-100 p-3" style="background:#222">
+              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
                 <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
                 <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
                 <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
               </div>
             </div>
             <div class="col-md-6">
-              <div class="card h-100 p-3" style="background:#222">
+              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
                 <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
                 <div class="input-group">
                   <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
@@ -254,7 +254,7 @@
               </div>
             </div>
           </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:#2a2a2a;font-size:13px">
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
             <i class="bi bi-info-circle me-1"></i>
             Quand activé, les demandes sont envoyées à <strong>Seer</strong> plutôt que directement à Sonarr/Radarr.
             Seer gère le routage et les profils de qualité selon sa propre configuration.
@@ -566,7 +566,7 @@
                   </div>
                 </div>
               </div>
-              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:#2a2a2a;font-size:13px">
+              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:var(--pr-surface-2);font-size:13px">
                 <i class="bi bi-info-circle me-1"></i>
                 La correspondance se fait en priorité par <strong>TMDB/TVDB/IMDB ID</strong>, puis par titre si les IDs sont absents.
               </div>
@@ -658,16 +658,16 @@
 
 <style>
 .maint-card {
-  background:#1e1e1e;border:1px solid #2a2a2a;border-radius:8px;
+  background:var(--pr-surface);border:1px solid var(--pr-border);border-radius:8px;
   transition:border-color .2s,box-shadow .2s;cursor:pointer;
 }
-.maint-card:hover { border-color:#444;box-shadow:0 0 0 1px #444; }
+.maint-card:hover { border-color:var(--pr-text-muted);box-shadow:0 0 0 1px var(--pr-text-muted); }
 .maint-card.running { border-color:#0d6efd55; }
 .maint-card.done    { border-color:#19875455; }
 .maint-card.error   { border-color:#dc354555; }
 .maint-log {
   font-family:monospace;font-size:12px;line-height:1.6;
-  background:#111;border-radius:4px;padding:10px;max-height:260px;
+  background:var(--pr-surface-2);border-radius:4px;padding:10px;max-height:260px;
   overflow-y:auto;white-space:pre-wrap;word-break:break-word;
 }
 .maint-log .log-ok   { color:#4ade80; }
@@ -1175,7 +1175,7 @@ function _tmdbConflictCard(c) {
       </tr>`).join('');
     return `
       <div class="col">
-        <div class="card h-100 ${isRec ? 'border-success' : 'border-secondary bg-dark'}" style="background:#1a1a1a">
+        <div class="card h-100 ${isRec ? 'border-success' : 'border-secondary bg-dark'}" style="background:var(--pr-surface)">
           ${isRec ? '<div class="card-header py-1 px-2 bg-success bg-opacity-25 small text-success"><i class="bi bi-stars me-1"></i>Recommandé (Seer)</div>' : ''}
           <div class="card-body p-2">
             <table class="table table-sm table-dark mb-2" style="font-size:.85rem">${rows}</table>
@@ -1450,7 +1450,7 @@ function _cardHtml(action, meta) {
     <span class="badge rounded-pill bg-secondary" id="mstatus-${action}" style="white-space:nowrap;font-size:10px">—</span>
   </div>
 
-  <div class="progress" style="height:4px;background:#2a2a2a;border-radius:2px">
+  <div class="progress" style="height:4px;background:var(--pr-surface-2);border-radius:2px">
     <div class="progress-bar" id="mprog-${action}" role="progressbar"
          style="width:0%;transition:width .4s;background:${c.border.replace('55','cc')}"></div>
   </div>
