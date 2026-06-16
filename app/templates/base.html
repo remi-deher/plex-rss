@@ -8,7 +8,27 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <style>
-    body { background: #141414; }
+    /* Palette — variables thématiques (sombre par défaut, surcharge claire plus bas) */
+    :root {
+      --pr-bg: #141414;
+      --pr-surface: #1f1f1f;
+      --pr-surface-2: #2a2a2a;
+      --pr-border: #333;
+      --pr-text-muted: #aaa;
+      --pr-accent: #e5a00d;
+      --pr-shadow: rgba(0,0,0,.4);
+    }
+    [data-bs-theme="light"] {
+      --pr-bg: #f4f5f7;
+      --pr-surface: #ffffff;
+      --pr-surface-2: #eceef1;
+      --pr-border: #d6d9de;
+      --pr-text-muted: #6c757d;
+      --pr-accent: #c4870a;
+      --pr-shadow: rgba(0,0,0,.12);
+    }
+
+    body { background: var(--pr-bg); }
 
     /* Sidebar desktop */
     .sidebar {
@@ -16,20 +36,38 @@
       top: 56px;
       height: calc(100vh - 56px);
       overflow-y: auto;
-      background: #1f1f1f;
-      border-right: 1px solid #333;
+      background: var(--pr-surface);
+      border-right: 1px solid var(--pr-border);
     }
-    .sidebar .nav-link { color: #aaa; border-radius: 6px; }
-    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #e5a00d; background: #2a2a2a; }
+    .sidebar .nav-link { color: var(--pr-text-muted); border-radius: 6px; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: var(--pr-accent); background: var(--pr-surface-2); }
 
     /* Navbar */
-    .navbar-brand { color: #e5a00d !important; font-weight: bold; letter-spacing: .5px; }
+    .navbar-brand { color: var(--pr-accent) !important; font-weight: bold; letter-spacing: .5px; }
 
     /* Cards */
-    .card { background: #1f1f1f; border: 1px solid #333; }
-    .health-card { transition: border-color .3s; border: 1px solid #333; }
+    .card { background: var(--pr-surface); border: 1px solid var(--pr-border); }
+    .health-card { transition: border-color .3s; border: 1px solid var(--pr-border); }
     .request-card { transition: transform .15s, box-shadow .15s; cursor: default; }
-    .request-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .request-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px var(--pr-shadow); }
+
+    /* Squelettes de chargement : barres animées (shimmer) teintées thème */
+    .skel {
+      display: block;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--pr-surface-2) 25%, var(--pr-border) 37%, var(--pr-surface-2) 63%);
+      background-size: 400% 100%;
+      animation: skel-shimmer 1.4s ease infinite;
+    }
+    .skel-line { height: 12px; margin-bottom: 8px; }
+    @keyframes skel-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+    /* Icône en rotation (bouton « actualiser ») */
+    .spin { display: inline-block; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Compteurs animés : évite le saut visuel pendant le count-up */
+    .count-up { font-variant-numeric: tabular-nums; }
 
     /* Status badges */
     .badge-pending  { background: #555; }
@@ -42,8 +80,8 @@
       display: none;
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      background: #1f1f1f;
-      border-top: 1px solid #333;
+      background: var(--pr-surface);
+      border-top: 1px solid var(--pr-border);
       z-index: 1040;
       padding-bottom: env(safe-area-inset-bottom);
     }
@@ -53,14 +91,14 @@
       flex-direction: column;
       align-items: center;
       padding: 8px 4px 6px;
-      color: #888;
+      color: var(--pr-text-muted);
       text-decoration: none;
       font-size: 10px;
       gap: 2px;
       transition: color .15s;
     }
     .bottom-nav a i { font-size: 20px; }
-    .bottom-nav a.active, .bottom-nav a:hover { color: #e5a00d; }
+    .bottom-nav a.active, .bottom-nav a:hover { color: var(--pr-accent); }
 
     @media (max-width: 767px) {
       .sidebar { display: none !important; }
@@ -71,17 +109,36 @@
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #141414; }
-    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: var(--pr-bg); }
+    ::-webkit-scrollbar-thumb { background: var(--pr-border); border-radius: 3px; }
   </style>
+  <script>
+    // Thème appliqué le plus tôt possible pour éviter un flash (avant rendu du body).
+    (function () {
+      try {
+        const t = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-bs-theme', t);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
 
-<nav class="navbar navbar-dark sticky-top" style="background:#1f1f1f;border-bottom:1px solid #333">
+<nav class="navbar sticky-top" style="background:var(--pr-surface);border-bottom:1px solid var(--pr-border)">
   <div class="container-fluid">
     <span class="navbar-brand"><i class="bi bi-collection-play-fill me-2"></i>Plex RSS Monitor</span>
     {% if request.session.get('username') %}
     <div class="d-flex align-items-center gap-2">
+      <button type="button" id="global-search-btn" onclick="window.location='/requests'" aria-label="Rechercher une demande (raccourci /)"
+        class="btn btn-sm d-none d-sm-inline-flex align-items-center gap-1" title="Rechercher (touche /)"
+        style="background:rgba(128,128,128,.12);border:1px solid var(--pr-border);color:var(--pr-text-muted);border-radius:8px;font-size:.8rem;padding:5px 10px;">
+        <i class="bi bi-search"></i><kbd style="background:transparent;border:1px solid var(--pr-border);color:var(--pr-text-muted);padding:0 5px;font-size:.7rem;">/</kbd>
+      </button>
+      <button type="button" id="theme-toggle" onclick="toggleTheme()" aria-label="Basculer le thème clair / sombre"
+        class="btn btn-sm d-flex align-items-center" title="Basculer thème clair / sombre"
+        style="background:rgba(128,128,128,.12);border:1px solid var(--pr-border);color:var(--pr-text-muted);border-radius:8px;padding:5px 10px;">
+        <i class="bi bi-moon-stars"></i>
+      </button>
       <span class="text-secondary d-none d-sm-inline" style="font-size:.85rem;">
         <i class="bi bi-person-circle me-1"></i>{{ request.session['username'] }}
       </span>
@@ -102,9 +159,10 @@
       <a href="/" class="nav-link {% if page=='dashboard' %}active{% endif %}">
         <i class="bi bi-speedometer2 me-2"></i>Dashboard
       </a>
-      <a href="/requests" class="nav-link {% if page=='requests' %}active{% endif %}">
+      <a href="/requests" class="nav-link d-flex align-items-center {% if page=='requests' %}active{% endif %}">
         <i class="bi bi-film me-2"></i>Demandes
-        <span id="sidebar-badge" class="badge bg-danger ms-auto" style="display:none"></span>
+        <span id="sidebar-badge-progress" class="badge bg-secondary ms-auto" style="display:none" title="Demandes en cours (reçues + transmises)"></span>
+        <span id="sidebar-badge" class="badge bg-danger ms-1" style="display:none" title="Demandes échouées"></span>
       </a>
       <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}">
         <i class="bi bi-people me-2"></i>Utilisateurs
@@ -154,8 +212,78 @@
   </a>
 </nav>
 
+<!-- Modale de confirmation réutilisable (remplace confirm() natif) -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--pr-surface);border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="confirmModalTitle">Confirmer</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="confirmModalBody"></div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-warning" id="confirmModalOk">Confirmer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+/**
+ * Confirmation themée — remplace window.confirm(). Renvoie une Promise<bool>.
+ * Usage : if (await confirmAction({ body: '…', okLabel: 'Supprimer', danger: true })) { … }
+ */
+function confirmAction({ title = 'Confirmer', body = '', okLabel = 'Confirmer', danger = false } = {}) {
+  return new Promise(resolve => {
+    const modalEl = document.getElementById('confirmModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalBody').innerHTML = body;
+    const okBtn = document.getElementById('confirmModalOk');
+    okBtn.textContent = okLabel;
+    okBtn.className = 'btn ' + (danger ? 'btn-danger' : 'btn-warning');
+    let decided = false;
+    const onOk = () => { decided = true; modal.hide(); };
+    const onHidden = () => {
+      okBtn.removeEventListener('click', onOk);
+      modalEl.removeEventListener('hidden.bs.modal', onHidden);
+      resolve(decided);
+    };
+    okBtn.addEventListener('click', onOk);
+    modalEl.addEventListener('hidden.bs.modal', onHidden);
+    modal.show();
+  });
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-bs-theme') || 'dark';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-bs-theme', next);
+  try { localStorage.setItem('theme', next); } catch (e) {}
+  syncThemeIcon();
+}
+function syncThemeIcon() {
+  const icon = document.querySelector('#theme-toggle i');
+  if (!icon) return;
+  const dark = (document.documentElement.getAttribute('data-bs-theme') || 'dark') === 'dark';
+  icon.className = dark ? 'bi bi-moon-stars' : 'bi bi-sun-fill';
+}
+syncThemeIcon();
+
+// Raccourci clavier : « / » ou Ctrl/Cmd+K → recherche de demandes.
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+  if ((e.key === '/' && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+    e.preventDefault();
+    const local = document.getElementById('searchInput');
+    if (local) { local.focus(); local.select(); }   // déjà sur la page Demandes
+    else window.location = '/requests#focus-search';
+  }
+});
+
 function showToast(msg, type = 'success') {
   const id = 'toast-' + Date.now();
   let container = document.getElementById('toast-container');
@@ -180,10 +308,16 @@ function showToast(msg, type = 'success') {
   try {
     const d = await fetch('/api/stats/counts').then(r => r.json());
     const badge = document.getElementById('sidebar-badge');
-    if (d.failed > 0) {
+    if (badge && d.failed > 0) {
       badge.textContent = d.failed;
       badge.style.display = '';
       document.title = `(${d.failed}) Plex RSS Monitor`;
+    }
+    const progress = (d.pending || 0) + (d.sent_to_arr || 0);
+    const pBadge = document.getElementById('sidebar-badge-progress');
+    if (pBadge && progress > 0) {
+      pBadge.textContent = progress;
+      pBadge.style.display = '';
     }
   } catch(e) {}
 })();

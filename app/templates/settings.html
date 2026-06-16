@@ -1286,7 +1286,11 @@ async function loadConflicts() {
 }
 
 async function resolveConflict(keepId, deleteIds, btn) {
-  if (!confirm(`Garder l'entrée #${keepId} et fusionner ${deleteIds.length} doublon(s) ?`)) return;
+  if (!await confirmAction({
+    title: 'Fusionner les doublons',
+    body: `Garder l'entrée <strong>#${keepId}</strong> et fusionner <strong>${deleteIds.length}</strong> doublon(s) ?`,
+    okLabel: 'Fusionner',
+  })) return;
   btn.disabled = true;
   const r = await fetch('/api/conflicts/resolve', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1303,7 +1307,11 @@ async function resolveConflict(keepId, deleteIds, btn) {
 }
 
 async function autoResolveAll(btn) {
-  if (!confirm('Résoudre automatiquement tous les conflits tmdb ? (garde l\'entrée Seer dans chaque cas)')) return;
+  if (!await confirmAction({
+    title: 'Résolution automatique',
+    body: 'Résoudre automatiquement tous les conflits tmdb ?<br><span class="text-muted small">L\'entrée Seer est conservée dans chaque cas.</span>',
+    okLabel: 'Tout résoudre',
+  })) return;
   btn.disabled = true;
   const r = await fetch('/api/conflicts/auto-resolve', {method:'POST'});
   if (r.ok) {
@@ -1319,7 +1327,11 @@ async function autoResolveAll(btn) {
 
 async function deleteConflictEntry(type, id, btn) {
   const labels = {'no-tmdb': 'sans tmdb_id', 'orphan': 'orpheline'};
-  if (!confirm(`Supprimer cette demande ${labels[type]||''} ?`)) return;
+  if (!await confirmAction({
+    title: 'Supprimer l\'entrée',
+    body: `Supprimer cette demande ${labels[type]||''} ?`,
+    okLabel: 'Supprimer', danger: true,
+  })) return;
   btn.disabled = true;
   const url = type === 'no-tmdb' ? `/api/conflicts/no-tmdb/${id}` : `/api/conflicts/orphan/${id}`;
   const r = await fetch(url, {method:'DELETE'});

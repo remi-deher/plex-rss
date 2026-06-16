@@ -24,26 +24,36 @@
 </div>
 
 <!-- Sante des services -->
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h6 class="mb-0 text-muted"><i class="bi bi-heart-pulse me-2"></i>Santé des services</h6>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted small" id="health-updated"></span>
+    <button class="btn btn-sm btn-outline-secondary py-0 px-2" id="health-refresh"
+            onclick="loadHealth(true)" title="Actualiser maintenant" aria-label="Actualiser la santé des services">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+</div>
 <div class="row g-3 mb-4" id="health-row">
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-sonarr">
     <div class="fs-4 mb-1"><i class="bi bi-tv"></i></div>
     <div class="fw-bold">Sonarr</div>
-    <div class="health-badge mt-1"><span class="badge bg-secondary">Verification...</span></div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
   </div></div>
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-radarr">
     <div class="fs-4 mb-1"><i class="bi bi-camera-video"></i></div>
     <div class="fw-bold">Radarr</div>
-    <div class="health-badge mt-1"><span class="badge bg-secondary">Verification...</span></div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
   </div></div>
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-smtp">
     <div class="fs-4 mb-1"><i class="bi bi-envelope"></i></div>
     <div class="fw-bold">Email</div>
-    <div class="health-badge mt-1"><span class="badge bg-secondary">Verification...</span></div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
   </div></div>
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-rss">
     <div class="fs-4 mb-1"><i class="bi bi-rss"></i></div>
     <div class="fw-bold">Flux RSS</div>
-    <div class="health-badge mt-1"><span class="badge bg-secondary">Verification...</span></div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
   </div></div>
 </div>
 
@@ -52,7 +62,7 @@
   <div class="col-6 col-md-3">
     <a href="/requests" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#e5a00d'" onmouseout="this.style.borderColor=''">
-        <div class="display-6 fw-bold text-warning">{{ stats.total }}</div>
+        <div class="display-6 fw-bold text-warning count-up" data-target="{{ stats.total }}">{{ stats.total }}</div>
         <div class="text-muted small mt-1">Total demandes</div>
       </div>
     </a>
@@ -60,7 +70,7 @@
   <div class="col-6 col-md-3">
     <a href="/requests?status=sent_to_arr" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#0d6efd'" onmouseout="this.style.borderColor=''">
-        <div class="display-6 fw-bold text-primary">{{ stats.sent }}</div>
+        <div class="display-6 fw-bold text-primary count-up" data-target="{{ stats.sent }}">{{ stats.sent }}</div>
         <div class="text-muted small mt-1">Transmises</div>
       </div>
     </a>
@@ -68,7 +78,7 @@
   <div class="col-6 col-md-3">
     <a href="/requests?status=available" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#198754'" onmouseout="this.style.borderColor=''">
-        <div class="display-6 fw-bold text-success">{{ stats.available }}</div>
+        <div class="display-6 fw-bold text-success count-up" data-target="{{ stats.available }}">{{ stats.available }}</div>
         <div class="text-muted small mt-1">Disponibles</div>
       </div>
     </a>
@@ -76,7 +86,7 @@
   <div class="col-6 col-md-3">
     <a href="/requests?status=failed" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#dc3545'" onmouseout="this.style.borderColor=''">
-        <div class="display-6 fw-bold text-danger">{{ stats.failed }}</div>
+        <div class="display-6 fw-bold text-danger count-up" data-target="{{ stats.failed }}">{{ stats.failed }}</div>
         <div class="text-muted small mt-1">Échouées</div>
       </div>
     </a>
@@ -99,7 +109,7 @@
     <span class="text-muted small" id="activity-updated"></span>
   </div>
   <div id="activity-log" style="max-height:220px;overflow-y:auto">
-    <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+    <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
   </div>
 </div>
 
@@ -111,7 +121,7 @@
     <div class="card p-3 h-100">
       <h6 class="mb-3"><i class="bi bi-calendar-event me-2 text-info"></i>Prochaines sorties</h6>
       <div id="upcoming-list">
-        <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+        <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
       </div>
     </div>
   </div>
@@ -121,7 +131,7 @@
     <div class="card p-3 h-100">
       <h6 class="mb-3"><i class="bi bi-fire me-2 text-warning"></i>Les plus réclamés</h6>
       <div id="top-requested-list">
-        <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+        <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
       </div>
     </div>
   </div>
@@ -140,7 +150,7 @@
     <a href="/requests" class="btn btn-sm btn-outline-secondary">Tout voir</a>
   </div>
   <div id="stats-by-user">
-    <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+    <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
   </div>
 </div>
 
@@ -185,8 +195,12 @@
   </div>
   {% else %}
   <div class="col-12 text-center text-muted py-5">
-    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-    Aucune demande pour le moment.
+    <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+    <div class="mb-1">Aucune demande pour le moment.</div>
+    <div class="small mb-3">Les demandes apparaîtront ici dès qu'un utilisateur ajoutera un titre à sa watchlist Plex.</div>
+    <button class="btn btn-sm btn-outline-warning" onclick="triggerPoll(this)">
+      <i class="bi bi-arrow-clockwise me-1"></i>Vérifier les watchlists maintenant
+    </button>
   </div>
   {% endfor %}
 </div>
@@ -196,10 +210,15 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
-async function loadHealth() {
+let _healthCheckedAt = null;
+async function loadHealth(manual = false) {
+  const btn = document.getElementById('health-refresh');
+  if (manual && btn) { btn.disabled = true; btn.querySelector('i').classList.add('spin'); }
   try {
     const d = await fetch('/api/health').then(r => r.json());
     const services = d.services || d;
+    _healthCheckedAt = d.checked_at ? new Date(d.checked_at) : new Date();
+    refreshHealthAge();
     const map = { 'h-sonarr': services.sonarr, 'h-radarr': services.radarr, 'h-smtp': services.smtp, 'h-rss': services.rss };
     for (const [id, info] of Object.entries(map)) {
       const el = document.querySelector(`#${id} .health-badge`);
@@ -207,8 +226,10 @@ async function loadHealth() {
       if (info.ok === null) {
         el.innerHTML = `<span class="badge bg-secondary">Non configuré</span>`
           + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '');
+        card.style.borderColor = '';
       } else if (info.ok) {
-        el.innerHTML = `<span class="badge bg-success" title="${info.message}">OK</span>`;
+        el.innerHTML = `<span class="badge bg-success" title="${info.message}">OK</span>`
+          + (info.response_ms != null ? `<div class="text-muted mt-1" style="font-size:10px">${info.response_ms} ms</div>` : '');
         card.style.borderColor = '#198754';
       } else {
         el.innerHTML = `<span class="badge bg-danger">Erreur</span>`
@@ -216,7 +237,29 @@ async function loadHealth() {
         card.style.borderColor = '#dc3545';
       }
     }
-  } catch(e) {}
+  } catch(e) {
+  } finally {
+    if (manual && btn) { btn.disabled = false; btn.querySelector('i').classList.remove('spin'); }
+  }
+}
+
+function refreshHealthAge() {
+  const el = document.getElementById('health-updated');
+  if (el && _healthCheckedAt) el.textContent = 'Vérifié ' + formatRelTime(_healthCheckedAt);
+}
+
+// Anime un nombre de 0 vers sa valeur cible (≈600 ms, easing out).
+function countUp(el) {
+  const target = parseInt(el.dataset.target || el.textContent, 10);
+  if (!Number.isFinite(target) || target <= 0) return;
+  const dur = 600, start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    el.textContent = Math.round(target * (1 - Math.pow(1 - p, 3)));
+    if (p < 1) requestAnimationFrame(step);
+  };
+  el.textContent = '0';
+  requestAnimationFrame(step);
 }
 
 async function loadChart() {
@@ -430,10 +473,14 @@ loadUpcoming();
 loadTopRequested();
 checkNewAvailable();
 
+// Animation des compteurs de statut
+document.querySelectorAll('.count-up').forEach(countUp);
+
 // Vérifications réseau (santé des services + espace disque) : différées d'un tick
 // pour ne pas concurrencer le rendu initial sur une connexion lente.
 setTimeout(() => { loadHealth(); loadDiskSpace(); }, 50);
 setInterval(loadActivity, 60000);
 setInterval(loadHealth, 120000);
+setInterval(refreshHealthAge, 30000);  // garde « Vérifié il y a X » à jour
 </script>
 {% endblock %}

@@ -159,7 +159,11 @@ async function saveTemplates() {
 }
 
 async function resetTemplates() {
-  if (!confirm('Réinitialiser les deux templates et objets par défaut ?')) return;
+  if (!await confirmAction({
+    title: 'Réinitialiser les templates',
+    body: 'Réinitialiser les deux templates et objets par défaut ?',
+    okLabel: 'Réinitialiser', danger: true,
+  })) return;
   await fetch('/api/email-templates/reset', {method: 'POST'});
   showToast('Réinitialisé — rechargement...', 'success');
   setTimeout(() => location.reload(), 1000);

@@ -16,10 +16,10 @@
   </div>
   <div class="d-flex gap-2 align-items-center">
     <div class="btn-group btn-group-sm">
-      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille">
+      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille" aria-label="Affichage en grille">
         <i class="bi bi-grid-3x3-gap"></i>
       </button>
-      <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste">
+      <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste" aria-label="Affichage en liste">
         <i class="bi bi-list-ul"></i>
       </button>
     </div>
@@ -169,7 +169,13 @@
   </div>
   {% else %}
   <div class="col-12 text-center text-muted py-5">
-    <i class="bi bi-inbox fs-1 d-block mb-2"></i>Aucune demande
+    <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+    {% if active_search or active_status or active_type or active_source or active_user %}
+    <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
+    <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+    {% else %}
+    <div>Aucune demande pour le moment.</div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -342,8 +348,14 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-5">
-            <i class="bi bi-inbox d-block fs-1 mb-2"></i>Aucune demande
+          <tr><td colspan="13" class="text-center text-muted py-5">
+            <i class="bi bi-inbox d-block fs-1 mb-2 opacity-50"></i>
+            {% if active_search or active_status or active_type or active_source or active_user %}
+            <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
+            <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+            {% else %}
+            <div>Aucune demande pour le moment.</div>
+            {% endif %}
           </td></tr>
           {% endfor %}
         </tbody>
@@ -489,7 +501,11 @@ async function bulkRetry() {
 async function bulkMarkProcessed() {
   const ids = getSelectedIds();
   if (!ids.length) return;
-  if (!confirm(`Marquer les ${ids.length} demandes sélectionnées comme traitées / disponibles ? (Aucun email ne sera envoyé)`)) return;
+  if (!await confirmAction({
+    title: 'Marquer comme traité',
+    body: `Marquer les <strong>${ids.length}</strong> demande(s) sélectionnée(s) comme traitées / disponibles ?<br><span class="text-muted small">Aucun email ne sera envoyé.</span>`,
+    okLabel: 'Marquer traité',
+  })) return;
   try {
     const r = await fetch('/api/requests/bulk/mark-processed', {
       method: 'POST',
@@ -508,7 +524,11 @@ async function bulkMarkProcessed() {
 async function bulkDelete() {
   const ids = getSelectedIds();
   if (!ids.length) return;
-  if (!confirm(`Supprimer définitivement les ${ids.length} demandes sélectionnées ?`)) return;
+  if (!await confirmAction({
+    title: 'Supprimer les demandes',
+    body: `Supprimer définitivement les <strong>${ids.length}</strong> demande(s) sélectionnée(s) ?`,
+    okLabel: 'Supprimer', danger: true,
+  })) return;
   try {
     const r = await fetch('/api/requests/bulk/delete', {
       method: 'POST',
@@ -765,7 +785,11 @@ function renderDetail(d) {
 }
 
 async function deleteRequest(id) {
-  if (!confirm('Supprimer définitivement cette demande ?')) return;
+  if (!await confirmAction({
+    title: 'Supprimer la demande',
+    body: 'Supprimer définitivement cette demande ?',
+    okLabel: 'Supprimer', danger: true,
+  })) return;
   try {
     const r = await fetch(`/api/requests/${id}`, {method: 'DELETE'});
     if (!r.ok) throw new Error('Erreur');
@@ -794,7 +818,11 @@ async function markProcessedFromModal(id, btn, event) {
   const confirmMsg = event === 'request'
     ? 'Renvoyer le mail de demande pour cette demande ?'
     : 'Envoyer le mail de disponibilité et clôturer cette demande ?';
-  if (!confirm(confirmMsg)) return;
+  if (!await confirmAction({
+    title: event === 'request' ? 'Renvoyer le mail de demande' : 'Envoyer le mail de disponibilité',
+    body: confirmMsg,
+    okLabel: event === 'request' ? 'Renvoyer' : 'Envoyer et clôturer',
+  })) return;
   const originalHtml = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...';
@@ -855,5 +883,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Init
 setView(currentView);
+
+// Focus auto de la recherche si on arrive via le raccourci global (« / » depuis une autre page)
+if (location.hash === '#focus-search') {
+  const inp = document.getElementById('searchInput');
+  if (inp) { inp.focus(); inp.select(); }
+  history.replaceState(null, '', location.pathname + location.search);
+}
 </script>
 {% endblock %}
