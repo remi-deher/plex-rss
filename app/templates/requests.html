@@ -120,7 +120,7 @@
       {% endif %}
       <div class="position-absolute top-0 end-0 m-2" id="status-badge-{{ r.id }}">
         {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>
-        {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>
+        {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent" title="Transmis à {% if r.media_type == 'show' %}Sonarr{% else %}Radarr{% endif %}"><i class="bi bi-send-fill"></i></span>
         {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
         {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>{% endif %}
       </div>
@@ -268,7 +268,7 @@
             <td>
               <span class="status-badge">
               {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Dispo</span>
-              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>
+              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à {% if r.media_type == 'show' %}Sonarr{% else %}Radarr{% endif %}</span>
               {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>
               {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Attente</span>{% endif %}
               </span>
@@ -567,12 +567,19 @@ async function retryRequest(id, btn) {
   }
 }
 
-const STATUS_BADGE = {
-  available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>',
-  sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>',
-  failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>',
-  pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>',
-};
+function arrName(mediaType) {
+  return mediaType === 'show' ? 'Sonarr' : 'Radarr';
+}
+
+function statusIconBadge(s, mediaType) {
+  const map = {
+    available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>',
+    sent_to_arr: `<span class="badge badge-sent" title="Transmis à ${arrName(mediaType)}"><i class="bi bi-send-fill"></i></span>`,
+    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>',
+    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>',
+  };
+  return map[s] || '';
+}
 
 async function pollStatusUpdate(id, btn, attempts = 0) {
   if (attempts > 20) { location.reload(); return; }
@@ -583,9 +590,9 @@ async function pollStatusUpdate(id, btn, attempts = 0) {
     if (d.status !== 'pending') {
       // Mettre à jour le badge dans la grille et le tableau
       const badgeEl = document.getElementById(`status-badge-${id}`);
-      if (badgeEl) badgeEl.innerHTML = STATUS_BADGE[d.status] || '';
+      if (badgeEl) badgeEl.innerHTML = statusIconBadge(d.status, d.media_type);
       const rowBadge = document.querySelector(`tr[data-id="${id}"] .status-badge`);
-      if (rowBadge) rowBadge.outerHTML = statusBadge(d.status);
+      if (rowBadge) rowBadge.outerHTML = statusBadge(d.status, d.media_type);
       // Masquer le bouton retry si ce n'est plus failed/pending
       if (d.status !== 'failed' && d.status !== 'pending') {
         btn.closest('[id^=retry-btn]')?.remove();
@@ -595,7 +602,7 @@ async function pollStatusUpdate(id, btn, attempts = 0) {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
       }
-      const label = {available:'Disponible !', sent_to_arr:'Envoyé à *arr', failed:'Échec'};
+      const label = {available:'Disponible !', sent_to_arr:`Transmis à ${arrName(d.media_type)}`, failed:'Échec'};
       showToast(label[d.status] || d.status, d.status === 'failed' ? 'danger' : 'success');
     } else {
       pollStatusUpdate(id, btn, attempts + 1);
@@ -622,10 +629,10 @@ async function openDetail(id) {
   }
 }
 
-function statusBadge(s) {
+function statusBadge(s, mediaType) {
   const map = {
     available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
-    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>',
+    sent_to_arr: `<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à ${arrName(mediaType)}</span>`,
     failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
     pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>En attente</span>',
   };
@@ -669,7 +676,7 @@ function renderDetail(d) {
       <div class="col">
         <div class="mb-2">
           <span class="badge bg-${typeColor} me-1">${typeLabel}</span>
-          ${statusBadge(d.status)}
+          ${statusBadge(d.status, d.media_type)}
           <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
         </div>
         <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
