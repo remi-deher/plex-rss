@@ -74,14 +74,18 @@ DEFAULT_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
-def _build_context(request: MediaRequest) -> dict:
-    """Construit le contexte Jinja2 commun à tous les templates email."""
+def _build_context(request: MediaRequest, display_name: str | None = None) -> dict:
+    """Construit le contexte Jinja2 commun à tous les templates email.
+
+    display_name (custom_name du PlexUser) prend le pas sur request.plex_user
+    si fourni, pour rester cohérent avec l'aperçu (Settings → Templates email).
+    """
     is_show = request.media_type == "show"
     return {
         "title": request.title or "",
         "year": request.year,
         "poster_url": request.poster_url or "",
-        "plex_user": request.plex_user or request.plex_user_id or "",
+        "plex_user": display_name or request.plex_user or request.plex_user_id or "",
         "media_type": request.media_type,
         "media_type_label": "Série" if is_show else "Film",
         "media_type_label_cap": "La série" if is_show else "Le film",
@@ -103,21 +107,35 @@ def render_template(template_str: str, context: dict) -> str:
         return f"<p>Erreur de template : {e}</p>"
 
 
-async def send_request_notification(settings: Settings, request: MediaRequest, recipient: str):
+async def send_request_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
     """Envoie l'email de confirmation de demande."""
-    ctx = _build_context(request)
-    template = settings.email_request_template or DEFAULT_REQUEST_TEMPLATE
+    ctx = _build_context(request, display_name)
+    template = settings.email_request_template if isinstance(settings.email_request_template, str) else None
+    template = template or DEFAULT_REQUEST_TEMPLATE
     html = render_template(template, ctx)
-    subject = f"[Plex] Nouvelle demande : {request.title}"
+    subject_tmpl = settings.email_request_subject if isinstance(settings.email_request_subject, str) else None
+    subject_tmpl = subject_tmpl or "[Plex] Nouvelle demande : {{ title }}"
+    subject = render_template(subject_tmpl, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plex] Nouvelle demande : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
-async def send_available_notification(settings: Settings, request: MediaRequest, recipient: str):
+async def send_available_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
     """Envoie l'email de notification de disponibilité."""
-    ctx = _build_context(request)
-    template = settings.email_available_template or DEFAULT_AVAILABLE_TEMPLATE
+    ctx = _build_context(request, display_name)
+    template = settings.email_available_template if isinstance(settings.email_available_template, str) else None
+    template = template or DEFAULT_AVAILABLE_TEMPLATE
     html = render_template(template, ctx)
-    subject = f"[Plex] Disponible : {request.title}"
+    subject_tmpl = settings.email_available_subject if isinstance(settings.email_available_subject, str) else None
+    subject_tmpl = subject_tmpl or "[Plex] Disponible : {{ title }}"
+    subject = render_template(subject_tmpl, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plex] Disponible : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
@@ -154,9 +172,11 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
         raise
 
 
-async def send_failure_notification(settings: Settings, request: MediaRequest, recipient: str, reason: str = ""):
+async def send_failure_notification(
+    settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None
+):
     """Envoie l'email d'échec de transmission. Template inline (cas rare, pas de custom template)."""
-    ctx = _build_context(request)
+    ctx = _build_context(request, display_name)
     ctx["reason"] = reason or "Erreur inconnue"
     html = f"""<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">

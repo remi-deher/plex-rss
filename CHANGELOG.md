@@ -16,6 +16,7 @@
 - naive datetime for activity_log cutoff (500 on /api/activity) ([500e08d](https://github.com/remi-deher/plex-rss/commit/500e08d61a1879f8c8def887612836381ec2f5cc))
 - restore bouton Sync Seer sur la page utilisateurs ([a73690f](https://github.com/remi-deher/plex-rss/commit/a73690f5af9f92a9d2b256e6bc80270ebd0e34ac))
 - badge Hybride si seer_user_id lie, meme sans seer_active ([97ef6c0](https://github.com/remi-deher/plex-rss/commit/97ef6c018e4430566255e80be37057542871054e))
+- badges Hybride/Seer/RSS corrects + boutons sync statuts dans parametres ([bc5c76b](https://github.com/remi-deher/plex-rss/commit/bc5c76b5af3fc721da35a82689c824fcaacd7811))
 
 ### 📖 Documentation
 
@@ -28,6 +29,7 @@
 - update CHANGELOG.md for v2.0.0 ([8f21a7e](https://github.com/remi-deher/plex-rss/commit/8f21a7e79d201819ee3c783956475672ec931972))
 - update CHANGELOG.md for v2.0.0 ([42fd37b](https://github.com/remi-deher/plex-rss/commit/42fd37b5263b2360b36771c727d8dcdd55255f74))
 - update CHANGELOG.md for v2.0.0 ([8f89f06](https://github.com/remi-deher/plex-rss/commit/8f89f06f2eab1fa6cbe46ba6ae3e5276da01c75b))
+- update CHANGELOG.md for v2.0.0 ([da68c81](https://github.com/remi-deher/plex-rss/commit/da68c81717e5bf3b4b47be8ea4aa9ba955b065a3))
 
 ### 🔧 Maintenance
 

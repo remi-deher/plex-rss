@@ -12,14 +12,14 @@
       <a href="/requests{% if active_search %}?search={{ active_search }}{% endif %}" class="btn btn-sm btn-outline-secondary ms-2" title="Effacer filtre utilisateur"><i class="bi bi-x"></i></a>
       {% endif %}
     </h2>
-    <div class="text-muted small mt-1">{{ total }} demande{% if total > 1 %}s{% endif %}{% if active_search %} pour « {{ active_search }} »{% endif %}</div>
+    <div class="text-muted small mt-1" id="header-count">{{ total }} demande{% if total > 1 %}s{% endif %}{% if active_search %} pour « {{ active_search }} »{% endif %}</div>
   </div>
   <div class="d-flex gap-2 align-items-center">
     <div class="btn-group btn-group-sm">
-      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille">
+      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setView('grid')" title="Vue grille" aria-label="Affichage en grille">
         <i class="bi bi-grid-3x3-gap"></i>
       </button>
-      <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste">
+      <button class="btn btn-outline-secondary" id="btn-list" onclick="setView('list')" title="Vue liste" aria-label="Affichage en liste">
         <i class="bi bi-list-ul"></i>
       </button>
     </div>
@@ -28,7 +28,7 @@
 
 <!-- Compteurs récapitulatifs statuts -->
 {% if status_counts %}
-<div class="d-flex flex-wrap gap-2 mb-3">
+<div class="d-flex flex-wrap gap-2 mb-3" id="status-counts-bar">
   {% if status_counts.failed %}
   <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=failed&page=1" class="text-decoration-none">
     <span class="badge badge-failed py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} échouée{% if status_counts.failed > 1 %}s{% endif %}</span>
@@ -36,12 +36,12 @@
   {% endif %}
   {% if status_counts.pending %}
   <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=pending&page=1" class="text-decoration-none">
-    <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} en attente</span>
+    <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} reçue{% if status_counts.pending > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.sent_to_arr %}
   <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=sent_to_arr&page=1" class="text-decoration-none">
-    <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} envoyée{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
+    <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmise{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.available %}
@@ -54,8 +54,10 @@
 
 <!-- Barre de filtres -->
 <form id="search-form" method="get" action="/requests" class="row g-2 mb-3">
-  {% if active_user %}<input type="hidden" name="user" value="{{ active_user }}">{% endif %}
   <input type="hidden" name="page" value="1">
+  <input type="hidden" name="per_page" value="{{ per_page }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="order" value="{{ order }}">
   <div class="col-12 col-md-4">
     <div class="input-group input-group-sm">
       <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
@@ -63,12 +65,12 @@
              id="searchInput" name="search" placeholder="Rechercher un titre…"
              value="{{ active_search }}" oninput="debounceSearch()">
       {% if active_search %}
-      <a href="/requests?{% if active_user %}user={{ active_user }}&{% endif %}page=1" class="btn btn-outline-secondary" title="Effacer la recherche"><i class="bi bi-x"></i></a>
+      <a href="/requests?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="btn btn-outline-secondary" title="Effacer la recherche"><i class="bi bi-x"></i></a>
       {% endif %}
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <select class="form-select form-select-sm" id="filterUser" onchange="applyUserFilter()">
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" id="filterUser" name="user" onchange="applyUserFilter()">
       <option value="">Tous les utilisateurs</option>
       {% for u in all_users %}
       <option value="{{ u.plex_user_id }}" {% if active_user == u.plex_user_id %}selected{% endif %}>
@@ -77,40 +79,84 @@
       {% endfor %}
     </select>
   </div>
-  <div class="col-6 col-md-3">
-    <select class="form-select form-select-sm" id="filterStatus" onchange="filterItems()">
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" id="filterStatus" name="status" onchange="filterItems()">
       <option value="">Tous les statuts</option>
-      <option value="pending">En attente</option>
-      <option value="sent_to_arr">Envoyées</option>
-      <option value="available">Disponibles</option>
-      <option value="failed">Échouées</option>
+      <option value="pending" {% if active_status == 'pending' %}selected{% endif %}>Reçues</option>
+      <option value="sent_to_arr" {% if active_status == 'sent_to_arr' %}selected{% endif %}>Transmises</option>
+      <option value="available" {% if active_status == 'available' %}selected{% endif %}>Disponibles</option>
+      <option value="failed" {% if active_status == 'failed' %}selected{% endif %}>Échouées</option>
     </select>
   </div>
   <div class="col-6 col-md-2">
-    <select class="form-select form-select-sm" id="filterType" onchange="filterItems()">
+    <select class="form-select form-select-sm" id="filterType" name="type" onchange="filterItems()">
       <option value="">Tous types</option>
-      <option value="movie">Films</option>
-      <option value="show">Séries</option>
+      <option value="movie" {% if active_type == 'movie' %}selected{% endif %}>Films</option>
+      <option value="show" {% if active_type == 'show' %}selected{% endif %}>Séries</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" id="filterSource" name="source" onchange="filterItems()">
+      <option value="">Toutes sources</option>
+      {% for s in sources %}
+      <option value="{{ s }}" {% if active_source == s %}selected{% endif %}>{{ s | upper }}</option>
+      {% endfor %}
     </select>
   </div>
 </form>
 
+<!-- Chips filtres actifs (D) -->
+{% set has_filters = active_search or active_user or active_status or active_type or active_source %}
+{% if has_filters %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center" id="filter-chips">
+  <span class="text-muted small me-1">Filtres :</span>
+  {% if active_search %}
+  <a href="/requests?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-search me-1"></i>{{ active_search }}<i class="bi bi-x ms-1"></i></a>
+  {% endif %}
+  {% if active_user %}
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-person me-1"></i>{{ users_map.get(active_user, active_user) }}<i class="bi bi-x ms-1"></i></a>
+  {% endif %}
+  {% if active_status %}
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-circle-fill me-1" style="font-size:8px"></i>{{ {'pending':'Reçues','sent_to_arr':'Transmises','available':'Disponibles','failed':'Échouées'}.get(active_status, active_status) }}<i class="bi bi-x ms-1"></i></a>
+  {% endif %}
+  {% if active_type %}
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-{% if active_type == 'show' %}tv{% else %}camera-video{% endif %} me-1"></i>{{ 'Séries' if active_type == 'show' else 'Films' }}<i class="bi bi-x ms-1"></i></a>
+  {% endif %}
+  {% if active_source %}
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-rss me-1"></i>{{ active_source | upper }}<i class="bi bi-x ms-1"></i></a>
+  {% endif %}
+  <a href="/requests" class="text-muted small ms-1 text-decoration-none"><i class="bi bi-x-circle me-1"></i>Tout effacer</a>
+</div>
+{% endif %}
+
+<!-- Barre d'actions groupées (vue grille ET liste) -->
+<div id="bulk-actions-bar" class="bg-dark border border-secondary rounded p-2 mb-3 align-items-center gap-2" style="display: none !important;">
+  <span class="text-white small ms-2"><strong id="bulk-select-count">0</strong> sélectionné(s)</span>
+  <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkRetry()"><i class="bi bi-arrow-clockwise me-1"></i>Réessayer</button>
+  <button type="button" class="btn btn-sm btn-outline-success" onclick="bulkMarkProcessed()"><i class="bi bi-check-all me-1"></i>Marquer traité (sans email)</button>
+  <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="bulkDelete()"><i class="bi bi-trash me-1"></i>Supprimer</button>
+</div>
+
 <!-- Vue grille (cards) -->
 <div id="view-grid" class="row g-3" style="display:none!important">
   {% for r in requests %}
-  <div class="col-6 col-md-4 col-lg-3 request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}">
+  <div class="col-6 col-md-4 col-lg-3 request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}" data-id="{{ r.id }}">
     <div class="card position-relative overflow-hidden request-card" role="button" onclick="openDetail({{ r.id }})" style="cursor:pointer;height:240px">
       {% if r.poster_url %}
       <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.1) 0%,rgba(20,20,20,.93) 55%)"></div>
       {% else %}
-      <div style="position:absolute;inset:0;background:#1f1f1f;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;inset:0;background:var(--pr-surface);display:flex;align-items:center;justify-content:center">
         <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:3rem;opacity:.2"></i>
       </div>
       {% endif %}
+      <!-- Checkbox grille (G) -->
+      <div class="position-absolute grid-check-wrap" style="top:6px;left:6px;z-index:10" onclick="event.stopPropagation()">
+        <input type="checkbox" class="row-checkbox form-check-input" value="{{ r.id }}" onclick="updateBulkBar()" style="width:18px;height:18px;cursor:pointer;opacity:0;transition:opacity .15s" data-grid-check>
+      </div>
       <div class="position-absolute top-0 end-0 m-2" id="status-badge-{{ r.id }}">
         {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>
-        {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>
+        {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent" title="Transmis à {% if r.media_type == 'show' %}Sonarr{% else %}Radarr{% endif %}"><i class="bi bi-send-fill"></i></span>
         {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
         {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>{% endif %}
       </div>
@@ -128,7 +174,7 @@
             <div class="text-white-50" style="font-size:11px">
               <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
               {% for co in r.extra_requesters | fromjson %}
-              <span class="opacity-75">, {{ co.display_name }}</span>
+              <span class="opacity-75">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
             </div>
           </div>
@@ -159,7 +205,13 @@
   </div>
   {% else %}
   <div class="col-12 text-center text-muted py-5">
-    <i class="bi bi-inbox fs-1 d-block mb-2"></i>Aucune demande
+    <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+    {% if active_search or active_status or active_type or active_source or active_user %}
+    <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
+    <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+    {% else %}
+    <div>Aucune demande pour le moment.</div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -170,8 +222,9 @@
     <div class="table-responsive">
       <table class="table table-dark table-hover mb-0" id="requests-table">
         <thead><tr>
+          <th style="width:36px;text-align:center;"><input type="checkbox" id="selectAll" class="form-check-input" onclick="toggleSelectAll(this)"></th>
           <th style="width:56px">Poster</th>
-          {% set sq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}page=1&per_page={{ per_page }}{% endset %}
+          {% set sq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1&per_page={{ per_page }}{% endset %}
           <th>{% set ns='title' %}{% set no='asc' if sort=='title' and order=='desc' else 'desc' %}
             <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Titre {% if sort=='title' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
@@ -190,7 +243,11 @@
           <th class="d-none d-lg-table-cell text-center">✉ dispo</th>
           <th class="d-none d-md-table-cell">{% set ns='date' %}{% set no='asc' if sort=='date' and order=='desc' else 'desc' %}
             <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
-              Date {% if sort=='date' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
+              Demande {% if sort=='date' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
+            </a></th>
+          <th class="d-none d-md-table-cell">{% set ns='available_date' %}{% set no='asc' if sort=='available_date' and order=='desc' else 'desc' %}
+            <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
+              Dispo {% if sort=='available_date' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
             </a></th>
           <th></th>
         </tr></thead>
@@ -198,12 +255,15 @@
           {% for r in requests %}
           <tr class="request-item" data-status="{{ r.status }}" data-type="{{ r.media_type }}" data-title="{{ r.title | lower }}" data-id="{{ r.id }}"
               role="button" onclick="openDetail({{ r.id }})" style="cursor:pointer">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <input type="checkbox" class="row-checkbox form-check-input" value="{{ r.id }}" onclick="updateBulkBar()">
+            </td>
             <td>
               {% if r.poster_url %}
               <img src="{{ r.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px"
                    onerror="this.style.display='none'">
               {% else %}
-              <div style="width:40px;height:60px;background:#2a2a2a;border-radius:4px;display:flex;align-items:center;justify-content:center">
+              <div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px;display:flex;align-items:center;justify-content:center">
                 <i class="bi bi-image text-muted" style="font-size:10px"></i>
               </div>
               {% endif %}
@@ -211,7 +271,21 @@
             <td>
               <strong>{{ r.title }}</strong>
               {% if r.year %}<span class="text-muted"> ({{ r.year }})</span>{% endif %}
-              {% if r.overview %}<div class="text-muted small d-none d-lg-block" style="max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.overview }}</div>{% endif %}
+              
+              <span class="ms-2 text-nowrap">
+                {% if r.tmdb_id %}
+                <a href="https://www.themoviedb.org/{% if r.media_type == 'show' %}tv{% else %}movie{% endif %}/{{ r.tmdb_id }}" target="_blank" rel="noopener" class="text-muted hover-white small me-1" title="Voir sur TMDB" onclick="event.stopPropagation()"><i class="bi bi-film"></i></a>
+                {% endif %}
+                {% if r.imdb_id %}
+                <a href="https://www.imdb.com/title/{{ r.imdb_id }}" target="_blank" rel="noopener" class="text-muted hover-white small" title="Voir sur IMDb" onclick="event.stopPropagation()"><i class="bi bi-info-circle"></i></a>
+                {% endif %}
+              </span>
+
+              {% if r.status == 'failed' and r.overview and '[ERREUR]' in r.overview %}
+                <div class="text-danger small mt-1"><i class="bi bi-exclamation-triangle me-1"></i>{{ r.overview.split('[ERREUR]').pop().trim() }}</div>
+              {% elif r.overview %}
+                <div class="text-muted small d-none d-lg-block text-truncate" style="max-width:280px;" title="{{ r.overview }}">{{ r.overview }}</div>
+              {% endif %}
             </td>
             <td class="d-none d-md-table-cell">
               {% if r.media_type == 'show' %}
@@ -223,15 +297,15 @@
             <td>
               {{ users_map.get(r.plex_user_id, r.plex_user_id) }}
               {% for co in r.extra_requesters | fromjson %}
-              <span class="text-muted">, {{ co.display_name }}</span>
+              <span class="text-muted">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
             </td>
             <td>
               <span class="status-badge">
               {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Dispo</span>
-              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>
+              {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à {% if r.media_type == 'show' %}Sonarr{% else %}Radarr{% endif %}</span>
               {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>
-              {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Attente</span>{% endif %}
+              {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>{% endif %}
               </span>
             </td>
             <td class="d-none d-lg-table-cell" onclick="event.stopPropagation()">
@@ -269,13 +343,30 @@
               {% endif %}
             </td>
             <td class="d-none d-lg-table-cell text-center">
-              {% if r.request_mail_sent %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-x-circle text-muted"></i>{% endif %}
+              {% set _u = users_obj_map.get(r.plex_user_id) %}
+              {% if r.request_mail_sent and (_u is none or _u.notify_on_request is not false) %}
+                <i class="bi bi-check-circle-fill text-success" title="Email envoyé"></i>
+              {% elif _u and _u.notify_on_request is false %}
+                <i class="bi bi-bell-slash text-secondary" title="Notifications désactivées"></i>
+              {% else %}
+                <i class="bi bi-x-circle text-warning" title="Email non encore envoyé"></i>
+              {% endif %}
             </td>
             <td class="d-none d-lg-table-cell text-center">
-              {% if r.available_mail_sent %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-x-circle text-muted"></i>{% endif %}
+              {% set _u = users_obj_map.get(r.plex_user_id) %}
+              {% if r.available_mail_sent and (_u is none or _u.notify_on_available is not false) %}
+                <i class="bi bi-check-circle-fill text-success" title="Email envoyé"></i>
+              {% elif _u and _u.notify_on_available is false %}
+                <i class="bi bi-bell-slash text-secondary" title="Notifications désactivées"></i>
+              {% else %}
+                <i class="bi bi-x-circle text-muted" title="En attente de disponibilité"></i>
+              {% endif %}
             </td>
             <td class="d-none d-md-table-cell text-muted small">
-              {{ r.requested_at.strftime('%d/%m/%Y %H:%M') if r.requested_at else '' }}
+              <span class="local-date" data-utc="{{ r.requested_at.isoformat() if r.requested_at else '' }}">{{ r.requested_at.strftime('%d/%m/%Y %H:%M') if r.requested_at else '' }}</span>
+            </td>
+            <td class="d-none d-md-table-cell text-muted small">
+              <span class="local-date" data-utc="{{ r.available_at.isoformat() if r.available_at else '' }}">{{ r.available_at.strftime('%d/%m/%Y %H:%M') if r.available_at else '—' }}</span>
             </td>
             <td onclick="event.stopPropagation()">
               {% if r.status in ('failed', 'pending') %}
@@ -286,8 +377,14 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-muted py-5">
-            <i class="bi bi-inbox d-block fs-1 mb-2"></i>Aucune demande
+          <tr><td colspan="13" class="text-center text-muted py-5">
+            <i class="bi bi-inbox d-block fs-1 mb-2 opacity-50"></i>
+            {% if active_search or active_status or active_type or active_source or active_user %}
+            <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
+            <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+            {% else %}
+            <div>Aucune demande pour le moment.</div>
+            {% endif %}
           </td></tr>
           {% endfor %}
         </tbody>
@@ -299,9 +396,15 @@
 <!-- État vide filtres -->
 <div id="empty-state" class="text-center text-muted py-5" style="display:none"></div>
 
+<!-- Indicateur chargement AJAX (B) -->
+<div id="content-loading" style="display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;background:rgba(0,0,0,.35)">
+  <span class="spinner-border text-warning" style="width:3rem;height:3rem"></span>
+</div>
+
 <!-- Pagination -->
+<div id="pagination-container">
 {% if total_pages > 1 %}
-{% set pq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}per_page={{ per_page }}{% endset %}
+{% set pq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}{% if sort %}sort={{ sort }}&{% endif %}{% if order %}order={{ order }}&{% endif %}per_page={{ per_page }}{% endset %}
 <nav class="mt-3">
   <ul class="pagination pagination-sm justify-content-center flex-wrap gap-1 mb-0">
     <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
@@ -323,7 +426,7 @@
   <div class="text-center text-muted small mt-2">
     Page {{ current_page }} / {{ total_pages }} — {{ total }} demande{% if total > 1 %}s{% endif %}
     <select class="form-select form-select-sm d-inline-block ms-2" style="width:auto"
-            onchange="window.location='?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}page=1&per_page='+this.value">
+            onchange="changePerPage(this.value)">
       {% for n in [25, 50, 100] %}
       <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }} / page</option>
       {% endfor %}
@@ -331,6 +434,7 @@
   </div>
 </nav>
 {% endif %}
+</div><!-- /pagination-container -->
 
 <!-- Modal détail -->
 <div class="modal fade" id="detailModal" tabindex="-1">
@@ -353,6 +457,7 @@
 
 {% block scripts %}
 <script>
+// ── Vue ──────────────────────────────────────────────────────────────────────
 const PREF_KEY = 'requests_view';
 let currentView = localStorage.getItem(PREF_KEY) || 'list';
 
@@ -363,58 +468,357 @@ function setView(v) {
   document.getElementById('view-list').style.display = v === 'list' ? '' : 'none';
   document.getElementById('btn-grid').classList.toggle('active', v === 'grid');
   document.getElementById('btn-list').classList.toggle('active', v === 'list');
+  // Afficher les checkboxes grille si des items sont sélectionnés
+  syncGridCheckVisibility();
 }
 
-function filterItems() {
-  const status = document.getElementById('filterStatus').value;
-  const type = document.getElementById('filterType').value;
-  const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-  let visible = 0;
-  document.querySelectorAll('.request-item').forEach(el => {
-    const matchStatus = !status || el.dataset.status === status;
-    const matchType = !type || el.dataset.type === type;
-    const matchSearch = !search || el.dataset.title.includes(search);
-    const show = matchStatus && matchType && matchSearch;
-    el.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-  // Message état vide intelligent
-  const emptyEl = document.getElementById('empty-state');
-  if (emptyEl) {
-    if (visible === 0) {
-      const statusLabels = {failed:'échouées', pending:'en attente', sent_to_arr:'envoyées', available:'disponibles'};
-      const typeLabels = {movie:'films', show:'séries'};
-      let msg = 'Aucune demande';
-      if (status) msg += ' ' + (statusLabels[status] || status);
-      if (type) msg += ' (' + (typeLabels[type] || type) + ')';
-      if (search) msg += ` correspondant à "<strong>${search}</strong>"`;
-      emptyEl.innerHTML = `<i class="bi bi-funnel d-block fs-1 mb-2 text-muted"></i>${msg}`;
-      emptyEl.style.display = '';
-    } else {
-      emptyEl.style.display = 'none';
+// ── Filtres AJAX (B) ──────────────────────────────────────────────────────────
+const _domParser = new DOMParser();
+let _filterCtrl = null;
+
+async function applyFiltersAjax() {
+  const form = document.getElementById('search-form');
+  const params = new URLSearchParams(new FormData(form));
+  const url = '/requests?' + params.toString();
+
+  // Annuler requête précédente si encore en vol
+  if (_filterCtrl) _filterCtrl.abort();
+  _filterCtrl = new AbortController();
+
+  history.pushState({}, '', url);
+
+  const overlay = document.getElementById('content-loading');
+  if (overlay) overlay.style.display = 'flex';
+
+  try {
+    const resp = await fetch(url, { signal: _filterCtrl.signal });
+    const html = await resp.text();
+    const doc = _domParser.parseFromString(html, 'text/html');
+
+    // Compteur en-tête
+    const hc = doc.getElementById('header-count');
+    const hcEl = document.getElementById('header-count');
+    if (hc && hcEl) hcEl.innerHTML = hc.innerHTML;
+
+    // Badges statuts
+    const scb = doc.getElementById('status-counts-bar');
+    const scbEl = document.getElementById('status-counts-bar');
+    if (scb) {
+      if (scbEl) scbEl.outerHTML = scb.outerHTML;
+    } else if (scbEl) {
+      scbEl.remove();
     }
+
+    // Chips de filtres
+    const chips = doc.getElementById('filter-chips');
+    const chipsEl = document.getElementById('filter-chips');
+    if (chips) {
+      if (chipsEl) chipsEl.outerHTML = chips.outerHTML;
+      else document.getElementById('bulk-actions-bar').insertAdjacentHTML('beforebegin', chips.outerHTML);
+    } else if (chipsEl) {
+      chipsEl.remove();
+    }
+
+    // Grille
+    const grid = doc.getElementById('view-grid');
+    const gridEl = document.getElementById('view-grid');
+    if (grid && gridEl) gridEl.innerHTML = grid.innerHTML;
+
+    // Liste
+    const list = doc.getElementById('view-list');
+    const listEl = document.getElementById('view-list');
+    if (list && listEl) listEl.innerHTML = list.innerHTML;
+
+    // Pagination
+    const pag = doc.getElementById('pagination-container');
+    const pagEl = document.getElementById('pagination-container');
+    if (pag && pagEl) pagEl.innerHTML = pag.innerHTML;
+
+    initAfterUpdate();
+
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('Erreur de chargement : ' + e.message, 'danger');
+  } finally {
+    if (overlay) overlay.style.display = 'none';
+    _filterCtrl = null;
   }
 }
 
-function applyUserFilter() {
-  const uid = document.getElementById('filterUser').value;
-  const url = new URL(window.location.href);
-  uid ? url.searchParams.set('user', uid) : url.searchParams.delete('user');
-  url.searchParams.set('page', '1');
-  const search = document.getElementById('searchInput').value.trim();
-  search ? url.searchParams.set('search', search) : url.searchParams.delete('search');
-  window.location.href = url.toString();
+function filterItems() { document.getElementById('search-form').querySelector('[name="page"]').value = '1'; applyFiltersAjax(); }
+function applyUserFilter() { document.getElementById('search-form').querySelector('[name="page"]').value = '1'; applyFiltersAjax(); }
+function changePerPage(val) {
+  const form = document.getElementById('search-form');
+  form.querySelector('[name="per_page"]').value = val;
+  form.querySelector('[name="page"]').value = '1';
+  applyFiltersAjax();
 }
 
 let _searchTimer = null;
 function debounceSearch() {
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(() => {
-    document.getElementById('search-form').submit();
+    document.getElementById('search-form').querySelector('[name="page"]').value = '1';
+    applyFiltersAjax();
   }, 400);
 }
 
-// Retry inline (sans reload)
+// Interception clics pagination et tri colonnes (B + E)
+document.addEventListener('click', e => {
+  // Pagination
+  const pageLink = e.target.closest('#pagination-container .page-link');
+  if (pageLink && !pageLink.closest('.disabled') && !pageLink.closest('.active')) {
+    e.preventDefault();
+    const p = new URL(pageLink.href, location.origin).searchParams;
+    const form = document.getElementById('search-form');
+    form.querySelector('[name="page"]').value = p.get('page') || '1';
+    if (p.get('per_page')) form.querySelector('[name="per_page"]').value = p.get('per_page');
+    applyFiltersAjax();
+    return;
+  }
+  // Tri colonnes dans le tableau
+  const sortLink = e.target.closest('#view-list thead a[href]');
+  if (sortLink) {
+    e.preventDefault();
+    const p = new URL(sortLink.href, location.origin).searchParams;
+    const form = document.getElementById('search-form');
+    if (p.get('sort')) form.querySelector('[name="sort"]').value = p.get('sort');
+    if (p.get('order')) form.querySelector('[name="order"]').value = p.get('order');
+    form.querySelector('[name="page"]').value = '1';
+    applyFiltersAjax();
+    return;
+  }
+});
+
+// Bouton retour navigateur
+window.addEventListener('popstate', () => {
+  const p = new URLSearchParams(location.search);
+  const form = document.getElementById('search-form');
+  const si = document.getElementById('searchInput');
+  if (si) si.value = p.get('search') || '';
+  form.querySelector('[name="page"]').value = p.get('page') || '1';
+  form.querySelector('[name="per_page"]').value = p.get('per_page') || '50';
+  form.querySelector('[name="sort"]').value = p.get('sort') || 'date';
+  form.querySelector('[name="order"]').value = p.get('order') || 'desc';
+  document.getElementById('filterStatus').value = p.get('status') || '';
+  document.getElementById('filterType').value = p.get('type') || '';
+  document.getElementById('filterSource').value = p.get('source') || '';
+  document.getElementById('filterUser').value = p.get('user') || '';
+  applyFiltersAjax();
+});
+
+// ── Sélection (liste + grille) (G) ────────────────────────────────────────────
+function syncGridCheckVisibility() {
+  const anyChecked = document.querySelectorAll('.row-checkbox:checked').length > 0;
+  document.querySelectorAll('[data-grid-check]').forEach(cb => {
+    cb.style.opacity = (anyChecked || cb.closest('.request-item')?.matches(':hover')) ? '1' : '0';
+  });
+}
+
+// Montrer checkbox au survol de la carte grille
+document.addEventListener('mouseover', e => {
+  const card = e.target.closest('.request-item[data-id]');
+  if (card && currentView === 'grid') {
+    const cb = card.querySelector('[data-grid-check]');
+    if (cb) cb.style.opacity = '1';
+  }
+});
+document.addEventListener('mouseout', e => {
+  const card = e.target.closest('.request-item[data-id]');
+  if (card && currentView === 'grid') {
+    const cb = card.querySelector('[data-grid-check]');
+    if (cb && !cb.checked && !document.querySelectorAll('.row-checkbox:checked').length) {
+      cb.style.opacity = '0';
+    }
+  }
+});
+
+function toggleSelectAll(master) {
+  document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = master.checked);
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const allCbs = document.querySelectorAll('.row-checkbox');
+  const checked = document.querySelectorAll('.row-checkbox:checked');
+  const count = checked.length;
+  const bar = document.getElementById('bulk-actions-bar');
+  const countEl = document.getElementById('bulk-select-count');
+  if (countEl) countEl.textContent = count;
+  if (bar) bar.style.setProperty('display', count > 0 ? 'flex' : 'none', 'important');
+  const selectAll = document.getElementById('selectAll');
+  if (selectAll) selectAll.checked = count > 0 && count === allCbs.length;
+  syncGridCheckVisibility();
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => parseInt(cb.value));
+}
+
+// ── Undo toast (F) ────────────────────────────────────────────────────────────
+function showUndoToast(msg, onUndo, duration = 5000) {
+  const tc = document.getElementById('toast-container');
+  const div = document.createElement('div');
+  div.className = 'toast border-0 show d-flex align-items-center';
+  div.style.cssText = 'background:var(--pr-surface-2);min-width:260px;color:var(--bs-body-color)';
+  div.innerHTML = `<div class="toast-body d-flex align-items-center gap-3 flex-grow-1">
+    <i class="bi bi-trash text-muted"></i>
+    <span class="flex-grow-1">${msg}</span>
+    <button class="btn btn-sm btn-outline-warning flex-shrink-0">Annuler</button>
+  </div>
+  <button type="button" class="btn-close btn-close-white me-2 m-auto"></button>`;
+  let undone = false;
+  div.querySelector('.btn-outline-warning').onclick = () => { undone = true; div.remove(); onUndo(); };
+  div.querySelector('.btn-close').onclick = () => div.remove();
+  tc.appendChild(div);
+  const t = setTimeout(() => { if (!undone) div.remove(); }, duration);
+  return () => { clearTimeout(t); div.remove(); return undone; };
+}
+
+// ── Suppression avec undo (A + F) ─────────────────────────────────────────────
+function _getItemEls(id) {
+  return [
+    document.querySelector(`tr[data-id="${id}"]`),
+    document.querySelector(`.request-item[data-id="${id}"]`),
+  ].filter(Boolean);
+}
+
+function _fadeOut(els) {
+  els.forEach(el => { el.style.transition = 'opacity .25s'; el.style.opacity = '.25'; el.style.pointerEvents = 'none'; });
+}
+function _fadeIn(els) {
+  els.forEach(el => { el.style.opacity = ''; el.style.pointerEvents = ''; });
+}
+
+async function deleteRequest(id) {
+  if (!await confirmAction({
+    title: 'Supprimer la demande',
+    body: 'Supprimer définitivement cette demande ?',
+    okLabel: 'Supprimer', danger: true,
+  })) return;
+
+  const els = _getItemEls(id);
+  _fadeOut(els);
+  detailModal.hide();
+
+  const cancel = showUndoToast('Demande supprimée', () => _fadeIn(els));
+
+  await new Promise(r => setTimeout(r, 5200));
+  if (cancel()) return; // annulé
+
+  try {
+    const r = await fetch(`/api/requests/${id}`, {method: 'DELETE'});
+    if (!r.ok) throw new Error('Erreur');
+    els.forEach(el => el.remove());
+  } catch(e) {
+    _fadeIn(els);
+    showToast('Erreur de suppression : ' + e.message, 'danger');
+  }
+}
+
+// ── Bulk actions (A) ──────────────────────────────────────────────────────────
+async function bulkRetry() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  try {
+    const r = await fetch('/api/requests/bulk/retry', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(`${d.count} demande(s) relancée(s) — vérification en cours...`, 'warning');
+    // Mettre à jour les badges en statut "pending"
+    ids.forEach(id => {
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      if (row) {
+        row.dataset.status = 'pending';
+        const sb = row.querySelector('.status-badge');
+        if (sb) sb.innerHTML = statusBadge('pending', row.dataset.type || 'movie');
+      }
+      const card = document.querySelector(`.request-item[data-id="${id}"]`);
+      if (card) {
+        card.dataset.status = 'pending';
+        const sb = document.getElementById(`status-badge-${id}`);
+        if (sb) sb.innerHTML = statusIconBadge('pending', card.dataset.type || 'movie');
+      }
+    });
+    document.querySelectorAll('.row-checkbox:checked').forEach(cb => { cb.checked = false; });
+    updateBulkBar();
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function bulkMarkProcessed() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!await confirmAction({
+    title: 'Marquer comme traité',
+    body: `Marquer les <strong>${ids.length}</strong> demande(s) sélectionnée(s) comme traitées / disponibles ?<br><span class="text-muted small">Aucun email ne sera envoyé.</span>`,
+    okLabel: 'Marquer traité',
+  })) return;
+  try {
+    const r = await fetch('/api/requests/bulk/mark-processed', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(`${d.count} demande(s) marquée(s) comme disponibles`, 'success');
+    ids.forEach(id => {
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      if (row) {
+        row.dataset.status = 'available';
+        const sb = row.querySelector('.status-badge');
+        if (sb) sb.innerHTML = statusBadge('available', 'movie');
+        row.querySelector('.retry-btn')?.remove();
+      }
+      const card = document.querySelector(`.request-item[data-id="${id}"]`);
+      if (card) {
+        card.dataset.status = 'available';
+        const sb = document.getElementById(`status-badge-${id}`);
+        if (sb) sb.innerHTML = statusIconBadge('available', 'movie');
+        document.getElementById(`retry-btn-${id}`)?.remove();
+      }
+    });
+    document.querySelectorAll('.row-checkbox:checked').forEach(cb => { cb.checked = false; });
+    updateBulkBar();
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function bulkDelete() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  if (!await confirmAction({
+    title: 'Supprimer les demandes',
+    body: `Supprimer définitivement les <strong>${ids.length}</strong> demande(s) sélectionnée(s) ?`,
+    okLabel: 'Supprimer', danger: true,
+  })) return;
+
+  const allEls = ids.flatMap(id => _getItemEls(id));
+  _fadeOut(allEls);
+  document.querySelectorAll('.row-checkbox:checked').forEach(cb => { cb.checked = false; });
+  updateBulkBar();
+
+  const cancel = showUndoToast(`${ids.length} demande(s) supprimée(s)`, () => _fadeIn(allEls));
+
+  await new Promise(r => setTimeout(r, 5200));
+  if (cancel()) return;
+
+  try {
+    const r = await fetch('/api/requests/bulk/delete', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    allEls.forEach(el => el.remove());
+  } catch(e) {
+    _fadeIn(allEls);
+    showToast('Erreur de suppression : ' + e.message, 'danger');
+  }
+}
+
+// ── Seer sync ─────────────────────────────────────────────────────────────────
 async function syncSeerRequests() {
   const btn = document.getElementById('btn-seer-req-sync');
   btn.disabled = true;
@@ -432,6 +836,7 @@ async function syncSeerRequests() {
   }
 }
 
+// ── Retry inline ──────────────────────────────────────────────────────────────
 function formatRequesters(d) {
   const names = [d.plex_user || d.plex_user_id];
   try {
@@ -448,7 +853,7 @@ async function retryRequest(id, btn) {
     const r = await fetch(`/api/requests/${id}/retry`, {method: 'POST'});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    showToast('Polling en cours...', 'warning');
+    showToast('Vérification en cours...', 'warning');
     pollStatusUpdate(id, btn);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
@@ -457,45 +862,86 @@ async function retryRequest(id, btn) {
   }
 }
 
-const STATUS_BADGE = {
-  available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>',
-  sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>',
-  failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>',
-  pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>',
-};
+function arrName(mediaType) { return mediaType === 'show' ? 'Sonarr' : 'Radarr'; }
+
+function statusIconBadge(s, mediaType) {
+  const map = {
+    available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>',
+    sent_to_arr: `<span class="badge badge-sent" title="Transmis à ${arrName(mediaType)}"><i class="bi bi-send-fill"></i></span>`,
+    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>',
+    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>',
+  };
+  return map[s] || '';
+}
+
+function statusBadge(s, mediaType) {
+  const map = {
+    available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
+    sent_to_arr: `<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à ${arrName(mediaType)}</span>`,
+    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
+    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>',
+  };
+  return map[s] || `<span class="badge bg-secondary">${s}</span>`;
+}
+
+function _applyStatusToDOM(id, status, mediaType) {
+  const card = document.querySelector(`.request-item[data-id="${id}"]`);
+  if (card) {
+    card.dataset.status = status;
+    const sb = document.getElementById(`status-badge-${id}`);
+    if (sb) sb.innerHTML = statusIconBadge(status, mediaType);
+    if (status !== 'failed' && status !== 'pending') {
+      document.getElementById(`retry-btn-${id}`)?.remove();
+    }
+  }
+  const row = document.querySelector(`tr[data-id="${id}"]`);
+  if (row) {
+    row.dataset.status = status;
+    const sb = row.querySelector('.status-badge');
+    if (sb) sb.innerHTML = statusBadge(status, mediaType);
+    if (status !== 'failed' && status !== 'pending') {
+      row.querySelector('.retry-btn')?.remove();
+    }
+  }
+}
 
 async function pollStatusUpdate(id, btn, attempts = 0) {
-  if (attempts > 20) { location.reload(); return; }
+  if (attempts > 20) return;
   await new Promise(res => setTimeout(res, 2000));
   try {
     const r = await fetch(`/api/requests/${id}`);
     const d = await r.json();
     if (d.status !== 'pending') {
-      // Mettre à jour le badge dans la grille et le tableau
-      const badgeEl = document.getElementById(`status-badge-${id}`);
-      if (badgeEl) badgeEl.innerHTML = STATUS_BADGE[d.status] || '';
-      const rowBadge = document.querySelector(`tr[data-id="${id}"] .status-badge`);
-      if (rowBadge) rowBadge.outerHTML = statusBadge(d.status);
-      // Masquer le bouton retry si ce n'est plus failed/pending
-      if (d.status !== 'failed' && d.status !== 'pending') {
-        btn.closest('[id^=retry-btn]')?.remove();
-        // aussi dans le tableau
-        document.querySelector(`tr[data-id="${id}"] .retry-btn`)?.remove();
-      } else {
+      _applyStatusToDOM(id, d.status, d.media_type);
+      if (d.status === 'failed' || d.status === 'pending') {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>';
       }
-      const label = {available:'Disponible !', sent_to_arr:'Envoyé à *arr', failed:'Échec'};
+      const label = {available:'Disponible !', sent_to_arr:`Transmis à ${arrName(d.media_type)}`, failed:'Échec'};
       showToast(label[d.status] || d.status, d.status === 'failed' ? 'danger' : 'success');
     } else {
       pollStatusUpdate(id, btn, attempts + 1);
     }
-  } catch(e) {
-    location.reload();
-  }
+  } catch(e) { /* silencieux */ }
 }
 
-// Detail modal
+// ── Auto-refresh statuts en cours (C) ─────────────────────────────────────────
+setInterval(async () => {
+  const sentRows = document.querySelectorAll('[data-status="sent_to_arr"][data-id]');
+  if (!sentRows.length) return;
+  for (const el of sentRows) {
+    try {
+      const resp = await fetch(`/api/requests/${el.dataset.id}`);
+      const d = await resp.json();
+      if (d.status !== 'sent_to_arr') {
+        _applyStatusToDOM(el.dataset.id, d.status, d.media_type);
+        showToast(`${d.title} — ${d.status === 'available' ? 'Disponible !' : 'Statut mis à jour'}`, d.status === 'available' ? 'success' : 'warning');
+      }
+    } catch(_) {}
+  }
+}, 60000);
+
+// ── Modal détail ──────────────────────────────────────────────────────────────
 const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
 
 async function openDetail(id) {
@@ -512,34 +958,47 @@ async function openDetail(id) {
   }
 }
 
-function statusBadge(s) {
-  const map = {
-    available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
-    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Envoyé</span>',
-    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
-    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>En attente</span>',
-  };
-  return map[s] || `<span class="badge bg-secondary">${s}</span>`;
+function journeyFrise(d) {
+  if (d.status === 'failed') {
+    return `<div class="d-flex align-items-center mb-3" style="font-size:12px">
+      <span class="d-flex align-items-center gap-1 text-success"><i class="bi bi-inbox-fill"></i>Reçue</span>
+      <span class="flex-grow-1 mx-2" style="height:2px;background:#dc3545"></span>
+      <span class="d-flex align-items-center gap-1 text-danger"><i class="bi bi-x-circle-fill"></i>Échec</span>
+    </div>`;
+  }
+  const stage = { pending: 0, sent_to_arr: 1, available: 2 }[d.status] ?? 0;
+  const steps = [
+    { label: 'Reçue', icon: 'bi-inbox-fill' },
+    { label: 'Transmise', icon: 'bi-send-fill' },
+    { label: 'Disponible', icon: 'bi-check-circle-fill' },
+  ];
+  return '<div class="d-flex align-items-center mb-3" style="font-size:12px">' + steps.map((s, i) => {
+    const color = i < stage ? 'text-success' : i === stage ? 'text-warning' : 'text-muted';
+    const connector = i > 0 ? `<span class="flex-grow-1 mx-2" style="height:2px;background:${i <= stage ? '#198754' : '#444'}"></span>` : '';
+    return `${connector}<span class="d-flex align-items-center gap-1 ${color}"><i class="bi ${s.icon}"></i>${s.label}</span>`;
+  }).join('') + '</div>';
 }
 
 function renderDetail(d) {
   document.getElementById('modalTitle').textContent = `${d.title}${d.year ? ' (' + d.year + ')' : ''}`;
   const typeLabel = d.media_type === 'show' ? 'Série' : 'Film';
   const typeColor = d.media_type === 'show' ? 'info' : 'primary';
-  const reqDate = d.requested_at ? new Date(d.requested_at).toLocaleString('fr-FR') : '—';
-  const availDate = d.available_at ? new Date(d.available_at).toLocaleString('fr-FR') : '—';
+  const toLocalDate = iso => {
+    if (!iso) return '—';
+    const s = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+    const dt = new Date(s);
+    return isNaN(dt) ? '—' : dt.toLocaleString('fr-FR');
+  };
 
   const ids = [
     d.imdb_id ? `<span class="badge bg-secondary me-1">IMDB: ${d.imdb_id}</span>` : '',
     d.tmdb_id ? `<span class="badge bg-secondary me-1">TMDB: ${d.tmdb_id}</span>` : '',
     d.tvdb_id ? `<span class="badge bg-secondary me-1">TVDB: ${d.tvdb_id}</span>` : '',
-    d.arr_id  ? `<span class="badge bg-secondary me-1">*arr ID: ${d.arr_id}</span>` : '',
+    d.arr_id  ? `<span class="badge bg-secondary me-1">ID ${arrName(d.media_type)}: ${d.arr_id}</span>` : '',
   ].filter(Boolean).join('');
 
   const errorBlock = d.overview && d.overview.includes('[ERREUR]')
-    ? `<div class="alert alert-danger py-2 mt-3" style="font-size:13px"><i class="bi bi-exclamation-triangle me-1"></i>${d.overview.split('[ERREUR]').pop().trim()}</div>`
-    : '';
-
+    ? `<div class="alert alert-danger py-2 mt-3" style="font-size:13px"><i class="bi bi-exclamation-triangle me-1"></i>${d.overview.split('[ERREUR]').pop().trim()}</div>` : '';
   const overview = d.overview ? d.overview.split('\n[ERREUR]')[0].trim() : '';
 
   document.getElementById('modalBody').innerHTML = `
@@ -547,27 +1006,26 @@ function renderDetail(d) {
       <div class="col-auto" style="width:120px">
         ${d.poster_url
           ? `<img src="${d.poster_url}" class="img-fluid rounded" style="width:110px;object-fit:cover">`
-          : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:110px;height:165px"><i class="bi bi-image fs-2 text-muted"></i></div>`
-        }
+          : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:110px;height:165px"><i class="bi bi-image fs-2 text-muted"></i></div>`}
       </div>
       <div class="col">
         <div class="mb-2">
           <span class="badge bg-${typeColor} me-1">${typeLabel}</span>
-          ${statusBadge(d.status)}
+          ${statusBadge(d.status, d.media_type)}
           <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
         </div>
+        ${journeyFrise(d)}
         <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
           <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${formatRequesters(d)}</td></tr>
-          <tr><td class="text-muted">Date demande</td><td>${reqDate}</td></tr>
-          ${d.available_at ? `<tr><td class="text-muted">Disponible le</td><td class="text-success">${availDate}</td></tr>` : ''}
+          <tr><td class="text-muted">Date demande</td><td>${toLocalDate(d.requested_at)}</td></tr>
+          ${d.available_at ? `<tr><td class="text-muted">Disponible le</td><td class="text-success">${toLocalDate(d.available_at)}</td></tr>` : ''}
           <tr><td class="text-muted">Email dem.</td><td>${d.request_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}${d._user_emails?.length ? ' <span class="text-muted" style="font-size:11px">→ ' + d._user_emails.join(', ') + '</span>' : ''}</td></tr>
           <tr><td class="text-muted">Email dispo.</td><td>${d.available_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}</td></tr>
           <tr><td class="text-muted">Notif admin</td><td>${d._notify_admin
             ? (d._admin_emails?.length
-                ? '<i class="bi bi-bell-fill text-warning"></i> <span style="font-size:11px">' + d._admin_emails.join(', ') + '</span>'
-                : '<i class="bi bi-bell text-muted"></i> <span class="text-muted" style="font-size:11px">Activé (aucun email admin configuré)</span>')
-            : '<i class="bi bi-bell-slash text-muted"></i> <span class="text-muted">Désactivé pour cet utilisateur</span>'
-          }</td></tr>
+              ? '<i class="bi bi-bell-fill text-warning"></i> <span style="font-size:11px">' + d._admin_emails.join(', ') + '</span>'
+              : '<i class="bi bi-bell text-muted"></i> <span class="text-muted" style="font-size:11px">Activé (aucun email admin configuré)</span>')
+            : '<i class="bi bi-bell-slash text-muted"></i> <span class="text-muted">Désactivé pour cet utilisateur</span>'}</td></tr>
         </table>
         ${ids ? `<div class="mt-2">${ids}</div>` : ''}
         ${errorBlock}
@@ -576,92 +1034,106 @@ function renderDetail(d) {
     ${overview ? `<p class="text-muted mt-3 mb-0" style="font-size:13px;line-height:1.6">${overview}</p>` : ''}
   `;
 
-  // Footer — liens et retry
   const footer = document.getElementById('modalFooter');
   footer.innerHTML = '';
-
   if (d.status === 'failed' || d.status === 'pending') {
-    footer.insertAdjacentHTML('beforeend', `
-      <button class="btn btn-warning" onclick="retryFromModal(${d.id})">
-        <i class="bi bi-arrow-clockwise me-1"></i>Réessayer
-      </button>`);
+    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-warning" onclick="retryFromModal(${d.id})"><i class="bi bi-arrow-clockwise me-1"></i>Réessayer</button>`);
+  }
+  if (!d.request_mail_sent) {
+    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-secondary" onclick="markProcessedFromModal(${d.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Renvoyer mail de demande</button>`);
+  }
+  if (d.status !== 'available') {
+    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-success" onclick="markProcessedFromModal(${d.id}, this, 'available')"><i class="bi bi-check-all me-1"></i>Envoyer mail dispo / Clôturer</button>`);
   }
   if (d.arr_slug) {
     const arrBase = d.media_type === 'show' ? '{{ sonarr_url }}' : '{{ radarr_url }}';
     const arrPath = d.media_type === 'show' ? 'series' : 'movie';
-    const arrName = d.media_type === 'show' ? 'Sonarr' : 'Radarr';
-    if (arrBase) {
-      footer.insertAdjacentHTML('beforeend', `
-        <a href="${arrBase}/${arrPath}/${d.arr_slug}" target="_blank" rel="noopener" class="btn btn-outline-secondary">
-          <i class="bi bi-box-arrow-up-right me-1"></i>Voir dans ${arrName}
-        </a>`);
-    }
+    if (arrBase) footer.insertAdjacentHTML('beforeend', `<a href="${arrBase}/${arrPath}/${d.arr_slug}" target="_blank" rel="noopener" class="btn btn-outline-secondary"><i class="bi bi-box-arrow-up-right me-1"></i>Voir dans ${arrName(d.media_type)}</a>`);
   }
   footer.insertAdjacentHTML('beforeend', `
-    <button class="btn btn-outline-danger ms-auto" onclick="deleteRequest(${d.id})" title="Supprimer">
-      <i class="bi bi-trash me-1"></i>Supprimer
-    </button>
+    <button class="btn btn-outline-danger ms-auto" onclick="deleteRequest(${d.id})" title="Supprimer"><i class="bi bi-trash me-1"></i>Supprimer</button>
     <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>`);
 }
 
-async function deleteRequest(id) {
-  if (!confirm('Supprimer définitivement cette demande ?')) return;
-  try {
-    const r = await fetch(`/api/requests/${id}`, {method: 'DELETE'});
-    if (!r.ok) throw new Error('Erreur');
-    showToast('Demande supprimée', 'success');
-    detailModal.hide();
-    setTimeout(() => location.reload(), 600);
-  } catch(e) {
-    showToast('Erreur : ' + e.message, 'danger');
-  }
-}
-
+// ── Actions modale (A) ────────────────────────────────────────────────────────
 async function retryFromModal(id) {
   const btn = document.querySelector('#modalFooter .btn-warning');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...'; }
   try {
     await fetch(`/api/requests/${id}/retry`, {method: 'POST'});
-    showToast('Demande relancée — polling en cours...', 'warning');
+    showToast('Demande relancée — vérification en cours...', 'warning');
     detailModal.hide();
-    setTimeout(() => location.reload(), 3000);
+    // Polling inline sans reload
+    const checkBtn = { disabled: false, innerHTML: '' }; // dummy
+    pollStatusUpdate(id, checkBtn);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Réessayer'; }
   }
 }
 
-// Auto-refresh discret — point pulsant dans le titre après 2 min
-setTimeout(() => {
-  const dot = document.createElement('span');
-  dot.id = 'refresh-dot';
-  dot.title = 'Des statuts ont peut-être changé — cliquer pour actualiser';
-  dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:#ffc107;margin-left:8px;cursor:pointer;animation:pulse 1.5s infinite';
-  dot.onclick = () => location.reload();
-  document.querySelector('h2')?.appendChild(dot);
-  if (!document.getElementById('pulse-style')) {
-    const s = document.createElement('style');
-    s.id = 'pulse-style';
-    s.textContent = '@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}';
-    document.head.appendChild(s);
+async function markProcessedFromModal(id, btn, event) {
+  const confirmMsg = event === 'request'
+    ? 'Renvoyer le mail de demande pour cette demande ?'
+    : 'Envoyer le mail de disponibilité et clôturer cette demande ?';
+  if (!await confirmAction({
+    title: event === 'request' ? 'Renvoyer le mail de demande' : 'Envoyer le mail de disponibilité',
+    body: confirmMsg,
+    okLabel: event === 'request' ? 'Renvoyer' : 'Envoyer et clôturer',
+  })) return;
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...';
+  try {
+    const r = await fetch(`/api/requests/${id}/mark-processed?event=${event}`, {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(event === 'request' ? 'Mail de demande renvoyé' : 'Mail de disponibilité envoyé — demande clôturée', 'success');
+    if (event === 'available') {
+      _applyStatusToDOM(id, 'available', 'movie'); // media_type inconnu ici, badge générique suffit
+    }
+    detailModal.hide();
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
   }
-}, 120000);
+}
+
+// ── Init (appelé au chargement et après chaque update AJAX) ──────────────────
+function initAfterUpdate() {
+  // Dates locales
+  document.querySelectorAll('.local-date').forEach(el => {
+    const utc = el.dataset.utc;
+    if (!utc) return;
+    const s = utc.endsWith('Z') || utc.includes('+') ? utc : utc + 'Z';
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      el.textContent = d.toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    }
+  });
+  // Réinitialiser checkboxes
+  updateBulkBar();
+  // Maintenir la vue courante
+  const grid = document.getElementById('view-grid');
+  const list = document.getElementById('view-list');
+  if (grid) grid.style.setProperty('display', currentView === 'grid' ? '' : 'none', currentView === 'grid' ? '' : 'important');
+  if (list) list.style.display = currentView === 'list' ? '' : 'none';
+}
 
 // Vue grille automatique sur mobile (première visite)
 if (window.innerWidth < 640 && !localStorage.getItem('requests_view')) {
   localStorage.setItem('requests_view', 'grid');
 }
 
-// Pré-sélection filtre depuis l'URL (?status=failed etc.)
-(function applyUrlFilter() {
-  const params = new URLSearchParams(window.location.search);
-  const status = params.get('status');
-  if (status) {
-    const sel = document.getElementById('filterStatus');
-    if (sel) { sel.value = status; filterItems(); }
+document.addEventListener('DOMContentLoaded', () => {
+  setView(currentView);
+  initAfterUpdate();
+  if (location.hash === '#focus-search') {
+    const inp = document.getElementById('searchInput');
+    if (inp) { inp.focus(); inp.select(); }
+    history.replaceState(null, '', location.pathname + location.search);
   }
-})();
-
-// Init
-setView(currentView);
+});
 </script>
 {% endblock %}

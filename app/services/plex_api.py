@@ -16,7 +16,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 PLEX_TV_BASE = "https://plex.tv"
-METADATA_BASE = "https://metadata.provider.plex.tv"
+DISCOVER_BASE = "https://discover.provider.plex.tv"
+CLIENT_IDENTIFIER = "plex-rss-monitor-sso-id"
 
 
 async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
@@ -32,6 +33,7 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
     headers = {
         "X-Plex-Token": plex_token,
         "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     items = []
 
@@ -63,17 +65,21 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
 async def _get_user_watchlist(client: httpx.AsyncClient, token: str, username: str) -> list[dict]:
     """Récupère la watchlist d'un utilisateur via son token personnel.
 
-    Utilise le endpoint metadata.provider.plex.tv (CDN Plex) avec includeGuids=1
-    pour obtenir les identifiants TMDB/TVDB/IMDB nécessaires à Sonarr/Radarr.
+    Utilise le endpoint discover.provider.plex.tv (le seul à exposer la liste
+    de watchlist ; metadata.provider.plex.tv est réservé aux métadonnées d'un
+    item précis et renvoie 404 sur /library/sections/watchlist/all) avec
+    includeGuids=1 pour obtenir les identifiants TMDB/TVDB/IMDB nécessaires à
+    Sonarr/Radarr.
     """
     headers = {
         "X-Plex-Token": token,
         "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     items = []
     try:
         resp = await client.get(
-            f"{METADATA_BASE}/library/sections/watchlist/all",
+            f"{DISCOVER_BASE}/library/sections/watchlist/all",
             headers=headers,
             params={"includeGuids": 1},
         )

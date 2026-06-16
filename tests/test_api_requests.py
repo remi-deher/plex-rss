@@ -232,3 +232,131 @@ def test_trigger_poll_calls_both_jobs(client, db):
     assert resp.status_code == 200
     mock_poll.assert_called_once()
     mock_check.assert_called_once()
+
+
+def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
+    """Vérifie que les dates retournées ont bien un suffixe Z/timezone offset."""
+    from datetime import datetime
+
+    req = _req(requested_at=datetime(2026, 6, 15, 21, 30, 0))  # naive UTC datetime
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.get(f"/api/requests/{req.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["requested_at"].endswith("Z") or "+00:00" in data["requested_at"]
+
+
+def test_mark_request_processed_default_sends_available_and_closes(client, db):
+    """POST /requests/{id}/mark-processed (défaut event=available) envoie le mail dispo et clôture."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.scheduler._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/mark-processed")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["notified"] is True
+    assert data["event"] == "available"
+
+    db.refresh(req)
+    assert req.status == RequestStatus.available
+    assert req.available_mail_sent is True
+    assert req.available_at is not None
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True)
+
+
+def test_mark_request_processed_event_request_resends_without_closing(client, db):
+    """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending, request_mail_sent=True, available_mail_sent=False)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.scheduler._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/mark-processed?event=request")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["event"] == "request"
+
+    db.refresh(req)
+    assert req.status == RequestStatus.pending  # Pas de clôture
+    assert req.request_mail_sent is True
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True)
+
+
+def test_bulk_retry_requests(client, db):
+    """POST /api/requests/bulk/retry repasse les demandes failed/pending en pending."""
+    r1 = _req(status=RequestStatus.failed)
+    r2 = _req(status=RequestStatus.pending)
+    r3 = _req(status=RequestStatus.sent_to_arr)
+    db.add_all([r1, r2, r3])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+    db.refresh(r3)
+
+    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+        resp = client.post("/api/requests/bulk/retry", json={"ids": [r1.id, r2.id, r3.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    db.refresh(r1)
+    db.refresh(r2)
+    db.refresh(r3)
+    assert r1.status == RequestStatus.pending
+    assert r2.status == RequestStatus.pending
+    assert r3.status == RequestStatus.sent_to_arr
+    mock_poll.assert_called_once()
+
+
+def test_bulk_mark_requests_processed(client, db):
+    """POST /api/requests/bulk/mark-processed marque plusieurs demandes comme disponibles."""
+    r1 = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
+    r2 = _req(status=RequestStatus.failed, request_mail_sent=False, available_mail_sent=False)
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/mark-processed", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    db.refresh(r1)
+    db.refresh(r2)
+    assert r1.status == RequestStatus.available
+    assert r1.request_mail_sent is True
+    assert r1.available_mail_sent is True
+    assert r1.available_at is not None
+
+    assert r2.status == RequestStatus.available
+    assert r2.request_mail_sent is True
+    assert r2.available_mail_sent is True
+    assert r2.available_at is not None
+
+
+def test_bulk_delete_requests(client, db):
+    """POST /api/requests/bulk/delete supprime plusieurs demandes."""
+    r1 = _req()
+    r2 = _req()
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/delete", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+
+    assert db.query(MediaRequest).filter(MediaRequest.id == r1.id).first() is None
+    assert db.query(MediaRequest).filter(MediaRequest.id == r2.id).first() is None

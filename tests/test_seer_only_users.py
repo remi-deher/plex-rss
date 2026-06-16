@@ -3,7 +3,7 @@ Tests pour la synchronisation des utilisateurs Seer-only (passe 4 de sync_seer_u
 
 Couvre :
 - Création d'un PlexUser avec source="seer" pour un utilisateur Seer sans RSS
-- Non-création si request_count == 0
+- Création même si request_count == 0 (seer_active=False dans ce cas)
 - Non-création si déjà matché par les passes 1-3
 - Mise à jour des infos (display_name, seer_active) si le user existe déjà
 - ID synthétique "seer:{id}" et email correctement renseigné
@@ -128,15 +128,19 @@ def test_seer_only_user_created(db):
     assert u.enabled is True
 
 
-def test_seer_only_user_not_created_if_no_requests(db):
-    """Un utilisateur Seer avec 0 demandes n'est pas importé."""
+def test_seer_only_user_created_even_without_requests(db):
+    """Un compte Plex visible sur Seer mais sans demande est importé avec seer_active=False."""
     _add_settings(db)
     seer_resp = _seer_users_response()
     seer_resp["charlie@example.com"]["request_count"] = 0
 
     _run_sync_seer_users(db, seer_resp)
 
-    assert db.query(PlexUser).count() == 0
+    users = db.query(PlexUser).all()
+    assert len(users) == 1
+    assert users[0].plex_user_id == "seer:99"
+    assert users[0].source == "seer"
+    assert users[0].seer_active is False
 
 
 def test_seer_only_user_not_created_if_already_matched_by_email(db):

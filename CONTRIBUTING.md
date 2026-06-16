@@ -99,16 +99,28 @@ python -m pytest tests/test_scheduler.py::test_poll_new_item_creates_request_and
 |---|---|
 | `test_sonarr.py` | Client API Sonarr v3 |
 | `test_radarr.py` | Client API Radarr v3/v5 |
-| `test_overseerr.py` | Client API Overseerr |
+| `test_seer.py` | Client API Overseerr / Jellyseerr |
 | `test_plex_api.py` | Client API Plex officielle |
-| `test_notification_queue.py` | Worker de notifications async |
-| `test_scheduler.py` | `poll_watchlists` et `check_arr_statuses` |
 | `test_watchlist.py` | Routage API vs RSS, fallback |
+| `test_scheduler.py` | `poll_watchlists` et `check_arr_statuses` |
+| `test_dedup.py` | Déduplication RSS vs Seer (tmdb_id) |
+| `test_dedup_tvdb.py` | Déduplication via tvdb_id |
+| `test_notification_queue.py` | Worker de notifications async |
 | `test_email_service.py` | Construction et envoi des emails |
+| `test_notifications_push.py` | Discord webhook + Telegram bot |
+| `test_notification_purge_digest.py` | Purge des logs et envoi du digest |
+| `test_api_notifications.py` | Endpoints `/api/notifications/*` |
 | `test_api_settings.py` | Endpoints `/api/settings` et `/api/test/*` |
 | `test_api_requests.py` | Endpoints `/api/requests` |
 | `test_api_health_metrics.py` | Endpoints `/api/health` et `/api/metrics` |
+| `test_api_conflicts.py` | Endpoints `/api/conflicts` (détection et résolution) |
+| `test_api_seer.py` | Endpoints `/api/seer/*` (sync, liaison, automatch) |
 | `test_metrics.py` | Compteurs in-memory (`app/metrics.py`) |
+| `test_maintenance.py` | Tâches de maintenance (enrichir, fusionner, purger) |
+| `test_webhook.py` | Webhooks entrants Sonarr / Radarr / Plex |
+| `test_importexport.py` | Import / Export JSON |
+| `test_seer_only_users.py` | Fusion utilisateurs Seer-only vers RSS |
+| `test_notification_recipients.py` | Résolution des destinataires de notification |
 | `test_pages.py` | Pages HTML : rendu 200, redirections auth, contenu minimal |
 
 ---

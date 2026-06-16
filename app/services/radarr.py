@@ -74,6 +74,33 @@ async def add_movie(
         raise
 
 
+async def resolve_tmdb_id(radarr_url: str, api_key: str, imdb_id: str) -> str | None:
+    """Résout un TMDB ID à partir d'un IMDB ID via le lookup Radarr.
+
+    Sert à normaliser sur TMDB les demandes RSS (qui n'apportent qu'un IMDB ID),
+    afin qu'elles dédupliquent correctement avec les demandes Seer (clés sur TMDB).
+    Radarr s'appuie sur la table de correspondance externe de TMDB : la résolution
+    est donc cohérente avec ce que produit Seer pour le même film.
+    """
+    if not imdb_id:
+        return None
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"{base}/api/v3/movie/lookup",
+                params={"term": f"imdb:{imdb_id}"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            results = resp.json()
+            if results and results[0].get("tmdbId"):
+                return str(results[0]["tmdbId"])
+    except Exception as e:
+        logger.warning(f"Radarr imdb→tmdb resolution failed for '{imdb_id}': {e}")
+    return None
+
+
 async def _search_tmdb_id(base: str, headers: dict, title: str, year: int | None) -> str | None:
     """Cherche un TMDB ID via le lookup Radarr.
 
@@ -97,17 +124,28 @@ async def _search_tmdb_id(base: str, headers: dict, title: str, year: int | None
     return None
 
 
+async def get_all_movies(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne la liste complète des films connus de Radarr (pour le scan de fallback)."""
+    base = radarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/v3/movie", headers={"X-Api-Key": api_key})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def lookup_movie(
     radarr_url: str,
     api_key: str,
     arr_id: int = None,
     tmdb_id: str = None,
     imdb_id: str = None,
+    movies_list: list[dict] | None = None,
 ) -> dict | None:
     """Recherche un film par arr_id (GET direct), tmdb_id ou imdb_id (scan de la liste).
 
     L'ordre de priorité est : arr_id → tmdb_id → imdb_id.
-    Le scan de la liste est O(n) ; arr_id est O(1).
+    Le scan de la liste est O(n) ; arr_id est O(1). `movies_list` permet de réutiliser
+    une liste déjà récupérée (évite un GET complet par appel pour plusieurs lookups).
 
     Returns:
         Dictionnaire Radarr brut ou None si introuvable.
@@ -121,9 +159,12 @@ async def lookup_movie(
                 if resp.status_code == 200:
                     return resp.json()
             if tmdb_id or imdb_id:
-                resp = await client.get(f"{base}/api/v3/movie", headers=headers)
-                resp.raise_for_status()
-                for m in resp.json():
+                movies = movies_list
+                if movies is None:
+                    resp = await client.get(f"{base}/api/v3/movie", headers=headers)
+                    resp.raise_for_status()
+                    movies = resp.json()
+                for m in movies:
                     if tmdb_id and str(m.get("tmdbId")) == str(tmdb_id):
                         return m
                     if imdb_id and m.get("imdbId") == imdb_id:
@@ -139,13 +180,16 @@ async def is_movie_available(
     arr_id: int = None,
     tmdb_id: str = None,
     imdb_id: str = None,
+    movies_list: list[dict] | None = None,
 ) -> tuple[bool, int | None, str | None]:
     """Vérifie si le fichier film est présent dans Radarr (hasFile=true).
 
     Returns:
         (is_available, arr_id, title_slug)
     """
-    data = await lookup_movie(radarr_url, api_key, arr_id=arr_id, tmdb_id=tmdb_id, imdb_id=imdb_id)
+    data = await lookup_movie(
+        radarr_url, api_key, arr_id=arr_id, tmdb_id=tmdb_id, imdb_id=imdb_id, movies_list=movies_list
+    )
     if not data:
         return False, None, None
     return data.get("hasFile", False), data.get("id"), data.get("titleSlug")
@@ -190,3 +234,18 @@ async def get_root_folders(radarr_url: str, api_key: str) -> list[str]:
         )
         resp.raise_for_status()
         return [f["path"] for f in resp.json()]
+
+
+async def get_disk_space(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne l'espace disque des volumes connus de Radarr.
+
+    Returns:
+        Liste de {path, free_bytes, total_bytes}.
+    """
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{radarr_url.rstrip('/')}/api/v3/diskspace",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]

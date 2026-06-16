@@ -15,7 +15,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -23,17 +23,18 @@ from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, PlexUser, RequestStatus, Settings
+from .models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
-from .services.radarr import add_movie, is_movie_available
+from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services.sonarr import add_series, is_series_available
+from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series
 from .services.watchlist import fetch_watchlist
+from .utils import db_session, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +46,124 @@ scheduler = AsyncIOScheduler()
 # ---------------------------------------------------------------------------
 
 
+async def _send_digest():
+    """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
+    from .services.email_service import _send as smtp_send
+
+    try:
+        with db_session(SessionLocal) as db:
+            settings = db.query(Settings).first()
+            if not settings or not settings.digest_enabled:
+                return
+            if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
+                logger.warning("Digest : SMTP non configuré, skip")
+                return
+
+            cutoff = datetime.now() - timedelta(hours=24)
+            recent = (
+                db.query(MediaRequest)
+                .filter(MediaRequest.requested_at >= cutoff)
+                .order_by(MediaRequest.requested_at.desc())
+                .all()
+            )
+            if not recent:
+                logger.info("Digest : aucune demande dans les 24h, skip")
+                return
+
+            users = (
+                db.query(PlexUser)
+                .filter(
+                    PlexUser.enabled.is_(True),
+                    PlexUser.notify_digest.is_(True),
+                )
+                .all()
+            )
+            if not users:
+                return
+
+            count = len(recent)
+            plural = "s" if count > 1 else ""
+
+            rows = "".join(
+                f"<tr>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333'>{r.title or '—'}"
+                f"{'<span style="color:#aaa;font-size:12px"> (' + str(r.year) + ')</span>' if r.year else ''}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{'Série' if r.media_type == 'show' else 'Film'}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333;color:#aaa'>{r.plex_user or r.plex_user_id}</td>"
+                f"<td style='padding:6px 12px;border-bottom:1px solid #333'>"
+                f"<span style='color:{'#1db954' if r.status == 'available' else '#e5a00d' if r.status == 'sent_to_arr' else '#888'}'>"
+                f"{'Disponible' if r.status == 'available' else 'Envoyé' if r.status == 'sent_to_arr' else r.status}"
+                f"</span></td>"
+                f"</tr>"
+                for r in recent
+            )
+            html = f"""<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:auto">
+  <tr><td style="background:#e5a00d;padding:20px 24px">
+    <h1 style="color:#fff;margin:0;font-size:20px">📋 Récap quotidien Plex</h1>
+    <p style="color:#fff9;margin:4px 0 0;font-size:13px">{count} demande{plural} dans les dernières 24h</p>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:20px 24px">
+    <table width="100%" cellpadding="0" cellspacing="0">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Titre</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Type</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Demandé par</th>
+        <th style="text-align:left;padding:6px 12px;color:#888;font-weight:normal;border-bottom:1px solid #444">Statut</th>
+      </tr></thead>
+      <tbody style="color:#fff">{rows}</tbody>
+    </table>
+  </td></tr>
+  <tr><td style="background:#111;padding:12px 24px">
+    <p style="color:#555;font-size:11px;margin:0">Plex RSS Monitor — récapitulatif automatique quotidien</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+            subject = f"[Plex] Récap du {datetime.now().strftime('%d/%m/%Y')} — {count} demande{plural}"
+            for user in users:
+                recipient = user.notification_email or user.plex_email
+                if not recipient:
+                    continue
+                try:
+                    await smtp_send(settings, recipient, subject, html)
+                    logger.info(f"Digest envoyé à {recipient}")
+                except Exception as e:
+                    logger.error(f"Digest échec pour {recipient}: {e}")
+    except Exception as e:
+        logger.error(f"Erreur job digest : {e}")
+
+
+def _purge_notification_logs():
+    """Supprime les logs de notifications plus anciens que la rétention configurée."""
+    try:
+        with db_session(SessionLocal) as db:
+            settings = db.query(Settings).first()
+            days = settings.notification_log_retention_days if settings else None
+            if not days:
+                return
+            cutoff = datetime.now() - timedelta(days=days)
+            deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
+            if deleted:
+                db.commit()
+                logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
+    except Exception as e:
+        logger.error(f"Erreur purge logs notifications : {e}")
+
+
 def start_scheduler(poll_minutes: int = 5):
-    """Enregistre les trois jobs et démarre le scheduler."""
+    """Enregistre les jobs et démarre le scheduler."""
+    with db_session(SessionLocal) as db:
+        settings = db.query(Settings).first()
+        digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
+
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
+    scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
+    if digest_hour is not None:
+        scheduler.add_job(_send_digest, "cron", hour=digest_hour, minute=0, id="digest", replace_existing=True)
     scheduler.start()
     logger.info(f"Scheduler started (poll every {poll_minutes}m)")
 
@@ -80,8 +194,12 @@ async def sync_seer_users():
 
     Met à jour seer_user_id, seer_active. Ne touche pas aux liaisons
     déjà faites manuellement sauf si l'email correspond (plus fiable).
+
+    Tous les comptes Seer sans équivalent RSS sont importés (source='seer'),
+    même sans demande (seer_active=False dans ce cas) — un compte Plex visible
+    dans Seer mais jamais utilisé doit pouvoir apparaître dans l'app.
     """
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
@@ -211,18 +329,18 @@ async def sync_seer_users():
                 matched_seer_ids.add(info["id"])
                 continue
 
-            if info["request_count"] == 0:
-                continue
             email = next((e for e in seer_users if seer_users[e]["id"] == info["id"]), None)
             new_user = PlexUser(
                 plex_user_id=synthetic_id,
                 display_name=info["display_name"],
                 plex_email=email,
                 seer_user_id=info["id"],
-                seer_active=True,
+                seer_active=info["request_count"] > 0,
                 source="seer",
                 enabled=True,
                 notify_admin=True,
+                notify_on_request=False,
+                notify_on_available=False,
             )
             db.add(new_user)
             matched_seer_ids.add(info["id"])
@@ -262,7 +380,7 @@ async def sync_seer_requests():
     Statut : available si media.status 4 ou 5, sinon sent_to_arr.
     Cela permet d'outrepasser la limite des 50 items du flux RSS.
     """
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
@@ -436,6 +554,54 @@ async def _submit_to_arr(
     return None, False, None
 
 
+async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj) -> dict:
+    """Garantit un tmdb_id sur l'item quand c'est possible (normalisation déduplication).
+
+    - Films : résout IMDB → TMDB via Radarr (disponible pour TOUS les utilisateurs,
+      pas seulement les hybrides Seer). Radarr utilise la table de correspondance
+      externe de TMDB, donc le résultat coïncide avec ce que produit Seer.
+    - Fallback Seer (utilisateurs hybrides) : couvre les rares cas sans IMDB ni TVDB.
+
+    Renvoie l'item (éventuellement enrichi d'un tmdb_id) sans le muter sur place.
+    """
+    if item.get("tmdb_id"):
+        return item
+
+    if (
+        item.get("media_type") == "movie"
+        and item.get("imdb_id")
+        and settings
+        and settings.radarr_url
+        and settings.radarr_api_key
+    ):
+        resolved = await resolve_tmdb_id(settings.radarr_url, settings.radarr_api_key, item["imdb_id"])
+        if resolved:
+            logger.info(f"tmdb_id résolu via Radarr pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
+            return {**item, "tmdb_id": resolved}
+
+    if (
+        not item.get("tvdb_id")
+        and user_obj
+        and user_obj.seer_user_id
+        and user_obj.seer_active
+        and settings
+        and settings.seer_url
+        and settings.seer_api_key
+    ):
+        base = settings.seer_url.rstrip("/")
+        headers = _seer_headers(settings.seer_api_key)
+        try:
+            search_item = {**item, "title": _clean_title(item["title"])}
+            resolved = await _seer_resolve_tmdb_id(base, headers, search_item)
+            if resolved:
+                logger.debug(f"tmdb_id résolu via Seer pour '{item['title']}': {resolved}")
+                return {**item, "tmdb_id": resolved}
+        except Exception:
+            pass
+
+    return item
+
+
 def _find_global_request(
     db,
     media_type: str,
@@ -483,6 +649,58 @@ def _find_global_request(
     return None
 
 
+async def _refresh_next_release(
+    req: MediaRequest,
+    settings: Settings,
+    series_list: list[dict] | None = None,
+    movies_list: list[dict] | None = None,
+) -> None:
+    """Met à jour req.next_release_at/label à partir de Sonarr/Radarr (best-effort).
+
+    Alimente le cache consommé par /api/upcoming, pour éviter d'appeler Sonarr/Radarr
+    à chaque chargement du dashboard. `series_list`/`movies_list` (pré-chargées une
+    fois par run de check_arr_statuses) évitent un GET complet par demande.
+    """
+    try:
+        if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+            data = await lookup_series(
+                settings.sonarr_url,
+                settings.sonarr_api_key,
+                arr_id=req.arr_id,
+                tvdb_id=req.tvdb_id,
+                series_list=series_list,
+            )
+            next_airing = data.get("nextAiring") if data else None
+            req.next_release_at = datetime.fromisoformat(next_airing.replace("Z", "+00:00")) if next_airing else None
+            req.next_release_label = "Prochain épisode" if next_airing else None
+        elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
+            data = await lookup_movie(
+                settings.radarr_url,
+                settings.radarr_api_key,
+                arr_id=req.arr_id,
+                tmdb_id=req.tmdb_id,
+                imdb_id=req.imdb_id,
+                movies_list=movies_list,
+            )
+            if not data:
+                return
+            now = datetime.now(timezone.utc)
+            candidates = [
+                (data.get("digitalRelease"), "Sortie numérique"),
+                (data.get("physicalRelease"), "Sortie physique"),
+                (data.get("inCinemas"), "Sortie cinéma"),
+            ]
+            future = [(datetime.fromisoformat(d.replace("Z", "+00:00")), label) for d, label in candidates if d]
+            future = [(d, label) for d, label in future if d > now]
+            if future:
+                date, label = min(future, key=lambda x: x[0])
+                req.next_release_at, req.next_release_label = date, label
+            else:
+                req.next_release_at, req.next_release_label = None, None
+    except Exception as e:
+        logger.debug(f"next_release lookup failed for '{req.title}': {e}")
+
+
 def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -> bool:
     """Ajoute un co-demandeur à une demande existante. Retourne True si ajouté."""
     extras: list[dict] = json.loads(req.extra_requesters or "[]")
@@ -495,48 +713,50 @@ def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -
     return True
 
 
-def _get_recipients(user_obj, settings: Settings) -> list[str]:
+def _get_recipients(user_obj, settings: Settings, event: str = "request") -> list[str]:
     """Résout la liste des destinataires email pour un utilisateur.
 
+    - Si l'utilisateur est inactif (enabled=False) : aucune notification.
     - Adresse(s) de l'utilisateur (séparées par virgules), ou smtp_from par défaut.
-    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie séparée.
+    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie.
+    - Respecte les flags notify_on_request / notify_on_available par utilisateur.
     """
+    if user_obj and not user_obj.enabled:
+        return []
+
+    # Vérification des flags par utilisateur
+    if user_obj:
+        if event == "request" and user_obj.notify_on_request is False:
+            return []
+        if event == "available" and user_obj.notify_on_available is False:
+            return []
+
     raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
-    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    recipients = parse_email_list(raw)
 
     admin_email = (settings.admin_notification_email or "").strip()
     if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
-        for addr in [e.strip() for e in admin_email.split(",") if e.strip()]:
+        for addr in parse_email_list(admin_email):
             if addr not in recipients:
                 recipients.append(addr)
 
     return recipients
 
 
-def _notify_request(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification de nouvelle demande dans la queue."""
-    if not req.request_mail_sent:
-        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
-        enqueue_notification("request", req.id, recipients)
+def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
+    """Empile une notification dans la queue après résolution des destinataires.
 
-
-def _notify_failure(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification d'échec dans la queue."""
+    force=True ignore les flags *_mail_sent (renvoi manuel demandé par l'utilisateur).
+    """
+    if not force:
+        if event == "request" and req.request_mail_sent:
+            return
+        if event == "available" and req.available_mail_sent:
+            return
+    email_flag = settings.email_on_available if event == "available" else settings.email_on_request
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings) if settings.email_on_request else []
-    arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-    enqueue_notification(
-        "failed", req.id, recipients, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
-    )
-
-
-def _notify_available(settings: Settings, req: MediaRequest, db: Session):
-    """Empile la notification de disponibilité dans la queue."""
-    if not req.available_mail_sent:
-        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-        recipients = _get_recipients(user_obj, settings) if settings.email_on_available else []
-        enqueue_notification("available", req.id, recipients)
+    recipients = _get_recipients(user_obj, settings, event) if email_flag else []
+    enqueue_notification(event, req.id, recipients, reason)
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +778,7 @@ async def poll_watchlists():
     """
     logger.info("Polling watchlists...")
     _poll_start = time.monotonic()
-    db: Session = SessionLocal()
+    db = SessionLocal()
     _poll_error = False
     try:
         settings = db.query(Settings).first()
@@ -586,29 +806,13 @@ async def poll_watchlists():
                 continue
 
             user_obj = users_map.get(uid)
-            display_name = (user_obj.display_name if user_obj else None) or uid
+            display_name = ((user_obj.custom_name or user_obj.display_name) if user_obj else None) or uid
 
-            # Pour utilisateurs hybrides sans tmdb_id NI tvdb_id dans le flux RSS :
-            # les séries sont maintenant déduplicées par tvdb_id → appel Seer utile uniquement
-            # pour les films sans identifiant (imdb seul, cas rare).
-            if (
-                not item.get("tmdb_id")
-                and not item.get("tvdb_id")
-                and user_obj
-                and user_obj.seer_user_id
-                and user_obj.seer_active
-            ):
-                if settings and settings.seer_url and settings.seer_api_key:
-                    base = settings.seer_url.rstrip("/")
-                    headers = _seer_headers(settings.seer_api_key)
-                    try:
-                        search_item = {**item, "title": _clean_title(item["title"])}
-                        resolved = await _seer_resolve_tmdb_id(base, headers, search_item)
-                        if resolved:
-                            item = {**item, "tmdb_id": resolved}
-                            logger.debug(f"tmdb_id résolu via Seer pour '{item['title']}': {resolved}")
-                    except Exception:
-                        pass
+            # Normalisation sur TMDB avant déduplication : le flux RSS n'apporte qu'un
+            # IMDB ID (films) ou un TVDB ID (séries). Sans TMDB, la dédup retombe sur le
+            # titre — qui diffère selon la langue → doublons RSS ↔ Seer. On résout donc
+            # le TMDB ID pour tous les utilisateurs (pas seulement les hybrides).
+            item = await _ensure_tmdb_id(item, settings, user_obj)
 
             # Dédup global : même média déjà demandé par un autre utilisateur ?
             global_req = _find_global_request(
@@ -704,9 +908,12 @@ async def poll_watchlists():
                 # Média déjà dans *arr : pas de notification (évite le spam au redémarrage)
                 logger.info(f"'{item['title']}' already in arr — skipping notifications")
             elif req.status == RequestStatus.sent_to_arr:
-                _notify_request(settings, req, db)
+                _notify("request", settings, req, db)
             elif req.status == RequestStatus.failed:
-                _notify_failure(settings, req, db)
+                arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
+                _notify(
+                    "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
+                )
 
         logger.info(f"Poll complete: {new_count} requests processed")
 
@@ -729,9 +936,15 @@ async def check_arr_statuses():
     Disponibilité :
     - Sonarr : statistics.episodeFileCount > 0
     - Radarr : hasFile == true
+
+    En mode hybride (Seer + Sonarr/Radarr), Seer peut ne pas savoir qu'un média
+    est disponible si l'import a été fait sans qu'il le détecte. Si Seer répond
+    "non disponible", on retente directement Sonarr/Radarr en fallback (lookup
+    par tvdb_id/tmdb_id/imdb_id uniquement, car req.arr_id désigne alors l'ID
+    Seer et non l'ID Sonarr/Radarr).
     """
     logger.info("Checking arr statuses...")
-    db: Session = SessionLocal()
+    db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings:
@@ -750,12 +963,30 @@ async def check_arr_statuses():
 
         logger.info(f"Checking {len(candidates)} sent_to_arr requests...")
 
+        # Pré-charger les listes complètes une seule fois par run (au lieu d'un GET
+        # complet par demande dans le fallback tvdb_id/tmdb_id) — réduit drastiquement
+        # le nombre d'appels HTTP quand plusieurs demandes n'ont pas encore d'arr_id.
+        series_list = None
+        movies_list = None
+        if settings.sonarr_url and settings.sonarr_api_key and any(r.media_type == "show" for r in candidates):
+            try:
+                series_list = await get_all_series(settings.sonarr_url, settings.sonarr_api_key)
+            except Exception as e:
+                logger.warning(f"Sonarr series prefetch failed: {e}")
+        if settings.radarr_url and settings.radarr_api_key and any(r.media_type == "movie" for r in candidates):
+            try:
+                movies_list = await get_all_movies(settings.radarr_url, settings.radarr_api_key)
+            except Exception as e:
+                logger.warning(f"Radarr movies prefetch failed: {e}")
+
         for req in candidates:
             available = False
             new_arr_id = None
             new_slug = None
+            seer_checked = False
             try:
                 if settings.seer_enabled and settings.seer_url:
+                    seer_checked = True
                     available, new_arr_id, new_slug = await seer_available(
                         settings.seer_url,
                         settings.seer_api_key,
@@ -767,6 +998,7 @@ async def check_arr_statuses():
                         settings.sonarr_api_key,
                         arr_id=req.arr_id,
                         tvdb_id=req.tvdb_id,
+                        series_list=series_list,
                     )
                 elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
                     available, new_arr_id, new_slug = await is_movie_available(
@@ -775,7 +1007,31 @@ async def check_arr_statuses():
                         arr_id=req.arr_id,
                         tmdb_id=req.tmdb_id,
                         imdb_id=req.imdb_id,
+                        movies_list=movies_list,
                     )
+
+                # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
+                # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
+                if seer_checked and not available:
+                    if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+                        available, arr_new_id, arr_new_slug = await is_series_available(
+                            settings.sonarr_url,
+                            settings.sonarr_api_key,
+                            tvdb_id=req.tvdb_id,
+                            series_list=series_list,
+                        )
+                        new_arr_id = new_arr_id or arr_new_id
+                        new_slug = new_slug or arr_new_slug
+                    elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
+                        available, arr_new_id, arr_new_slug = await is_movie_available(
+                            settings.radarr_url,
+                            settings.radarr_api_key,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                            movies_list=movies_list,
+                        )
+                        new_arr_id = new_arr_id or arr_new_id
+                        new_slug = new_slug or arr_new_slug
             except Exception as e:
                 logger.warning(f"Status check error for '{req.title}': {e}")
                 continue
@@ -789,10 +1045,13 @@ async def check_arr_statuses():
             if available:
                 req.status = RequestStatus.available
                 req.available_at = datetime.now(timezone.utc)
+                req.next_release_at = None
+                req.next_release_label = None
                 db.commit()
                 logger.info(f"'{req.title}' is now available")
-                _notify_available(settings, req, db)
-            elif new_arr_id or new_slug:
+                _notify("available", settings, req, db)
+            else:
+                await _refresh_next_release(req, settings, series_list=series_list, movies_list=movies_list)
                 db.commit()
 
         logger.info("Arr status check complete")

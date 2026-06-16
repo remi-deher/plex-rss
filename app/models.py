@@ -71,6 +71,13 @@ class Settings(Base):
     email_on_available: Mapped[bool] = mapped_column(default=True)
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_request_subject: Mapped[Optional[str]] = mapped_column(default=None)
+    email_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
+
+    # --- Notifications avancées ---
+    notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
+    digest_enabled: Mapped[bool] = mapped_column(default=False)
+    digest_hour: Mapped[int] = mapped_column(default=8)
 
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
@@ -97,12 +104,32 @@ class PlexUser(Base):
     plex_email: Mapped[Optional[str]]
     notification_email: Mapped[Optional[str]]
     notify_admin: Mapped[bool] = mapped_column(default=True)
+    notify_on_request: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_on_available: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_digest: Mapped[Optional[bool]] = mapped_column(default=False)
     enabled: Mapped[bool] = mapped_column(default=True)
+    discord_webhook_url: Mapped[Optional[str]] = mapped_column(default=None)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(default=None)
     seer_user_id: Mapped[Optional[int]] = mapped_column(default=None)
     seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
     custom_name: Mapped[Optional[str]] = mapped_column(default=None)
     source: Mapped[Optional[str]] = mapped_column(default=None)
     created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+
+
+class NotificationLog(Base):
+    __tablename__ = "notification_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    sent_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    event: Mapped[str]
+    recipient: Mapped[str]
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    media_title: Mapped[Optional[str]]
+    media_type: Mapped[Optional[str]]
+    success: Mapped[bool] = mapped_column(default=True)
+    error_msg: Mapped[Optional[str]]
+    req_id: Mapped[Optional[int]]
 
 
 class MediaRequest(Base):
@@ -133,3 +160,8 @@ class MediaRequest(Base):
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
     extra_requesters: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Cache de la prochaine date de sortie connue (rempli par check_arr_statuses,
+    # consommé par /api/upcoming sans appel réseau supplémentaire).
+    next_release_at: Mapped[Optional[datetime]]
+    next_release_label: Mapped[Optional[str]]

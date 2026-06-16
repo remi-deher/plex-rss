@@ -403,6 +403,44 @@ def test_requests_page_filter_by_search(client, db):
     assert "Inception" not in resp.text
 
 
+def test_requests_page_filter_by_status(client, db):
+    """GET /requests?status=available → uniquement les demandes disponibles."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.available,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?status=available")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
+def test_requests_page_filter_by_type(client, db):
+    """GET /requests?type=show → uniquement les séries."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="show",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
+    db.commit()
+    resp = client.get("/requests?type=show")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
 def test_requests_page_sort_asc(client, db):
     """GET /requests?sort=title&order=asc → 200 sans erreur."""
     _seed(db)
@@ -516,3 +554,73 @@ def test_logout_clears_session(client_no_auth, db):
     resp = client_no_auth.get("/logout")
     assert resp.status_code == 302
     assert "/login" in resp.headers["location"]
+
+
+def test_requests_page_filter_by_source(client, db):
+    """GET /requests?source=plex → uniquement les demandes de la source spécifiée."""
+    _seed(db)
+    db.add(
+        MediaRequest(
+            plex_user_id="alice",
+            plex_user="Alice",
+            title="Dune",
+            media_type="movie",
+            status=RequestStatus.sent_to_arr,
+            source="seer",
+        )
+    )
+    db.commit()
+
+    reqs = db.query(MediaRequest).all()
+    for r in reqs:
+        if r.title == "Inception":
+            r.source = "plex"
+    db.commit()
+
+    resp = client.get("/requests?source=plex")
+    assert resp.status_code == 200
+    assert "Inception" in resp.text
+    assert "Dune" not in resp.text
+
+    resp = client.get("/requests?source=seer")
+    assert resp.status_code == 200
+    assert "Dune" in resp.text
+    assert "Inception" not in resp.text
+
+
+def test_requests_page_sort_by_available_date(client, db):
+    """GET /requests?sort=available_date&order=asc/desc → trié par date de dispo."""
+    from datetime import datetime, timedelta, timezone
+
+    db.query(MediaRequest).delete()
+
+    r1 = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Movie A",
+        media_type="movie",
+        status=RequestStatus.available,
+        available_at=datetime.now(timezone.utc) - timedelta(days=2),
+    )
+    r2 = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Movie B",
+        media_type="movie",
+        status=RequestStatus.available,
+        available_at=datetime.now(timezone.utc) - timedelta(days=5),
+    )
+    db.add_all([r1, r2])
+    db.commit()
+
+    resp = client.get("/requests?sort=available_date&order=asc")
+    assert resp.status_code == 200
+    idx_a = resp.text.find("Movie A")
+    idx_b = resp.text.find("Movie B")
+    assert idx_b < idx_a
+
+    resp = client.get("/requests?sort=available_date&order=desc")
+    assert resp.status_code == 200
+    idx_a = resp.text.find("Movie A")
+    idx_b = resp.text.find("Movie B")
+    assert idx_a < idx_b

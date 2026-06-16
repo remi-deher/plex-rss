@@ -15,25 +15,41 @@ Endpoints regroupés par domaine :
 - /api/onboarding        : checklist de configuration initiale
 """
 
+import asyncio
 import json as _json
 import os as _os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
-from ..models import MediaRequest, PlexUser, Settings
-from ..scheduler import check_arr_statuses, poll_watchlists, update_poll_interval
+from ..models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
+from ..notification_queue import enqueue as enqueue_notification
+from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
+from ..scheduler import scheduler as _scheduler
 from ..services import email_service, radarr, sonarr
+from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
+from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
+from ..utils import get_or_404, parse_email_list
+
+
+def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
+    """Force timezone info to UTC for serialization, resolving timezone offset issues in client-side JS."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    return dt.isoformat()
 
 
 def require_auth(request: Request, db: Session = Depends(get_db)):
@@ -89,6 +105,13 @@ class SettingsUpdate(BaseModel):
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
     seer_enabled: Optional[bool] = None
+    notification_log_retention_days: Optional[int] = None
+    email_request_template: Optional[str] = None
+    email_available_template: Optional[str] = None
+    email_request_subject: Optional[str] = None
+    email_available_subject: Optional[str] = None
+    digest_enabled: Optional[bool] = None
+    digest_hour: Optional[int] = None
 
 
 @router.get("/settings")
@@ -109,14 +132,35 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if not s:
         raise HTTPException(status_code=404, detail="Paramètres non initialisés")
-    for key, val in data.model_dump(exclude_none=True).items():
-        # Ne pas écraser le vrai mot de passe par la valeur masquée affichée dans l'UI
+    # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
+    _nullable_fields = {
+        "email_request_template",
+        "email_available_template",
+        "email_request_subject",
+        "email_available_subject",
+    }
+    payload = data.model_dump()
+    for key, val in payload.items():
+        if val is None and key not in _nullable_fields:
+            continue
         if key == "smtp_password" and val == "••••••••":
             continue
+        if key == "notification_log_retention_days" and val == 0:
+            val = None
         setattr(s, key, val)
     db.commit()
     if data.poll_interval_minutes:
         update_poll_interval(data.poll_interval_minutes)
+    # Replanifier le digest si l'heure ou l'activation change
+    if data.digest_enabled is not None or data.digest_hour is not None:
+        hour = s.digest_hour or 8
+        if s.digest_enabled:
+            _scheduler.add_job(_send_digest, "cron", hour=hour, minute=0, id="digest", replace_existing=True)
+        else:
+            try:
+                _scheduler.remove_job("digest")
+            except Exception:
+                pass
     return {"status": "ok"}
 
 
@@ -292,6 +336,11 @@ class UserCreate(BaseModel):
     notification_email: Optional[str] = None
     enabled: bool = True
     notify_admin: bool = True
+    notify_on_request: Optional[bool] = True
+    notify_on_available: Optional[bool] = True
+    notify_digest: Optional[bool] = False
+    discord_webhook_url: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
 
 
@@ -314,9 +363,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
 
 @router.put("/users/{user_id}")
 def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     for k, v in data.model_dump().items():
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
@@ -328,9 +375,7 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     db.delete(user)
     db.commit()
     return {"status": "deleted"}
@@ -397,9 +442,7 @@ async def list_seer_users(db: Session = Depends(get_db)):
 @router.put("/users/{user_id}/seer-link")
 def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     """Lie manuellement un PlexUser à un compte Seer."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     seer_id = data.get("seer_user_id")
     seer_email = data.get("seer_email")
     if seer_id is None:
@@ -407,6 +450,9 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     user.seer_user_id = int(seer_id)
     if seer_email and not user.plex_email:
         user.plex_email = seer_email
+    # Liaison Seer = désactiver les emails par défaut (Seer gère ses propres notifs)
+    user.notify_on_request = False
+    user.notify_on_available = False
     db.commit()
     return {"status": "linked", "seer_user_id": user.seer_user_id}
 
@@ -414,9 +460,7 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
 @router.delete("/users/{user_id}/seer-link")
 def unlink_seer_user(user_id: int, db: Session = Depends(get_db)):
     """Supprime la liaison Seer d'un PlexUser."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     user.seer_user_id = None
     user.seer_active = None
     db.commit()
@@ -430,9 +474,7 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
     from ..services.seer import get_user_requests as seer_get_user_requests
     from ..services.seer import get_users as seer_get_users
 
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     s = db.query(Settings).first()
     if not s or not s.seer_url or not s.seer_api_key:
         raise HTTPException(400, "Seer non configuré")
@@ -498,15 +540,11 @@ def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = De
     - Réattribue les MediaRequest du user seer-only vers le user cible
     - Supprime l'entrée seer-only
     """
-    seer_user = db.query(PlexUser).filter(PlexUser.id == seer_only_id).first()
-    if not seer_user:
-        raise HTTPException(404, "Utilisateur Seer-only introuvable")
+    seer_user = get_or_404(db, PlexUser, seer_only_id, "Utilisateur Seer-only introuvable")
     if seer_user.source != "seer":
         raise HTTPException(400, "Cet utilisateur n'est pas un utilisateur Seer-only")
 
-    target = db.query(PlexUser).filter(PlexUser.id == target_id).first()
-    if not target:
-        raise HTTPException(404, "Utilisateur cible introuvable")
+    target = get_or_404(db, PlexUser, target_id, "Utilisateur cible introuvable")
     if target.source == "seer":
         raise HTTPException(400, "La cible ne peut pas être un utilisateur Seer-only")
 
@@ -538,9 +576,7 @@ def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = De
 @router.put("/users/{user_id}/custom-name")
 def update_custom_name(user_id: int, data: dict, db: Session = Depends(get_db)):
     """Met à jour le nom d'usage personnalisé d'un utilisateur."""
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     user.custom_name = data.get("custom_name") or None
     db.commit()
     return {"status": "ok", "custom_name": user.custom_name}
@@ -552,9 +588,7 @@ async def seer_complete_user(user_id: int, db: Session = Depends(get_db)):
 
     Copie : display_name Seer → custom_name (si vide), email Seer → plex_email (si vide).
     """
-    user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
+    user = get_or_404(db, PlexUser, user_id, "User not found")
     if not user.seer_user_id:
         raise HTTPException(400, "Utilisateur non lié à Seer")
     s = db.query(Settings).first()
@@ -651,47 +685,41 @@ async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
 
 @router.get("/health")
 async def health_check(db: Session = Depends(get_db)):
-    """État structuré de tous les services connectés avec latences."""
+    """État structuré de tous les services connectés avec latences.
+
+    Les vérifications réseau (Sonarr/Radarr/Seer/Plex) sont lancées en parallèle :
+    le temps total est celui du service le plus lent, pas la somme de tous.
+    """
     s = db.query(Settings).first()
+    not_configured = {"ok": None, "message": "Non configuré", "response_ms": None}
+
+    checks: dict[str, tuple] = {}
+    if s and s.sonarr_url and s.sonarr_api_key:
+        checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)))
+    if s and s.radarr_url and s.radarr_api_key:
+        checks["radarr"] = ("failed", _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key)))
+    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
+        checks["seer"] = ("degraded", _timed_check(seer_test(s.seer_url, s.seer_api_key)))
+    if s and s.plex_url and s.plex_token:
+        checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token)))
+
+    results = dict(zip(checks.keys(), await asyncio.gather(*(coro for _, coro in checks.values()))))
+
     services: dict[str, dict] = {}
     failed = 0
     degraded = 0
-
-    # Sonarr
-    if s and s.sonarr_url and s.sonarr_api_key:
-        ok, msg, ms = await _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key))
-        services["sonarr"] = {"ok": ok, "message": msg, "response_ms": ms}
+    for name in ("sonarr", "radarr", "seer", "plex"):
+        if name not in checks:
+            services[name] = not_configured
+            continue
+        severity, _ = checks[name]
+        ok, msg, ms = results[name]
+        services[name] = {"ok": ok, "message": msg, "response_ms": ms}
         if not ok:
-            failed += 1
-    else:
-        services["sonarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Radarr
-    if s and s.radarr_url and s.radarr_api_key:
-        ok, msg, ms = await _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key))
-        services["radarr"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            failed += 1
-    else:
-        services["radarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Seer
-    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
-        ok, msg, ms = await _timed_check(seer_test(s.seer_url, s.seer_api_key))
-        services["seer"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            degraded += 1
-    else:
-        services["seer"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Plex API
-    if s and s.plex_url and s.plex_token:
-        ok, msg, ms = await _timed_check(plex_test(s.plex_url, s.plex_token))
-        services["plex"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            failed += 1
-    else:
-        services["plex"] = {"ok": None, "message": "Non configuré", "response_ms": None}
+            if severity == "degraded":
+                degraded += 1
+            else:
+                failed += 1
 
     # SMTP & RSS — pas de test réseau, on vérifie juste la configuration
     services["smtp"] = {
@@ -783,6 +811,91 @@ def stats_counts(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/stats/top-requested")
+def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
+    """Retourne les demandes ayant le plus de co-demandeurs (les plus réclamées)."""
+    rows = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
+        .all()
+    )
+    items = []
+    for r in rows:
+        extras = _json.loads(r.extra_requesters or "[]")
+        count = 1 + len(extras)
+        if count < 2:
+            continue
+        items.append(
+            {
+                "id": r.id,
+                "title": r.title,
+                "media_type": r.media_type,
+                "poster_url": r.poster_url,
+                "status": r.status,
+                "count": count,
+            }
+        )
+    items.sort(key=lambda i: cast(int, i["count"]), reverse=True)
+    return items[:limit]
+
+
+@router.get("/disk-space")
+async def disk_space(db: Session = Depends(get_db)):
+    """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin."""
+    s = db.query(Settings).first()
+    volumes: dict[str, dict] = {}
+
+    async def add(label: str, coro):
+        try:
+            for d in await coro:
+                key = d["path"]
+                if key not in volumes:
+                    volumes[key] = {**d, "sources": [label]}
+                elif label not in volumes[key]["sources"]:
+                    volumes[key]["sources"].append(label)
+        except Exception:
+            pass
+
+    if s and s.sonarr_url and s.sonarr_api_key:
+        await add("Sonarr", sonarr.get_disk_space(s.sonarr_url, s.sonarr_api_key))
+    if s and s.radarr_url and s.radarr_api_key:
+        await add("Radarr", radarr.get_disk_space(s.radarr_url, s.radarr_api_key))
+
+    return list(volumes.values())
+
+
+@router.get("/upcoming")
+def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
+    """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles.
+
+    Lecture base de données uniquement : `next_release_at`/`next_release_label` sont
+    alimentés en arrière-plan par le job `check_arr_statuses` (toutes les 15 min),
+    pas d'appel réseau ici — le dashboard reste rapide même avec beaucoup de demandes.
+    """
+    rows = (
+        db.query(MediaRequest)
+        .filter(
+            MediaRequest.status == RequestStatus.sent_to_arr,
+            MediaRequest.next_release_at.isnot(None),
+            MediaRequest.next_release_at > datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        .order_by(MediaRequest.next_release_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "media_type": r.media_type,
+            "poster_url": r.poster_url,
+            "release_date": r.next_release_at.isoformat(),
+            "label": r.next_release_label,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/metrics")
 def get_metrics(db: Session = Depends(get_db)):
     """Métriques runtime (session courante) + agrégats DB (total historique).
@@ -858,31 +971,234 @@ def list_requests(db: Session = Depends(get_db)):
 
 @router.get("/requests/{request_id}")
 def get_request(request_id: int, db: Session = Depends(get_db)):
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
+    d["requested_at"] = _format_datetime(req.requested_at)
+    d["available_at"] = _format_datetime(req.available_at)
 
     settings = db.query(Settings).first()
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     raw = (user_obj.notification_email if user_obj else None) or (settings.smtp_from if settings else "") or ""
-    user_emails = [e.strip() for e in raw.split(",") if e.strip()]
-    admin_emails: list[str] = []
+    user_emails = parse_email_list(raw)
     notify_admin = bool(user_obj and getattr(user_obj, "notify_admin", True))
-    if settings and settings.admin_notification_email and notify_admin:
-        admin_emails = [e.strip() for e in settings.admin_notification_email.split(",") if e.strip()]
+    admin_emails = parse_email_list(settings.admin_notification_email if settings and notify_admin else None)
     d["_user_emails"] = user_emails
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
+
+    # Résolution des noms en direct : le demandeur principal et les co-demandeurs
+    # (extra_requesters) peuvent avoir été stockés avec l'ID Plex brut. On les
+    # rattache au nom lisible courant (nom d'usage → display_name → ID).
+    import json as _json
+
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    d["plex_user"] = users.get(req.plex_user_id, req.plex_user or req.plex_user_id)
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+        for e in extras:
+            e["display_name"] = users.get(e.get("plex_user_id"), e.get("display_name") or e.get("plex_user_id"))
+        d["extra_requesters"] = _json.dumps(extras)
+    except Exception:
+        pass
     return d
+
+
+@router.get("/email/preview")
+def preview_email_template(event: str = "request", user_id: Optional[int] = None, db: Session = Depends(get_db)):
+    """Rend le template email avec des données fictives et retourne le HTML."""
+    settings = db.query(Settings).first()
+
+    plex_user_name = "Jean Dupont"
+    recipient_email = "jean.dupont@plex.local"
+    if user_id:
+        user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+        if user:
+            plex_user_name = user.custom_name or user.display_name or user.plex_user_id
+            recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
+
+    fake = MediaRequest(
+        title="Dune : Deuxième Partie",
+        year=2024,
+        media_type="movie",
+        plex_user=plex_user_name,
+        overview="Paul Atréides s'unit aux Fremen pour mener la guerre sainte contre ceux qui ont détruit sa famille.",
+        poster_url="https://image.tmdb.org/t/p/w300/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
+    )
+    ctx = {
+        "title": fake.title,
+        "year": fake.year,
+        "poster_url": fake.poster_url,
+        "plex_user": fake.plex_user,
+        "media_type": fake.media_type,
+        "media_type_label": "Film",
+        "media_type_label_cap": "Le film",
+        "overview": fake.overview,
+        "genres": "Science-Fiction, Aventure",
+    }
+
+    if event == "available":
+        tpl = (
+            settings.email_available_template
+            if (settings and isinstance(settings.email_available_template, str))
+            else None
+        ) or DEFAULT_AVAILABLE_TEMPLATE
+        subject_tmpl = (
+            settings.email_available_subject
+            if (settings and isinstance(settings.email_available_subject, str))
+            else None
+        ) or "[Plex] Disponible : {{ title }}"
+    else:
+        tpl = (
+            settings.email_request_template if (settings and isinstance(settings.email_request_template, str)) else None
+        ) or DEFAULT_REQUEST_TEMPLATE
+        subject_tmpl = (
+            settings.email_request_subject if (settings and isinstance(settings.email_request_subject, str)) else None
+        ) or "[Plex] Nouvelle demande : {{ title }}"
+
+    rendered_subject = render_template(subject_tmpl, ctx)
+    if rendered_subject.startswith("<p>Erreur de template"):
+        rendered_subject = (
+            f"[Plex] Nouvelle demande : {fake.title}" if event == "request" else f"[Plex] Disponible : {fake.title}"
+        )
+
+    html = render_template(tpl, ctx)
+
+    # Prepend email client headers
+    header_html = f"""
+    <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">
+      <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{rendered_subject}</span></div>
+      <div style="margin-bottom:4px;"><strong>De :</strong> {(settings.smtp_from if settings else None) or "plex-rss@monitor.local"}</div>
+      <div><strong>À :</strong> {recipient_email}</div>
+    </div>
+    """
+
+    if "<body>" in html:
+        html = html.replace("<body>", f"<body>{header_html}")
+    elif "<body style=" in html:
+        parts = html.split("<body", 1)
+        if len(parts) == 2:
+            body_tag, rest = parts[1].split(">", 1)
+            html = f"{parts[0]}<body{body_tag}>{header_html}{rest}"
+    else:
+        html = header_html + html
+
+    return HTMLResponse(content=html)
+
+
+@router.get("/notifications/log")
+def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
+    q = db.query(NotificationLog).order_by(NotificationLog.sent_at.desc())
+    total = q.count()
+    logs = q.offset(offset).limit(min(limit, 200)).all()
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": log.id,
+                "sent_at": _format_datetime(log.sent_at),
+                "event": log.event,
+                "recipient": log.recipient,
+                "is_admin": log.is_admin,
+                "media_title": log.media_title,
+                "media_type": log.media_type,
+                "success": log.success,
+                "error_msg": log.error_msg,
+                "req_id": log.req_id,
+            }
+            for log in logs
+        ],
+    }
+
+
+@router.post("/notifications/{log_id}/resend")
+async def resend_notification(log_id: int, db: Session = Depends(get_db)):
+    log = db.query(NotificationLog).filter(NotificationLog.id == log_id).first()
+    if not log:
+        raise HTTPException(404, "Log introuvable")
+    if not log.req_id:
+        raise HTTPException(400, "req_id manquant sur cette entrée de log (envoi antérieur à la v2.1)")
+    req = get_or_404(db, MediaRequest, log.req_id, "Demande originale introuvable")
+    enqueue_notification(log.event, req.id, [log.recipient])
+    return {"status": "queued", "recipient": log.recipient, "event": log.event}
+
+
+@router.post("/users/{user_id}/test-email")
+async def send_test_email(user_id: int, db: Session = Depends(get_db)):
+    user = get_or_404(db, PlexUser, user_id, "User not found")
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(500, "Settings manquants")
+    recipient = user.notification_email or user.plex_email
+    if not recipient:
+        raise HTTPException(400, "Aucune adresse email configurée pour cet utilisateur")
+    name = user.custom_name or user.display_name or user.plex_user_id
+    html = f"""<!DOCTYPE html>
+<html><body style="background:#141414;font-family:Arial,sans-serif;padding:32px">
+<div style="max-width:480px;margin:auto;background:#1f1f1f;border-radius:10px;padding:28px;color:#fff">
+  <h2 style="color:#e5a00d;margin:0 0 16px">Test de notification</h2>
+  <p style="color:#ccc">Bonjour <strong>{name}</strong>,</p>
+  <p style="color:#ccc">Cet email confirme que les notifications fonctionnent correctement pour ton compte Plex RSS Monitor.</p>
+  <p style="color:#888;font-size:12px;margin-top:24px">Plex RSS Monitor — email de test</p>
+</div>
+</body></html>"""
+    try:
+        await smtp_send(settings, recipient, "[Plex RSS] Test de notification", html)
+    except Exception as e:
+        raise HTTPException(500, f"Échec SMTP : {e}")
+    return {"status": "sent", "recipient": recipient}
+
+
+class BulkAction(BaseModel):
+    ids: list[int]
+
+
+@router.post("/requests/bulk/retry")
+async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
+    """Repasse plusieurs demandes en pending et lance un polling."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    count = 0
+    for req in reqs:
+        if req.status in ("failed", "pending"):
+            req.status = "pending"
+            count += 1
+    if count > 0:
+        db.commit()
+        await poll_watchlists()
+    return {"status": "success", "count": count}
+
+
+@router.post("/requests/bulk/mark-processed")
+def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)):
+    """Marque plusieurs demandes comme traitées (disponibles) sans email."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for req in reqs:
+        req.status = "available"
+        req.request_mail_sent = True
+        req.available_mail_sent = True
+        if not req.available_at:
+            req.available_at = now
+    db.commit()
+    return {"status": "success", "count": len(reqs)}
+
+
+@router.post("/requests/bulk/delete")
+def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
+    """Supprime plusieurs demandes définitivement."""
+    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    count = len(reqs)
+    for req in reqs:
+        db.delete(req)
+    db.commit()
+    return {"status": "success", "count": count}
 
 
 @router.post("/requests/{request_id}/retry")
 async def retry_request(request_id: int, db: Session = Depends(get_db)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status not in ("failed", "pending"):
         raise HTTPException(400, "Only failed or pending requests can be retried")
     req.status = "pending"
@@ -931,12 +1247,52 @@ async def trigger_poll():
 
 @router.delete("/requests/{request_id}")
 def delete_request(request_id: int, db: Session = Depends(get_db)):
-    req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
-    if not req:
-        raise HTTPException(404, "Request not found")
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     db.delete(req)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/requests/{request_id}/mark-processed")
+def mark_request_processed(
+    request_id: int,
+    event: str = "available",
+    db: Session = Depends(get_db),
+    _: None = Depends(require_auth),
+):
+    """Envoie manuellement le mail "demande" ou "disponible" pour une requête.
+
+    - event="request" : renvoie le mail de demande, sans restriction ni clôture
+      (peut être renvoyé autant de fois que nécessaire tant qu'on le souhaite).
+    - event="available" (défaut) : envoie le mail de disponibilité et clôture
+      automatiquement la demande (status -> available).
+    """
+    from ..scheduler import _notify
+
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    settings = db.query(Settings).first()
+
+    if event == "request":
+        if settings:
+            _notify("request", settings, req, db, force=True)
+        req.request_mail_sent = True
+    else:
+        event = "available"
+        if settings:
+            _notify("available", settings, req, db, force=True)
+        req.status = RequestStatus.available
+        req.available_mail_sent = True
+        if not req.available_at:
+            req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Demande marquée comme traitée",
+        "notified": True,
+        "event": event,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -955,16 +1311,21 @@ def activity_log(db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
+    # Résolution des noms en direct (nom d'usage → display_name → ID Plex),
+    # pour ne pas afficher d'ID Plex brut figé pour les anciennes entrées.
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+
     events = []
     for r in reqs:
+        user_name = users.get(r.plex_user_id) or r.plex_user or r.plex_user_id or "?"
         if r.requested_at:
             events.append(
                 {
                     "type": r.status if r.status in ("failed",) else "request",
                     "title": r.title,
-                    "user": r.plex_user or r.plex_user_id or "?",
+                    "user": user_name,
                     "media_type": r.media_type,
-                    "time": r.requested_at.isoformat(),
+                    "time": _format_datetime(r.requested_at),
                 }
             )
         if r.available_at and r.available_at >= cutoff:
@@ -972,9 +1333,9 @@ def activity_log(db: Session = Depends(get_db)):
                 {
                     "type": "available",
                     "title": r.title,
-                    "user": r.plex_user or r.plex_user_id or "?",
+                    "user": user_name,
                     "media_type": r.media_type,
-                    "time": r.available_at.isoformat(),
+                    "time": _format_datetime(r.available_at),
                 }
             )
     events.sort(key=lambda e: e["time"], reverse=True)
@@ -998,10 +1359,7 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
         except ValueError:
             pass
     items = q.order_by(MediaRequest.available_at.desc()).limit(10).all()
-    return [
-        {"id": r.id, "title": r.title, "available_at": r.available_at.isoformat() if r.available_at else None}
-        for r in items
-    ]
+    return [{"id": r.id, "title": r.title, "available_at": _format_datetime(r.available_at)} for r in items]
 
 
 # ---------------------------------------------------------------------------
@@ -1145,8 +1503,8 @@ def _req_dict(r: MediaRequest) -> dict:
         "plex_user_id": r.plex_user_id,
         "arr_id": r.arr_id,
         "poster_url": r.poster_url,
-        "requested_at": r.requested_at.isoformat() if r.requested_at else None,
-        "available_at": r.available_at.isoformat() if r.available_at else None,
+        "requested_at": _format_datetime(r.requested_at),
+        "available_at": _format_datetime(r.available_at),
     }
 
 

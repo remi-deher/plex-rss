@@ -33,6 +33,11 @@
       <i class="bi bi-gear"></i> Avancé
     </button>
   </li>
+  <li class="nav-item ms-auto d-flex align-items-center" role="presentation">
+    <span class="text-muted text-uppercase px-2" style="font-size:11px;letter-spacing:.08em" title="Outils d'administration et de dépannage">
+      <i class="bi bi-wrench-adjustable me-1"></i>Outils
+    </span>
+  </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-conflits" type="button" role="tab" onclick="initConflictsTab()">
       <i class="bi bi-exclamation-triangle"></i> Conflits
@@ -62,7 +67,9 @@
               <span id="conn-badge-plex-api" class="conn-badge"></span>
             </div>
           </div>
-          <div class="row g-3">
+          <!-- Connexion au serveur -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Connexion au serveur</h6>
+          <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">URL Plex (local)</label>
               <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
@@ -72,7 +79,6 @@
               <div class="input-group mb-2">
                 <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
                 <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
               </div>
               <div>
                 <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
@@ -81,28 +87,48 @@
                 <span id="sso-status" class="ms-2 small text-muted"></span>
               </div>
             </div>
-            <div class="col-md-10">
-              <label class="form-label">URL du flux RSS Plex (admin avec Plex Pass)</label>
-              <div class="input-group">
-                <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+          </div>
+
+          <!-- Source de la watchlist -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
+                <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
+                <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
               </div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Source prioritaire</label>
+              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
+                <div class="input-group">
+                  <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                  <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Comportement -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Comportement</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Méthode prioritaire</label>
               <select class="form-select" name="watchlist_source_priority">
-                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>API Plex (token)</option>
-                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>Flux RSS</option>
+                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>1. API Plex (token)</option>
+                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>2. Flux RSS</option>
               </select>
+              <div class="form-text">La méthode utilisée en priorité à chaque sondage de la watchlist.</div>
             </div>
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="fallback">Activer le fallback</label>
+                <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
               </div>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Intervalle de polling (minutes)</label>
+              <label class="form-label">Intervalle de vérification (minutes)</label>
               <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
             </div>
           </div>
@@ -228,7 +254,7 @@
               </div>
             </div>
           </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:#2a2a2a;font-size:13px">
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
             <i class="bi bi-info-circle me-1"></i>
             Quand activé, les demandes sont envoyées à <strong>Seer</strong> plutôt que directement à Sonarr/Radarr.
             Seer gère le routage et les profils de qualité selon sa propre configuration.
@@ -280,7 +306,9 @@
             </h5>
             <span id="conn-badge-smtp" class="conn-badge"></span>
           </div>
-          <div class="row g-3">
+          <!-- Serveur d'envoi -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Serveur d'envoi (SMTP)</h6>
+          <div class="row g-3 mb-4">
             <div class="col-md-5">
               <label class="form-label">Serveur SMTP</label>
               <input type="text" class="form-control" name="smtp_host" id="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
@@ -295,6 +323,10 @@
                 <label class="form-check-label" for="smtp_tls">STARTTLS</label>
               </div>
             </div>
+            <div class="col-md-3">
+              <label class="form-label">Email expéditeur</label>
+              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
+            </div>
             <div class="col-md-4">
               <label class="form-label">Utilisateur SMTP</label>
               <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
@@ -307,32 +339,72 @@
               </div>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Email expéditeur</label>
-              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Email(s) admin <span class="text-muted small">(reçoit une copie si activé par utilisateur)</span></label>
-              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
-              <div class="form-text">Plusieurs adresses séparées par des virgules. Le toggle par utilisateur contrôle qui notifie l'admin.</div>
-            </div>
-            <div class="col-md-6">
               <label class="form-label">Test — envoyer un email à</label>
               <div class="input-group">
                 <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
                 <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
               </div>
             </div>
+          </div>
+
+          <!-- Quand prévenir -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Quand prévenir par email</h6>
+          <div class="row g-3">
             <div class="col-12">
-              <div class="d-flex gap-4">
+              <div class="d-flex gap-4 flex-wrap">
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
-                  <label class="form-check-label" for="email_req">Email à la demande</label>
+                  <label class="form-check-label" for="email_req">À chaque nouvelle demande reçue</label>
                 </div>
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
-                  <label class="form-check-label" for="email_av">Email quand disponible</label>
+                  <label class="form-check-label" for="email_av">Quand le média devient disponible</label>
                 </div>
               </div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Email(s) de l'administrateur <span class="text-muted small">(copie des notifications)</span></label>
+              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
+              <div class="form-text">Plusieurs adresses séparées par des virgules. Chaque utilisateur peut activer ou non l'envoi d'une copie à l'admin.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modèles d'email -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h5 class="mb-1"><i class="bi bi-envelope-paper text-secondary me-2"></i>Modèles d'email</h5>
+              <p class="text-muted small mb-0">Personnalisez le contenu des emails (objet + corps) avec un éditeur et un aperçu en direct.</p>
+            </div>
+            <a href="/settings/email-templates" class="btn btn-outline-secondary">
+              <i class="bi bi-pencil-square me-1"></i>Modifier les modèles
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Digest quotidien -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-newspaper text-warning me-2"></i>Digest quotidien</h5>
+          <p class="text-muted small mb-3">Envoie chaque jour un récapitulatif des demandes des 24h aux utilisateurs ayant activé l'option « Inclure dans le digest ».</p>
+          <div class="row g-3 align-items-end">
+            <div class="col-auto d-flex align-items-center gap-3 mt-1">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="digest_enabled" id="digest_enabled" {% if s.digest_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="digest_enabled">Activer le digest</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Heure d'envoi</label>
+              <select class="form-select" name="digest_hour">
+                {% for h in range(24) %}
+                <option value="{{ h }}" {% if (s.digest_hour or 8) == h %}selected{% endif %}>{{ '%02d'|format(h) }}:00</option>
+                {% endfor %}
+              </select>
             </div>
           </div>
         </div>
@@ -378,6 +450,34 @@
             <div class="col-12">
               <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historique emails -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
+          </div>
+          <div class="row g-3 mb-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Conserver l'historique pendant</label>
+              <select class="form-select" name="notification_log_retention_days">
+                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
+                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
+                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
+                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
+                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
+                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
+                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
+              </select>
+              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
+            </div>
+          </div>
+          <div id="notif-log-wrap">
+            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
           </div>
         </div>
       </div>
@@ -462,11 +562,11 @@
                   </div>
                   <div class="form-text">
                     Plex → Paramètres → Webhooks → Ajouter un webhook · Événements traités : <strong>library.new</strong> (nouveau contenu) et <strong>media.scrobble</strong> (regardé en entier).
-                    Permet une détection de disponibilité instantanée sans polling.
+                    Permet une détection de disponibilité instantanée sans attendre la vérification périodique.
                   </div>
                 </div>
               </div>
-              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:#2a2a2a;font-size:13px">
+              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:var(--pr-surface-2);font-size:13px">
                 <i class="bi bi-info-circle me-1"></i>
                 La correspondance se fait en priorité par <strong>TMDB/TVDB/IMDB ID</strong>, puis par titre si les IDs sont absents.
               </div>
@@ -558,16 +658,16 @@
 
 <style>
 .maint-card {
-  background:#1e1e1e;border:1px solid #2a2a2a;border-radius:8px;
+  background:var(--pr-surface);border:1px solid var(--pr-border);border-radius:8px;
   transition:border-color .2s,box-shadow .2s;cursor:pointer;
 }
-.maint-card:hover { border-color:#444;box-shadow:0 0 0 1px #444; }
+.maint-card:hover { border-color:var(--pr-text-muted);box-shadow:0 0 0 1px var(--pr-text-muted); }
 .maint-card.running { border-color:#0d6efd55; }
 .maint-card.done    { border-color:#19875455; }
 .maint-card.error   { border-color:#dc354555; }
 .maint-log {
   font-family:monospace;font-size:12px;line-height:1.6;
-  background:#111;border-radius:4px;padding:10px;max-height:260px;
+  background:var(--pr-surface-2);border-radius:4px;padding:10px;max-height:260px;
   overflow-y:auto;white-space:pre-wrap;word-break:break-word;
 }
 .maint-log .log-ok   { color:#4ade80; }
@@ -664,6 +764,98 @@ async function _seerAction(btnId, url, label) {
 function seerSyncUsers()   { _seerAction('btn-seer-sync-users',   '/api/seer/sync/users',    'Synchronisation'); }
 function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/sync/users',    'Mise à jour'); }
 
+// ── Historique notifications ──────────────────────────────────────────────────
+const EVENT_LABELS = { request: 'Demande', available: 'Disponible', failed: 'Échec' };
+const EVENT_COLORS = { request: 'bg-primary', available: 'bg-success', failed: 'bg-danger' };
+const MEDIA_ICONS  = { show: 'bi-tv', movie: 'bi-camera-video' };
+const NOTIF_PAGE_SIZE = 50;
+let _notifOffset = 0;
+let _notifTotal = 0;
+
+async function loadNotifLog(offset = 0) {
+  _notifOffset = offset;
+  const wrap = document.getElementById('notif-log-wrap');
+  wrap.innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>';
+  try {
+    const r = await fetch(`/api/notifications/log?limit=${NOTIF_PAGE_SIZE}&offset=${offset}`);
+    const data = await r.json();
+    _notifTotal = data.total;
+    const logs = data.items;
+    if (!logs.length && offset === 0) {
+      wrap.innerHTML = '<p class="text-muted mb-0">Aucun email envoyé pour l\'instant.</p>';
+      return;
+    }
+    const rows = logs.map(l => {
+      const date = l.sent_at ? new Date(l.sent_at.endsWith('Z') || l.sent_at.includes('+') ? l.sent_at : l.sent_at + 'Z').toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+      const evBadge = `<span class="badge ${EVENT_COLORS[l.event] || 'bg-secondary'} me-1">${EVENT_LABELS[l.event] || l.event}</span>`;
+      const adminBadge = l.is_admin ? '<span class="badge bg-warning text-dark ms-1" title="Copie admin"><i class="bi bi-shield-fill"></i></span>' : '';
+      const mediaIcon = `<i class="bi ${MEDIA_ICONS[l.media_type] || 'bi-question'} me-1 text-muted"></i>`;
+      const statusIcon = l.success
+        ? '<i class="bi bi-check-circle-fill text-success"></i>'
+        : `<i class="bi bi-x-circle-fill text-danger" title="${(l.error_msg || '').replace(/"/g,'&quot;')}"></i>`;
+      const resendBtn = l.req_id
+        ? `<button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" onclick="resendNotif(${l.id}, this)" title="Renvoyer"><i class="bi bi-send"></i></button>`
+        : '';
+      return `<tr class="${l.success ? '' : 'table-danger bg-opacity-25'}">
+        <td class="text-muted small text-nowrap">${date}</td>
+        <td>${evBadge}${adminBadge}</td>
+        <td>${mediaIcon}<span class="small">${l.media_title || '—'}</span></td>
+        <td class="small text-break">${l.recipient}</td>
+        <td class="text-center">${statusIcon}${resendBtn}</td>
+      </tr>`;
+    }).join('');
+
+    const totalPages = Math.ceil(_notifTotal / NOTIF_PAGE_SIZE);
+    const currentPage = Math.floor(offset / NOTIF_PAGE_SIZE) + 1;
+    const pagination = totalPages > 1 ? `
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <span class="text-muted small">${_notifTotal} entrées — page ${currentPage}/${totalPages}</span>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" onclick="loadNotifLog(${offset - NOTIF_PAGE_SIZE})" ${offset === 0 ? 'disabled' : ''}>
+            <i class="bi bi-chevron-left"></i> Précédent
+          </button>
+          <button class="btn btn-outline-secondary" onclick="loadNotifLog(${offset + NOTIF_PAGE_SIZE})" ${offset + NOTIF_PAGE_SIZE >= _notifTotal ? 'disabled' : ''}>
+            Suivant <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
+      </div>` : `<div class="text-muted small mt-1">${_notifTotal} entrée${_notifTotal > 1 ? 's' : ''}</div>`;
+
+    wrap.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:13px">
+      <thead><tr>
+        <th class="text-muted fw-normal">Date</th>
+        <th class="text-muted fw-normal">Type</th>
+        <th class="text-muted fw-normal">Média</th>
+        <th class="text-muted fw-normal">Destinataire</th>
+        <th class="text-muted fw-normal text-center">Statut</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>${pagination}`;
+  } catch(e) {
+    wrap.innerHTML = `<p class="text-danger mb-0">Erreur : ${e.message}</p>`;
+  }
+}
+
+async function resendNotif(logId, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch(`/api/notifications/${logId}/resend`, { method: 'POST' });
+    const d = await r.json();
+    if (r.ok) showToast(`Renvoi en cours vers ${d.recipient}`, 'success');
+    else showToast(d.detail || 'Erreur', 'danger');
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+    setTimeout(() => loadNotifLog(_notifOffset), 1500);
+  }
+}
+
+// Chargement automatique à l'ouverture de l'onglet Notifications
+document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', () => loadNotifLog(0));
+
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
   const sonarrOn = document.getElementById('sonarr_en').checked;
@@ -721,10 +913,11 @@ function togglePass(id) {
 
 function getFormData() {
   const data = {};
-  document.querySelectorAll('#settings-form input, #settings-form select').forEach(el => {
+  document.querySelectorAll('#settings-form input, #settings-form select, #settings-form textarea').forEach(el => {
     if (!el.name) return;
     if (el.type === 'checkbox') data[el.name] = el.checked;
     else if (el.value !== '') data[el.name] = el.value;
+    else data[el.name] = null; // textarea vide = effacer le template custom
   });
   return data;
 }
@@ -932,7 +1125,7 @@ function _showSection(id, show) {
 
 function _statusBadge(s) {
   const map = {available:'success',sent_to_arr:'primary',pending:'warning text-dark',failed:'danger'};
-  const labels = {available:'Dispo',sent_to_arr:'Envoyé',pending:'En attente',failed:'Échec'};
+  const labels = {available:'Dispo',sent_to_arr:'Transmis',pending:'Reçue',failed:'Échec'};
   return `<span class="badge bg-${map[s]||'secondary'}">${labels[s]||s}</span>`;
 }
 
@@ -982,7 +1175,7 @@ function _tmdbConflictCard(c) {
       </tr>`).join('');
     return `
       <div class="col">
-        <div class="card h-100 ${isRec ? 'border-success' : 'border-secondary bg-dark'}" style="background:#1a1a1a">
+        <div class="card h-100 ${isRec ? 'border-success' : 'border-secondary bg-dark'}" style="background:var(--pr-surface)">
           ${isRec ? '<div class="card-header py-1 px-2 bg-success bg-opacity-25 small text-success"><i class="bi bi-stars me-1"></i>Recommandé (Seer)</div>' : ''}
           <div class="card-body p-2">
             <table class="table table-sm table-dark mb-2" style="font-size:.85rem">${rows}</table>
@@ -1093,7 +1286,11 @@ async function loadConflicts() {
 }
 
 async function resolveConflict(keepId, deleteIds, btn) {
-  if (!confirm(`Garder l'entrée #${keepId} et fusionner ${deleteIds.length} doublon(s) ?`)) return;
+  if (!await confirmAction({
+    title: 'Fusionner les doublons',
+    body: `Garder l'entrée <strong>#${keepId}</strong> et fusionner <strong>${deleteIds.length}</strong> doublon(s) ?`,
+    okLabel: 'Fusionner',
+  })) return;
   btn.disabled = true;
   const r = await fetch('/api/conflicts/resolve', {
     method: 'POST', headers: {'Content-Type':'application/json'},
@@ -1110,7 +1307,11 @@ async function resolveConflict(keepId, deleteIds, btn) {
 }
 
 async function autoResolveAll(btn) {
-  if (!confirm('Résoudre automatiquement tous les conflits tmdb ? (garde l\'entrée Seer dans chaque cas)')) return;
+  if (!await confirmAction({
+    title: 'Résolution automatique',
+    body: 'Résoudre automatiquement tous les conflits tmdb ?<br><span class="text-muted small">L\'entrée Seer est conservée dans chaque cas.</span>',
+    okLabel: 'Tout résoudre',
+  })) return;
   btn.disabled = true;
   const r = await fetch('/api/conflicts/auto-resolve', {method:'POST'});
   if (r.ok) {
@@ -1126,7 +1327,11 @@ async function autoResolveAll(btn) {
 
 async function deleteConflictEntry(type, id, btn) {
   const labels = {'no-tmdb': 'sans tmdb_id', 'orphan': 'orpheline'};
-  if (!confirm(`Supprimer cette demande ${labels[type]||''} ?`)) return;
+  if (!await confirmAction({
+    title: 'Supprimer l\'entrée',
+    body: `Supprimer cette demande ${labels[type]||''} ?`,
+    okLabel: 'Supprimer', danger: true,
+  })) return;
   btn.disabled = true;
   const url = type === 'no-tmdb' ? `/api/conflicts/no-tmdb/${id}` : `/api/conflicts/orphan/${id}`;
   const r = await fetch(url, {method:'DELETE'});
@@ -1245,7 +1450,7 @@ function _cardHtml(action, meta) {
     <span class="badge rounded-pill bg-secondary" id="mstatus-${action}" style="white-space:nowrap;font-size:10px">—</span>
   </div>
 
-  <div class="progress" style="height:4px;background:#2a2a2a;border-radius:2px">
+  <div class="progress" style="height:4px;background:var(--pr-surface-2);border-radius:2px">
     <div class="progress-bar" id="mprog-${action}" role="progressbar"
          style="width:0%;transition:width .4s;background:${c.border.replace('55','cc')}"></div>
   </div>
