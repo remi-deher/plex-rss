@@ -1159,47 +1159,43 @@ def delete_request(request_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/requests/{request_id}/mark-processed")
-def mark_request_processed(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
-    """Marque une demande comme traitée ET envoie le mail approprié selon le statut.
+def mark_request_processed(
+    request_id: int,
+    event: str = "available",
+    db: Session = Depends(get_db),
+    _: None = Depends(require_auth),
+):
+    """Envoie manuellement le mail "demande" ou "disponible" pour une requête.
 
-    Logique :
-    - available + !available_mail_sent → envoyer mail "disponible"
-    - sent_to_arr/pending + !request_mail_sent → envoyer mail "demande reçue"
-    - sinon → skip (déjà envoyé)
+    - event="request" : renvoie le mail de demande, sans restriction ni clôture
+      (peut être renvoyé autant de fois que nécessaire tant qu'on le souhaite).
+    - event="available" (défaut) : envoie le mail de disponibilité et clôture
+      automatiquement la demande (status -> available).
     """
     from ..scheduler import _notify
 
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
     settings = db.query(Settings).first()
-    notified = False
-    event = None
 
-    # Déterminer quel mail envoyer selon le statut et les flags
-    if req.status == RequestStatus.available and not req.available_mail_sent:
-        event = "available"
-        notified = True
-    elif req.status in (RequestStatus.pending, RequestStatus.sent_to_arr) and not req.request_mail_sent:
-        event = "request"
-        notified = True
-
-    # Envoyer la notification si applicable
-    if notified and settings:
-        _notify(event, settings, req, db)
-
-    # Marquer comme disponible et traité
-    req.status = RequestStatus.available
     if event == "request":
+        if settings:
+            _notify("request", settings, req, db, force=True)
         req.request_mail_sent = True
-    elif event == "available":
+    else:
+        event = "available"
+        if settings:
+            _notify("available", settings, req, db, force=True)
+        req.status = RequestStatus.available
         req.available_mail_sent = True
-    if not req.available_at:
-        req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if not req.available_at:
+            req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+
     db.commit()
 
     return {
         "status": "success",
         "message": "Demande marquée comme traitée",
-        "notified": notified,
+        "notified": True,
         "event": event,
     }
 

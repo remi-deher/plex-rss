@@ -249,8 +249,8 @@ def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
     assert data["requested_at"].endswith("Z") or "+00:00" in data["requested_at"]
 
 
-def test_mark_request_processed_skips_emails(client, db):
-    """POST /requests/{id}/mark-processed envoie le mail "request" pour une demande en pending."""
+def test_mark_request_processed_default_sends_available_and_closes(client, db):
+    """POST /requests/{id}/mark-processed (défaut event=available) envoie le mail dispo et clôture."""
     settings = Settings(id=1, smtp_host="smtp.example.com")
     req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
     db.add_all([settings, req])
@@ -264,14 +264,34 @@ def test_mark_request_processed_skips_emails(client, db):
     data = resp.json()
     assert data["status"] == "success"
     assert data["notified"] is True
-    assert data["event"] == "request"
+    assert data["event"] == "available"
 
     db.refresh(req)
     assert req.status == RequestStatus.available
-    assert req.request_mail_sent is True
-    assert req.available_mail_sent is False  # Seulement request_mail_sent est marqué
+    assert req.available_mail_sent is True
     assert req.available_at is not None
-    mock_notify.assert_called_once()
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True)
+
+
+def test_mark_request_processed_event_request_resends_without_closing(client, db):
+    """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending, request_mail_sent=True, available_mail_sent=False)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.scheduler._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/mark-processed?event=request")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["event"] == "request"
+
+    db.refresh(req)
+    assert req.status == RequestStatus.pending  # Pas de clôture
+    assert req.request_mail_sent is True
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True)
 
 
 def test_bulk_retry_requests(client, db):

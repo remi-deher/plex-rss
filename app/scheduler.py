@@ -641,12 +641,16 @@ def _get_recipients(user_obj, settings: Settings, event: str = "request") -> lis
     return recipients
 
 
-def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = ""):
-    """Empile une notification dans la queue après résolution des destinataires."""
-    if event == "request" and req.request_mail_sent:
-        return
-    if event == "available" and req.available_mail_sent:
-        return
+def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
+    """Empile une notification dans la queue après résolution des destinataires.
+
+    force=True ignore les flags *_mail_sent (renvoi manuel demandé par l'utilisateur).
+    """
+    if not force:
+        if event == "request" and req.request_mail_sent:
+            return
+        if event == "available" and req.available_mail_sent:
+            return
     email_flag = settings.email_on_available if event == "available" else settings.email_on_request
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_recipients(user_obj, settings, event) if email_flag else []
