@@ -41,7 +41,7 @@
   {% endif %}
   {% if status_counts.sent_to_arr %}
   <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=sent_to_arr&page=1" class="text-decoration-none">
-    <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} envoyée{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
+    <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmise{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.available %}
@@ -83,7 +83,7 @@
     <select class="form-select form-select-sm" id="filterStatus" name="status" onchange="filterItems()">
       <option value="">Tous les statuts</option>
       <option value="pending" {% if active_status == 'pending' %}selected{% endif %}>En attente</option>
-      <option value="sent_to_arr" {% if active_status == 'sent_to_arr' %}selected{% endif %}>Envoyées</option>
+      <option value="sent_to_arr" {% if active_status == 'sent_to_arr' %}selected{% endif %}>Transmises</option>
       <option value="available" {% if active_status == 'available' %}selected{% endif %}>Disponibles</option>
       <option value="failed" {% if active_status == 'failed' %}selected{% endif %}>Échouées</option>
     </select>
