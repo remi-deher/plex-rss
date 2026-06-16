@@ -985,6 +985,21 @@ def get_request(request_id: int, db: Session = Depends(get_db)):
     d["_user_emails"] = user_emails
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
+
+    # Résolution des noms en direct : le demandeur principal et les co-demandeurs
+    # (extra_requesters) peuvent avoir été stockés avec l'ID Plex brut. On les
+    # rattache au nom lisible courant (nom d'usage → display_name → ID).
+    import json as _json
+
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    d["plex_user"] = users.get(req.plex_user_id, req.plex_user or req.plex_user_id)
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+        for e in extras:
+            e["display_name"] = users.get(e.get("plex_user_id"), e.get("display_name") or e.get("plex_user_id"))
+        d["extra_requesters"] = _json.dumps(extras)
+    except Exception:
+        pass
     return d
 
 

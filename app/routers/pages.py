@@ -38,11 +38,14 @@ def require_auth(request: Request):
 
 
 def build_users_map(db: Session) -> dict:
-    """Retourne {plex_user_id: display_name} pour tous les utilisateurs connus.
+    """Retourne {plex_user_id: nom lisible} pour tous les utilisateurs connus.
 
     Utilisé pour résoudre les IDs hex en noms lisibles dans les templates.
+    Priorité : nom d'usage (custom_name) → display_name → plex_user_id.
     """
-    return {u.plex_user_id: (u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    return {
+        u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()
+    }
 
 
 @router.get("/", response_class=HTMLResponse)

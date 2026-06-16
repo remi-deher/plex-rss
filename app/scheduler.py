@@ -808,7 +808,9 @@ async def poll_watchlists():
                 continue
 
             user_obj = users_map.get(uid)
-            display_name = (user_obj.display_name if user_obj else None) or uid
+            display_name = (
+                (user_obj.custom_name or user_obj.display_name) if user_obj else None
+            ) or uid
 
             # Normalisation sur TMDB avant déduplication : le flux RSS n'apporte qu'un
             # IMDB ID (films) ou un TVDB ID (séries). Sans TMDB, la dédup retombe sur le

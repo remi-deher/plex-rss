@@ -138,7 +138,7 @@
             <div class="text-white-50" style="font-size:11px">
               <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
               {% for co in r.extra_requesters | fromjson %}
-              <span class="opacity-75">, {{ co.display_name }}</span>
+              <span class="opacity-75">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
             </div>
           </div>
@@ -268,7 +268,7 @@
             <td>
               {{ users_map.get(r.plex_user_id, r.plex_user_id) }}
               {% for co in r.extra_requesters | fromjson %}
-              <span class="text-muted">, {{ co.display_name }}</span>
+              <span class="text-muted">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
             </td>
             <td>
