@@ -25,14 +25,14 @@ from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
-from .services.radarr import add_movie, is_movie_available
+from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services.sonarr import add_series, is_series_available
+from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series
 from .services.watchlist import fetch_watchlist
 from .utils import db_session, parse_email_list
 
@@ -601,6 +601,60 @@ def _find_global_request(
     return None
 
 
+async def _refresh_next_release(
+    req: MediaRequest,
+    settings: Settings,
+    series_list: list[dict] | None = None,
+    movies_list: list[dict] | None = None,
+) -> None:
+    """Met à jour req.next_release_at/label à partir de Sonarr/Radarr (best-effort).
+
+    Alimente le cache consommé par /api/upcoming, pour éviter d'appeler Sonarr/Radarr
+    à chaque chargement du dashboard. `series_list`/`movies_list` (pré-chargées une
+    fois par run de check_arr_statuses) évitent un GET complet par demande.
+    """
+    try:
+        if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+            data = await lookup_series(
+                settings.sonarr_url,
+                settings.sonarr_api_key,
+                arr_id=req.arr_id,
+                tvdb_id=req.tvdb_id,
+                series_list=series_list,
+            )
+            next_airing = data.get("nextAiring") if data else None
+            req.next_release_at = datetime.fromisoformat(next_airing.replace("Z", "+00:00")) if next_airing else None
+            req.next_release_label = "Prochain épisode" if next_airing else None
+        elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
+            data = await lookup_movie(
+                settings.radarr_url,
+                settings.radarr_api_key,
+                arr_id=req.arr_id,
+                tmdb_id=req.tmdb_id,
+                imdb_id=req.imdb_id,
+                movies_list=movies_list,
+            )
+            if not data:
+                return
+            now = datetime.now(timezone.utc)
+            candidates = [
+                (data.get("digitalRelease"), "Sortie numérique"),
+                (data.get("physicalRelease"), "Sortie physique"),
+                (data.get("inCinemas"), "Sortie cinéma"),
+            ]
+            future = [
+                (datetime.fromisoformat(d.replace("Z", "+00:00")), label) for d, label in candidates if d
+            ]
+            future = [(d, label) for d, label in future if d > now]
+            if future:
+                date, label = min(future, key=lambda x: x[0])
+                req.next_release_at, req.next_release_label = date, label
+            else:
+                req.next_release_at, req.next_release_label = None, None
+    except Exception as e:
+        logger.debug(f"next_release lookup failed for '{req.title}': {e}")
+
+
 def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -> bool:
     """Ajoute un co-demandeur à une demande existante. Retourne True si ajouté."""
     extras: list[dict] = json.loads(req.extra_requesters or "[]")
@@ -879,6 +933,22 @@ async def check_arr_statuses():
 
         logger.info(f"Checking {len(candidates)} sent_to_arr requests...")
 
+        # Pré-charger les listes complètes une seule fois par run (au lieu d'un GET
+        # complet par demande dans le fallback tvdb_id/tmdb_id) — réduit drastiquement
+        # le nombre d'appels HTTP quand plusieurs demandes n'ont pas encore d'arr_id.
+        series_list = None
+        movies_list = None
+        if settings.sonarr_url and settings.sonarr_api_key and any(r.media_type == "show" for r in candidates):
+            try:
+                series_list = await get_all_series(settings.sonarr_url, settings.sonarr_api_key)
+            except Exception as e:
+                logger.warning(f"Sonarr series prefetch failed: {e}")
+        if settings.radarr_url and settings.radarr_api_key and any(r.media_type == "movie" for r in candidates):
+            try:
+                movies_list = await get_all_movies(settings.radarr_url, settings.radarr_api_key)
+            except Exception as e:
+                logger.warning(f"Radarr movies prefetch failed: {e}")
+
         for req in candidates:
             available = False
             new_arr_id = None
@@ -898,6 +968,7 @@ async def check_arr_statuses():
                         settings.sonarr_api_key,
                         arr_id=req.arr_id,
                         tvdb_id=req.tvdb_id,
+                        series_list=series_list,
                     )
                 elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
                     available, new_arr_id, new_slug = await is_movie_available(
@@ -906,6 +977,7 @@ async def check_arr_statuses():
                         arr_id=req.arr_id,
                         tmdb_id=req.tmdb_id,
                         imdb_id=req.imdb_id,
+                        movies_list=movies_list,
                     )
 
                 # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
@@ -916,6 +988,7 @@ async def check_arr_statuses():
                             settings.sonarr_url,
                             settings.sonarr_api_key,
                             tvdb_id=req.tvdb_id,
+                            series_list=series_list,
                         )
                         new_arr_id = new_arr_id or arr_new_id
                         new_slug = new_slug or arr_new_slug
@@ -925,6 +998,7 @@ async def check_arr_statuses():
                             settings.radarr_api_key,
                             tmdb_id=req.tmdb_id,
                             imdb_id=req.imdb_id,
+                            movies_list=movies_list,
                         )
                         new_arr_id = new_arr_id or arr_new_id
                         new_slug = new_slug or arr_new_slug
@@ -941,10 +1015,13 @@ async def check_arr_statuses():
             if available:
                 req.status = RequestStatus.available
                 req.available_at = datetime.now(timezone.utc)
+                req.next_release_at = None
+                req.next_release_label = None
                 db.commit()
                 logger.info(f"'{req.title}' is now available")
                 _notify("available", settings, req, db)
-            elif new_arr_id or new_slug:
+            else:
+                await _refresh_next_release(req, settings, series_list=series_list, movies_list=movies_list)
                 db.commit()
 
         logger.info("Arr status check complete")

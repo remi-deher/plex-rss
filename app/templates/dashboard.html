@@ -419,7 +419,8 @@ async function checkNewAvailable() {
   } catch(e) {}
 }
 
-loadHealth();
+// Contenu rapide (lecture DB uniquement) en premier, pour que la page se sente
+// instantanée même si les vérifications réseau Sonarr/Radarr/Seer/Plex traînent.
 loadChart();
 loadOnboarding();
 loadPollTimer();
@@ -427,8 +428,11 @@ loadActivity();
 loadStatsByUser();
 loadUpcoming();
 loadTopRequested();
-loadDiskSpace();
 checkNewAvailable();
+
+// Vérifications réseau (santé des services + espace disque) : différées d'un tick
+// pour ne pas concurrencer le rendu initial sur une connexion lente.
+setTimeout(() => { loadHealth(); loadDiskSpace(); }, 50);
 setInterval(loadActivity, 60000);
 setInterval(loadHealth, 120000);
 </script>

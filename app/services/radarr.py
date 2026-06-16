@@ -97,17 +97,28 @@ async def _search_tmdb_id(base: str, headers: dict, title: str, year: int | None
     return None
 
 
+async def get_all_movies(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne la liste complète des films connus de Radarr (pour le scan de fallback)."""
+    base = radarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/v3/movie", headers={"X-Api-Key": api_key})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def lookup_movie(
     radarr_url: str,
     api_key: str,
     arr_id: int = None,
     tmdb_id: str = None,
     imdb_id: str = None,
+    movies_list: list[dict] | None = None,
 ) -> dict | None:
     """Recherche un film par arr_id (GET direct), tmdb_id ou imdb_id (scan de la liste).
 
     L'ordre de priorité est : arr_id → tmdb_id → imdb_id.
-    Le scan de la liste est O(n) ; arr_id est O(1).
+    Le scan de la liste est O(n) ; arr_id est O(1). `movies_list` permet de réutiliser
+    une liste déjà récupérée (évite un GET complet par appel pour plusieurs lookups).
 
     Returns:
         Dictionnaire Radarr brut ou None si introuvable.
@@ -121,9 +132,12 @@ async def lookup_movie(
                 if resp.status_code == 200:
                     return resp.json()
             if tmdb_id or imdb_id:
-                resp = await client.get(f"{base}/api/v3/movie", headers=headers)
-                resp.raise_for_status()
-                for m in resp.json():
+                movies = movies_list
+                if movies is None:
+                    resp = await client.get(f"{base}/api/v3/movie", headers=headers)
+                    resp.raise_for_status()
+                    movies = resp.json()
+                for m in movies:
                     if tmdb_id and str(m.get("tmdbId")) == str(tmdb_id):
                         return m
                     if imdb_id and m.get("imdbId") == imdb_id:
@@ -139,13 +153,16 @@ async def is_movie_available(
     arr_id: int = None,
     tmdb_id: str = None,
     imdb_id: str = None,
+    movies_list: list[dict] | None = None,
 ) -> tuple[bool, int | None, str | None]:
     """Vérifie si le fichier film est présent dans Radarr (hasFile=true).
 
     Returns:
         (is_available, arr_id, title_slug)
     """
-    data = await lookup_movie(radarr_url, api_key, arr_id=arr_id, tmdb_id=tmdb_id, imdb_id=imdb_id)
+    data = await lookup_movie(
+        radarr_url, api_key, arr_id=arr_id, tmdb_id=tmdb_id, imdb_id=imdb_id, movies_list=movies_list
+    )
     if not data:
         return False, None, None
     return data.get("hasFile", False), data.get("id"), data.get("titleSlug")

@@ -685,47 +685,41 @@ async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
 
 @router.get("/health")
 async def health_check(db: Session = Depends(get_db)):
-    """État structuré de tous les services connectés avec latences."""
+    """État structuré de tous les services connectés avec latences.
+
+    Les vérifications réseau (Sonarr/Radarr/Seer/Plex) sont lancées en parallèle :
+    le temps total est celui du service le plus lent, pas la somme de tous.
+    """
     s = db.query(Settings).first()
+    not_configured = {"ok": None, "message": "Non configuré", "response_ms": None}
+
+    checks: dict[str, tuple] = {}
+    if s and s.sonarr_url and s.sonarr_api_key:
+        checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)))
+    if s and s.radarr_url and s.radarr_api_key:
+        checks["radarr"] = ("failed", _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key)))
+    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
+        checks["seer"] = ("degraded", _timed_check(seer_test(s.seer_url, s.seer_api_key)))
+    if s and s.plex_url and s.plex_token:
+        checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token)))
+
+    results = dict(zip(checks.keys(), await asyncio.gather(*(coro for _, coro in checks.values()))))
+
     services: dict[str, dict] = {}
     failed = 0
     degraded = 0
-
-    # Sonarr
-    if s and s.sonarr_url and s.sonarr_api_key:
-        ok, msg, ms = await _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key))
-        services["sonarr"] = {"ok": ok, "message": msg, "response_ms": ms}
+    for name in ("sonarr", "radarr", "seer", "plex"):
+        if name not in checks:
+            services[name] = not_configured
+            continue
+        severity, _ = checks[name]
+        ok, msg, ms = results[name]
+        services[name] = {"ok": ok, "message": msg, "response_ms": ms}
         if not ok:
-            failed += 1
-    else:
-        services["sonarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Radarr
-    if s and s.radarr_url and s.radarr_api_key:
-        ok, msg, ms = await _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key))
-        services["radarr"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            failed += 1
-    else:
-        services["radarr"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Seer
-    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
-        ok, msg, ms = await _timed_check(seer_test(s.seer_url, s.seer_api_key))
-        services["seer"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            degraded += 1
-    else:
-        services["seer"] = {"ok": None, "message": "Non configuré", "response_ms": None}
-
-    # Plex API
-    if s and s.plex_url and s.plex_token:
-        ok, msg, ms = await _timed_check(plex_test(s.plex_url, s.plex_token))
-        services["plex"] = {"ok": ok, "message": msg, "response_ms": ms}
-        if not ok:
-            failed += 1
-    else:
-        services["plex"] = {"ok": None, "message": "Non configuré", "response_ms": None}
+            if severity == "degraded":
+                degraded += 1
+            else:
+                failed += 1
 
     # SMTP & RSS — pas de test réseau, on vérifie juste la configuration
     services["smtp"] = {
@@ -871,76 +865,35 @@ async def disk_space(db: Session = Depends(get_db)):
 
 
 @router.get("/upcoming")
-async def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
+def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
     """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles.
 
-    Interroge directement Sonarr (nextAiring) / Radarr (digitalRelease/physicalRelease/inCinemas)
-    pour les demandes les plus récentes — borné à `limit * 3` candidats pour rester rapide.
+    Lecture base de données uniquement : `next_release_at`/`next_release_label` sont
+    alimentés en arrière-plan par le job `check_arr_statuses` (toutes les 15 min),
+    pas d'appel réseau ici — le dashboard reste rapide même avec beaucoup de demandes.
     """
-    s = db.query(Settings).first()
-    if not s:
-        return []
-
-    candidates = (
+    rows = (
         db.query(MediaRequest)
-        .filter(MediaRequest.status == RequestStatus.sent_to_arr, MediaRequest.arr_id.isnot(None))
-        .order_by(MediaRequest.requested_at.desc())
-        .limit(limit * 3)
+        .filter(
+            MediaRequest.status == RequestStatus.sent_to_arr,
+            MediaRequest.next_release_at.isnot(None),
+            MediaRequest.next_release_at > datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        .order_by(MediaRequest.next_release_at.asc())
+        .limit(limit)
         .all()
     )
-
-    async def lookup(r: MediaRequest):
-        try:
-            if r.media_type == "show" and s.sonarr_url and s.sonarr_api_key:
-                data = await sonarr.lookup_series(s.sonarr_url, s.sonarr_api_key, arr_id=r.arr_id, tvdb_id=r.tvdb_id)
-                if not data:
-                    return None
-                next_airing = data.get("nextAiring")
-                if not next_airing:
-                    return None
-                return {
-                    "id": r.id,
-                    "title": r.title,
-                    "media_type": r.media_type,
-                    "poster_url": r.poster_url,
-                    "release_date": next_airing,
-                    "label": "Prochain épisode",
-                }
-            if r.media_type == "movie" and s.radarr_url and s.radarr_api_key:
-                data = await radarr.lookup_movie(
-                    s.radarr_url, s.radarr_api_key, arr_id=r.arr_id, tmdb_id=r.tmdb_id, imdb_id=r.imdb_id
-                )
-                if not data or data.get("hasFile"):
-                    return None
-                now_iso = datetime.now(timezone.utc).isoformat()
-                dates = [
-                    (d, label)
-                    for d, label in [
-                        (data.get("digitalRelease"), "Sortie numérique"),
-                        (data.get("physicalRelease"), "Sortie physique"),
-                        (data.get("inCinemas"), "Sortie cinéma"),
-                    ]
-                    if d and d > now_iso
-                ]
-                if not dates:
-                    return None
-                date, label = min(dates, key=lambda x: x[0])
-                return {
-                    "id": r.id,
-                    "title": r.title,
-                    "media_type": r.media_type,
-                    "poster_url": r.poster_url,
-                    "release_date": date,
-                    "label": label,
-                }
-        except Exception:
-            return None
-        return None
-
-    results = await asyncio.gather(*(lookup(r) for r in candidates))
-    items = [i for i in results if i]
-    items.sort(key=lambda i: i["release_date"])
-    return items[:limit]
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "media_type": r.media_type,
+            "poster_url": r.poster_url,
+            "release_date": r.next_release_at.isoformat(),
+            "label": r.next_release_label,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/metrics")

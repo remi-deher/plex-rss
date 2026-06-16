@@ -92,15 +92,27 @@ async def _search_tvdb_id(base: str, headers: dict, title: str) -> str | None:
     return None
 
 
+async def get_all_series(sonarr_url: str, api_key: str) -> list[dict]:
+    """Retourne la liste complète des séries connues de Sonarr (pour le scan de fallback)."""
+    base = sonarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/v3/series", headers={"X-Api-Key": api_key})
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def lookup_series(
     sonarr_url: str,
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
+    series_list: list[dict] | None = None,
 ) -> dict | None:
     """Recherche une série par arr_id (GET direct) ou par tvdb_id (scan de la liste).
 
     Le lookup par arr_id est O(1) ; le fallback tvdb_id est O(n) sur la liste complète.
+    `series_list` permet de réutiliser une liste déjà récupérée (évite un GET complet
+    par appel quand plusieurs lookups par tvdb_id sont faits dans la même opération).
 
     Returns:
         Dictionnaire Sonarr brut ou None si introuvable.
@@ -114,9 +126,12 @@ async def lookup_series(
                 if resp.status_code == 200:
                     return resp.json()
             if tvdb_id:
-                resp = await client.get(f"{base}/api/v3/series", headers=headers)
-                resp.raise_for_status()
-                for s in resp.json():
+                series = series_list
+                if series is None:
+                    resp = await client.get(f"{base}/api/v3/series", headers=headers)
+                    resp.raise_for_status()
+                    series = resp.json()
+                for s in series:
                     if str(s.get("tvdbId")) == str(tvdb_id):
                         return s
     except Exception as e:
@@ -129,13 +144,14 @@ async def is_series_available(
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
+    series_list: list[dict] | None = None,
 ) -> tuple[bool, int | None, str | None]:
     """Vérifie si une série a au moins un fichier épisode dans Sonarr.
 
     Returns:
         (is_available, arr_id, title_slug)
     """
-    data = await lookup_series(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id)
+    data = await lookup_series(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
     if not data:
         return False, None, None
     stats = data.get("statistics", {})

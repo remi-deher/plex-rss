@@ -160,3 +160,8 @@ class MediaRequest(Base):
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
     extra_requesters: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Cache de la prochaine date de sortie connue (rempli par check_arr_statuses,
+    # consommé par /api/upcoming sans appel réseau supplémentaire).
+    next_release_at: Mapped[Optional[datetime]]
+    next_release_label: Mapped[Optional[str]]
