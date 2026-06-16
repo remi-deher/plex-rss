@@ -103,6 +103,36 @@
   </div>
 </div>
 
+
+
+<div class="row g-3 mb-4">
+  <!-- Prochaines sorties -->
+  <div class="col-md-6">
+    <div class="card p-3 h-100">
+      <h6 class="mb-3"><i class="bi bi-calendar-event me-2 text-info"></i>Prochaines sorties</h6>
+      <div id="upcoming-list">
+        <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top contenus demandés en double -->
+  <div class="col-md-6">
+    <div class="card p-3 h-100">
+      <h6 class="mb-3"><i class="bi bi-fire me-2 text-warning"></i>Les plus réclamés</h6>
+      <div id="top-requested-list">
+        <div class="text-center text-muted py-2"><span class="spinner-border spinner-border-sm"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Espace disque -->
+<div class="card p-3 mb-4" id="disk-space-card" style="display:none">
+  <h6 class="mb-3"><i class="bi bi-hdd me-2 text-secondary"></i>Espace disque</h6>
+  <div id="disk-space-list"></div>
+</div>
+
 <!-- Stats par utilisateur -->
 <div class="card p-3 mb-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
@@ -318,6 +348,66 @@ async function loadStatsByUser() {
   } catch(e) {}
 }
 
+async function loadUpcoming() {
+  const el = document.getElementById('upcoming-list');
+  try {
+    const items = await fetch('/api/upcoming').then(r => r.json());
+    if (!items.length) { el.innerHTML = '<p class="text-muted small mb-0">Rien de prévu prochainement.</p>'; return; }
+    el.innerHTML = items.map(i => {
+      const d = new Date(i.release_date);
+      const dateStr = d.toLocaleDateString('fr-FR', {day:'2-digit', month:'short', year:'numeric'});
+      return `<div class="d-flex align-items-center gap-2 py-1 border-bottom border-secondary" style="font-size:13px">
+        <i class="bi bi-${i.media_type === 'show' ? 'tv' : 'camera-video'} text-muted" style="width:16px"></i>
+        <span class="text-truncate flex-grow-1"><strong>${i.title}</strong>
+          <span class="text-muted ms-1">${i.label}</span></span>
+        <span class="text-info text-nowrap" style="font-size:11px">${dateStr}</span>
+      </div>`;
+    }).join('');
+  } catch(e) { el.innerHTML = '<p class="text-muted small mb-0">Indisponible.</p>'; }
+}
+
+async function loadTopRequested() {
+  const el = document.getElementById('top-requested-list');
+  try {
+    const items = await fetch('/api/stats/top-requested').then(r => r.json());
+    if (!items.length) { el.innerHTML = '<p class="text-muted small mb-0">Aucune demande en double pour le moment.</p>'; return; }
+    el.innerHTML = items.map(i => `
+      <div class="d-flex align-items-center gap-2 py-1 border-bottom border-secondary" style="font-size:13px">
+        <i class="bi bi-${i.media_type === 'show' ? 'tv' : 'camera-video'} text-muted" style="width:16px"></i>
+        <span class="text-truncate flex-grow-1"><strong>${i.title}</strong></span>
+        <span class="badge bg-warning text-dark" title="Demandé par ${i.count} personnes">
+          <i class="bi bi-people-fill me-1"></i>${i.count}
+        </span>
+      </div>`).join('');
+  } catch(e) { el.innerHTML = '<p class="text-muted small mb-0">Indisponible.</p>'; }
+}
+
+async function loadDiskSpace() {
+  const card = document.getElementById('disk-space-card');
+  const el = document.getElementById('disk-space-list');
+  try {
+    const volumes = await fetch('/api/disk-space').then(r => r.json());
+    if (!volumes.length) return;
+    card.style.display = '';
+    const fmt = b => `${(b / 1e9).toFixed(0)} Go`;
+    el.innerHTML = volumes.map(v => {
+      const used = v.total_bytes - v.free_bytes;
+      const pct = Math.min(100, Math.round(used / v.total_bytes * 100));
+      const color = pct > 90 ? 'bg-danger' : pct > 75 ? 'bg-warning' : 'bg-success';
+      return `
+        <div class="mb-2">
+          <div class="d-flex justify-content-between text-muted small mb-1">
+            <span>${v.path} <span class="text-muted opacity-50">(${v.sources.join(', ')})</span></span>
+            <span>${fmt(v.free_bytes)} libres / ${fmt(v.total_bytes)}</span>
+          </div>
+          <div class="progress" style="height:8px;background:#2a2a2a">
+            <div class="progress-bar ${color}" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
 async function checkNewAvailable() {
   const key = 'last_visit_iso';
   const since = localStorage.getItem(key);
@@ -335,6 +425,9 @@ loadOnboarding();
 loadPollTimer();
 loadActivity();
 loadStatsByUser();
+loadUpcoming();
+loadTopRequested();
+loadDiskSpace();
 checkNewAvailable();
 setInterval(loadActivity, 60000);
 setInterval(loadHealth, 120000);

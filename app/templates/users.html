@@ -68,6 +68,9 @@
             <a href="/requests?user={{ u.plex_user_id }}" class="text-decoration-none">
               <code class="text-muted" style="font-size:10px">{{ u.plex_user_id }}</code>
             </a>
+            {% if c.get('last_requested_at') %}
+            <div class="text-muted" style="font-size:11px">Dernière demande : {{ c.last_requested_at.strftime('%d/%m/%Y') }}</div>
+            {% endif %}
           </div>
           <div class="d-flex flex-column gap-1 align-items-end flex-shrink-0">
             {% if u.source == 'seer' and u.seer_active %}
@@ -132,6 +135,9 @@
       </div>
 
       <div class="card-footer d-flex justify-content-end gap-2 border-secondary" style="background:#181818">
+        <a class="btn btn-sm btn-outline-secondary" href="/users/{{ u.id }}" data-bs-toggle="tooltip" title="Voir le détail et l'historique">
+          <i class="bi bi-person-lines-fill me-1"></i>Détail
+        </a>
         {% if u.source == 'seer' %}
         <button class="btn btn-sm btn-outline-info"
           onclick="openMergeSeerOnly({{ u.id }}, '{{ (u.custom_name or u.display_name or u.plex_user_id) | replace("'", "\\'") }}')"

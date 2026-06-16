@@ -15,6 +15,7 @@ Endpoints regroupés par domaine :
 - /api/onboarding        : checklist de configuration initiale
 """
 
+import asyncio
 import json as _json
 import os as _os
 import time
@@ -814,6 +815,132 @@ def stats_counts(db: Session = Depends(get_db)):
         "available": counts.get("available", 0),
         "total": sum(counts.values()),
     }
+
+
+@router.get("/stats/top-requested")
+def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
+    """Retourne les demandes ayant le plus de co-demandeurs (les plus réclamées)."""
+    rows = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
+        .all()
+    )
+    items = []
+    for r in rows:
+        extras = _json.loads(r.extra_requesters or "[]")
+        count = 1 + len(extras)
+        if count < 2:
+            continue
+        items.append(
+            {
+                "id": r.id,
+                "title": r.title,
+                "media_type": r.media_type,
+                "poster_url": r.poster_url,
+                "status": r.status,
+                "count": count,
+            }
+        )
+    items.sort(key=lambda i: i["count"], reverse=True)
+    return items[:limit]
+
+
+@router.get("/disk-space")
+async def disk_space(db: Session = Depends(get_db)):
+    """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin."""
+    s = db.query(Settings).first()
+    volumes: dict[str, dict] = {}
+
+    async def add(label: str, coro):
+        try:
+            for d in await coro:
+                key = d["path"]
+                if key not in volumes:
+                    volumes[key] = {**d, "sources": [label]}
+                elif label not in volumes[key]["sources"]:
+                    volumes[key]["sources"].append(label)
+        except Exception:
+            pass
+
+    if s and s.sonarr_url and s.sonarr_api_key:
+        await add("Sonarr", sonarr.get_disk_space(s.sonarr_url, s.sonarr_api_key))
+    if s and s.radarr_url and s.radarr_api_key:
+        await add("Radarr", radarr.get_disk_space(s.radarr_url, s.radarr_api_key))
+
+    return list(volumes.values())
+
+
+@router.get("/upcoming")
+async def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
+    """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles.
+
+    Interroge directement Sonarr (nextAiring) / Radarr (digitalRelease/physicalRelease/inCinemas)
+    pour les demandes les plus récentes — borné à `limit * 3` candidats pour rester rapide.
+    """
+    s = db.query(Settings).first()
+    if not s:
+        return []
+
+    candidates = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.status == RequestStatus.sent_to_arr, MediaRequest.arr_id.isnot(None))
+        .order_by(MediaRequest.requested_at.desc())
+        .limit(limit * 3)
+        .all()
+    )
+
+    async def lookup(r: MediaRequest):
+        try:
+            if r.media_type == "show" and s.sonarr_url and s.sonarr_api_key:
+                data = await sonarr.lookup_series(s.sonarr_url, s.sonarr_api_key, arr_id=r.arr_id, tvdb_id=r.tvdb_id)
+                if not data:
+                    return None
+                next_airing = data.get("nextAiring")
+                if not next_airing:
+                    return None
+                return {
+                    "id": r.id,
+                    "title": r.title,
+                    "media_type": r.media_type,
+                    "poster_url": r.poster_url,
+                    "release_date": next_airing,
+                    "label": "Prochain épisode",
+                }
+            if r.media_type == "movie" and s.radarr_url and s.radarr_api_key:
+                data = await radarr.lookup_movie(
+                    s.radarr_url, s.radarr_api_key, arr_id=r.arr_id, tmdb_id=r.tmdb_id, imdb_id=r.imdb_id
+                )
+                if not data or data.get("hasFile"):
+                    return None
+                now_iso = datetime.now(timezone.utc).isoformat()
+                dates = [
+                    (d, label)
+                    for d, label in [
+                        (data.get("digitalRelease"), "Sortie numérique"),
+                        (data.get("physicalRelease"), "Sortie physique"),
+                        (data.get("inCinemas"), "Sortie cinéma"),
+                    ]
+                    if d and d > now_iso
+                ]
+                if not dates:
+                    return None
+                date, label = min(dates, key=lambda x: x[0])
+                return {
+                    "id": r.id,
+                    "title": r.title,
+                    "media_type": r.media_type,
+                    "poster_url": r.poster_url,
+                    "release_date": date,
+                    "label": label,
+                }
+        except Exception:
+            return None
+        return None
+
+    results = await asyncio.gather(*(lookup(r) for r in candidates))
+    items = [i for i in results if i]
+    items.sort(key=lambda i: i["release_date"])
+    return items[:limit]
 
 
 @router.get("/metrics")

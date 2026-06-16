@@ -162,10 +162,10 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
 
     # Calcul en Python pour éviter plusieurs sous-requêtes SQL
     counts_map: dict[str, dict] = {}
-    for r in db.query(MediaRequest.plex_user_id, MediaRequest.status).all():
+    for r in db.query(MediaRequest.plex_user_id, MediaRequest.status, MediaRequest.requested_at).all():
         uid = r.plex_user_id
         if uid not in counts_map:
-            counts_map[uid] = {"total": 0, "available": 0, "failed": 0, "sent": 0}
+            counts_map[uid] = {"total": 0, "available": 0, "failed": 0, "sent": 0, "last_requested_at": None}
         counts_map[uid]["total"] += 1
         if r.status == "available":
             counts_map[uid]["available"] += 1
@@ -173,6 +173,10 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
             counts_map[uid]["failed"] += 1
         elif r.status == "sent_to_arr":
             counts_map[uid]["sent"] += 1
+        if r.requested_at and (
+            counts_map[uid]["last_requested_at"] is None or r.requested_at > counts_map[uid]["last_requested_at"]
+        ):
+            counts_map[uid]["last_requested_at"] = r.requested_at
 
     settings = db.query(Settings).first()
     seer_enabled = bool(settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key)
@@ -184,6 +188,39 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
             "users": users,
             "counts_map": counts_map,
             "seer_enabled": seer_enabled,
+        },
+    )
+
+
+@router.get("/users/{user_id}", response_class=HTMLResponse)
+def user_detail_page(
+    user_id: int, request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)
+):
+    """Page de détail d'un utilisateur : stats et historique complet de ses demandes."""
+    user = db.get(PlexUser, user_id)
+    if not user:
+        return RedirectResponse("/users", status_code=302)
+
+    user_requests = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.plex_user_id == user.plex_user_id)
+        .order_by(MediaRequest.requested_at.desc())
+        .all()
+    )
+    stats = {
+        "total": len(user_requests),
+        "available": sum(1 for r in user_requests if r.status == RequestStatus.available),
+        "sent": sum(1 for r in user_requests if r.status == RequestStatus.sent_to_arr),
+        "failed": sum(1 for r in user_requests if r.status == RequestStatus.failed),
+        "pending": sum(1 for r in user_requests if r.status == RequestStatus.pending),
+    }
+    return templates.TemplateResponse(
+        request,
+        "user_detail.html",
+        {
+            "user": user,
+            "requests": user_requests,
+            "stats": stats,
         },
     )
 

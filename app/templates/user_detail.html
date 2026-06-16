@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% set page = "users" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <a href="/users" class="text-muted text-decoration-none small"><i class="bi bi-arrow-left me-1"></i>Retour aux utilisateurs</a>
+    <h2 class="mb-0 mt-1">{{ user.custom_name or user.display_name or user.plex_user_id }}</h2>
+    {% if user.custom_name and user.display_name %}
+    <div class="text-muted small">{{ user.display_name }}</div>
+    {% endif %}
+  </div>
+  <a href="/requests?user={{ user.plex_user_id }}" class="btn btn-outline-secondary">
+    <i class="bi bi-list-ul me-1"></i>Voir dans Demandes
+  </a>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card p-3 text-center">
+      <div class="display-6 fw-bold text-warning">{{ stats.total }}</div>
+      <div class="text-muted small mt-1">Total demandes</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3 text-center">
+      <div class="display-6 fw-bold text-primary">{{ stats.sent }}</div>
+      <div class="text-muted small mt-1">Transmises</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3 text-center">
+      <div class="display-6 fw-bold text-success">{{ stats.available }}</div>
+      <div class="text-muted small mt-1">Disponibles</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3 text-center">
+      <div class="display-6 fw-bold text-danger">{{ stats.failed }}</div>
+      <div class="text-muted small mt-1">Échouées</div>
+    </div>
+  </div>
+</div>
+
+<h5 class="mb-3">Historique des demandes</h5>
+<div class="row g-3">
+  {% for r in requests %}
+  <div class="col-6 col-md-4 col-lg-3">
+    <a href="/requests?user={{ user.plex_user_id }}" class="text-decoration-none">
+      <div class="card h-100 position-relative overflow-hidden" style="border-color:#333;min-height:220px;cursor:pointer">
+        {% if r.poster_url %}
+        <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.15) 0%,rgba(20,20,20,.92) 58%)"></div>
+        {% else %}
+        <div style="position:absolute;inset:0;background:#2a2a2a;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} text-muted" style="font-size:2.5rem;opacity:.3"></i>
+        </div>
+        {% endif %}
+        <div class="position-absolute top-0 end-0 m-2">
+          {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill"></i></span>
+          {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill"></i></span>
+          {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
+          {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>{% endif %}
+        </div>
+        <div class="position-absolute bottom-0 start-0 end-0 p-2">
+          <div class="fw-bold text-white text-truncate" style="font-size:13px;text-shadow:0 1px 4px #000" title="{{ r.title }}">{{ r.title }}</div>
+          <div class="text-white-50" style="font-size:11px">
+            {% if r.requested_at %}{{ r.requested_at.strftime('%d/%m/%Y') }}{% endif %}{% if r.year %} · {{ r.year }}{% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% else %}
+  <div class="col-12 text-center text-muted py-5">
+    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+    Aucune demande pour cet utilisateur.
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

@@ -190,3 +190,20 @@ async def get_root_folders(radarr_url: str, api_key: str) -> list[str]:
         )
         resp.raise_for_status()
         return [f["path"] for f in resp.json()]
+
+
+async def get_disk_space(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne l'espace disque des volumes connus de Radarr.
+
+    Returns:
+        Liste de {path, free_bytes, total_bytes}.
+    """
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{radarr_url.rstrip('/')}/api/v3/diskspace",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return [
+            {"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()
+        ]
