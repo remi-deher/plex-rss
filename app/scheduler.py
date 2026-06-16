@@ -690,9 +690,7 @@ async def _refresh_next_release(
                 (data.get("physicalRelease"), "Sortie physique"),
                 (data.get("inCinemas"), "Sortie cinéma"),
             ]
-            future = [
-                (datetime.fromisoformat(d.replace("Z", "+00:00")), label) for d, label in candidates if d
-            ]
+            future = [(datetime.fromisoformat(d.replace("Z", "+00:00")), label) for d, label in candidates if d]
             future = [(d, label) for d, label in future if d > now]
             if future:
                 date, label = min(future, key=lambda x: x[0])
@@ -808,9 +806,7 @@ async def poll_watchlists():
                 continue
 
             user_obj = users_map.get(uid)
-            display_name = (
-                (user_obj.custom_name or user_obj.display_name) if user_obj else None
-            ) or uid
+            display_name = ((user_obj.custom_name or user_obj.display_name) if user_obj else None) or uid
 
             # Normalisation sur TMDB avant déduplication : le flux RSS n'apporte qu'un
             # IMDB ID (films) ou un TVDB ID (séries). Sans TMDB, la dédup retombe sur le

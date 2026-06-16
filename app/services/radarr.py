@@ -248,6 +248,4 @@ async def get_disk_space(radarr_url: str, api_key: str) -> list[dict]:
             headers={"X-Api-Key": api_key},
         )
         resp.raise_for_status()
-        return [
-            {"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()
-        ]
+        return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]

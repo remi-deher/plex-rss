@@ -21,7 +21,7 @@ import os as _os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -835,7 +835,7 @@ def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
                 "count": count,
             }
         )
-    items.sort(key=lambda i: i["count"], reverse=True)
+    items.sort(key=lambda i: cast(int, i["count"]), reverse=True)
     return items[:limit]
 
 

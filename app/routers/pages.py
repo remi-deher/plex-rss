@@ -43,9 +43,7 @@ def build_users_map(db: Session) -> dict:
     Utilisé pour résoudre les IDs hex en noms lisibles dans les templates.
     Priorité : nom d'usage (custom_name) → display_name → plex_user_id.
     """
-    return {
-        u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()
-    }
+    return {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -196,9 +194,7 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
 
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)
-def user_detail_page(
-    user_id: int, request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)
-):
+def user_detail_page(user_id: int, request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
     """Page de détail d'un utilisateur : stats et historique complet de ses demandes."""
     user = db.get(PlexUser, user_id)
     if not user:

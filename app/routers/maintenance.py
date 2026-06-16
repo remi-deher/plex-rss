@@ -404,8 +404,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
         no_tmdb = db.query(MediaRequest).filter(MediaRequest.tmdb_id.is_(None)).all()
         emit.info(f"{len(no_tmdb)} demande(s) sans tmdb_id à enrichir…")
         emit.info(
-            f"Sources : {'Radarr (films, IMDB→TMDB) ' if radarr_ok else ''}"
-            f"{'Seer (titre) ' if seer_ok else ''}".strip()
+            f"Sources : {'Radarr (films, IMDB→TMDB) ' if radarr_ok else ''}{'Seer (titre) ' if seer_ok else ''}".strip()
         )
 
         base = settings.seer_url.rstrip("/") if seer_ok else None
