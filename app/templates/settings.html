@@ -306,7 +306,9 @@
             </h5>
             <span id="conn-badge-smtp" class="conn-badge"></span>
           </div>
-          <div class="row g-3">
+          <!-- Serveur d'envoi -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Serveur d'envoi (SMTP)</h6>
+          <div class="row g-3 mb-4">
             <div class="col-md-5">
               <label class="form-label">Serveur SMTP</label>
               <input type="text" class="form-control" name="smtp_host" id="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
@@ -321,6 +323,10 @@
                 <label class="form-check-label" for="smtp_tls">STARTTLS</label>
               </div>
             </div>
+            <div class="col-md-3">
+              <label class="form-label">Email expéditeur</label>
+              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
+            </div>
             <div class="col-md-4">
               <label class="form-label">Utilisateur SMTP</label>
               <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
@@ -333,131 +339,49 @@
               </div>
             </div>
             <div class="col-md-4">
-              <label class="form-label">Email expéditeur</label>
-              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Email(s) admin <span class="text-muted small">(reçoit une copie si activé par utilisateur)</span></label>
-              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
-              <div class="form-text">Plusieurs adresses séparées par des virgules. Le toggle par utilisateur contrôle qui notifie l'admin.</div>
-            </div>
-            <div class="col-md-6">
               <label class="form-label">Test — envoyer un email à</label>
               <div class="input-group">
                 <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
                 <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
               </div>
             </div>
-            <div class="col-md-6">
-              <div class="d-flex gap-4 mt-1">
+          </div>
+
+          <!-- Quand prévenir -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Quand prévenir par email</h6>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="d-flex gap-4 flex-wrap">
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
-                  <label class="form-check-label" for="email_req">Email à la demande</label>
+                  <label class="form-check-label" for="email_req">À chaque nouvelle demande reçue</label>
                 </div>
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
-                  <label class="form-check-label" for="email_av">Email quand disponible</label>
+                  <label class="form-check-label" for="email_av">Quand le média devient disponible</label>
                 </div>
               </div>
             </div>
-            <div class="col-md-4">
-              <label class="form-label">Rétention de l'historique</label>
-              <select class="form-select" name="notification_log_retention_days">
-                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
-                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
-                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
-                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
-                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
-                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
-                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
-              </select>
-              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
+            <div class="col-md-8">
+              <label class="form-label">Email(s) de l'administrateur <span class="text-muted small">(copie des notifications)</span></label>
+              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
+              <div class="form-text">Plusieurs adresses séparées par des virgules. Chaque utilisateur peut activer ou non l'envoi d'une copie à l'admin.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Templates email -->
+      <!-- Modèles d'email -->
       <div class="col-12">
         <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-code-slash text-secondary me-2"></i>Templates email <span class="badge bg-secondary ms-1" style="font-size:11px">Jinja2</span></h5>
-            <div class="d-flex align-items-center gap-2">
-              <span class="text-muted small">Aperçu en tant que :</span>
-              <select id="preview-user-select" class="form-select form-select-sm" style="width:180px">
-                <option value="">(Par défaut)</option>
-                {% for u in users %}
-                <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
-                {% endfor %}
-              </select>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+              <h5 class="mb-1"><i class="bi bi-envelope-paper text-secondary me-2"></i>Modèles d'email</h5>
+              <p class="text-muted small mb-0">Personnalisez le contenu des emails (objet + corps) avec un éditeur et un aperçu en direct.</p>
             </div>
-          </div>
-          <div class="card bg-dark bg-opacity-25 border-secondary border-opacity-25 p-3 mb-4">
-            <span class="text-muted small fw-semibold d-block mb-2"><i class="bi bi-info-circle me-1"></i>Variables disponibles — Cliquez pour les insérer à la position du curseur :</span>
-            <div class="d-flex flex-wrap gap-2">
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ title }}' }}')" title="Titre du film ou de la série (ex: Interstellar)"><i class="bi bi-tag-fill me-1"></i>title</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ year }}' }}')" title="Année de sortie (ex: 2014)"><i class="bi bi-tag-fill me-1"></i>year</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ plex_user }}' }}')" title="Nom d'usage de l'utilisateur (ex: Papa)"><i class="bi bi-tag-fill me-1"></i>plex_user</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ media_type_label }}' }}')" title="Type de média (ex: Film ou Série)"><i class="bi bi-tag-fill me-1"></i>media_type_label</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ overview }}' }}')" title="Résumé du média (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>overview</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ poster_url }}' }}')" title="URL de l'affiche (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>poster_url</span>
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary cursor-pointer py-2 px-3" style="cursor: pointer;" onclick="insertVarAtLastCursor('{{ '{{ genres }}' }}')" title="Genres du média (ex: Action, Drame) (disponible pour les templates)"><i class="bi bi-tag-fill me-1"></i>genres</span>
-            </div>
-            <small class="text-muted d-block mt-2">Laissez les templates ou objets vides pour utiliser la configuration par défaut.</small>
-          </div>
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">Objet du message — Nouvelle demande</label>
-              <input type="text" class="form-control mb-3" name="email_request_subject" value="{{ s.email_request_subject or '' }}" placeholder="[Plex] Nouvelle demande : {{ title }}">
-
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <label class="form-label mb-0">Template — Nouvelle demande</label>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previewTemplate('request')">
-                  <i class="bi bi-eye me-1"></i>Aperçu
-                </button>
-              </div>
-              <textarea class="form-control font-monospace" name="email_request_template" rows="6" placeholder="Laisser vide pour le template par défaut…" style="font-size:12px;resize:vertical">{{ s.email_request_template or '' }}</textarea>
-            </div>
-            <div class="col-12">
-              <label class="form-label">Objet du message — Disponible sur Plex</label>
-              <input type="text" class="form-control mb-3" name="email_available_subject" value="{{ s.email_available_subject or '' }}" placeholder="[Plex] Disponible : {{ title }}">
-
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <label class="form-label mb-0">Template — Disponible sur Plex</label>
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previewTemplate('available')">
-                  <i class="bi bi-eye me-1"></i>Aperçu
-                </button>
-              </div>
-              <textarea class="form-control font-monospace" name="email_available_template" rows="6" placeholder="Laisser vide pour le template par défaut…" style="font-size:12px;resize:vertical">{{ s.email_available_template or '' }}</textarea>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modal aperçu template -->
-      <div class="modal fade" id="emailPreviewModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-          <div class="modal-content" style="background:#1f1f1f">
-            <div class="modal-header border-secondary">
-              <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Aperçu du template</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body p-0">
-              <iframe id="emailPreviewFrame" style="width:100%;height:500px;border:none;background:#fff"></iframe>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Historique emails -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
-          </div>
-          <div id="notif-log-wrap">
-            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
+            <a href="/settings/email-templates" class="btn btn-outline-secondary">
+              <i class="bi bi-pencil-square me-1"></i>Modifier les modèles
+            </a>
           </div>
         </div>
       </div>
@@ -526,6 +450,34 @@
             <div class="col-12">
               <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historique emails -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
+          </div>
+          <div class="row g-3 mb-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Conserver l'historique pendant</label>
+              <select class="form-select" name="notification_log_retention_days">
+                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
+                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
+                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
+                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
+                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
+                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
+                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
+              </select>
+              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
+            </div>
+          </div>
+          <div id="notif-log-wrap">
+            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
           </div>
         </div>
       </div>
@@ -811,64 +763,6 @@ async function _seerAction(btnId, url, label) {
 
 function seerSyncUsers()   { _seerAction('btn-seer-sync-users',   '/api/seer/sync/users',    'Synchronisation'); }
 function seerSyncStatuts() { _seerAction('btn-seer-sync-statuts', '/api/seer/sync/users',    'Mise à jour'); }
-
-// ── Aide à l'insertion des variables de notification ───────────────────────────
-let lastFocusedNotificationInput = null;
-
-const notifFieldNames = [
-  'email_request_subject',
-  'email_request_template',
-  'email_available_subject',
-  'email_available_template'
-];
-
-document.addEventListener('DOMContentLoaded', () => {
-  notifFieldNames.forEach(name => {
-    const el = document.querySelector(`[name="${name}"]`);
-    if (el) {
-      el.addEventListener('focus', () => {
-        lastFocusedNotificationInput = el;
-      });
-    }
-  });
-});
-
-function insertVarAtLastCursor(varName) {
-  let target = lastFocusedNotificationInput;
-  if (!target) {
-    target = document.querySelector('[name="email_request_subject"]');
-  }
-  if (!target) return;
-
-  const start = target.selectionStart;
-  const end = target.selectionEnd;
-  const text = target.value;
-  target.value = text.substring(0, start) + varName + text.substring(end);
-  target.focus();
-  target.selectionStart = target.selectionEnd = start + varName.length;
-
-  // Déclencher les événements pour que l'app détecte les changements
-  target.dispatchEvent(new Event('input', { bubbles: true }));
-  target.dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-// ── Aperçu template email ─────────────────────────────────────────────────────
-async function previewTemplate(event) {
-  const frame = document.getElementById('emailPreviewFrame');
-  frame.src = 'about:blank';
-  new bootstrap.Modal(document.getElementById('emailPreviewModal')).show();
-  try {
-    // Sauvegarder d'abord pour que le preview reflète les modifs en cours
-    await saveSettings();
-    const userId = document.getElementById('preview-user-select').value;
-    const url = userId ? `/api/email/preview?event=${event}&user_id=${userId}` : `/api/email/preview?event=${event}`;
-    const r = await fetch(url);
-    const html = await r.text();
-    frame.srcdoc = html;
-  } catch(e) {
-    frame.srcdoc = `<body style="font-family:sans-serif;padding:20px;color:red">Erreur : ${e.message}</body>`;
-  }
-}
 
 // ── Historique notifications ──────────────────────────────────────────────────
 const EVENT_LABELS = { request: 'Demande', available: 'Disponible', failed: 'Échec' };

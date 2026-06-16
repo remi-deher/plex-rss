@@ -199,13 +199,11 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
     """Page de configuration globale de l'application."""
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")
-    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "s": s,
             "webhook_url": f"{base_url}/webhook/plex",
-            "users": users,
         },
     )
