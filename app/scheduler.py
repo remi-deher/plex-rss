@@ -194,6 +194,10 @@ async def sync_seer_users():
 
     Met à jour seer_user_id, seer_active. Ne touche pas aux liaisons
     déjà faites manuellement sauf si l'email correspond (plus fiable).
+
+    Tous les comptes Seer sans équivalent RSS sont importés (source='seer'),
+    même sans demande (seer_active=False dans ce cas) — un compte Plex visible
+    dans Seer mais jamais utilisé doit pouvoir apparaître dans l'app.
     """
     db = SessionLocal()
     try:
@@ -325,15 +329,13 @@ async def sync_seer_users():
                 matched_seer_ids.add(info["id"])
                 continue
 
-            if info["request_count"] == 0:
-                continue
             email = next((e for e in seer_users if seer_users[e]["id"] == info["id"]), None)
             new_user = PlexUser(
                 plex_user_id=synthetic_id,
                 display_name=info["display_name"],
                 plex_email=email,
                 seer_user_id=info["id"],
-                seer_active=True,
+                seer_active=info["request_count"] > 0,
                 source="seer",
                 enabled=True,
                 notify_admin=True,

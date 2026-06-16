@@ -39,7 +39,8 @@
   <div class="col-md-6 col-xl-4" id="card-wrapper-{{ u.id }}">
     <div class="card h-100 border-secondary" style="background:#1e1e1e"
          data-user-id="{{ u.id }}"
-         data-seer-user-id="{{ u.seer_user_id or '' }}">
+         data-seer-user-id="{{ u.seer_user_id or '' }}"
+         data-source="{{ u.source or 'rss' }}">
 
       <div class="card-body">
 
@@ -69,14 +70,14 @@
             </a>
           </div>
           <div class="d-flex flex-column gap-1 align-items-end flex-shrink-0">
-            {% if u.source == 'seer' %}
+            {% if u.source == 'seer' and u.seer_active %}
             <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Utilisateur Seer uniquement — pas de flux RSS"><i class="bi bi-stars me-1"></i>Seer</span>
+            {% elif u.source == 'seer' %}
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Compte Plex visible sur Seer mais aucune demande effectuée"><i class="bi bi-person me-1"></i>Seer (inactif)</span>
             {% elif u.seer_user_id and u.seer_active %}
             <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Utilisateur RSS actif sur Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect me-1"></i>Hybride</span>
-            {% elif u.seer_user_id %}
-            <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Lié à Seer — synchronisez pour mettre à jour le statut"><i class="bi bi-stars me-1"></i>Seer</span>
             {% else %}
-            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Utilisateur RSS uniquement — pas de compte Seer lié"><i class="bi bi-rss me-1"></i>RSS</span>
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Utilisateur RSS uniquement — aucune demande effectuée sur Seer"><i class="bi bi-rss me-1"></i>RSS</span>
             {% endif %}
             {% if u.source != 'seer' %}
             {% if u.enabled %}
@@ -567,7 +568,7 @@ function openMergeSeerOnly(seerOnlyUserId, seerOnlyName) {
   document.querySelectorAll('.card[data-user-id]').forEach(card => {
     const uid = parseInt(card.dataset.userId);
     if (uid === seerOnlyUserId) return;
-    if (card.closest('[id^="card-wrapper-"]')?.querySelector('.badge.bg-info.text-dark')) return; // seer-only
+    if (card.dataset.source === 'seer') return; // seer-only
     const name = card.querySelector('[id^="custom-name-cell-"] .fw-semibold')?.textContent.trim()
               || card.querySelector('[id^="custom-name-cell-"] .fst-italic') && null
               || card.querySelector('.text-muted[style*="12px"]')?.textContent.trim()
