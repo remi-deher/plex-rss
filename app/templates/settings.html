@@ -62,7 +62,9 @@
               <span id="conn-badge-plex-api" class="conn-badge"></span>
             </div>
           </div>
-          <div class="row g-3">
+          <!-- Connexion au serveur -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Connexion au serveur</h6>
+          <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label">URL Plex (local)</label>
               <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
@@ -72,7 +74,6 @@
               <div class="input-group mb-2">
                 <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
                 <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-api')">Tester API</button>
               </div>
               <div>
                 <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
@@ -81,24 +82,44 @@
                 <span id="sso-status" class="ms-2 small text-muted"></span>
               </div>
             </div>
-            <div class="col-md-10">
-              <label class="form-label">URL du flux RSS Plex (admin avec Plex Pass)</label>
-              <div class="input-group">
-                <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+          </div>
+
+          <!-- Source de la watchlist -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <div class="card h-100 p-3" style="background:#222">
+                <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
+                <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
+                <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
               </div>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Source prioritaire</label>
+              <div class="card h-100 p-3" style="background:#222">
+                <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
+                <div class="input-group">
+                  <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                  <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Comportement -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Comportement</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Méthode prioritaire</label>
               <select class="form-select" name="watchlist_source_priority">
-                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>API Plex (token)</option>
-                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>Flux RSS</option>
+                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>1. API Plex (token)</option>
+                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>2. Flux RSS</option>
               </select>
+              <div class="form-text">La méthode utilisée en priorité à chaque sondage de la watchlist.</div>
             </div>
             <div class="col-md-3 d-flex align-items-end">
               <div class="form-check form-switch mb-2">
                 <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="fallback">Activer le fallback</label>
+                <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
               </div>
             </div>
             <div class="col-md-3">
