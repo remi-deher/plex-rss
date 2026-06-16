@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 PLEX_TV_BASE = "https://plex.tv"
 METADATA_BASE = "https://metadata.provider.plex.tv"
+CLIENT_IDENTIFIER = "plex-rss-monitor-sso-id"
 
 
 async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
@@ -32,6 +33,7 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
     headers = {
         "X-Plex-Token": plex_token,
         "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     items = []
 
@@ -69,6 +71,7 @@ async def _get_user_watchlist(client: httpx.AsyncClient, token: str, username: s
     headers = {
         "X-Plex-Token": token,
         "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     items = []
     try:
