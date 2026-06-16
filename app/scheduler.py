@@ -25,7 +25,7 @@ from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
-from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie
+from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .services.seer import get_user_requests as seer_get_user_requests
@@ -554,6 +554,54 @@ async def _submit_to_arr(
     return None, False, None
 
 
+async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj) -> dict:
+    """Garantit un tmdb_id sur l'item quand c'est possible (normalisation déduplication).
+
+    - Films : résout IMDB → TMDB via Radarr (disponible pour TOUS les utilisateurs,
+      pas seulement les hybrides Seer). Radarr utilise la table de correspondance
+      externe de TMDB, donc le résultat coïncide avec ce que produit Seer.
+    - Fallback Seer (utilisateurs hybrides) : couvre les rares cas sans IMDB ni TVDB.
+
+    Renvoie l'item (éventuellement enrichi d'un tmdb_id) sans le muter sur place.
+    """
+    if item.get("tmdb_id"):
+        return item
+
+    if (
+        item.get("media_type") == "movie"
+        and item.get("imdb_id")
+        and settings
+        and settings.radarr_url
+        and settings.radarr_api_key
+    ):
+        resolved = await resolve_tmdb_id(settings.radarr_url, settings.radarr_api_key, item["imdb_id"])
+        if resolved:
+            logger.info(f"tmdb_id résolu via Radarr pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
+            return {**item, "tmdb_id": resolved}
+
+    if (
+        not item.get("tvdb_id")
+        and user_obj
+        and user_obj.seer_user_id
+        and user_obj.seer_active
+        and settings
+        and settings.seer_url
+        and settings.seer_api_key
+    ):
+        base = settings.seer_url.rstrip("/")
+        headers = _seer_headers(settings.seer_api_key)
+        try:
+            search_item = {**item, "title": _clean_title(item["title"])}
+            resolved = await _seer_resolve_tmdb_id(base, headers, search_item)
+            if resolved:
+                logger.debug(f"tmdb_id résolu via Seer pour '{item['title']}': {resolved}")
+                return {**item, "tmdb_id": resolved}
+        except Exception:
+            pass
+
+    return item
+
+
 def _find_global_request(
     db,
     media_type: str,
@@ -762,27 +810,11 @@ async def poll_watchlists():
             user_obj = users_map.get(uid)
             display_name = (user_obj.display_name if user_obj else None) or uid
 
-            # Pour utilisateurs hybrides sans tmdb_id NI tvdb_id dans le flux RSS :
-            # les séries sont maintenant déduplicées par tvdb_id → appel Seer utile uniquement
-            # pour les films sans identifiant (imdb seul, cas rare).
-            if (
-                not item.get("tmdb_id")
-                and not item.get("tvdb_id")
-                and user_obj
-                and user_obj.seer_user_id
-                and user_obj.seer_active
-            ):
-                if settings and settings.seer_url and settings.seer_api_key:
-                    base = settings.seer_url.rstrip("/")
-                    headers = _seer_headers(settings.seer_api_key)
-                    try:
-                        search_item = {**item, "title": _clean_title(item["title"])}
-                        resolved = await _seer_resolve_tmdb_id(base, headers, search_item)
-                        if resolved:
-                            item = {**item, "tmdb_id": resolved}
-                            logger.debug(f"tmdb_id résolu via Seer pour '{item['title']}': {resolved}")
-                    except Exception:
-                        pass
+            # Normalisation sur TMDB avant déduplication : le flux RSS n'apporte qu'un
+            # IMDB ID (films) ou un TVDB ID (séries). Sans TMDB, la dédup retombe sur le
+            # titre — qui diffère selon la langue → doublons RSS ↔ Seer. On résout donc
+            # le TMDB ID pour tous les utilisateurs (pas seulement les hybrides).
+            item = await _ensure_tmdb_id(item, settings, user_obj)
 
             # Dédup global : même média déjà demandé par un autre utilisateur ?
             global_req = _find_global_request(

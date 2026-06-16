@@ -74,6 +74,33 @@ async def add_movie(
         raise
 
 
+async def resolve_tmdb_id(radarr_url: str, api_key: str, imdb_id: str) -> str | None:
+    """Résout un TMDB ID à partir d'un IMDB ID via le lookup Radarr.
+
+    Sert à normaliser sur TMDB les demandes RSS (qui n'apportent qu'un IMDB ID),
+    afin qu'elles dédupliquent correctement avec les demandes Seer (clés sur TMDB).
+    Radarr s'appuie sur la table de correspondance externe de TMDB : la résolution
+    est donc cohérente avec ce que produit Seer pour le même film.
+    """
+    if not imdb_id:
+        return None
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"{base}/api/v3/movie/lookup",
+                params={"term": f"imdb:{imdb_id}"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            results = resp.json()
+            if results and results[0].get("tmdbId"):
+                return str(results[0]["tmdbId"])
+    except Exception as e:
+        logger.warning(f"Radarr imdb→tmdb resolution failed for '{imdb_id}': {e}")
+    return None
+
+
 async def _search_tmdb_id(base: str, headers: dict, title: str, year: int | None) -> str | None:
     """Cherche un TMDB ID via le lookup Radarr.
 

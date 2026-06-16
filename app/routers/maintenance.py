@@ -132,7 +132,7 @@ ACTIONS_META = {
     },
     "enrich-and-merge": {
         "label": "Enrichir & Fusionner",
-        "description": "Résout les tmdb_id manquants via Seer, puis fusionne tous les doublons. Corrige les entrées RSS créées avant l'intégration Seer.",
+        "description": "Résout les tmdb_id manquants (films : IMDB→TMDB via Radarr, sinon Seer par titre), puis fusionne tous les doublons. Corrige les doublons RSS ↔ Seer dus à des identifiants différents.",
         "icon": "bi-magic",
         "color": "primary",
     },
@@ -390,19 +390,26 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
     db = SessionLocal()
     try:
         from ..models import MediaRequest, Settings
+        from ..services.radarr import resolve_tmdb_id as radarr_resolve
         from ..services.seer import _headers, _resolve_tmdb_id
 
         settings = db.query(Settings).first()
-        if not settings or not settings.seer_url or not settings.seer_api_key:
-            emit.warn("Seer non configuré — impossible de résoudre les tmdb_id.")
+        radarr_ok = bool(settings and settings.radarr_url and settings.radarr_api_key)
+        seer_ok = bool(settings and settings.seer_url and settings.seer_api_key)
+        if not radarr_ok and not seer_ok:
+            emit.warn("Ni Radarr ni Seer configuré — impossible de résoudre les tmdb_id.")
             run.progress = 100
             return
 
         no_tmdb = db.query(MediaRequest).filter(MediaRequest.tmdb_id.is_(None)).all()
         emit.info(f"{len(no_tmdb)} demande(s) sans tmdb_id à enrichir…")
+        emit.info(
+            f"Sources : {'Radarr (films, IMDB→TMDB) ' if radarr_ok else ''}"
+            f"{'Seer (titre) ' if seer_ok else ''}".strip()
+        )
 
-        base = settings.seer_url.rstrip("/")
-        headers = _headers(settings.seer_api_key)
+        base = settings.seer_url.rstrip("/") if seer_ok else None
+        headers = _headers(settings.seer_api_key) if seer_ok else None
         enriched = 0
 
         for i, req in enumerate(no_tmdb):
@@ -410,12 +417,21 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
             try:
                 from ..scheduler import _clean_title
 
-                item = {"title": _clean_title(req.title), "media_type": req.media_type}
-                resolved = await _resolve_tmdb_id(base, headers, item)
+                resolved = None
+                # Films : IMDB → TMDB via Radarr (fiable, pas besoin de Seer)
+                if radarr_ok and req.media_type == "movie" and req.imdb_id:
+                    resolved = await radarr_resolve(settings.radarr_url, settings.radarr_api_key, req.imdb_id)
+                    if resolved:
+                        emit.info(f"tmdb_id={resolved} via Radarr → '{req.title}'")
+                # Sinon, repli sur Seer par titre (séries, films sans IMDB)
+                if not resolved and seer_ok:
+                    item = {"title": _clean_title(req.title), "media_type": req.media_type}
+                    resolved = await _resolve_tmdb_id(base, headers, item)
+                    if resolved:
+                        emit.info(f"tmdb_id={resolved} via Seer → '{req.title}'")
                 if resolved:
                     req.tmdb_id = resolved
                     enriched += 1
-                    emit.info(f"tmdb_id={resolved} → '{req.title}'")
             except Exception as e:
                 emit.warn(f"Erreur pour '{req.title}': {e}")
 
