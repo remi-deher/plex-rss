@@ -169,7 +169,8 @@
 async function loadHealth() {
   try {
     const d = await fetch('/api/health').then(r => r.json());
-    const map = { 'h-sonarr': d.sonarr, 'h-radarr': d.radarr, 'h-smtp': d.smtp, 'h-rss': d.rss };
+    const services = d.services || d;
+    const map = { 'h-sonarr': services.sonarr, 'h-radarr': services.radarr, 'h-smtp': services.smtp, 'h-rss': services.rss };
     for (const [id, info] of Object.entries(map)) {
       const el = document.querySelector(`#${id} .health-badge`);
       const card = document.getElementById(id);
