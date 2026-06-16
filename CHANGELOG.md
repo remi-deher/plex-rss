@@ -1,5 +1,81 @@
 
 
+### build
+
+- bump fastapi from 0.137.0 to 0.137.1 (#21) ([25d758e](https://github.com/remi-deher/plex-rss/commit/25d758e804ff6c43bd437b73a9649de67a781ccf))
+- bump sqlalchemy from 2.0.50 to 2.0.51 (#22) ([dbeb3d3](https://github.com/remi-deher/plex-rss/commit/dbeb3d36e581be8e61cdb9cbc7ed73cc6e7c9529))
+- bump httpx from 0.27.2 to 0.28.1 (#23) ([e34992d](https://github.com/remi-deher/plex-rss/commit/e34992dd1d8cf6ecdbf21f7ccacb320e05fde740))
+
+### style
+
+- ruff format sur 8 fichiers ([82b5b5b](https://github.com/remi-deher/plex-rss/commit/82b5b5b3ca1abb3c527ba5fdf83a8ebfacdeb1be))
+- format python files with ruff ([4387835](https://github.com/remi-deher/plex-rss/commit/4387835dd843b8e70af56b0d9754778a8a0fb881))
+
+### test
+
+- filtrer le DeprecationWarning httpx/starlette dans pytest.ini ([cd47c25](https://github.com/remi-deher/plex-rss/commit/cd47c25ddff1f56eb48b495b245af88610c9f3e2))
+
+### ♻️ Refactoring
+
+- factorisation + tests unitaires complets (73% couverture) ([8bf9ff8](https://github.com/remi-deher/plex-rss/commit/8bf9ff81d909151afa8af1ca7ea1e65a560794a2))
+- reorganiser la carte Plex en sous-sections (Connexion / Source watchlist / Comportement) ([a655841](https://github.com/remi-deher/plex-rss/commit/a65584123745396287bac76c1559ba9c93a388c7))
+- vocabulaire orienté utilisateur, parcours de demande lisible et hiérarchie des réglages ([2869afa](https://github.com/remi-deher/plex-rss/commit/2869afa8d5b061f805d0bd7741e7dc76dbcba5e8))
+- clarifier l'onglet Notifications ([ef6680b](https://github.com/remi-deher/plex-rss/commit/ef6680b37ce8ae940029438f3a8b15cd6ef08299))
+
+### ⚡ Performance
+
+- paralleliser /api/health, cacher next_release_at, eviter le N+1 Sonarr/Radarr ([241be93](https://github.com/remi-deher/plex-rss/commit/241be930d8472c3128a4ea2b4b5d9ea5e544a398))
+
+### ✨ Nouveautés
+
+- per-user notification controls and disabled-user email fix ([fecd363](https://github.com/remi-deher/plex-rss/commit/fecd3636a8728908d3e2fcc50a0a2cd81d6af7a4))
+- RSS-only email by default, 3-state mail status in requests table ([fa8ade2](https://github.com/remi-deher/plex-rss/commit/fa8ade25df5034fc6c9ab2573dc1f42e392231fe))
+- notification history log in settings ([30f3add](https://github.com/remi-deher/plex-rss/commit/30f3adde53f8efd0b1aa0fc0662d92ab2ea293e4))
+- notification improvements batch 1 ([c48ecf9](https://github.com/remi-deher/plex-rss/commit/c48ecf956b9007b0479a6ff2357fffe4f39445bd))
+- notification improvements batch 2 ([ba04259](https://github.com/remi-deher/plex-rss/commit/ba042594ac70a18772331f6481853f89260bc072))
+- notification improvements batch 3 ([96e2c66](https://github.com/remi-deher/plex-rss/commit/96e2c66774522f857cc2d0e70431addc2bad837b))
+- add custom subjects with variables and preview-as-user feature ([02d5676](https://github.com/remi-deher/plex-rss/commit/02d5676643e92757468642820ccb94670fc824a2))
+- add variable insertion helper and fix timezone offset in notification settings and request pages ([aba77e4](https://github.com/remi-deher/plex-rss/commit/aba77e4e179f7ff1b242fd22fa01b12283bb3503))
+- add option to mark requests as processed without sending emails ([8418b94](https://github.com/remi-deher/plex-rss/commit/8418b94b534008416d1651539489d2c2b45b26e4))
+- implement bulk actions, source filter, available date sort, quick links, error visibility, and unit tests ([30f1429](https://github.com/remi-deher/plex-rss/commit/30f14295959c5acdda2c4ec47272c432c4128f73))
+- mark-processed envoie le mail intelligent selon le statut ([6f6a821](https://github.com/remi-deher/plex-rss/commit/6f6a821dc9c99e1ee3d8d0050eb37f09e69ba786))
+- separer renvoi mail demande et envoi mail dispo/cloture sur mark-processed ([9103cec](https://github.com/remi-deher/plex-rss/commit/9103cec41929a1fc7e01f85f3ca61005982462d3))
+- importer tous les comptes Seer meme sans demande + badge dedie ([9dff193](https://github.com/remi-deher/plex-rss/commit/9dff193869fbc5074e15172dc4fe03948f5a06f8))
+- afficher Transmis à Sonarr/Radarr au lieu de Envoyé selon le type de média ([9d04069](https://github.com/remi-deher/plex-rss/commit/9d040695aaf05d872712917b1d578f50eded47da))
+- renommer le filtre de statut Envoyées en Transmises ([26afc55](https://github.com/remi-deher/plex-rss/commit/26afc5504543b48952af49b2aa5d0d732ceddc8f))
+- prochaines sorties, top demandés, espace disque, détail utilisateur ([40cfeb4](https://github.com/remi-deher/plex-rss/commit/40cfeb4aa8472bb9cc3454181176f4a1b4f54f83))
+- squelettes, modale de confirmation, thème clair, raccourci recherche, micro-animations ([8138edd](https://github.com/remi-deher/plex-rss/commit/8138edda468f9da04d3e23ec41a2fa3edcf258af))
+- parite du theme clair sur les styles par page ([622e418](https://github.com/remi-deher/plex-rss/commit/622e41855805f8e579d22e0d387099f5ee1bb5f3))
+- filtrage AJAX, chips filtres, undo suppression, grille multi-select, auto-refresh statuts ([b314c53](https://github.com/remi-deher/plex-rss/commit/b314c53c8497bb62aea825614e2e39daee351a02))
+
+### 🐛 Corrections
+
+- ruff import sorting + mypy Protocol pour get_or_404 ([7e0b44f](https://github.com/remi-deher/plex-rss/commit/7e0b44fa5abd0490fdd455bb721c0056bba5d2a6))
+- omit empty user_id query parameter in email preview ([3a01538](https://github.com/remi-deher/plex-rss/commit/3a01538b9d877cb6b199edb7da203a244da76f32))
+- migrate requests page status and type filters to server side and preserve query parameters in pagination ([1075e89](https://github.com/remi-deher/plex-rss/commit/1075e8905f727f250def991ec0121a65f39b119f))
+- fallback direct sur Sonarr/Radarr quand Seer ne detecte pas la disponibilite ([9042c6a](https://github.com/remi-deher/plex-rss/commit/9042c6a2f8823229b0c8188cc7bd52198f652080))
+- les emails reels utilisent le Nom d'usage (custom_name) comme l'apercu ([d2d139e](https://github.com/remi-deher/plex-rss/commit/d2d139e9c75acb025c63c8628d624a22865af62e))
+- ajouter X-Plex-Client-Identifier pour la récupération de la watchlist API ([4d5819c](https://github.com/remi-deher/plex-rss/commit/4d5819c9faa8c070f2d8737e088dbba28658d813))
+- utiliser discover.provider.plex.tv pour la watchlist (metadata.provider renvoie 404) ([774aa4b](https://github.com/remi-deher/plex-rss/commit/774aa4b61ba71efbc4f372c988231cd85e24a11e))
+- corriger la boucle de rechargement infinie sur le filtre statut de la page demandes ([e6faad4](https://github.com/remi-deher/plex-rss/commit/e6faad49a19801155ef827d36b679ecf48c89325))
+- lire les services depuis d.services dans /api/health ([407ef2f](https://github.com/remi-deher/plex-rss/commit/407ef2fb21da6134bc4fcbd23801772d1e8de41a))
+- normaliser les demandes RSS sur TMDB (resolution IMDB via Radarr) ([343b6a0](https://github.com/remi-deher/plex-rss/commit/343b6a02f86f957ab42b2fb5268a10883fce19f6))
+- resoudre les noms de co-demandeurs en direct (RSS-only affichait l'ID Plex brut) ([5a6013c](https://github.com/remi-deher/plex-rss/commit/5a6013caafcacb0e3a20082b9aae00585c7be8ce))
+- resoudre les noms en direct dans le journal d'activite du dashboard ([adc8bfa](https://github.com/remi-deher/plex-rss/commit/adc8bfa5a3ffc7127eff8c4a3a551ed6264186c0))
+- ruff format 5 fichiers + mypy cast sur sort key (api.py:838) ([3afeb6f](https://github.com/remi-deher/plex-rss/commit/3afeb6ffb89b5279f6a008cf8b6c59805a2c0d9d))
+
+### 👷 CI/CD
+
+- supprimer le push CHANGELOG vers main (bloque par branch protection) ([5ee8c0d](https://github.com/remi-deher/plex-rss/commit/5ee8c0dee1fb2f2b295bc7f489458e977504a883))
+- restaurer le commit CHANGELOG vers main (bypass bot a configurer) ([8c840e2](https://github.com/remi-deher/plex-rss/commit/8c840e269bf6cc9b59a71b2658b4a02f7d4bf46d))
+- relancer les github actions ([b085537](https://github.com/remi-deher/plex-rss/commit/b0855374ffdacf3c6d2d2968410afa8a3fc2b1fc))
+- utiliser RELEASE_PAT pour le push CHANGELOG (bypass branch protection) ([0d2470c](https://github.com/remi-deher/plex-rss/commit/0d2470c08bdd420f08b21555633105699227bc84))
+- revenir a GITHUB_TOKEN (branch protection desactivee) ([713571e](https://github.com/remi-deher/plex-rss/commit/713571e862b206b5c28d06124c46c644afbd4ecf))
+
+### 📖 Documentation
+
+- update CHANGELOG.md for v2.0.0 ([c52db22](https://github.com/remi-deher/plex-rss/commit/c52db22754c5f254da649dd109ba4c6c27f73bfd))
+
 ### ✨ Nouveautés
 
 - security headers, login rate limiting, coverage, mypy, changelog ([775909a](https://github.com/remi-deher/plex-rss/commit/775909a0524a83005025b881b6617b2f2dfb19ed))
