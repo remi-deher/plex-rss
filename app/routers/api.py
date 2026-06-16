@@ -1311,14 +1311,19 @@ def activity_log(db: Session = Depends(get_db)):
         .limit(50)
         .all()
     )
+    # Résolution des noms en direct (nom d'usage → display_name → ID Plex),
+    # pour ne pas afficher d'ID Plex brut figé pour les anciennes entrées.
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+
     events = []
     for r in reqs:
+        user_name = users.get(r.plex_user_id) or r.plex_user or r.plex_user_id or "?"
         if r.requested_at:
             events.append(
                 {
                     "type": r.status if r.status in ("failed",) else "request",
                     "title": r.title,
-                    "user": r.plex_user or r.plex_user_id or "?",
+                    "user": user_name,
                     "media_type": r.media_type,
                     "time": _format_datetime(r.requested_at),
                 }
@@ -1328,7 +1333,7 @@ def activity_log(db: Session = Depends(get_db)):
                 {
                     "type": "available",
                     "title": r.title,
-                    "user": r.plex_user or r.plex_user_id or "?",
+                    "user": user_name,
                     "media_type": r.media_type,
                     "time": _format_datetime(r.available_at),
                 }
