@@ -400,6 +400,73 @@ async def test_check_arr_seer_used_when_enabled(db):
 
 
 @pytest.mark.asyncio
+async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
+    """Seer dit non dispo → fallback direct sur Radarr qui dit dispo."""
+    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(s)
+    db.add(_sent_request())
+    db.commit()
+
+    with (
+        _patch_session(db),
+        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(True, 99, "inception"))) as mock_radarr,
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses()
+
+    mock_radarr.assert_called_once()
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.available
+    assert req.arr_slug == "inception"
+    mock_enqueue.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
+    """Seer dit non dispo → fallback direct sur Sonarr qui dit dispo."""
+    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(s)
+    db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
+    db.commit()
+
+    with (
+        _patch_session(db),
+        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.scheduler.is_series_available", new=AsyncMock(return_value=(True, 7, None))) as mock_sonarr,
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses()
+
+    mock_sonarr.assert_called_once()
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.available
+    mock_enqueue.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_check_arr_seer_unavailable_radarr_also_unavailable(db):
+    """Seer et Radarr disent tous les deux non dispo → reste sent_to_arr."""
+    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(s)
+    db.add(_sent_request())
+    db.commit()
+
+    with (
+        _patch_session(db),
+        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(False, None, None))) as mock_radarr,
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses()
+
+    mock_radarr.assert_called_once()
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_check_arr_exception_does_not_crash_loop(db):
     """Exception sur un item → les autres items continuent d'être traités."""
     db.add(_settings())

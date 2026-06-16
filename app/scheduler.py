@@ -850,6 +850,12 @@ async def check_arr_statuses():
     Disponibilité :
     - Sonarr : statistics.episodeFileCount > 0
     - Radarr : hasFile == true
+
+    En mode hybride (Seer + Sonarr/Radarr), Seer peut ne pas savoir qu'un média
+    est disponible si l'import a été fait sans qu'il le détecte. Si Seer répond
+    "non disponible", on retente directement Sonarr/Radarr en fallback (lookup
+    par tvdb_id/tmdb_id/imdb_id uniquement, car req.arr_id désigne alors l'ID
+    Seer et non l'ID Sonarr/Radarr).
     """
     logger.info("Checking arr statuses...")
     db = SessionLocal()
@@ -875,8 +881,10 @@ async def check_arr_statuses():
             available = False
             new_arr_id = None
             new_slug = None
+            seer_checked = False
             try:
                 if settings.seer_enabled and settings.seer_url:
+                    seer_checked = True
                     available, new_arr_id, new_slug = await seer_available(
                         settings.seer_url,
                         settings.seer_api_key,
@@ -897,6 +905,27 @@ async def check_arr_statuses():
                         tmdb_id=req.tmdb_id,
                         imdb_id=req.imdb_id,
                     )
+
+                # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
+                # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
+                if seer_checked and not available:
+                    if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+                        available, arr_new_id, arr_new_slug = await is_series_available(
+                            settings.sonarr_url,
+                            settings.sonarr_api_key,
+                            tvdb_id=req.tvdb_id,
+                        )
+                        new_arr_id = new_arr_id or arr_new_id
+                        new_slug = new_slug or arr_new_slug
+                    elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
+                        available, arr_new_id, arr_new_slug = await is_movie_available(
+                            settings.radarr_url,
+                            settings.radarr_api_key,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                        )
+                        new_arr_id = new_arr_id or arr_new_id
+                        new_slug = new_slug or arr_new_slug
             except Exception as e:
                 logger.warning(f"Status check error for '{req.title}': {e}")
                 continue
