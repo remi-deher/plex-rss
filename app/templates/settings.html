@@ -33,6 +33,11 @@
       <i class="bi bi-gear"></i> Avancé
     </button>
   </li>
+  <li class="nav-item ms-auto d-flex align-items-center" role="presentation">
+    <span class="text-muted text-uppercase px-2" style="font-size:11px;letter-spacing:.08em" title="Outils d'administration et de dépannage">
+      <i class="bi bi-wrench-adjustable me-1"></i>Outils
+    </span>
+  </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-conflits" type="button" role="tab" onclick="initConflictsTab()">
       <i class="bi bi-exclamation-triangle"></i> Conflits
@@ -123,7 +128,7 @@
               </div>
             </div>
             <div class="col-md-3">
-              <label class="form-label">Intervalle de polling (minutes)</label>
+              <label class="form-label">Intervalle de vérification (minutes)</label>
               <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
             </div>
           </div>
@@ -605,7 +610,7 @@
                   </div>
                   <div class="form-text">
                     Plex → Paramètres → Webhooks → Ajouter un webhook · Événements traités : <strong>library.new</strong> (nouveau contenu) et <strong>media.scrobble</strong> (regardé en entier).
-                    Permet une détection de disponibilité instantanée sans polling.
+                    Permet une détection de disponibilité instantanée sans attendre la vérification périodique.
                   </div>
                 </div>
               </div>
@@ -1226,7 +1231,7 @@ function _showSection(id, show) {
 
 function _statusBadge(s) {
   const map = {available:'success',sent_to_arr:'primary',pending:'warning text-dark',failed:'danger'};
-  const labels = {available:'Dispo',sent_to_arr:'Envoyé',pending:'En attente',failed:'Échec'};
+  const labels = {available:'Dispo',sent_to_arr:'Transmis',pending:'Reçue',failed:'Échec'};
   return `<span class="badge bg-${map[s]||'secondary'}">${labels[s]||s}</span>`;
 }
 

@@ -36,7 +36,7 @@
   {% endif %}
   {% if status_counts.pending %}
   <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=pending&page=1" class="text-decoration-none">
-    <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} en attente</span>
+    <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} reçue{% if status_counts.pending > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.sent_to_arr %}
@@ -82,7 +82,7 @@
   <div class="col-6 col-md-2">
     <select class="form-select form-select-sm" id="filterStatus" name="status" onchange="filterItems()">
       <option value="">Tous les statuts</option>
-      <option value="pending" {% if active_status == 'pending' %}selected{% endif %}>En attente</option>
+      <option value="pending" {% if active_status == 'pending' %}selected{% endif %}>Reçues</option>
       <option value="sent_to_arr" {% if active_status == 'sent_to_arr' %}selected{% endif %}>Transmises</option>
       <option value="available" {% if active_status == 'available' %}selected{% endif %}>Disponibles</option>
       <option value="failed" {% if active_status == 'failed' %}selected{% endif %}>Échouées</option>
@@ -270,7 +270,7 @@
               {% if r.status == 'available' %}<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Dispo</span>
               {% elif r.status == 'sent_to_arr' %}<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à {% if r.media_type == 'show' %}Sonarr{% else %}Radarr{% endif %}</span>
               {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>
-              {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Attente</span>{% endif %}
+              {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>{% endif %}
               </span>
             </td>
             <td class="d-none d-lg-table-cell" onclick="event.stopPropagation()">
@@ -479,7 +479,7 @@ async function bulkRetry() {
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    showToast(`${d.count} demande(s) relancée(s) — polling en cours...`, 'warning');
+    showToast(`${d.count} demande(s) relancée(s) — vérification en cours...`, 'warning');
     setTimeout(() => location.reload(), 1500);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
@@ -558,7 +558,7 @@ async function retryRequest(id, btn) {
     const r = await fetch(`/api/requests/${id}/retry`, {method: 'POST'});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    showToast('Polling en cours...', 'warning');
+    showToast('Vérification en cours...', 'warning');
     pollStatusUpdate(id, btn);
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');
@@ -634,9 +634,33 @@ function statusBadge(s, mediaType) {
     available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
     sent_to_arr: `<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à ${arrName(mediaType)}</span>`,
     failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
-    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>En attente</span>',
+    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>',
   };
   return map[s] || `<span class="badge bg-secondary">${s}</span>`;
+}
+
+// Frise du parcours d'une demande : Reçue → Transmise → Disponible (ou → Échec)
+function journeyFrise(d) {
+  if (d.status === 'failed') {
+    return `<div class="d-flex align-items-center mb-3" style="font-size:12px">
+      <span class="d-flex align-items-center gap-1 text-success"><i class="bi bi-inbox-fill"></i>Reçue</span>
+      <span class="flex-grow-1 mx-2" style="height:2px;background:#dc3545"></span>
+      <span class="d-flex align-items-center gap-1 text-danger"><i class="bi bi-x-circle-fill"></i>Échec</span>
+    </div>`;
+  }
+  const stage = { pending: 0, sent_to_arr: 1, available: 2 }[d.status] ?? 0;
+  const steps = [
+    { label: 'Reçue',      icon: 'bi-inbox-fill' },
+    { label: 'Transmise',  icon: 'bi-send-fill' },
+    { label: 'Disponible', icon: 'bi-check-circle-fill' },
+  ];
+  return '<div class="d-flex align-items-center mb-3" style="font-size:12px">' + steps.map((s, i) => {
+    const color = i < stage ? 'text-success' : i === stage ? 'text-warning' : 'text-muted';
+    const connector = i > 0
+      ? `<span class="flex-grow-1 mx-2" style="height:2px;background:${i <= stage ? '#198754' : '#444'}"></span>`
+      : '';
+    return `${connector}<span class="d-flex align-items-center gap-1 ${color}"><i class="bi ${s.icon}"></i>${s.label}</span>`;
+  }).join('') + '</div>';
 }
 
 function renderDetail(d) {
@@ -656,7 +680,7 @@ function renderDetail(d) {
     d.imdb_id ? `<span class="badge bg-secondary me-1">IMDB: ${d.imdb_id}</span>` : '',
     d.tmdb_id ? `<span class="badge bg-secondary me-1">TMDB: ${d.tmdb_id}</span>` : '',
     d.tvdb_id ? `<span class="badge bg-secondary me-1">TVDB: ${d.tvdb_id}</span>` : '',
-    d.arr_id  ? `<span class="badge bg-secondary me-1">*arr ID: ${d.arr_id}</span>` : '',
+    d.arr_id  ? `<span class="badge bg-secondary me-1">ID ${arrName(d.media_type)}: ${d.arr_id}</span>` : '',
   ].filter(Boolean).join('');
 
   const errorBlock = d.overview && d.overview.includes('[ERREUR]')
@@ -679,6 +703,7 @@ function renderDetail(d) {
           ${statusBadge(d.status, d.media_type)}
           <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
         </div>
+        ${journeyFrise(d)}
         <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
           <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${formatRequesters(d)}</td></tr>
           <tr><td class="text-muted">Date demande</td><td>${reqDate}</td></tr>
@@ -757,7 +782,7 @@ async function retryFromModal(id) {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>...'; }
   try {
     await fetch(`/api/requests/${id}/retry`, {method: 'POST'});
-    showToast('Demande relancée — polling en cours...', 'warning');
+    showToast('Demande relancée — vérification en cours...', 'warning');
     detailModal.hide();
     setTimeout(() => location.reload(), 3000);
   } catch(e) {

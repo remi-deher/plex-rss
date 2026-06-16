@@ -71,13 +71,13 @@
           </div>
           <div class="d-flex flex-column gap-1 align-items-end flex-shrink-0">
             {% if u.source == 'seer' and u.seer_active %}
-            <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Utilisateur Seer uniquement — pas de flux RSS"><i class="bi bi-stars me-1"></i>Seer</span>
+            <span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="Source : Seer uniquement — pas de flux RSS"><i class="bi bi-stars"></i></span>
             {% elif u.source == 'seer' %}
-            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Compte Plex visible sur Seer mais aucune demande effectuée"><i class="bi bi-person me-1"></i>Seer (inactif)</span>
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Source : compte Plex visible sur Seer mais aucune demande effectuée"><i class="bi bi-person"></i></span>
             {% elif u.seer_user_id and u.seer_active %}
-            <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Utilisateur RSS actif sur Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect me-1"></i>Hybride</span>
+            <span class="badge text-white" style="background:#6f42c1" data-bs-toggle="tooltip" title="Source : RSS actif sur Seer (watchlist surveillée des deux côtés)"><i class="bi bi-intersect"></i></span>
             {% else %}
-            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Utilisateur RSS uniquement — aucune demande effectuée sur Seer"><i class="bi bi-rss me-1"></i>RSS</span>
+            <span class="badge bg-secondary" data-bs-toggle="tooltip" title="Source : flux RSS Plex uniquement — aucune demande effectuée sur Seer"><i class="bi bi-rss"></i></span>
             {% endif %}
             {% if u.source != 'seer' %}
             {% if u.enabled %}
