@@ -105,6 +105,28 @@ async def test_process_request_all_ok_sets_flag():
 
 
 @pytest.mark.asyncio
+async def test_process_passes_custom_name_as_display_name():
+    """Le custom_name du PlexUser est transmis comme display_name à l'envoi d'email."""
+    settings = _make_settings()
+    req = _make_req()
+    user = _make_user()
+    user.custom_name = "Papa"
+    db = _make_db(settings, req, user=user)
+
+    with (
+        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock) as mock_send,
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await _process("request", 1, ["a@b.com"], "")
+
+    mock_send.assert_called_once_with(settings, req, "a@b.com", "Papa")
+
+
+@pytest.mark.asyncio
 async def test_process_available_all_ok_sets_flag():
     """event=available → available_mail_sent=True."""
     settings = _make_settings()

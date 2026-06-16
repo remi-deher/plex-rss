@@ -69,6 +69,13 @@ def test_build_context_fallback_to_plex_user_id():
     assert ctx["plex_user"] == "user_abc"
 
 
+def test_build_context_display_name_overrides_plex_user():
+    """display_name (custom_name) prime sur request.plex_user."""
+    req = _req(plex_user="username_brut")
+    ctx = _build_context(req, display_name="Papa")
+    assert ctx["plex_user"] == "Papa"
+
+
 def test_build_context_includes_all_keys():
     """Le contexte contient toutes les clés attendues par les templates."""
     ctx = _build_context(_req())
