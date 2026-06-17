@@ -12,8 +12,10 @@ from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
-    _send as smtp_send,
     render_template,
+)
+from ..services.email_service import (
+    _send as smtp_send,
 )
 
 

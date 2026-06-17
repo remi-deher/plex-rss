@@ -213,8 +213,7 @@ async def test_send_failure_subject():
 async def test_send_failure_uses_custom_template_and_subject():
     """Template d'échec customisé et sujet personnalisé."""
     s = _settings(
-        email_failure_template="Échec: {{ title }} - {{ reason }}",
-        email_failure_subject="Alerte: {{ title }}"
+        email_failure_template="Échec: {{ title }} - {{ reason }}", email_failure_subject="Alerte: {{ title }}"
     )
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_failure_notification(s, _req(), "dest@example.com", reason="Erreur API")
