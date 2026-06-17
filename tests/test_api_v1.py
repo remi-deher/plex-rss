@@ -15,12 +15,16 @@ def _client_with_db(db):
     client = TestClient(app, raise_server_exceptions=False)
     return client
 
+
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(get_db, None)
 
+
 def test_api_v1_requests_list():
-    req = MediaRequest(id=1, plex_user_id="alice", plex_user="alice", title="Inception", media_type="movie", status="pending")
+    req = MediaRequest(
+        id=1, plex_user_id="alice", plex_user="alice", title="Inception", media_type="movie", status="pending"
+    )
     db = MagicMock()
     q = db.query.return_value
     q.filter.return_value = q
@@ -39,6 +43,7 @@ def test_api_v1_requests_list():
     finally:
         _cleanup()
 
+
 def test_api_v1_users_list():
     user = PlexUser(
         id=1,
@@ -50,7 +55,7 @@ def test_api_v1_users_list():
         notify_on_available=True,
         created_at=None,
         sonarr_instance_id=None,
-        radarr_instance_id=None
+        radarr_instance_id=None,
     )
     db = MagicMock()
     db.query.return_value.all.return_value = [user]

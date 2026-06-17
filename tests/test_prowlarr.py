@@ -16,9 +16,11 @@ def _client_with_db(db):
     client = TestClient(app, raise_server_exceptions=False)
     return client
 
+
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(get_db, None)
+
 
 @pytest.mark.asyncio
 async def test_prowlarr_check_connection():
@@ -29,6 +31,7 @@ async def test_prowlarr_check_connection():
         ok = await check_connection("http://prowlarr", "api_key")
         assert ok is True
         mock_get.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_prowlarr_get_indexers():
@@ -41,6 +44,7 @@ async def test_prowlarr_get_indexers():
         assert len(res) == 1
         assert res[0]["name"] == "TorrentIndexer"
 
+
 @pytest.mark.asyncio
 async def test_prowlarr_search():
     mock_response = MagicMock()
@@ -51,6 +55,7 @@ async def test_prowlarr_search():
         res = await search("http://prowlarr", "api_key", "Inception", "movie")
         assert len(res) == 1
         assert res[0]["title"] == "Inception"
+
 
 def test_api_prowlarr_indexers():
     inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")

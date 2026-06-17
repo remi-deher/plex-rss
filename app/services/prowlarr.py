@@ -14,6 +14,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
 async def check_connection(url: str, api_key: str) -> bool:
     """Vérifie la connectivité avec Prowlarr."""
     try:
@@ -26,6 +27,7 @@ async def check_connection(url: str, api_key: str) -> bool:
     except Exception as e:
         logger.warning(f"Prowlarr connection check failed: {e}")
         return False
+
 
 async def search(
     url: str,
@@ -55,6 +57,7 @@ async def search(
     except Exception as e:
         logger.error(f"Prowlarr search failed for '{query}': {e}")
         return []
+
 
 async def get_indexers(url: str, api_key: str) -> list[dict]:
     """Récupère la liste des indexeurs configurés dans Prowlarr."""

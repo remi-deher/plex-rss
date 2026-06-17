@@ -551,19 +551,19 @@ async def _submit_to_arr(
         if not instance:
             # Fallback to default instance for requested type
             target_arr_type = "sonarr" if item["media_type"] == "show" else "radarr"
-            instance = db.query(ArrInstance).filter(
-                ArrInstance.arr_type == target_arr_type,
-                ArrInstance.enabled,
-                ArrInstance.is_default
-            ).first()
+            instance = (
+                db.query(ArrInstance)
+                .filter(ArrInstance.arr_type == target_arr_type, ArrInstance.enabled, ArrInstance.is_default)
+                .first()
+            )
 
         if not instance:
             # Fallback to default prowlarr instance
-            instance = db.query(ArrInstance).filter(
-                ArrInstance.arr_type == "prowlarr",
-                ArrInstance.enabled,
-                ArrInstance.is_default
-            ).first()
+            instance = (
+                db.query(ArrInstance)
+                .filter(ArrInstance.arr_type == "prowlarr", ArrInstance.enabled, ArrInstance.is_default)
+                .first()
+            )
 
         if not instance:
             logger.warning("No enabled ArrInstance found for submission")
@@ -574,13 +574,16 @@ async def _submit_to_arr(
 
         if instance.arr_type == "prowlarr":
             import json
+
             indexer_ids = None
             if instance.indexer_ids:
                 try:
                     indexer_ids = json.loads(instance.indexer_ids)
                 except Exception:
                     pass
-            results = await prowlarr.search(instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids)
+            results = await prowlarr.search(
+                instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids
+            )
             n_results = len(results)
             if n_results > 0:
                 return None, False, f"prowlarr:{n_results}"
@@ -731,7 +734,9 @@ async def _refresh_next_release(
     """
     try:
         url = inst.url if inst else (settings.sonarr_url if req.media_type == "show" else settings.radarr_url)
-        api_key = inst.api_key if inst else (settings.sonarr_api_key if req.media_type == "show" else settings.radarr_api_key)
+        api_key = (
+            inst.api_key if inst else (settings.sonarr_api_key if req.media_type == "show" else settings.radarr_api_key)
+        )
         if not url or not api_key:
             return
 
@@ -744,7 +749,9 @@ async def _refresh_next_release(
                 series_list=series_list,
             )
             next_airing = data.get("nextAiring") if data else None
-            req.next_release_at = datetime.fromisoformat(next_airing.replace("Z", "+00:00")).replace(tzinfo=None) if next_airing else None
+            req.next_release_at = (
+                datetime.fromisoformat(next_airing.replace("Z", "+00:00")).replace(tzinfo=None) if next_airing else None
+            )
             req.next_release_label = "Prochain épisode" if next_airing else None
         elif req.media_type == "movie":
             data = await lookup_movie(
@@ -868,7 +875,6 @@ def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
                 )
             )
         db.commit()
-
 
 
 async def poll_watchlists():
@@ -1054,7 +1060,7 @@ async def poll_watchlists():
                 new_requests=new_requests,
                 newly_available=0,
                 errors=errors_count,
-                error_detail=error_detail
+                error_detail=error_detail,
             )
             poll_db.add(history)
             poll_db.commit()
@@ -1232,7 +1238,9 @@ async def check_arr_statuses():
                     logger.info(f"'{req.title}' is now available")
                     _notify("available", settings, req, db)
                 else:
-                    await _refresh_next_release(req, settings, series_list=series_list, movies_list=movies_list, inst=inst)
+                    await _refresh_next_release(
+                        req, settings, series_list=series_list, movies_list=movies_list, inst=inst
+                    )
                     db.commit()
 
         logger.info("Arr status check complete")
@@ -1254,7 +1262,7 @@ async def check_arr_statuses():
                 new_requests=0,
                 newly_available=newly_available,
                 errors=errors_count,
-                error_detail=error_detail
+                error_detail=error_detail,
             )
             poll_db.add(history)
             poll_db.commit()

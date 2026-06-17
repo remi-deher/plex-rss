@@ -27,7 +27,6 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-
 def run_migrations():
     """Applique les migrations Alembic dans un sous-processus.
 

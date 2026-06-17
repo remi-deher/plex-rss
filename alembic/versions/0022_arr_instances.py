@@ -49,7 +49,7 @@ def upgrade() -> None:
 
     for row in settings_rows:
         # Sonarr instance
-        if row[1] and row[2]: # sonarr_url and sonarr_api_key
+        if row[1] and row[2]:  # sonarr_url and sonarr_api_key
             connection.execute(
                 sa.text(
                     "INSERT INTO arr_instances (name, arr_type, url, api_key, quality_profile_id, root_folder, enabled, is_default, minimum_availability) "
@@ -64,11 +64,11 @@ def upgrade() -> None:
                     "root_folder": row[4],
                     "enabled": bool(row[5]) if row[5] is not None else True,
                     "is_default": True,
-                    "minimum_availability": "released"
-                }
+                    "minimum_availability": "released",
+                },
             )
         # Radarr instance
-        if row[6] and row[7]: # radarr_url and radarr_api_key
+        if row[6] and row[7]:  # radarr_url and radarr_api_key
             connection.execute(
                 sa.text(
                     "INSERT INTO arr_instances (name, arr_type, url, api_key, quality_profile_id, root_folder, enabled, is_default, minimum_availability) "
@@ -83,8 +83,8 @@ def upgrade() -> None:
                     "root_folder": row[9],
                     "enabled": bool(row[10]) if row[10] is not None else True,
                     "is_default": True,
-                    "minimum_availability": row[11] or "released"
-                }
+                    "minimum_availability": row[11] or "released",
+                },
             )
 
 

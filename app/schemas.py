@@ -18,6 +18,7 @@ class RequestOut(BaseModel):
     overview: Optional[str] = Field(description="Overview/synopsis of the media")
     arr_instance_id: Optional[int] = Field(description="ID of the ArrInstance that processed this request")
 
+
 class UserOut(BaseModel):
     id: int = Field(description="Unique identifier of the user in Plex RSS Monitor")
     plex_user_id: str = Field(description="Plex User ID")
@@ -32,19 +33,23 @@ class UserOut(BaseModel):
     sonarr_instance_id: Optional[int] = Field(description="Routed Sonarr ArrInstance ID")
     radarr_instance_id: Optional[int] = Field(description="Routed Radarr ArrInstance ID")
 
+
 class HealthServiceOut(BaseModel):
     ok: Optional[bool] = Field(description="Health status of the service")
     message: str = Field(description="Status message or error info")
     response_ms: Optional[float] = Field(description="Response latency of the service in milliseconds")
+
 
 class HealthOut(BaseModel):
     status: str = Field(description="Overall health status of the application")
     checked_at: str = Field(description="ISO 8601 timestamp of the health check execution")
     services: dict[str, HealthServiceOut] = Field(description="Map of individual service statuses")
 
+
 class MetricsOut(BaseModel):
     runtime: dict = Field(description="Runtime metrics (memory, requests, etc.)")
     db: dict = Field(description="Database aggregate metrics")
+
 
 class PollHistoryOut(BaseModel):
     id: int = Field(description="Unique identifier of the poll run")

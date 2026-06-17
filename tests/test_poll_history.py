@@ -16,9 +16,11 @@ def _client_with_db(db):
     client = TestClient(app, raise_server_exceptions=False)
     return client
 
+
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(get_db, None)
+
 
 def test_get_poll_history():
     history = PollHistory(
@@ -29,7 +31,7 @@ def test_get_poll_history():
         items_processed=10,
         new_requests=2,
         newly_available=0,
-        errors=0
+        errors=0,
     )
     db = MagicMock()
     # Mocking chain: db.query().filter().order_by().limit().all()

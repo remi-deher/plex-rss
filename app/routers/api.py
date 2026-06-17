@@ -168,6 +168,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 # Instances Sonarr / Radarr / Prowlarr
 # ---------------------------------------------------------------------------
 
+
 class ArrInstanceCreate(BaseModel):
     name: str
     arr_type: str
@@ -180,14 +181,17 @@ class ArrInstanceCreate(BaseModel):
     is_default: Optional[bool] = False
     indexer_ids: Optional[str] = None
 
+
 class TestArrInstanceBody(BaseModel):
     url: str
     api_key: str
     arr_type: str
 
+
 @router.get("/arr-instances")
 def list_arr_instances(db: Session = Depends(get_db)):
     return db.query(ArrInstance).all()
+
 
 @router.post("/arr-instances")
 def create_arr_instance(data: ArrInstanceCreate, db: Session = Depends(get_db)):
@@ -201,15 +205,15 @@ def create_arr_instance(data: ArrInstanceCreate, db: Session = Depends(get_db)):
     db.refresh(inst)
     return inst
 
+
 @router.put("/arr-instances/{instance_id}")
 def update_arr_instance(instance_id: int, data: ArrInstanceCreate, db: Session = Depends(get_db)):
     inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
 
     if data.is_default:
-        db.query(ArrInstance).filter(
-            ArrInstance.arr_type == data.arr_type,
-            ArrInstance.id != instance_id
-        ).update({"is_default": False})
+        db.query(ArrInstance).filter(ArrInstance.arr_type == data.arr_type, ArrInstance.id != instance_id).update(
+            {"is_default": False}
+        )
 
     for k, v in data.model_dump().items():
         setattr(inst, k, v)
@@ -218,12 +222,14 @@ def update_arr_instance(instance_id: int, data: ArrInstanceCreate, db: Session =
     db.refresh(inst)
     return inst
 
+
 @router.delete("/arr-instances/{instance_id}")
 def delete_arr_instance(instance_id: int, db: Session = Depends(get_db)):
     inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     db.delete(inst)
     db.commit()
     return {"status": "deleted"}
+
 
 @router.post("/test/arr-instance")
 async def test_arr_instance(body: TestArrInstanceBody):
@@ -238,15 +244,20 @@ async def test_arr_instance(body: TestArrInstanceBody):
         return {"success": ok, "message": msg}
     return {"success": False, "message": f"Type d'instance inconnu : {body.arr_type}"}
 
+
 @router.get("/prowlarr/indexers")
-async def get_prowlarr_indexers(instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_prowlarr_indexers(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if url and api_key:
         indexers = await prowlarr.get_indexers(url, api_key)
         return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
     inst = _resolve_arr_instance(db, instance_id, "prowlarr")
     indexers = await prowlarr.get_indexers(inst.url, inst.api_key)
     return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
-
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +374,7 @@ async def test_ntfy(db: Session = Depends(get_db)):
     if not s or not s.ntfy_url:
         return {"success": False, "message": "ntfy non configuré"}
     from ..services.notifications import send_ntfy
+
     try:
         await send_ntfy(s.ntfy_url, s.ntfy_token, "Test Plex RSS Monitor", "Test de notification ntfy OK !")
         return {"success": True, "message": "Notification ntfy envoyée !"}
@@ -376,12 +388,12 @@ async def test_gotify(db: Session = Depends(get_db)):
     if not s or not s.gotify_url or not s.gotify_token:
         return {"success": False, "message": "Gotify non configuré"}
     from ..services.notifications import send_gotify
+
     try:
         await send_gotify(s.gotify_url, s.gotify_token, "Test Plex RSS Monitor", "Test de notification Gotify OK !")
         return {"success": True, "message": "Notification Gotify envoyée !"}
     except Exception as e:
         return {"success": False, "message": str(e)}
-
 
 
 @router.post("/test/seer")
@@ -424,13 +436,22 @@ def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str
         if arr_type == "sonarr" and settings and settings.sonarr_url:
             return ArrInstance(url=settings.sonarr_url, api_key=settings.sonarr_api_key)
         elif arr_type == "radarr" and settings and settings.radarr_url:
-            return ArrInstance(url=settings.radarr_url, api_key=settings.radarr_api_key, minimum_availability=settings.radarr_minimum_availability or "released")
+            return ArrInstance(
+                url=settings.radarr_url,
+                api_key=settings.radarr_api_key,
+                minimum_availability=settings.radarr_minimum_availability or "released",
+            )
         raise HTTPException(400, f"Aucune instance par défaut configurée pour {arr_type}")
     return inst
 
 
 @router.get("/sonarr/profiles")
-async def sonarr_profiles(instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)):
+async def sonarr_profiles(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if url and api_key:
         return await sonarr.get_quality_profiles(url, api_key)
     inst = _resolve_arr_instance(db, instance_id, "sonarr")
@@ -438,7 +459,12 @@ async def sonarr_profiles(instance_id: Optional[int] = None, url: Optional[str] 
 
 
 @router.get("/sonarr/folders")
-async def sonarr_folders(instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)):
+async def sonarr_folders(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if url and api_key:
         return await sonarr.get_root_folders(url, api_key)
     inst = _resolve_arr_instance(db, instance_id, "sonarr")
@@ -446,7 +472,12 @@ async def sonarr_folders(instance_id: Optional[int] = None, url: Optional[str] =
 
 
 @router.get("/radarr/profiles")
-async def radarr_profiles(instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)):
+async def radarr_profiles(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if url and api_key:
         return await radarr.get_quality_profiles(url, api_key)
     inst = _resolve_arr_instance(db, instance_id, "radarr")
@@ -454,7 +485,12 @@ async def radarr_profiles(instance_id: Optional[int] = None, url: Optional[str] 
 
 
 @router.get("/radarr/folders")
-async def radarr_folders(instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)):
+async def radarr_folders(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
     if url and api_key:
         return await radarr.get_root_folders(url, api_key)
     inst = _resolve_arr_instance(db, instance_id, "radarr")
@@ -482,7 +518,6 @@ class UserCreate(BaseModel):
     seer_active: Optional[bool] = None
     sonarr_instance_id: Optional[int] = None
     radarr_instance_id: Optional[int] = None
-
 
 
 @router.get("/users")
@@ -1537,7 +1572,6 @@ def get_poll_history(limit: int = 50, job: Optional[str] = None, db: Session = D
         }
         for h in items
     ]
-
 
 
 # ---------------------------------------------------------------------------

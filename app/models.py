@@ -107,8 +107,8 @@ class Settings(Base):
 class ArrInstance(Base):
     __tablename__ = "arr_instances"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    name: Mapped[str]            # ex: "Sonarr 4K"
-    arr_type: Mapped[str]        # "sonarr" | "radarr" | "prowlarr"
+    name: Mapped[str]  # ex: "Sonarr 4K"
+    arr_type: Mapped[str]  # "sonarr" | "radarr" | "prowlarr"
     url: Mapped[str]
     api_key: Mapped[str]
     quality_profile_id: Mapped[Optional[int]]
@@ -163,7 +163,7 @@ class NotificationLog(Base):
 class PollHistory(Base):
     __tablename__ = "poll_history"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    job: Mapped[str]               # "watchlist" | "arr_status"
+    job: Mapped[str]  # "watchlist" | "arr_status"
     started_at: Mapped[datetime]
     duration_ms: Mapped[Optional[int]]
     items_processed: Mapped[int] = mapped_column(default=0)
@@ -209,4 +209,3 @@ class MediaRequest(Base):
 
     # Instance tracking
     arr_instance_id: Mapped[Optional[int]]
-

@@ -179,4 +179,3 @@ async def send_all(settings: Settings, request: MediaRequest, event: str):
     await send_telegram(settings, request, event)
     await send_ntfy_notif(settings, request, event)
     await send_gotify_notif(settings, request, event)
-
