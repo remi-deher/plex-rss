@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -464,7 +464,7 @@ async def download_release(body: DownloadReleaseRequest, db: Session = Depends(g
 
 @router.post("/download/file")
 async def download_torrent_file(
-    file: __import__("fastapi").UploadFile,
+    file: UploadFile,
     client_id: int,
     category: Optional[str] = None,
     tags: Optional[str] = None,
