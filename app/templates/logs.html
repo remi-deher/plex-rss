@@ -72,6 +72,11 @@
           <option value="watchlist">Watchlist (Sondage)</option>
           <option value="arr_status">Status Check (Disponibilité)</option>
         </select>
+        <select id="pollStatusFilter" class="form-select form-select-sm bg-dark text-light border-secondary" style="width:auto" onchange="applyPollHistoryFilter()">
+          <option value="">Tous les statuts</option>
+          <option value="success">Succès</option>
+          <option value="error">Erreurs</option>
+        </select>
         <button class="btn btn-sm btn-outline-secondary" onclick="loadPollHistory()">
           <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
         </button>
@@ -199,46 +204,90 @@ function toggleAuto() {
 }
 
 // ── Poll History ──────────────────────────────────────────────────────────────
+let allPollHistory = [];
+
 async function loadPollHistory() {
   const body = document.getElementById('poll-history-body');
   const job = document.getElementById('pollJobFilter').value;
   body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...</td></tr>';
   
   try {
-    const r = await fetch(`/api/poll-history?limit=50&job=${job}`);
+    const r = await fetch(`/api/poll-history?limit=100&job=${job}`);
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    if (!data.length) {
-      body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">Aucun historique disponible</td></tr>';
-      return;
-    }
-    body.innerHTML = data.map(item => {
-      const jobBadge = item.job === 'watchlist' 
-        ? '<span class="badge bg-primary">Watchlist</span>'
-        : '<span class="badge bg-info text-dark">Status Check</span>';
+    allPollHistory = await r.json();
+    applyPollHistoryFilter();
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="8" class="text-danger py-5">Erreur : ${e.message}</td></tr>`;
+  }
+}
+
+function applyPollHistoryFilter() {
+  const body = document.getElementById('poll-history-body');
+  const status = document.getElementById('pollStatusFilter').value;
+  
+  let filtered = allPollHistory;
+  if (status === 'success') {
+    filtered = filtered.filter(item => !item.errors);
+  } else if (status === 'error') {
+    filtered = filtered.filter(item => item.errors > 0);
+  }
+  
+  if (!filtered.length) {
+    body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">Aucun historique correspondant</td></tr>';
+    return;
+  }
+  
+  body.innerHTML = filtered.map(item => {
+    const jobBadge = item.job === 'watchlist' 
+      ? '<span class="badge bg-primary">Watchlist</span>'
+      : '<span class="badge bg-info text-dark">Status Check</span>';
+    
+    const hasError = item.errors > 0;
+    const errorClass = hasError ? 'table-danger bg-opacity-10' : '';
+    const toggleId = `poll-details-${item.id}`;
+    
+    const errorCell = hasError
+      ? `<span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>${item.errors}</span>`
+      : '<span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle-fill me-1"></i>OK</span>';
       
-      const errorCell = item.errors > 0
-        ? `<span class="badge bg-danger">${item.errors}</span>`
-        : '<span class="text-muted">0</span>';
-        
-      const errorDetail = item.error_detail
-        ? `<code class="small text-danger text-break" style="max-width:300px; display:inline-block" title="${escHtml(item.error_detail)}">${escHtml(item.error_detail.length > 50 ? item.error_detail.substring(0, 50) + '...' : item.error_detail)}</code>`
-        : '<span class="text-muted">—</span>';
-        
-      return `<tr>
-        <td class="text-muted">${item.started_at}</td>
+    const detailsRow = `
+      <tr class="collapse border-0" id="${toggleId}">
+        <td colspan="8" class="bg-dark p-3" style="background-color: rgba(255,255,255,0.01) !important">
+          <div class="card bg-secondary bg-opacity-25 border-0">
+            <div class="card-body py-2 px-3">
+              <h6 class="text-uppercase text-muted small mb-2" style="font-size:10px;letter-spacing:.05em">Statistiques détaillées</h6>
+              <div class="row g-2 mb-2 text-white-50" style="font-size: 12px">
+                <div class="col-md-3"><strong>Éléments traités :</strong> ${item.items_processed}</div>
+                <div class="col-md-3"><strong>Nouvelles demandes :</strong> <span class="badge bg-secondary">${item.new_requests}</span></div>
+                <div class="col-md-3"><strong>Médias disponibles :</strong> <span class="badge bg-success">${item.newly_available}</span></div>
+                <div class="col-md-3"><strong>Durée :</strong> ${item.duration_ms != null ? item.duration_ms + ' ms' : '—'}</div>
+              </div>
+              ${item.error_detail ? `
+                <div class="mt-2">
+                  <strong class="text-danger small d-block mb-1">Message d'erreur complet :</strong>
+                  <pre class="bg-dark text-danger p-2 rounded small mb-0 font-monospace text-break" style="white-space:pre-wrap; font-size:11px">${escHtml(item.error_detail)}</pre>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </td>
+      </tr>
+    `;
+      
+    return `
+      <tr onclick="bootstrap.Collapse.getOrCreateInstance(document.getElementById('${toggleId}')).toggle()" style="cursor:pointer" class="${errorClass}">
+        <td class="text-muted"><i class="bi bi-chevron-down me-2 small opacity-50"></i>${item.started_at}</td>
         <td>${jobBadge}</td>
         <td>${item.duration_ms != null ? item.duration_ms + ' ms' : '—'}</td>
         <td>${item.items_processed}</td>
         <td><span class="badge bg-secondary">${item.new_requests}</span></td>
         <td><span class="badge bg-success">${item.newly_available}</span></td>
         <td>${errorCell}</td>
-        <td>${errorDetail}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) {
-    body.innerHTML = `<tr><td colspan="8" class="text-danger py-5">Erreur : ${e.message}</td></tr>`;
-  }
+        <td>${hasError ? '<span class="text-danger small fw-semibold">Voir l\'erreur</span>' : '<span class="text-muted">—</span>'}</td>
+      </tr>
+      ${detailsRow}
+    `;
+  }).join('');
 }
 
 // Init

@@ -390,6 +390,7 @@
             <div class="col-md-5">
               <label class="form-label">URL du Topic ntfy</label>
               <input type="url" class="form-control" name="ntfy_url" value="{{ s.ntfy_url or '' }}" placeholder="https://ntfy.sh/mon-topic">
+              <div class="form-text">Ex: <code>https://ntfy.sh/mon-topic</code>. Créez un topic sur <a href="https://ntfy.sh" target="_blank" class="text-warning">ntfy.sh</a> ou votre instance auto-hébergée.</div>
             </div>
             <div class="col-md-4">
               <label class="form-label">Token d'authentification (optionnel)</label>
@@ -397,8 +398,9 @@
                 <input type="password" class="form-control" name="ntfy_token" value="{{ s.ntfy_token or '' }}" id="ntfy_token" placeholder="Bearer token">
                 <button type="button" class="btn btn-outline-secondary" onclick="togglePass('ntfy_token')"><i class="bi bi-eye"></i></button>
               </div>
+              <div class="form-text">Requis uniquement si le serveur ntfy exige une authentification.</div>
             </div>
-            <div class="col-md-3 d-flex align-items-end gap-2">
+            <div class="col-md-3 d-flex align-items-end gap-2 pb-md-3">
               <button type="button" class="btn btn-outline-secondary" onclick="testConn('ntfy')">Tester</button>
               <span id="conn-badge-ntfy" class="conn-badge align-self-center"></span>
             </div>
@@ -410,6 +412,7 @@
             <div class="col-md-5">
               <label class="form-label">URL du Serveur Gotify</label>
               <input type="url" class="form-control" name="gotify_url" value="{{ s.gotify_url or '' }}" placeholder="https://gotify.example.com">
+              <div class="form-text">Ex: <code>https://gotify.example.com</code>. L'URL racine de votre serveur Gotify.</div>
             </div>
             <div class="col-md-4">
               <label class="form-label">Token de l'Application Gotify</label>
@@ -417,8 +420,9 @@
                 <input type="password" class="form-control" name="gotify_token" value="{{ s.gotify_token or '' }}" id="gotify_token" placeholder="App Token">
                 <button type="button" class="btn btn-outline-secondary" onclick="togglePass('gotify_token')"><i class="bi bi-eye"></i></button>
               </div>
+              <div class="form-text">Le jeton d'application créé dans votre console Gotify (<a href="https://gotify.net/docs/install" target="_blank" class="text-warning">documentation Gotify</a>).</div>
             </div>
-            <div class="col-md-3 d-flex align-items-end gap-2">
+            <div class="col-md-3 d-flex align-items-end gap-2 pb-md-3">
               <button type="button" class="btn btn-outline-secondary" onclick="testConn('gotify')">Tester</button>
               <span id="conn-badge-gotify" class="conn-badge align-self-center"></span>
             </div>
@@ -1641,10 +1645,10 @@ async function loadArrInstances() {
     }
     tbody.innerHTML = _arrInstances.map(inst => {
       const typeBadge = inst.arr_type === 'sonarr' 
-        ? '<span class="badge bg-info text-dark">Sonarr</span>'
+        ? '<span class="badge bg-info text-dark"><i class="bi bi-tv me-1"></i>Sonarr</span>'
         : inst.arr_type === 'radarr'
-        ? '<span class="badge bg-primary">Radarr</span>'
-        : '<span class="badge text-white" style="background:#6f42c1">Prowlarr</span>';
+        ? '<span class="badge bg-primary"><i class="bi bi-camera-video me-1"></i>Radarr</span>'
+        : '<span class="badge text-white" style="background:#6f42c1"><i class="bi bi-search me-1"></i>Prowlarr</span>';
       
       const defaultBadge = inst.is_default
         ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
@@ -1807,14 +1811,20 @@ async function testExistingInstConn(id, btn) {
   const orig = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  const start = performance.now();
   try {
     const r = await fetch('/api/test/arr-instance', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({url: inst.url, api_key: inst.api_key, arr_type: inst.arr_type})
     });
+    const duration = Math.round(performance.now() - start);
     const d = await r.json();
-    showToast(d.message || (d.success ? "Connexion réussie !" : "Échec de connexion"), d.success ? "success" : "danger");
+    if (d.success) {
+      showToast(`${d.message || "Connexion réussie"} (${duration} ms)`, "success");
+    } else {
+      showToast(d.message || "Échec de connexion", "danger");
+    }
   } catch (e) {
     showToast("Erreur : " + e.message, "danger");
   } finally {
