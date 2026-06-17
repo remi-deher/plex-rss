@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import time
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -23,9 +24,19 @@ from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import ArrInstance, MediaRequest, NotificationLog, PlexUser, PollHistory, RequestStatus, Settings
+from .models import (
+    ArrInstance,
+    DownloadClient,
+    MediaRequest,
+    NotificationLog,
+    PlexUser,
+    PollHistory,
+    RequestStatus,
+    Settings,
+)
 from .notification_queue import enqueue as enqueue_notification
 from .services import prowlarr
+from .services.download_clients import add_torrent_to_client, delete_torrent, get_torrent_status
 from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
@@ -170,6 +181,7 @@ def start_scheduler(poll_minutes: int = 5):
 
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
+    scheduler.add_job(check_torrent_statuses, "interval", minutes=2, id="torrent_status_check", replace_existing=True)
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
     if digest_hour is not None:
@@ -534,76 +546,54 @@ async def _submit_to_arr(
         app_metrics.record_arr_submission(result[0] is not None or result[1])
         return result
 
-    # Resolve DB session if not passed
-    close_db = False
-    if db is None:
-        db = SessionLocal()
-        close_db = True
-
-    try:
+    ctx = db_session(SessionLocal) if db is None else nullcontext(db)
+    with ctx as active_db:
         # Resolve ArrInstance
         instance = None
         if user_obj:
             instance_id = user_obj.sonarr_instance_id if item["media_type"] == "show" else user_obj.radarr_instance_id
             if instance_id:
-                instance = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
+                instance = active_db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
 
         if not instance:
-            # Fallback to default instance for requested type
             target_arr_type = "sonarr" if item["media_type"] == "show" else "radarr"
             instance = (
-                db.query(ArrInstance)
+                active_db.query(ArrInstance)
                 .filter(ArrInstance.arr_type == target_arr_type, ArrInstance.enabled, ArrInstance.is_default)
                 .first()
             )
 
-        if not instance:
-            # Fallback to default prowlarr instance
-            instance = (
-                db.query(ArrInstance)
-                .filter(ArrInstance.arr_type == "prowlarr", ArrInstance.enabled, ArrInstance.is_default)
-                .first()
-            )
-
-        if not instance:
-            logger.warning("No enabled ArrInstance found for submission")
+        if not instance or instance.arr_type not in ("sonarr", "radarr"):
+            info_hash, already_existed, arr_slug, client_id = await _submit_to_torrent(active_db, settings, item)
+            if info_hash:
+                item["_torrent_hash"] = info_hash
+                item["_download_client_id"] = client_id
+                return None, already_existed, arr_slug
+            logger.warning("No enabled Sonarr/Radarr instance found for submission and Torrent automation did not succeed")
             return None, False, None
 
-        # Store resolved instance ID inside item dict
         item["_arr_instance_id"] = instance.id
 
         if instance.arr_type == "prowlarr":
-            import json
-
             indexer_ids = None
             if instance.indexer_ids:
                 try:
                     indexer_ids = json.loads(instance.indexer_ids)
                 except Exception:
                     pass
-            results = await prowlarr.search(
-                instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids
-            )
-            n_results = len(results)
-            if n_results > 0:
-                return None, False, f"prowlarr:{n_results}"
-            else:
-                raise Exception("No search results found in Prowlarr")
+            results = await prowlarr.search(instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids)
+            if results:
+                return None, False, f"prowlarr:{len(results)}"
+            raise Exception("No search results found in Prowlarr")
 
-        elif instance.arr_type == "sonarr":
+        if instance.arr_type == "sonarr":
             t0 = time.monotonic()
-            result = await add_series(
-                instance.url,
-                instance.api_key,
-                instance.quality_profile_id,
-                instance.root_folder,
-                item,
-            )
+            result = await add_series(instance.url, instance.api_key, instance.quality_profile_id, instance.root_folder, item)
             app_metrics.record_sonarr_latency((time.monotonic() - t0) * 1000)
             app_metrics.record_arr_submission(result[0] is not None or result[1])
             return result
 
-        elif instance.arr_type == "radarr":
+        if instance.arr_type == "radarr":
             t0 = time.monotonic()
             result = await add_movie(
                 instance.url,
@@ -616,10 +606,6 @@ async def _submit_to_arr(
             app_metrics.record_radarr_latency((time.monotonic() - t0) * 1000)
             app_metrics.record_arr_submission(result[0] is not None or result[1])
             return result
-
-    finally:
-        if close_db:
-            db.close()
 
     return None, False, None
 
@@ -877,6 +863,171 @@ def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
         db.commit()
 
 
+async def _submit_to_torrent(
+    db: Session, settings: Settings, item: dict
+) -> tuple[str | None, bool, str | None, int | None]:
+    """Recherche un média sur Prowlarr et l'envoie au client torrent par défaut si Sonarr/Radarr sont inactifs."""
+    prowlarr_inst = db.query(ArrInstance).filter(ArrInstance.arr_type == "prowlarr", ArrInstance.enabled).first()
+    if not prowlarr_inst:
+        logger.warning("Torrent automation: Aucune instance Prowlarr active trouvée")
+        return None, False, None, None
+
+    client = db.query(DownloadClient).filter(DownloadClient.enabled, DownloadClient.is_default).first()
+    if not client:
+        client = db.query(DownloadClient).filter(DownloadClient.enabled).first()
+    if not client:
+        logger.warning("Torrent automation: Aucun client de téléchargement actif trouvé")
+        return None, False, None, None
+
+    query = item["title"]
+    if item.get("year"):
+        query = f"{query} {item['year']}"
+
+    try:
+        results = await prowlarr.search(
+            url=prowlarr_inst.url,
+            api_key=prowlarr_inst.api_key,
+            query=query,
+            media_type=item["media_type"],
+            indexer_ids=None,
+        )
+    except Exception as e:
+        logger.error(f"Torrent automation: Erreur lors de la recherche Prowlarr : {e}")
+        return None, False, None, None
+
+    if not results:
+        logger.info(f"Torrent automation: Aucun résultat de recherche pour '{query}'")
+        return None, False, None, None
+
+    filtered_results = []
+    for r in results:
+        title = r.get("title", "")
+        size = r.get("size", 0)
+        size_gb = size / (1024 * 1024 * 1024)
+
+        if settings.torrent_min_size_gb is not None and size_gb < settings.torrent_min_size_gb:
+            continue
+        if settings.torrent_max_size_gb is not None and size_gb > settings.torrent_max_size_gb:
+            continue
+
+        if settings.torrent_required_keywords:
+            req_words = [w.strip().lower() for w in settings.torrent_required_keywords.split(",") if w.strip()]
+            if req_words and not any(w in title.lower() for w in req_words):
+                continue
+
+        if settings.torrent_forbidden_keywords:
+            forb_words = [w.strip().lower() for w in settings.torrent_forbidden_keywords.split(",") if w.strip()]
+            if any(w in title.lower() for w in forb_words):
+                continue
+
+        filtered_results.append(r)
+
+    if not filtered_results:
+        logger.info(f"Torrent automation: Tous les résultats pour '{query}' ont été filtrés")
+        return None, False, None, None
+
+    filtered_results.sort(key=lambda x: x.get("seeders", 0), reverse=True)
+    best_release = filtered_results[0]
+    download_url = best_release.get("downloadUrl") or best_release.get("magnetUrl")
+
+    if not download_url:
+        return None, False, None, None
+
+    ok, msg, info_hash = await add_torrent_to_client(
+        client_type=client.client_type,
+        url=client.url,
+        username=client.username,
+        password=client.password,
+        torrent_url_or_magnet=download_url,
+        category=client.category,
+        tags=client.tags,
+    )
+
+    if ok:
+        logger.info(
+            f"Torrent automation: Envoyé avec succès au client torrent: {best_release.get('title')} (hash: {info_hash})"
+        )
+        return info_hash, False, "torrent", client.id
+    else:
+        logger.error(f"Torrent automation: Erreur lors de l'envoi du torrent: {msg}")
+        return None, False, None, None
+
+
+async def check_torrent_statuses():
+    """Tâche périodique de suivi et nettoyage des torrents actifs."""
+    logger.info("Checking torrent statuses...")
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings:
+            return
+
+        requests = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.torrent_hash.isnot(None),
+                MediaRequest.status != RequestStatus.available,
+            )
+            .all()
+        )
+
+        for req in requests:
+            client = db.query(DownloadClient).filter(DownloadClient.id == req.download_client_id).first()
+            if not client or not client.enabled:
+                continue
+
+            status = await get_torrent_status(
+                client.client_type, client.url, client.username, client.password, req.torrent_hash
+            )
+            if not status:
+                logger.warning(f"Impossible de récupérer le statut du torrent {req.torrent_hash} pour '{req.title}'")
+                continue
+
+            logger.debug(
+                f"Torrent '{req.title}' status: {status['status']}, progress: {status['progress']:.1f}%, ratio: {status['ratio']:.2f}"
+            )
+
+            # Transition vers disponible
+            if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
+                if req.status != RequestStatus.available:
+                    req.status = RequestStatus.available
+                    req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    db.commit()
+                    _notify("available", settings, req, db)
+                    logger.info(f"Torrent '{req.title}' terminé et marqué comme disponible !")
+
+            # Nettoyage automatique
+            if status["status"] in ("seeding", "completed") or (status["progress"] >= 100.0):
+                ratio_reached = False
+                time_reached = False
+
+                if settings.torrent_ratio_limit is not None and status["ratio"] >= settings.torrent_ratio_limit:
+                    ratio_reached = True
+
+                if settings.torrent_seed_time_limit_hours is not None:
+                    seed_time_hours = status["seeding_time"] / 3600
+                    if seed_time_hours >= settings.torrent_seed_time_limit_hours:
+                        time_reached = True
+
+                if ratio_reached or time_reached:
+                    delete_files = (
+                        settings.torrent_auto_delete_files if settings.torrent_auto_delete_files is not None else True
+                    )
+                    deleted = await delete_torrent(
+                        client.client_type, client.url, client.username, client.password, req.torrent_hash, delete_files
+                    )
+                    if deleted:
+                        logger.info(f"Torrent '{req.title}' nettoyé (suppression des fichiers={delete_files})")
+                        req.torrent_hash = None
+                        db.commit()
+                    else:
+                        logger.error(f"Échec de suppression du torrent '{req.title}'")
+    except Exception as e:
+        logger.error(f"Erreur check_torrent_statuses : {e}")
+    finally:
+        db.close()
+
+
 async def poll_watchlists():
     """Lit les watchlists Plex et synchronise les demandes vers Sonarr/Radarr.
 
@@ -1019,6 +1170,9 @@ async def poll_watchlists():
                 req.arr_id = arr_id
                 req.arr_slug = arr_slug
                 req.arr_instance_id = item.get("_arr_instance_id")
+                if item.get("_torrent_hash"):
+                    req.torrent_hash = item.get("_torrent_hash")
+                    req.download_client_id = item.get("_download_client_id")
             except Exception as e:
                 logger.error(f"Failed to send '{item['title']}' to arr: {e}")
                 req.status = RequestStatus.failed

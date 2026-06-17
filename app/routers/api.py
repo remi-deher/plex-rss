@@ -17,6 +17,7 @@ Endpoints regroupés par domaine :
 
 import asyncio
 import json as _json
+import logging
 import os as _os
 import time
 from collections import defaultdict
@@ -51,6 +52,16 @@ from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
 from ..utils import get_or_404, parse_email_list
+
+logger = logging.getLogger(__name__)
+
+
+def _set_single_default(db: Session, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:
+    """Remet is_default=False sur toutes les instances du même type, sauf exclude_id."""
+    q = db.query(model).filter(getattr(model, type_col) == type_val)
+    if exclude_id is not None:
+        q = q.filter(model.id != exclude_id)
+    q.update({"is_default": False})
 
 
 def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
@@ -122,6 +133,13 @@ class SettingsUpdate(BaseModel):
     email_available_subject: Optional[str] = None
     digest_enabled: Optional[bool] = None
     digest_hour: Optional[int] = None
+    torrent_required_keywords: Optional[str] = None
+    torrent_forbidden_keywords: Optional[str] = None
+    torrent_min_size_gb: Optional[float] = None
+    torrent_max_size_gb: Optional[float] = None
+    torrent_ratio_limit: Optional[float] = None
+    torrent_seed_time_limit_hours: Optional[int] = None
+    torrent_auto_delete_files: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -148,6 +166,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         "email_available_template",
         "email_request_subject",
         "email_available_subject",
+        "torrent_required_keywords",
+        "torrent_forbidden_keywords",
+        "torrent_min_size_gb",
+        "torrent_max_size_gb",
+        "torrent_ratio_limit",
+        "torrent_seed_time_limit_hours",
     }
     payload = data.model_dump()
     for key, val in payload.items():
@@ -205,10 +229,8 @@ def list_arr_instances(db: Session = Depends(get_db)):
 
 @router.post("/arr-instances")
 def create_arr_instance(data: ArrInstanceCreate, db: Session = Depends(get_db)):
-    # Si is_default est True, mettre à False les autres instances du même type
     if data.is_default:
-        db.query(ArrInstance).filter(ArrInstance.arr_type == data.arr_type).update({"is_default": False})
-
+        _set_single_default(db, ArrInstance, "arr_type", data.arr_type)
     inst = ArrInstance(**data.model_dump())
     db.add(inst)
     db.commit()
@@ -219,15 +241,10 @@ def create_arr_instance(data: ArrInstanceCreate, db: Session = Depends(get_db)):
 @router.put("/arr-instances/{instance_id}")
 def update_arr_instance(instance_id: int, data: ArrInstanceCreate, db: Session = Depends(get_db)):
     inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
-
     if data.is_default:
-        db.query(ArrInstance).filter(ArrInstance.arr_type == data.arr_type, ArrInstance.id != instance_id).update(
-            {"is_default": False}
-        )
-
+        _set_single_default(db, ArrInstance, "arr_type", data.arr_type, exclude_id=instance_id)
     for k, v in data.model_dump().items():
         setattr(inst, k, v)
-
     db.commit()
     db.refresh(inst)
     return inst
@@ -299,6 +316,7 @@ class DownloadReleaseRequest(BaseModel):
     client_id: int
     category: Optional[str] = None
     tags: Optional[str] = None
+    request_id: Optional[int] = None
 
 
 @router.get("/download-clients")
@@ -309,8 +327,7 @@ def list_download_clients(db: Session = Depends(get_db)):
 @router.post("/download-clients")
 def create_download_client(data: DownloadClientCreate, db: Session = Depends(get_db)):
     if data.is_default:
-        db.query(DownloadClient).filter(DownloadClient.client_type == data.client_type).update({"is_default": False})
-
+        _set_single_default(db, DownloadClient, "client_type", data.client_type)
     client = DownloadClient(**data.model_dump())
     db.add(client)
     db.commit()
@@ -321,15 +338,10 @@ def create_download_client(data: DownloadClientCreate, db: Session = Depends(get
 @router.put("/download-clients/{client_id}")
 def update_download_client(client_id: int, data: DownloadClientCreate, db: Session = Depends(get_db)):
     client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
-
     if data.is_default:
-        db.query(DownloadClient).filter(
-            DownloadClient.client_type == data.client_type, DownloadClient.id != client_id
-        ).update({"is_default": False})
-
+        _set_single_default(db, DownloadClient, "client_type", data.client_type, exclude_id=client_id)
     for k, v in data.model_dump().items():
         setattr(client, k, v)
-
     db.commit()
     db.refresh(client)
     return client
@@ -414,7 +426,7 @@ async def search_prowlarr(
 async def download_release(body: DownloadReleaseRequest, db: Session = Depends(get_db)):
     client = get_or_404(db, DownloadClient, body.client_id, "Client de téléchargement introuvable")
 
-    ok, msg = await add_torrent_to_client(
+    ok, msg, info_hash = await add_torrent_to_client(
         client_type=client.client_type,
         url=client.url,
         username=client.username,
@@ -426,7 +438,16 @@ async def download_release(body: DownloadReleaseRequest, db: Session = Depends(g
 
     if not ok:
         raise HTTPException(status_code=500, detail=msg)
-    return {"success": True, "message": msg}
+
+    if body.request_id and info_hash:
+        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        if req:
+            req.download_client_id = client.id
+            req.torrent_hash = info_hash
+            req.status = "sent_to_arr"
+            db.commit()
+
+    return {"success": True, "message": msg, "info_hash": info_hash}
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +613,21 @@ async def test_smtp(body: SmtpTestRequest, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
+async def _arr_call(
+    url: Optional[str],
+    api_key: Optional[str],
+    instance_id: Optional[int],
+    arr_type: str,
+    db: Session,
+    coro_fn,
+):
+    """Appelle coro_fn(url, api_key) en résolvant l'instance si url/api_key ne sont pas fournis inline."""
+    if url and api_key:
+        return await coro_fn(url, api_key)
+    inst = _resolve_arr_instance(db, instance_id, arr_type)
+    return await coro_fn(inst.url, inst.api_key)
+
+
 def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str) -> ArrInstance:
     if instance_id is not None:
         inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == arr_type).first()
@@ -616,54 +652,30 @@ def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str
 
 @router.get("/sonarr/profiles")
 async def sonarr_profiles(
-    instance_id: Optional[int] = None,
-    url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
 ):
-    if url and api_key:
-        return await sonarr.get_quality_profiles(url, api_key)
-    inst = _resolve_arr_instance(db, instance_id, "sonarr")
-    return await sonarr.get_quality_profiles(inst.url, inst.api_key)
+    return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_quality_profiles)
 
 
 @router.get("/sonarr/folders")
 async def sonarr_folders(
-    instance_id: Optional[int] = None,
-    url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
 ):
-    if url and api_key:
-        return await sonarr.get_root_folders(url, api_key)
-    inst = _resolve_arr_instance(db, instance_id, "sonarr")
-    return await sonarr.get_root_folders(inst.url, inst.api_key)
+    return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_root_folders)
 
 
 @router.get("/radarr/profiles")
 async def radarr_profiles(
-    instance_id: Optional[int] = None,
-    url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
 ):
-    if url and api_key:
-        return await radarr.get_quality_profiles(url, api_key)
-    inst = _resolve_arr_instance(db, instance_id, "radarr")
-    return await radarr.get_quality_profiles(inst.url, inst.api_key)
+    return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_quality_profiles)
 
 
 @router.get("/radarr/folders")
 async def radarr_folders(
-    instance_id: Optional[int] = None,
-    url: Optional[str] = None,
-    api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
 ):
-    if url and api_key:
-        return await radarr.get_root_folders(url, api_key)
-    inst = _resolve_arr_instance(db, instance_id, "radarr")
-    return await radarr.get_root_folders(inst.url, inst.api_key)
+    return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
 
 
 # ---------------------------------------------------------------------------
@@ -1315,11 +1327,25 @@ def list_requests(db: Session = Depends(get_db)):
 
 
 @router.get("/requests/{request_id}")
-def get_request(request_id: int, db: Session = Depends(get_db)):
+async def get_request(request_id: int, db: Session = Depends(get_db)):
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
     d["requested_at"] = _format_datetime(req.requested_at)
     d["available_at"] = _format_datetime(req.available_at)
+
+    if req.torrent_hash and req.download_client_id:
+        client = db.query(DownloadClient).filter(DownloadClient.id == req.download_client_id).first()
+        if client and client.enabled:
+            try:
+                from ..services.download_clients import get_torrent_status
+
+                status = await get_torrent_status(
+                    client.client_type, client.url, client.username, client.password, req.torrent_hash
+                )
+                if status:
+                    d["_torrent_status"] = status
+            except Exception as e:
+                logger.warning(f"Could not retrieve torrent status: {e}")
 
     settings = db.query(Settings).first()
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()

@@ -207,6 +207,56 @@
         </div>
       </div>
 
+      <!-- Configuration Torrent Avancée (Filtres et Nettoyage) -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-filter-square-fill text-warning me-2"></i>Filtres & Nettoyage Torrent</h5>
+          </div>
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
+            <i class="bi bi-info-circle me-1"></i>
+            Ces paramètres s'appliquent à l'automatisation Watchlist-to-Torrent (lorsque Sonarr/Radarr sont inactifs).
+          </div>
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Filtres de Recherche Prowlarr</h6>
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <label class="form-label">Mots-clés requis <span class="text-muted small">(séparés par virgules, ex: MULTI, VFF)</span></label>
+              <input type="text" class="form-control" name="torrent_required_keywords" value="{{ s.torrent_required_keywords or '' }}" placeholder="ex: MULTI, VFF">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Mots-clés interdits <span class="text-muted small">(séparés par virgules, ex: CAM, TS, 3D)</span></label>
+              <input type="text" class="form-control" name="torrent_forbidden_keywords" value="{{ s.torrent_forbidden_keywords or '' }}" placeholder="ex: CAM, TS, 3D">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Taille minimale d'une release (Go)</label>
+              <input type="number" step="0.1" class="form-control" name="torrent_min_size_gb" value="{{ s.torrent_min_size_gb or '' }}" placeholder="ex: 1.5">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Taille maximale d'une release (Go)</label>
+              <input type="number" step="0.1" class="form-control" name="torrent_max_size_gb" value="{{ s.torrent_max_size_gb or '' }}" placeholder="ex: 15">
+            </div>
+          </div>
+
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Règles de Partage & Nettoyage (qBittorrent / Transmission)</h6>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Ratio limite de partage (seeding)</label>
+              <input type="number" step="0.1" class="form-control" name="torrent_ratio_limit" value="{{ s.torrent_ratio_limit or '' }}" placeholder="ex: 2.0 (laisser vide pour aucun)">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Temps limite de partage (heures)</label>
+              <input type="number" class="form-control" name="torrent_seed_time_limit_hours" value="{{ s.torrent_seed_time_limit_hours or '' }}" placeholder="ex: 24 (laisser vide pour aucun)">
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="torrent_auto_delete_files" id="torrent_auto_delete_files_check" {% if s.torrent_auto_delete_files %}checked{% endif %}>
+                <label class="form-check-label" for="torrent_auto_delete_files_check">Supprimer également les fichiers physiques lors du nettoyage</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Seer -->
       <div class="col-12">
         <div class="card p-4">
@@ -817,17 +867,18 @@
             <select class="form-select bg-dark text-light border-secondary" id="dlClientType" onchange="onDlClientTypeChange()">
               <option value="qbittorrent">qBittorrent</option>
               <option value="transmission">Transmission</option>
+              <option value="watch_folder">Dossier surveillé (Watch Folder)</option>
             </select>
           </div>
           <div class="col-12">
-            <label class="form-label">URL de l'interface Web / API</label>
+            <label class="form-label" id="dlClientUrlLabel">URL de l'interface Web / API</label>
             <input type="url" class="form-control" id="dlClientUrl" placeholder="http://192.168.1.10:8080" required>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-6 credentials-only">
             <label class="form-label">Nom d'utilisateur</label>
             <input type="text" class="form-control" id="dlClientUser">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-6 credentials-only">
             <label class="form-label">Mot de passe</label>
             <div class="input-group">
               <input type="password" class="form-control" id="dlClientPass">
@@ -2070,7 +2121,9 @@ async function loadDownloadClients() {
     tbody.innerHTML = _downloadClients.map(client => {
       const typeBadge = client.client_type === 'qbittorrent'
         ? '<span class="badge bg-info text-dark"><i class="bi bi-download me-1"></i>qBittorrent</span>'
-        : '<span class="badge bg-primary"><i class="bi bi-download me-1"></i>Transmission</span>';
+        : client.client_type === 'transmission'
+        ? '<span class="badge bg-primary"><i class="bi bi-download me-1"></i>Transmission</span>'
+        : '<span class="badge bg-secondary"><i class="bi bi-folder me-1"></i>Watch Folder</span>';
 
       const defaultBadge = client.is_default
         ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
@@ -2121,6 +2174,21 @@ function openDlClientModal() {
 function onDlClientTypeChange() {
   const type = document.getElementById('dlClientType').value;
   document.querySelectorAll('.qbit-only').forEach(el => el.style.display = (type === 'qbittorrent') ? '' : 'none');
+  
+  const urlLabel = document.getElementById('dlClientUrlLabel');
+  const urlInput = document.getElementById('dlClientUrl');
+  
+  if (type === 'watch_folder') {
+    if (urlLabel) urlLabel.textContent = "Chemin absolu du dossier local (Watch Folder)";
+    urlInput.placeholder = "ex: C:\\Plex\\WatchFolder ou /mnt/watchfolder";
+    urlInput.type = "text";
+    document.querySelectorAll('.credentials-only').forEach(el => el.style.display = 'none');
+  } else {
+    if (urlLabel) urlLabel.textContent = "URL de l'interface Web / API";
+    urlInput.placeholder = "http://192.168.1.10:8080";
+    urlInput.type = "url";
+    document.querySelectorAll('.credentials-only').forEach(el => el.style.display = '');
+  }
 }
 
 async function testDlClientConn() {
@@ -2130,7 +2198,7 @@ async function testDlClientConn() {
   const password = document.getElementById('dlClientPass').value.trim();
 
   if (!url) {
-    return showToast("L'URL est requise", "warning");
+    return showToast(type === 'watch_folder' ? "Le chemin est requis" : "L'URL est requise", "warning");
   }
 
   showToast("Test de connexion...", "secondary");

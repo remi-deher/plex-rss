@@ -103,6 +103,15 @@ class Settings(Base):
     auth_password_hash: Mapped[Optional[str]]
     api_token: Mapped[Optional[str]]
 
+    # --- Torrent settings ---
+    torrent_required_keywords: Mapped[Optional[str]]
+    torrent_forbidden_keywords: Mapped[Optional[str]]
+    torrent_min_size_gb: Mapped[Optional[float]]
+    torrent_max_size_gb: Mapped[Optional[float]]
+    torrent_ratio_limit: Mapped[Optional[float]]
+    torrent_seed_time_limit_hours: Mapped[Optional[int]]
+    torrent_auto_delete_files: Mapped[bool] = mapped_column(default=True)
+
 
 class ArrInstance(Base):
     __tablename__ = "arr_instances"
@@ -209,6 +218,8 @@ class MediaRequest(Base):
 
     # Instance tracking
     arr_instance_id: Mapped[Optional[int]]
+    download_client_id: Mapped[Optional[int]]
+    torrent_hash: Mapped[Optional[str]]
 
 
 class DownloadClient(Base):

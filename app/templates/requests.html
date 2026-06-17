@@ -1001,6 +1001,39 @@ function renderDetail(d) {
     ? `<div class="alert alert-danger py-2 mt-3" style="font-size:13px"><i class="bi bi-exclamation-triangle me-1"></i>${d.overview.split('[ERREUR]').pop().trim()}</div>` : '';
   const overview = d.overview ? d.overview.split('\n[ERREUR]')[0].trim() : '';
 
+  let torrentBlock = '';
+  if (d._torrent_status) {
+    const ts = d._torrent_status;
+    const progress = ts.progress.toFixed(1);
+    const speedDown = ts.download_speed ? `${(ts.download_speed / 1024 / 1024).toFixed(2)} Mo/s` : '0 Mo/s';
+    const speedUp = ts.upload_speed ? `${(ts.upload_speed / 1024 / 1024).toFixed(2)} Mo/s` : '0 Mo/s';
+    let etaStr = 'Terminé';
+    if (ts.eta > 0) {
+      const minutes = Math.floor(ts.eta / 60);
+      const hours = Math.floor(minutes / 60);
+      etaStr = hours > 0 ? `${hours}h ${minutes % 60}m restants` : `${minutes}m restants`;
+    }
+    torrentBlock = `
+      <div class="card p-3 my-3 border-secondary" style="background:var(--pr-surface-2); font-size:13px">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <strong><i class="bi bi-download text-warning me-1"></i>Téléchargement Torrent</strong>
+          <span class="badge bg-warning text-dark">${ts.status.toUpperCase()}</span>
+        </div>
+        <div class="progress mb-2" style="height:16px;">
+          <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning text-dark fw-bold" role="progressbar" style="width: ${progress}%; font-size: 10px; line-height: 16px;">
+            ${progress}%
+          </div>
+        </div>
+        <div class="d-flex justify-content-between text-muted" style="font-size:11px">
+          <span><i class="bi bi-arrow-down-circle me-1"></i>${speedDown}</span>
+          <span><i class="bi bi-arrow-up-circle me-1"></i>${speedUp}</span>
+          <span><i class="bi bi-clock me-1"></i>${etaStr}</span>
+          <span><i class="bi bi-heart-fill me-1"></i>Ratio: ${ts.ratio.toFixed(2)}</span>
+        </div>
+      </div>
+    `;
+  }
+
   document.getElementById('modalBody').innerHTML = `
     <div class="row g-3">
       <div class="col-auto" style="width:120px">
@@ -1015,6 +1048,7 @@ function renderDetail(d) {
           <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
         </div>
         ${journeyFrise(d)}
+        ${torrentBlock}
         <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
           <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${formatRequesters(d)}</td></tr>
           <tr><td class="text-muted">Date demande</td><td>${toLocalDate(d.requested_at)}</td></tr>
@@ -1038,6 +1072,7 @@ function renderDetail(d) {
   footer.innerHTML = '';
   if (d.status === 'failed' || d.status === 'pending') {
     footer.insertAdjacentHTML('beforeend', `<button class="btn btn-warning" onclick="retryFromModal(${d.id})"><i class="bi bi-arrow-clockwise me-1"></i>Réessayer</button>`);
+    footer.insertAdjacentHTML('beforeend', `<a href="/search?query=${encodeURIComponent(d.title)}&media_type=${d.media_type}&request_id=${d.id}" class="btn btn-outline-warning"><i class="bi bi-search me-1"></i>Recherche Manuelle</a>`);
   }
   if (!d.request_mail_sent) {
     footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-secondary" onclick="markProcessedFromModal(${d.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Renvoyer mail de demande</button>`);

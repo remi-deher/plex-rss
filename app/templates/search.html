@@ -253,6 +253,11 @@ function onTargetClientChange() {
   }
 }
 
+const urlParams = new URLSearchParams(window.location.search);
+const _requestId = urlParams.get('request_id');
+const _initialQuery = urlParams.get('query');
+const _initialMediaType = urlParams.get('media_type');
+
 async function confirmDownload() {
   const url = document.getElementById('dlReleaseUrl').value;
   const clientId = document.getElementById('dlTargetClient').value;
@@ -263,7 +268,8 @@ async function confirmDownload() {
     torrent_url_or_magnet: url,
     client_id: parseInt(clientId),
     category: category || null,
-    tags: tags || null
+    tags: tags || null,
+    request_id: _requestId ? parseInt(_requestId) : null
   };
 
   try {
@@ -277,6 +283,10 @@ async function confirmDownload() {
     
     showToast(d.message || "Téléchargement lancé avec succès !", "success");
     bootstrap.Modal.getInstance(document.getElementById('downloadModal')).hide();
+    if (_requestId) {
+      // Si la recherche manuelle était liée à une demande, rediriger vers la liste des demandes
+      setTimeout(() => { window.location.href = '/requests'; }, 1500);
+    }
   } catch(e) {
     showToast(e.message, "danger");
   }
@@ -293,7 +303,19 @@ function escHtml(s) {
 }
 
 // Initialiser la page
-loadProwlarrInstances();
-loadDownloadClientsList();
+async function initPage() {
+  await loadProwlarrInstances();
+  await loadDownloadClientsList();
+  
+  if (_initialQuery) {
+    document.getElementById('searchQuery').value = _initialQuery;
+    if (_initialMediaType) {
+      document.getElementById('searchMediaType').value = _initialMediaType;
+    }
+    // Lancer la recherche automatiquement
+    performSearch({ preventDefault: () => {} });
+  }
+}
+initPage();
 </script>
 {% endblock %}
