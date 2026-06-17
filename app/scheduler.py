@@ -553,7 +553,9 @@ async def _submit_to_arr(
         if user_obj:
             instance_id = user_obj.sonarr_instance_id if item["media_type"] == "show" else user_obj.radarr_instance_id
             if instance_id:
-                instance = active_db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
+                instance = (
+                    active_db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
+                )
 
         if not instance:
             target_arr_type = "sonarr" if item["media_type"] == "show" else "radarr"
@@ -569,7 +571,9 @@ async def _submit_to_arr(
                 item["_torrent_hash"] = info_hash
                 item["_download_client_id"] = client_id
                 return None, already_existed, arr_slug
-            logger.warning("No enabled Sonarr/Radarr instance found for submission and Torrent automation did not succeed")
+            logger.warning(
+                "No enabled Sonarr/Radarr instance found for submission and Torrent automation did not succeed"
+            )
             return None, False, None
 
         item["_arr_instance_id"] = instance.id
@@ -581,14 +585,18 @@ async def _submit_to_arr(
                     indexer_ids = json.loads(instance.indexer_ids)
                 except Exception:
                     pass
-            results = await prowlarr.search(instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids)
+            results = await prowlarr.search(
+                instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids
+            )
             if results:
                 return None, False, f"prowlarr:{len(results)}"
             raise Exception("No search results found in Prowlarr")
 
         if instance.arr_type == "sonarr":
             t0 = time.monotonic()
-            result = await add_series(instance.url, instance.api_key, instance.quality_profile_id, instance.root_folder, item)
+            result = await add_series(
+                instance.url, instance.api_key, instance.quality_profile_id, instance.root_folder, item
+            )
             app_metrics.record_sonarr_latency((time.monotonic() - t0) * 1000)
             app_metrics.record_arr_submission(result[0] is not None or result[1])
             return result

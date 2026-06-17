@@ -71,8 +71,10 @@ class Settings(Base):
     email_on_available: Mapped[bool] = mapped_column(default=True)
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_failure_template: Mapped[Optional[str]] = mapped_column(Text)
     email_request_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
+    email_failure_subject: Mapped[Optional[str]] = mapped_column(default=None)
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)

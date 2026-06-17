@@ -74,6 +74,32 @@ DEFAULT_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
+DEFAULT_FAILURE_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#dc3545;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Demande non transmise</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#dc3545">Type :</strong> {{ media_type_label }}&nbsp;&nbsp;
+      <strong style="color:#dc3545">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:16px 0;padding:12px;background:#2a2a2a;border-left:4px solid #dc3545;color:#f8d7da;font-size:13px">
+      {{ reason }}
+    </p>
+    <p style="color:#aaa;font-size:13px">
+      La demande a bien été enregistrée. Elle sera retransmise lors du prochain polling si le problème est résolu.
+    </p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
 def _build_context(request: MediaRequest, display_name: str | None = None) -> dict:
     """Construit le contexte Jinja2 commun à tous les templates email.
 
@@ -175,30 +201,17 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
 async def send_failure_notification(
     settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None
 ):
-    """Envoie l'email d'échec de transmission. Template inline (cas rare, pas de custom template)."""
+    """Envoie l'email d'échec de transmission."""
     ctx = _build_context(request, display_name)
     ctx["reason"] = reason or "Erreur inconnue"
-    html = f"""<!DOCTYPE html>
-<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
-  <tr><td style="background:#dc3545;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Demande non transmise</h1>
-  </td></tr>
-  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
-    {"<img src='" + ctx["poster_url"] + "' style='width:110px;float:right;border-radius:8px;margin:0 0 12px 20px'>" if ctx["poster_url"] else ""}
-    <h2 style="margin:0 0 8px">{ctx["title"]}{"(" + str(ctx["year"]) + ")" if ctx["year"] else ""}</h2>
-    <p style="margin:4px 0;color:#aaa"><strong style="color:#dc3545">Type :</strong> {ctx["media_type_label"]}&nbsp;&nbsp;
-    <strong style="color:#dc3545">Demandé par :</strong> {ctx["plex_user"]}</p>
-    <p style="margin:16px 0;padding:12px;background:#2a2a2a;border-left:4px solid #dc3545;color:#f8d7da;font-size:13px">
-      {ctx["reason"]}
-    </p>
-    <p style="color:#aaa;font-size:13px">
-      La demande a bien été enregistrée. Elle sera retransmise lors du prochain polling si le problème est résolu.
-    </p>
-  </td></tr>
-</table>
-</body></html>"""
-    subject = f"[Plex] Échec de transmission : {request.title}"
+    template = settings.email_failure_template if isinstance(settings.email_failure_template, str) else None
+    template = template or DEFAULT_FAILURE_TEMPLATE
+    html = render_template(template, ctx)
+    subject_tmpl = settings.email_failure_subject if isinstance(settings.email_failure_subject, str) else None
+    subject_tmpl = subject_tmpl or "[Plex] Échec de transmission : {{ title }}"
+    subject = render_template(subject_tmpl, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plex] Échec de transmission : {request.title}"
     await _send(settings, recipient, subject, html)
 
 

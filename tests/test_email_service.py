@@ -209,6 +209,22 @@ async def test_send_failure_subject():
     assert "Inception" in mock_send.call_args[0][0]["Subject"]
 
 
+@pytest.mark.asyncio
+async def test_send_failure_uses_custom_template_and_subject():
+    """Template d'échec customisé et sujet personnalisé."""
+    s = _settings(
+        email_failure_template="Échec: {{ title }} - {{ reason }}",
+        email_failure_subject="Alerte: {{ title }}"
+    )
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_failure_notification(s, _req(), "dest@example.com", reason="Erreur API")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "Alerte: Inception"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Échec: Inception - Erreur API" in body
+
+
 # ---------------------------------------------------------------------------
 # _send — configuration SMTP
 # ---------------------------------------------------------------------------

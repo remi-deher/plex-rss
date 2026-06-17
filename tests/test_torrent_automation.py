@@ -157,6 +157,7 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
 
         # Query using a new session since the previous one was closed by check_torrent_statuses()
         from sqlalchemy.orm import sessionmaker
+
         Session = sessionmaker(bind=db.get_bind())
         new_session = Session()
         try:

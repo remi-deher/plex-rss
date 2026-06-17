@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import PlexUser, Settings
-from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
+from ..services.email_service import (
+    DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_REQUEST_TEMPLATE,
+    _send as smtp_send,
+    render_template,
+)
 
 
 def require_auth(request: Request):
@@ -44,8 +50,10 @@ def email_templates_page(request: Request, db: Session = Depends(get_db)):
             "page": "email-templates",
             "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
             "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,
+            "failure_template": s.email_failure_template or DEFAULT_FAILURE_TEMPLATE,
             "request_subject": s.email_request_subject or "",
             "available_subject": s.email_available_subject or "",
+            "failure_subject": s.email_failure_subject or "",
             "users": users,
             "variables": [
                 ("{{ title }}", "Titre du film ou de la série"),
@@ -56,6 +64,7 @@ def email_templates_page(request: Request, db: Session = Depends(get_db)):
                 ("{{ media_type_label_cap }}", "Le film / La série"),
                 ("{{ overview }}", "Synopsis"),
                 ("{{ genres }}", "Genres (ex: Action, Drame)"),
+                ("{{ reason }}", "Raison de l'échec (email d'échec uniquement)"),
             ],
         },
     )
@@ -81,14 +90,17 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     if body.type == "available":
         ctx["media_type_label"] = "Série"
         ctx["media_type_label_cap"] = "La série"
+    elif body.type == "failure":
+        ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
 
     rendered_subject = render_template(body.subject, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):
-        rendered_subject = (
-            f"[Plex] Nouvelle demande : {ctx['title']}"
-            if body.type == "request"
-            else f"[Plex] Disponible : {ctx['title']}"
-        )
+        if body.type == "request":
+            rendered_subject = f"[Plex] Nouvelle demande : {ctx['title']}"
+        elif body.type == "available":
+            rendered_subject = f"[Plex] Disponible : {ctx['title']}"
+        else:
+            rendered_subject = f"[Plex] Échec de transmission : {ctx['title']}"
 
     html = render_template(body.template, ctx)
 
@@ -118,8 +130,10 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
 class SaveTemplates(BaseModel):
     email_request_template: str
     email_available_template: str
+    email_failure_template: str
     email_request_subject: Optional[str] = None
     email_available_subject: Optional[str] = None
+    email_failure_subject: Optional[str] = None
 
 
 @router.put("/api/email-templates")
@@ -127,8 +141,10 @@ def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     s.email_request_template = body.email_request_template
     s.email_available_template = body.email_available_template
+    s.email_failure_template = body.email_failure_template
     s.email_request_subject = body.email_request_subject
     s.email_available_subject = body.email_available_subject
+    s.email_failure_subject = body.email_failure_subject
     db.commit()
     return {"status": "ok"}
 
@@ -138,7 +154,65 @@ def reset_templates(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
+    s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
     s.email_request_subject = None
     s.email_available_subject = None
+    s.email_failure_subject = None
     db.commit()
     return {"status": "ok"}
+
+
+class TestSendRequest(BaseModel):
+    template: str
+    subject: str
+    type: str = "request"
+    user_id: Optional[int] = None
+
+
+@router.post("/api/email-templates/test-send")
+async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db)):
+    settings = db.query(Settings).first()
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings non trouvés")
+
+    # Resolve recipient: settings.admin_notification_email or settings.smtp_from
+    recipient = (settings.admin_notification_email or "").strip()
+    if body.user_id:
+        user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
+        if user:
+            recipient = user.notification_email or user.plex_email
+
+    if not recipient:
+        recipient = settings.smtp_from
+
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="Aucun destinataire de test configuré (renseignez l'email de notification admin ou From SMTP)",
+        )
+
+    ctx = dict(SAMPLE_CONTEXT)
+    if body.user_id:
+        user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
+        if user:
+            ctx["plex_user"] = user.custom_name or user.display_name or user.plex_user_id
+
+    if body.type == "available":
+        ctx["media_type_label"] = "Série"
+        ctx["media_type_label_cap"] = "La série"
+    elif body.type == "failure":
+        ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
+
+    rendered_subject = render_template(body.subject, ctx)
+    if rendered_subject.startswith("<p>Erreur de template"):
+        rendered_subject = f"[Plex Test] {body.type} : {ctx['title']}"
+    else:
+        rendered_subject = f"[Test] {rendered_subject}"
+
+    html = render_template(body.template, ctx)
+
+    try:
+        await smtp_send(settings, recipient, rendered_subject, html)
+        return {"status": "ok", "message": f"Email de test envoyé avec succès à {recipient}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur d'envoi SMTP : {str(e)}")

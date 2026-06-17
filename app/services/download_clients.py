@@ -198,7 +198,7 @@ async def transmission_rpc(
 ) -> dict:
     """Effectue un appel RPC vers Transmission en gérant le token X-Transmission-Session-Id."""
     rpc_url = f"{url.rstrip('/')}/transmission/rpc"
-    headers = {}
+    headers: dict[str, str] = {}
     auth = None
     if username and password:
         auth = (username, password)
@@ -251,7 +251,7 @@ async def add_transmission_torrent(
     """Ajoute un torrent à Transmission."""
     async with httpx.AsyncClient() as client:
         try:
-            args = {"filename": torrent_url_or_magnet}
+            args: dict[str, object] = {"filename": torrent_url_or_magnet}
             if tags:
                 args["labels"] = [t.strip() for t in tags.split(",") if t.strip()]
 

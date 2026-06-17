@@ -363,7 +363,7 @@ async def test_download_client(body: TestDownloadClientBody):
 
 # Cache en mémoire pour la recherche Prowlarr (60 minutes)
 # clé: (query, media_type, instance_id), valeur: (timestamp, results)
-_search_cache = {}
+_search_cache: dict[tuple[str, str, int | None], tuple[float, list[dict]]] = {}
 
 
 @router.get("/search")
@@ -652,28 +652,40 @@ def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str
 
 @router.get("/sonarr/profiles")
 async def sonarr_profiles(
-    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_quality_profiles)
 
 
 @router.get("/sonarr/folders")
 async def sonarr_folders(
-    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_root_folders)
 
 
 @router.get("/radarr/profiles")
 async def radarr_profiles(
-    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_quality_profiles)
 
 
 @router.get("/radarr/folders")
 async def radarr_folders(
-    instance_id: Optional[int] = None, url: Optional[str] = None, api_key: Optional[str] = None, db: Session = Depends(get_db)
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
 
@@ -1366,8 +1378,10 @@ async def get_request(request_id: int, db: Session = Depends(get_db)):
     d["plex_user"] = users.get(req.plex_user_id, req.plex_user or req.plex_user_id)
     try:
         extras = _json.loads(req.extra_requesters or "[]")
-        for e in extras:
-            e["display_name"] = users.get(e.get("plex_user_id"), e.get("display_name") or e.get("plex_user_id"))
+        for extra in extras:
+            extra["display_name"] = users.get(
+                extra.get("plex_user_id"), extra.get("display_name") or extra.get("plex_user_id")
+            )
         d["extra_requesters"] = _json.dumps(extras)
     except Exception:
         pass
