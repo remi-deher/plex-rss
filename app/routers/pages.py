@@ -16,7 +16,7 @@ from sqlalchemy import desc as sqldesc
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import MediaRequest, PlexUser, RequestStatus, Settings
+from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
@@ -182,6 +182,10 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
     settings = db.query(Settings).first()
     seer_enabled = bool(settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key)
 
+    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    sonarr_instances = [i for i in instances if i.arr_type == "sonarr"]
+    radarr_instances = [i for i in instances if i.arr_type == "radarr"]
+
     return templates.TemplateResponse(
         request,
         "users.html",
@@ -189,6 +193,8 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
             "users": users,
             "counts_map": counts_map,
             "seer_enabled": seer_enabled,
+            "sonarr_instances": sonarr_instances,
+            "radarr_instances": radarr_instances,
         },
     )
 

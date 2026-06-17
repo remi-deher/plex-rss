@@ -8,16 +8,24 @@ Couche d'accès à la base de données SQLite via SQLAlchemy.
   de verrou entre le moteur SQLAlchemy de l'app et le moteur interne d'Alembic.
 """
 
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from .models import Settings
 
-DATABASE_URL = "sqlite:///./data/plex_rss.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./data/plex_rss.db"
 
-# check_same_thread=False nécessaire pour SQLite en contexte multi-thread (FastAPI)
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 
 
 def run_migrations():

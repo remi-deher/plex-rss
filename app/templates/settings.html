@@ -135,105 +135,37 @@
         </div>
       </div>
 
-      <!-- Sonarr + Radarr -->
-      <div class="col-md-6" id="card-wrap-sonarr">
-        <div class="card p-4 h-100 arr-card">
+      <!-- Instances *arr -->
+      <div class="col-12" id="card-wrap-arr-instances">
+        <div class="card p-4">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">
-              <i class="bi bi-tv text-info me-2"></i>Sonarr
-              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="sonarr" style="font-size:8px" title="URL manquante"></i>
-            </h5>
-            <div class="d-flex align-items-center gap-3">
-              <span id="conn-badge-sonarr" class="conn-badge"></span>
-              <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" name="sonarr_enabled" id="sonarr_en" {% if s.sonarr_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="sonarr_en">Activé</label>
-              </div>
-            </div>
+            <h5 class="mb-0"><i class="bi bi-server text-warning me-2"></i>Instances Sonarr / Radarr / Prowlarr</h5>
+            <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openArrInstanceModal()">
+              <i class="bi bi-plus-lg"></i> Ajouter une instance
+            </button>
           </div>
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">URL Sonarr</label>
-              <input type="url" class="form-control arr-url" name="sonarr_url" value="{{ s.sonarr_url or '' }}" placeholder="http://192.168.1.10:8989" data-arr="sonarr">
-            </div>
-            <div class="col-12">
-              <label class="form-label">Clé API</label>
-              <div class="input-group">
-                <input type="password" class="form-control arr-key" name="sonarr_api_key" value="{{ s.sonarr_api_key or '' }}" id="sonarr_key" data-arr="sonarr">
-                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('sonarr_key')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-info" onclick="testConn('sonarr')">Tester</button>
-              </div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Profil qualité</label>
-              <select class="form-select" name="sonarr_quality_profile_id" id="sonarr_profile">
-                {% if s.sonarr_quality_profile_id %}<option value="{{ s.sonarr_quality_profile_id }}" selected>ID {{ s.sonarr_quality_profile_id }}</option>{% endif %}
-              </select>
-              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('sonarr')">Charger</button>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Dossier racine</label>
-              <select class="form-select" name="sonarr_root_folder" id="sonarr_folder">
-                {% if s.sonarr_root_folder %}<option value="{{ s.sonarr_root_folder }}" selected>{{ s.sonarr_root_folder }}</option>{% endif %}
-              </select>
-              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('sonarr')">Charger</button>
-            </div>
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
+            <i class="bi bi-info-circle me-1"></i>
+            Configurez plusieurs instances. Par exemple, une instance Sonarr 1080p et une Sonarr 4K. Les demandes seront acheminées vers l'instance appropriée.
           </div>
-        </div>
-      </div>
-
-      <div class="col-md-6" id="card-wrap-radarr">
-        <div class="card p-4 h-100 arr-card">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">
-              <i class="bi bi-camera-video text-primary me-2"></i>Radarr
-              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="radarr" style="font-size:8px" title="URL manquante"></i>
-            </h5>
-            <div class="d-flex align-items-center gap-3">
-              <span id="conn-badge-radarr" class="conn-badge"></span>
-              <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" name="radarr_enabled" id="radarr_en" {% if s.radarr_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="radarr_en">Activé</label>
-              </div>
-            </div>
-          </div>
-          <div class="row g-3">
-            <div class="col-12">
-              <label class="form-label">URL Radarr</label>
-              <input type="url" class="form-control arr-url" name="radarr_url" value="{{ s.radarr_url or '' }}" placeholder="http://192.168.1.10:7878" data-arr="radarr">
-            </div>
-            <div class="col-12">
-              <label class="form-label">Clé API</label>
-              <div class="input-group">
-                <input type="password" class="form-control arr-key" name="radarr_api_key" value="{{ s.radarr_api_key or '' }}" id="radarr_key" data-arr="radarr">
-                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('radarr_key')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-primary" onclick="testConn('radarr')">Tester</button>
-              </div>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Profil qualité</label>
-              <select class="form-select" name="radarr_quality_profile_id" id="radarr_profile">
-                {% if s.radarr_quality_profile_id %}<option value="{{ s.radarr_quality_profile_id }}" selected>ID {{ s.radarr_quality_profile_id }}</option>{% endif %}
-              </select>
-              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadProfiles('radarr')">Charger</button>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Dossier racine</label>
-              <select class="form-select" name="radarr_root_folder" id="radarr_folder">
-                {% if s.radarr_root_folder %}<option value="{{ s.radarr_root_folder }}" selected>{{ s.radarr_root_folder }}</option>{% endif %}
-              </select>
-              <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="loadFolders('radarr')">Charger</button>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Disponibilité minimale <span class="badge bg-primary ms-1" style="font-size:10px">v5</span></label>
-              <select class="form-select" name="radarr_minimum_availability">
-                <option value="announced" {% if s.radarr_minimum_availability == 'announced' %}selected{% endif %}>Annoncé</option>
-                <option value="inCinemas" {% if s.radarr_minimum_availability == 'inCinemas' %}selected{% endif %}>En salle</option>
-                <option value="released" {% if not s.radarr_minimum_availability or s.radarr_minimum_availability == 'released' %}selected{% endif %}>Sorti (recommandé)</option>
-                <option value="tba" {% if s.radarr_minimum_availability == 'tba' %}selected{% endif %}>À annoncer</option>
-              </select>
-              <div class="form-text">Requis par Radarr v5 — détermine quand le film est éligible au téléchargement.</div>
-            </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark align-middle mb-0" id="arr-instances-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>URL</th>
+                  <th>Défaut</th>
+                  <th>Statut</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="arr-instances-body">
+                <tr>
+                  <td colspan="6" class="text-center text-muted py-3">Chargement des instances...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -449,6 +381,46 @@
             </div>
             <div class="col-12">
               <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
+            </div>
+
+            <!-- ntfy -->
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-bell me-1"></i>ntfy</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">URL du Topic ntfy</label>
+              <input type="url" class="form-control" name="ntfy_url" value="{{ s.ntfy_url or '' }}" placeholder="https://ntfy.sh/mon-topic">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Token d'authentification (optionnel)</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="ntfy_token" value="{{ s.ntfy_token or '' }}" id="ntfy_token" placeholder="Bearer token">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('ntfy_token')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end gap-2">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('ntfy')">Tester</button>
+              <span id="conn-badge-ntfy" class="conn-badge align-self-center"></span>
+            </div>
+
+            <!-- Gotify -->
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-chat-square-text me-1"></i>Gotify</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">URL du Serveur Gotify</label>
+              <input type="url" class="form-control" name="gotify_url" value="{{ s.gotify_url or '' }}" placeholder="https://gotify.example.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Token de l'Application Gotify</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="gotify_token" value="{{ s.gotify_token or '' }}" id="gotify_token" placeholder="App Token">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('gotify_token')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end gap-2">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('gotify')">Tester</button>
+              <span id="conn-badge-gotify" class="conn-badge align-self-center"></span>
             </div>
           </div>
         </div>
@@ -681,7 +653,108 @@
   </div>
 
 </div>
-</form>
+<!-- Modal Instance Arr -->
+<div class="modal fade" id="arrInstanceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="background:var(--pr-surface); color: var(--bs-body-color)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="arrInstanceModalTitle">Ajouter une instance</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="instId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nom de l'instance</label>
+            <input type="text" class="form-control" id="instName" placeholder="ex: Sonarr 1080p" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Type d'instance</label>
+            <select class="form-select bg-dark text-light border-secondary" id="instType" onchange="onInstTypeChange()">
+              <option value="sonarr">Sonarr</option>
+              <option value="radarr">Radarr</option>
+              <option value="prowlarr">Prowlarr</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">URL de l'instance</label>
+            <input type="url" class="form-control" id="instUrl" placeholder="http://192.168.1.10:8989" required>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Clé API</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="instApiKey" required>
+              <button type="button" class="btn btn-outline-secondary" onclick="togglePass('instApiKey')"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          
+          <!-- Sonarr / Radarr Specific Fields -->
+          <div class="col-md-6 arr-only">
+            <label class="form-label">Profil qualité</label>
+            <div class="input-group">
+              <select class="form-select bg-dark text-light border-secondary" id="instQualityProfile">
+                <option value="">Sélectionnez un profil</option>
+              </select>
+              <button type="button" class="btn btn-outline-secondary" onclick="fetchInstProfiles()">Charger</button>
+            </div>
+          </div>
+          <div class="col-md-6 arr-only">
+            <label class="form-label">Dossier racine</label>
+            <div class="input-group">
+              <select class="form-select bg-dark text-light border-secondary" id="instRootFolder">
+                <option value="">Sélectionnez un dossier</option>
+              </select>
+              <button type="button" class="btn btn-outline-secondary" onclick="fetchInstFolders()">Charger</button>
+            </div>
+          </div>
+
+          <!-- Radarr Specific Fields -->
+          <div class="col-12 radarr-only">
+            <label class="form-label">Disponibilité minimale</label>
+            <select class="form-select bg-dark text-light border-secondary" id="instMinAvailability">
+              <option value="announced">Annoncé</option>
+              <option value="inCinemas">En salle</option>
+              <option value="released" selected>Sorti (recommandé)</option>
+              <option value="tba">À annoncer</option>
+            </select>
+          </div>
+
+          <!-- Prowlarr Specific Fields -->
+          <div class="col-12 prowlarr-only" style="display:none">
+            <label class="form-label">Indexeurs à utiliser (multi-sélectionnable)</label>
+            <div class="input-group mb-2">
+              <select class="form-select bg-dark text-light border-secondary" id="instIndexers" multiple style="height:120px">
+              </select>
+              <button type="button" class="btn btn-outline-secondary align-self-start" onclick="fetchProwlarrIndexers()">Charger</button>
+            </div>
+            <div class="form-text text-muted">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs indexeurs. Si aucun n'est sélectionné, tous les indexeurs configurés dans Prowlarr seront utilisés.</div>
+          </div>
+
+          <!-- Flags -->
+          <div class="col-md-6 d-flex align-items-center">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="instEnabled" checked>
+              <label class="form-check-label" for="instEnabled">Instance activée</label>
+            </div>
+          </div>
+          <div class="col-md-6 d-flex align-items-center">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="instIsDefault">
+              <label class="form-check-label" for="instIsDefault">Instance par défaut pour ce type</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary justify-content-between">
+        <button type="button" class="btn btn-outline-warning" onclick="testInstConn()">Tester la connexion</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="button" class="btn btn-warning" onclick="saveArrInstance()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── Sticky save bar ── -->
 <div class="position-sticky bottom-0 py-3 mt-4" style="background:linear-gradient(transparent,var(--bs-body-bg) 45%);z-index:100">
@@ -723,7 +796,7 @@ function setConnBadge(service, success, label) {
   try { sessionStorage.setItem(`conn_${service}`, JSON.stringify({success, label})); } catch(e) {}
 }
 function restoreConnBadges() {
-  ['plex-api','plex-rss','sonarr','radarr','seer','discord','telegram','smtp'].forEach(s => {
+  ['plex-api','plex-rss','sonarr','radarr','seer','discord','telegram','smtp','ntfy','gotify'].forEach(s => {
     try {
       const stored = sessionStorage.getItem(`conn_${s}`);
       if (stored) { const d = JSON.parse(stored); setConnBadge(s, d.success, d.label); }
@@ -734,13 +807,12 @@ function restoreConnBadges() {
 // ── Seer → dim Sonarr/Radarr ────────────────────────────────────────────
 function updateSeerMode() {
   const enabled = document.getElementById('seer_en').checked;
-  ['sonarr','radarr'].forEach(arr => {
-    const wrap = document.getElementById(`card-wrap-${arr}`);
-    if (!wrap) return;
+  const wrap = document.getElementById('card-wrap-arr-instances');
+  if (wrap) {
     wrap.style.opacity = enabled ? '0.4' : '1';
     wrap.style.pointerEvents = enabled ? 'none' : '';
     wrap.title = enabled ? 'Géré par Seer — désactivez Seer pour modifier' : '';
-  });
+  }
 }
 document.getElementById('seer_en').addEventListener('change', updateSeerMode);
 
@@ -858,14 +930,6 @@ document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener
 
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
-  const sonarrOn = document.getElementById('sonarr_en').checked;
-  const sonarrUrl = document.querySelector('[name=sonarr_url]').value.trim();
-  showSectionWarn('sonarr', sonarrOn && !sonarrUrl);
-
-  const radarrOn = document.getElementById('radarr_en').checked;
-  const radarrUrl = document.querySelector('[name=radarr_url]').value.trim();
-  showSectionWarn('radarr', radarrOn && !radarrUrl);
-
   const emailOn = document.getElementById('email_req').checked || document.getElementById('email_av').checked;
   const smtpHost = document.getElementById('smtp_host').value.trim();
   showSectionWarn('smtp', emailOn && !smtpHost);
@@ -882,20 +946,6 @@ function showSectionWarn(section, show) {
 }
 document.getElementById('settings-form').addEventListener('change', checkSectionWarnings);
 document.getElementById('settings-form').addEventListener('input', checkSectionWarnings);
-
-// ── Auto-load profiles/folders on blur when URL + key both present ────────────
-let _autoLoadTimers = {};
-function tryAutoLoad(arr) {
-  clearTimeout(_autoLoadTimers[arr]);
-  _autoLoadTimers[arr] = setTimeout(() => {
-    const url = document.querySelector(`[name=${arr}_url]`).value.trim();
-    const key = document.querySelector(`[name=${arr}_api_key]`).value.trim();
-    if (url && key) { loadProfiles(arr); loadFolders(arr); }
-  }, 600);
-}
-document.querySelectorAll('.arr-url, .arr-key').forEach(el => {
-  el.addEventListener('blur', () => tryAutoLoad(el.dataset.arr));
-});
 
 // ── Webhook chevron rotation ──────────────────────────────────────────────────
 document.getElementById('webhooks-body').addEventListener('show.bs.collapse', () => {
@@ -1100,6 +1150,7 @@ function copyEl(id) {
 restoreConnBadges();
 updateSeerMode();
 checkSectionWarnings();
+loadArrInstances();
 
 // ── Maintenance tab ───────────────────────────────────────────────────────────
 
@@ -1573,6 +1624,316 @@ async function launchMaint(action) {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-play-fill me-1"></i>Lancer';
     showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+// ── Instances Arr Management ──────────────────────────────────────────────────
+let _arrInstances = [];
+
+async function loadArrInstances() {
+  const tbody = document.getElementById('arr-instances-body');
+  try {
+    const r = await fetch('/api/arr-instances');
+    _arrInstances = await r.json();
+    if (!_arrInstances.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Aucune instance configurée. Cliquez sur "Ajouter une instance".</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _arrInstances.map(inst => {
+      const typeBadge = inst.arr_type === 'sonarr' 
+        ? '<span class="badge bg-info text-dark">Sonarr</span>'
+        : inst.arr_type === 'radarr'
+        ? '<span class="badge bg-primary">Radarr</span>'
+        : '<span class="badge text-white" style="background:#6f42c1">Prowlarr</span>';
+      
+      const defaultBadge = inst.is_default
+        ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
+        : '<span class="text-muted">—</span>';
+        
+      const statusBadge = inst.enabled
+        ? '<span class="badge bg-success">Actif</span>'
+        : '<span class="badge bg-secondary">Désactivé</span>';
+
+      return `<tr>
+        <td><strong>${_esc(inst.name)}</strong></td>
+        <td>${typeBadge}</td>
+        <td><code class="small text-muted">${_esc(inst.url)}</code></td>
+        <td>${defaultBadge}</td>
+        <td>${statusBadge}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-xs btn-outline-warning py-0 px-2" onclick="testExistingInstConn(${inst.id}, this)"><i class="bi bi-plug"></i> Tester</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-2" onclick="editArrInstance(${inst.id})"><i class="bi bi-pencil"></i></button>
+          <button type="button" class="btn btn-xs btn-outline-danger py-0 px-2" onclick="deleteArrInstance(${inst.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
+  }
+}
+
+function openArrInstanceModal() {
+  document.getElementById('instId').value = '';
+  document.getElementById('arrInstanceModalTitle').textContent = 'Ajouter une instance';
+  document.getElementById('instName').value = '';
+  document.getElementById('instType').value = 'sonarr';
+  document.getElementById('instUrl').value = '';
+  document.getElementById('instApiKey').value = '';
+  document.getElementById('instQualityProfile').innerHTML = '<option value="">Sélectionnez un profil (chargez d\'abord)</option>';
+  document.getElementById('instRootFolder').innerHTML = '<option value="">Sélectionnez un dossier (chargez d\'abord)</option>';
+  document.getElementById('instMinAvailability').value = 'released';
+  document.getElementById('instIndexers').innerHTML = '';
+  document.getElementById('instEnabled').checked = true;
+  document.getElementById('instIsDefault').checked = false;
+  
+  onInstTypeChange();
+  
+  new bootstrap.Modal(document.getElementById('arrInstanceModal')).show();
+}
+
+function onInstTypeChange() {
+  const type = document.getElementById('instType').value;
+  
+  // Show/Hide specific fields
+  document.querySelectorAll('.arr-only').forEach(el => el.style.display = (type === 'sonarr' || type === 'radarr') ? '' : 'none');
+  document.querySelectorAll('.radarr-only').forEach(el => el.style.display = (type === 'radarr') ? '' : 'none');
+  document.querySelectorAll('.prowlarr-only').forEach(el => el.style.display = (type === 'prowlarr') ? '' : 'none');
+}
+
+async function fetchInstProfiles(selectedId = null) {
+  const type = document.getElementById('instType').value;
+  const url = document.getElementById('instUrl').value.trim();
+  const apiKey = document.getElementById('instApiKey').value.trim();
+  if (!url || !apiKey) {
+    return showToast("Veuillez renseigner l'URL et la clé API d'abord.", "warning");
+  }
+  
+  const sel = document.getElementById('instQualityProfile');
+  sel.innerHTML = '<option value="">Chargement...</option>';
+  
+  try {
+    const r = await fetch(`/api/${type}/profiles?url=${encodeURIComponent(url)}&api_key=${encodeURIComponent(apiKey)}`);
+    if (!r.ok) throw new Error("Erreur serveur");
+    const profiles = await r.json();
+    sel.innerHTML = profiles.map(p => 
+      `<option value="${p.id}" ${String(p.id) === String(selectedId) ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
+    showToast("Profils chargés !", "success");
+  } catch (e) {
+    sel.innerHTML = '<option value="">Erreur de chargement</option>';
+    showToast("Impossible de charger les profils : " + e.message, "danger");
+  }
+}
+
+async function fetchInstFolders(selectedValue = null) {
+  const type = document.getElementById('instType').value;
+  const url = document.getElementById('instUrl').value.trim();
+  const apiKey = document.getElementById('instApiKey').value.trim();
+  if (!url || !apiKey) {
+    return showToast("Veuillez renseigner l'URL et la clé API d'abord.", "warning");
+  }
+  
+  const sel = document.getElementById('instRootFolder');
+  sel.innerHTML = '<option value="">Chargement...</option>';
+  
+  try {
+    const r = await fetch(`/api/${type}/folders?url=${encodeURIComponent(url)}&api_key=${encodeURIComponent(apiKey)}`);
+    if (!r.ok) throw new Error("Erreur serveur");
+    const folders = await r.json();
+    sel.innerHTML = folders.map(f => 
+      `<option value="${f}" ${f === selectedValue ? 'selected' : ''}>${f}</option>`
+    ).join('');
+    showToast("Dossiers chargés !", "success");
+  } catch (e) {
+    sel.innerHTML = '<option value="">Erreur de chargement</option>';
+    showToast("Impossible de charger les dossiers : " + e.message, "danger");
+  }
+}
+
+async function fetchProwlarrIndexers(selectedIds = []) {
+  const url = document.getElementById('instUrl').value.trim();
+  const apiKey = document.getElementById('instApiKey').value.trim();
+  if (!url || !apiKey) {
+    return showToast("Veuillez renseigner l'URL et la clé API d'abord.", "warning");
+  }
+  
+  const sel = document.getElementById('instIndexers');
+  sel.innerHTML = '<option value="">Chargement...</option>';
+  
+  try {
+    const r = await fetch(`/api/prowlarr/indexers?url=${encodeURIComponent(url)}&api_key=${encodeURIComponent(apiKey)}`);
+    if (!r.ok) throw new Error("Erreur serveur");
+    const indexers = await r.json();
+    sel.innerHTML = indexers.map(idx => {
+      const isSel = selectedIds.includes(parseInt(idx.id)) || selectedIds.includes(String(idx.id));
+      return `<option value="${idx.id}" ${isSel ? 'selected' : ''}>${_esc(idx.name)}</option>`;
+    }).join('');
+    showToast("Indexeurs chargés !", "success");
+  } catch (e) {
+    sel.innerHTML = '<option value="">Erreur de chargement</option>';
+    showToast("Impossible de charger les indexeurs : " + e.message, "danger");
+  }
+}
+
+async function testInstConn() {
+  const type = document.getElementById('instType').value;
+  const url = document.getElementById('instUrl').value.trim();
+  const apiKey = document.getElementById('instApiKey').value.trim();
+  if (!url || !apiKey) {
+    return showToast("URL et clé API requises", "warning");
+  }
+  
+  showToast("Test de connexion...", "secondary");
+  try {
+    const r = await fetch('/api/test/arr-instance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url, api_key: apiKey, arr_type: type})
+    });
+    const d = await r.json();
+    if (d.success) {
+      showToast(d.message || "Connexion réussie !", "success");
+    } else {
+      showToast(d.message || "Échec de connexion", "danger");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function testExistingInstConn(id, btn) {
+  const inst = _arrInstances.find(x => x.id === id);
+  if (!inst) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/test/arr-instance', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: inst.url, api_key: inst.api_key, arr_type: inst.arr_type})
+    });
+    const d = await r.json();
+    showToast(d.message || (d.success ? "Connexion réussie !" : "Échec de connexion"), d.success ? "success" : "danger");
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+function editArrInstance(id) {
+  const inst = _arrInstances.find(x => x.id === id);
+  if (!inst) return;
+  
+  document.getElementById('instId').value = inst.id;
+  document.getElementById('arrInstanceModalTitle').textContent = 'Modifier l\'instance';
+  document.getElementById('instName').value = inst.name;
+  document.getElementById('instType').value = inst.arr_type;
+  document.getElementById('instUrl').value = inst.url;
+  document.getElementById('instApiKey').value = inst.api_key;
+  
+  onInstTypeChange();
+  
+  if (inst.arr_type === 'sonarr' || inst.arr_type === 'radarr') {
+    document.getElementById('instQualityProfile').innerHTML = inst.quality_profile_id 
+      ? `<option value="${inst.quality_profile_id}" selected>ID ${inst.quality_profile_id}</option>`
+      : '<option value="">Sélectionnez un profil</option>';
+    document.getElementById('instRootFolder').innerHTML = inst.root_folder
+      ? `<option value="${inst.root_folder}" selected>${inst.root_folder}</option>`
+      : '<option value="">Sélectionnez un dossier</option>';
+      
+    fetchInstProfiles(inst.quality_profile_id);
+    fetchInstFolders(inst.root_folder);
+  }
+  
+  if (inst.arr_type === 'radarr') {
+    document.getElementById('instMinAvailability').value = inst.minimum_availability || 'released';
+  }
+  
+  if (inst.arr_type === 'prowlarr') {
+    let indexerIds = [];
+    try {
+      if (inst.indexer_ids) {
+        indexerIds = JSON.parse(inst.indexer_ids);
+      }
+    } catch(e) {}
+    fetchProwlarrIndexers(indexerIds);
+  }
+  
+  document.getElementById('instEnabled').checked = inst.enabled;
+  document.getElementById('instIsDefault').checked = inst.is_default;
+  
+  new bootstrap.Modal(document.getElementById('arrInstanceModal')).show();
+}
+
+async function deleteArrInstance(id) {
+  if (!confirm("Supprimer définitivement cette instance ?")) return;
+  try {
+    const r = await fetch(`/api/arr-instances/${id}`, {method: 'DELETE'});
+    if (!r.ok) throw new Error("Erreur de suppression");
+    showToast("Instance supprimée", "success");
+    loadArrInstances();
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function saveArrInstance() {
+  const id = document.getElementById('instId').value;
+  const name = document.getElementById('instName').value.trim();
+  const type = document.getElementById('instType').value;
+  const url = document.getElementById('instUrl').value.trim();
+  const apiKey = document.getElementById('instApiKey').value.trim();
+  const enabled = document.getElementById('instEnabled').checked;
+  const isDefault = document.getElementById('instIsDefault').checked;
+  
+  if (!name || !url || !apiKey) {
+    return showToast("Veuillez remplir tous les champs obligatoires (Nom, URL, Clé API)", "danger");
+  }
+  
+  const payload = {
+    name,
+    arr_type: type,
+    url,
+    api_key: apiKey,
+    enabled,
+    is_default: isDefault,
+    quality_profile_id: null,
+    root_folder: null,
+    minimum_availability: "released",
+    indexer_ids: null
+  };
+  
+  if (type === 'sonarr' || type === 'radarr') {
+    payload.quality_profile_id = parseInt(document.getElementById('instQualityProfile').value) || null;
+    payload.root_folder = document.getElementById('instRootFolder').value || null;
+  }
+  if (type === 'radarr') {
+    payload.minimum_availability = document.getElementById('instMinAvailability').value;
+  }
+  if (type === 'prowlarr') {
+    const select = document.getElementById('instIndexers');
+    const selected = [...select.selectedOptions].map(o => parseInt(o.value));
+    payload.indexer_ids = selected.length ? JSON.stringify(selected) : null;
+  }
+  
+  const apiPath = id ? `/api/arr-instances/${id}` : '/api/arr-instances';
+  const method = id ? 'PUT' : 'POST';
+  
+  try {
+    const r = await fetch(apiPath, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showToast("Instance enregistrée !", "success");
+    bootstrap.Modal.getInstance(document.getElementById('arrInstanceModal')).hide();
+    loadArrInstances();
+  } catch (e) {
+    showToast("Erreur lors de la sauvegarde : " + e.message, "danger");
   }
 }
 </script>

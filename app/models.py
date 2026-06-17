@@ -89,10 +89,34 @@ class Settings(Base):
     telegram_bot_token: Mapped[Optional[str]]
     telegram_chat_id: Mapped[Optional[str]]
 
+    # --- Notifications push (ntfy / Gotify) ---
+    ntfy_url: Mapped[Optional[str]]
+    ntfy_token: Mapped[Optional[str]]
+    gotify_url: Mapped[Optional[str]]
+    gotify_token: Mapped[Optional[str]]
+
+    # --- Poll history retention ---
+    poll_history_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
+
     # --- Authentification ---
     auth_username: Mapped[Optional[str]]
     auth_password_hash: Mapped[Optional[str]]
     api_token: Mapped[Optional[str]]
+
+
+class ArrInstance(Base):
+    __tablename__ = "arr_instances"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str]            # ex: "Sonarr 4K"
+    arr_type: Mapped[str]        # "sonarr" | "radarr" | "prowlarr"
+    url: Mapped[str]
+    api_key: Mapped[str]
+    quality_profile_id: Mapped[Optional[int]]
+    root_folder: Mapped[Optional[str]]
+    minimum_availability: Mapped[str] = mapped_column(default="released")  # radarr only
+    enabled: Mapped[bool] = mapped_column(default=True)
+    is_default: Mapped[bool] = mapped_column(default=False)
+    indexer_ids: Mapped[Optional[str]]  # JSON list d'int, indexeurs à utiliser (null = tous)
 
 
 class PlexUser(Base):
@@ -116,6 +140,10 @@ class PlexUser(Base):
     source: Mapped[Optional[str]] = mapped_column(default=None)
     created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
 
+    # Routing
+    sonarr_instance_id: Mapped[Optional[int]]
+    radarr_instance_id: Mapped[Optional[int]]
+
 
 class NotificationLog(Base):
     __tablename__ = "notification_logs"
@@ -130,6 +158,19 @@ class NotificationLog(Base):
     success: Mapped[bool] = mapped_column(default=True)
     error_msg: Mapped[Optional[str]]
     req_id: Mapped[Optional[int]]
+
+
+class PollHistory(Base):
+    __tablename__ = "poll_history"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job: Mapped[str]               # "watchlist" | "arr_status"
+    started_at: Mapped[datetime]
+    duration_ms: Mapped[Optional[int]]
+    items_processed: Mapped[int] = mapped_column(default=0)
+    new_requests: Mapped[int] = mapped_column(default=0)
+    newly_available: Mapped[int] = mapped_column(default=0)
+    errors: Mapped[int] = mapped_column(default=0)
+    error_detail: Mapped[Optional[str]]
 
 
 class MediaRequest(Base):
@@ -165,3 +206,7 @@ class MediaRequest(Base):
     # consommé par /api/upcoming sans appel réseau supplémentaire).
     next_release_at: Mapped[Optional[datetime]]
     next_release_label: Mapped[Optional[str]]
+
+    # Instance tracking
+    arr_instance_id: Mapped[Optional[int]]
+

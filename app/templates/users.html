@@ -146,7 +146,7 @@
         </button>
         {% else %}
         <button class="btn btn-sm btn-outline-secondary"
-          onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ (u.display_name or '') | replace("'", "\\'") }}', '{{ (u.custom_name or '') | replace("'", "\\'") }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }}, {{ 'true' if u.notify_admin else 'false' }}, {{ 'true' if u.notify_on_request is not false else 'false' }}, {{ 'true' if u.notify_on_available is not false else 'false' }}, {{ 'true' if u.notify_digest else 'false' }}, '{{ u.discord_webhook_url or '' }}', '{{ u.telegram_chat_id or '' }}')">
+          onclick="openEdit({{ u.id }}, '{{ u.plex_user_id }}', '{{ (u.display_name or '') | replace("'", "\\'") }}', '{{ (u.custom_name or '') | replace("'", "\\'") }}', '{{ u.plex_email or '' }}', '{{ u.notification_email or '' }}', {{ 'true' if u.enabled else 'false' }}, {{ 'true' if u.notify_admin else 'false' }}, {{ 'true' if u.notify_on_request is not false else 'false' }}, {{ 'true' if u.notify_on_available is not false else 'false' }}, {{ 'true' if u.notify_digest else 'false' }}, '{{ u.discord_webhook_url or '' }}', '{{ u.telegram_chat_id or '' }}', {{ u.sonarr_instance_id or 'null' }}, {{ u.radarr_instance_id or 'null' }})">
           <i class="bi bi-pencil me-1"></i>Modifier
         </button>
         {% endif %}
@@ -217,6 +217,24 @@
         <div class="form-check form-switch mb-3">
           <input class="form-check-input" type="checkbox" id="fNotifyDigest">
           <label class="form-check-label" for="fNotifyDigest">Inclure dans le digest quotidien</label>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Instance Sonarr</label>
+          <select class="form-select bg-dark text-light border-secondary" id="fSonarrInstance">
+            <option value="">Par défaut (globale)</option>
+            {% for inst in sonarr_instances %}
+            <option value="{{ inst.id }}">{{ inst.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Instance Radarr</label>
+          <select class="form-select bg-dark text-light border-secondary" id="fRadarrInstance">
+            <option value="">Par défaut (globale)</option>
+            {% for inst in radarr_instances %}
+            <option value="{{ inst.id }}">{{ inst.name }}</option>
+            {% endfor %}
+          </select>
         </div>
         <hr class="border-secondary my-2">
         <p class="text-muted small mb-2">Push personnel <span class="text-muted">(optionnel, en plus du global)</span></p>
@@ -708,6 +726,8 @@ function _resetModal() {
   document.getElementById('fNotifyOnRequest').checked = true;
   document.getElementById('fNotifyOnAvailable').checked = true;
   document.getElementById('fNotifyDigest').checked = false;
+  document.getElementById('fSonarrInstance').value = '';
+  document.getElementById('fRadarrInstance').value = '';
 }
 
 function openAdd(prefillId) {
@@ -719,7 +739,7 @@ function openAdd(prefillId) {
   document.getElementById('btn-test-email').style.display = 'none';
 }
 
-function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, enabled, notifyAdmin, notifyOnRequest, notifyOnAvailable, notifyDigest, discordWebhook, telegramChatId) {
+function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, enabled, notifyAdmin, notifyOnRequest, notifyOnAvailable, notifyDigest, discordWebhook, telegramChatId, sonarrInstanceId, radarrInstanceId) {
   editingId = id;
   _resetModal();
   document.getElementById('modalTitle').textContent = 'Modifier un utilisateur';
@@ -736,6 +756,8 @@ function openEdit(id, userId, displayName, customName, plexEmail, notifEmail, en
   document.getElementById('fNotifyDigest').checked = !!notifyDigest;
   document.getElementById('fDiscordWebhook').value = discordWebhook || '';
   document.getElementById('fTelegramChatId').value = telegramChatId || '';
+  document.getElementById('fSonarrInstance').value = sonarrInstanceId || '';
+  document.getElementById('fRadarrInstance').value = radarrInstanceId || '';
   document.getElementById('btn-test-email').style.display = '';
   new bootstrap.Modal(document.getElementById('userModal')).show();
 }
@@ -772,6 +794,8 @@ async function saveUser() {
     notify_digest: document.getElementById('fNotifyDigest').checked,
     discord_webhook_url: document.getElementById('fDiscordWebhook').value.trim() || null,
     telegram_chat_id: document.getElementById('fTelegramChatId').value.trim() || null,
+    sonarr_instance_id: parseInt(document.getElementById('fSonarrInstance').value) || null,
+    radarr_instance_id: parseInt(document.getElementById('fRadarrInstance').value) || null,
   };
   if (!data.plex_user_id) return showToast('ID Plex requis', 'danger');
   const url = editingId ? `/api/users/${editingId}` : '/api/users';

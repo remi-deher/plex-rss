@@ -123,7 +123,60 @@ async def send_telegram_to_chat(bot_token: str, chat_id: str, request: MediaRequ
         logger.error(f"Telegram per-user notif failed (chat {chat_id}): {e}")
 
 
+async def send_ntfy(url: str, token: str | None, title: str, body: str):
+    """Envoie une notification push via ntfy."""
+    headers = {"Title": title}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(url, headers=headers, content=body.encode("utf-8"))
+        resp.raise_for_status()
+
+
+async def send_gotify(url: str, token: str, title: str, body: str, priority: int = 5):
+    """Envoie une notification push via Gotify."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        target_url = f"{url.rstrip('/')}/message"
+        resp = await client.post(
+            target_url,
+            params={"token": token},
+            json={"title": title, "message": body, "priority": priority},
+        )
+        resp.raise_for_status()
+
+
+async def send_ntfy_notif(settings: Settings, request: MediaRequest, event: str):
+    """Notification globale ntfy wrapper."""
+    if not settings.ntfy_url:
+        return
+    title, body = _build_message(event, request)
+    if request.overview:
+        body += f"\n\n{request.overview[:300]}"
+    try:
+        await send_ntfy(settings.ntfy_url, settings.ntfy_token, title, body)
+        logger.info(f"ntfy notif sent for '{request.title}' ({event})")
+    except Exception as e:
+        logger.error(f"ntfy notification failed: {e}")
+
+
+async def send_gotify_notif(settings: Settings, request: MediaRequest, event: str):
+    """Notification globale Gotify wrapper."""
+    if not settings.gotify_url or not settings.gotify_token:
+        return
+    title, body = _build_message(event, request)
+    if request.overview:
+        body += f"\n\n{request.overview[:300]}"
+    try:
+        await send_gotify(settings.gotify_url, settings.gotify_token, title, body)
+        logger.info(f"Gotify notif sent for '{request.title}' ({event})")
+    except Exception as e:
+        logger.error(f"Gotify notification failed: {e}")
+
+
 async def send_all(settings: Settings, request: MediaRequest, event: str):
-    """Déclenche Discord et Telegram en séquence pour un événement donné."""
+    """Déclenche Discord, Telegram, ntfy et Gotify en séquence pour un événement donné."""
     await send_discord(settings, request, event)
     await send_telegram(settings, request, event)
+    await send_ntfy_notif(settings, request, event)
+    await send_gotify_notif(settings, request, event)
+

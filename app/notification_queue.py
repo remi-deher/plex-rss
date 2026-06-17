@@ -26,6 +26,8 @@ from .services.email_service import (
 from .services.notifications import (
     send_discord,
     send_discord_to_webhook,
+    send_gotify_notif,
+    send_ntfy_notif,
     send_telegram,
     send_telegram_to_chat,
 )
@@ -122,9 +124,11 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 req.available_mail_sent = True
         db.commit()
 
-        # Push global (Discord + Telegram configurés dans Settings)
+        # Push global (Discord + Telegram + ntfy + Gotify configurés dans Settings)
         await send_discord(settings, req, event)
         await send_telegram(settings, req, event)
+        await send_ntfy_notif(settings, req, event)
+        await send_gotify_notif(settings, req, event)
 
         # Push par utilisateur (webhook Discord / chat_id Telegram individuels)
         if user_obj:

@@ -23,8 +23,9 @@ from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings
+from .models import ArrInstance, MediaRequest, NotificationLog, PlexUser, PollHistory, RequestStatus, Settings
 from .notification_queue import enqueue as enqueue_notification
+from .services import prowlarr
 from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
@@ -136,20 +137,29 @@ async def _send_digest():
 
 
 def _purge_notification_logs():
-    """Supprime les logs de notifications plus anciens que la rétention configurée."""
+    """Supprime les logs de notifications et l'historique de poll plus anciens que la rétention configurée."""
     try:
         with db_session(SessionLocal) as db:
             settings = db.query(Settings).first()
-            days = settings.notification_log_retention_days if settings else None
-            if not days:
+            if not settings:
                 return
-            cutoff = datetime.now() - timedelta(days=days)
-            deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
-            if deleted:
-                db.commit()
-                logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
+            days = settings.notification_log_retention_days
+            if days:
+                cutoff = datetime.now() - timedelta(days=days)
+                deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
+                if deleted:
+                    db.commit()
+                    logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
+
+            poll_days = settings.poll_history_retention_days
+            if poll_days:
+                poll_cutoff = datetime.now() - timedelta(days=poll_days)
+                deleted_polls = db.query(PollHistory).filter(PollHistory.started_at < poll_cutoff).delete()
+                if deleted_polls:
+                    db.commit()
+                    logger.info(f"Purge historique poll : {deleted_polls} entrées supprimées (>{poll_days}j)")
     except Exception as e:
-        logger.error(f"Erreur purge logs notifications : {e}")
+        logger.error(f"Erreur purge logs / historique poll : {e}")
 
 
 def start_scheduler(poll_minutes: int = 5):
@@ -503,9 +513,9 @@ async def sync_users_from_feed(items: list[dict], db: Session):
 
 
 async def _submit_to_arr(
-    settings: Settings, item: dict, user_obj: PlexUser | None = None
+    settings: Settings, item: dict, user_obj: PlexUser | None = None, db: Session | None = None
 ) -> tuple[int | None, bool, str | None]:
-    """Envoie un média à Seer (si activé) ou Sonarr/Radarr directement.
+    """Envoie un média à Seer (si activé) ou Sonarr/Radarr/Prowlarr directement.
 
     Si l'utilisateur est actif sur Seer (seer_active=True), la demande
     est ignorée : il la gère lui-même depuis Seer, pas besoin de doublon.
@@ -524,32 +534,89 @@ async def _submit_to_arr(
         app_metrics.record_arr_submission(result[0] is not None or result[1])
         return result
 
-    if item["media_type"] == "show" and settings.sonarr_enabled and settings.sonarr_url:
-        t0 = time.monotonic()
-        result = await add_series(
-            settings.sonarr_url,
-            settings.sonarr_api_key,
-            settings.sonarr_quality_profile_id,
-            settings.sonarr_root_folder,
-            item,
-        )
-        app_metrics.record_sonarr_latency((time.monotonic() - t0) * 1000)
-        app_metrics.record_arr_submission(result[0] is not None or result[1])
-        return result
+    # Resolve DB session if not passed
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
 
-    if item["media_type"] == "movie" and settings.radarr_enabled and settings.radarr_url:
-        t0 = time.monotonic()
-        result = await add_movie(
-            settings.radarr_url,
-            settings.radarr_api_key,
-            settings.radarr_quality_profile_id,
-            settings.radarr_root_folder,
-            item,
-            minimum_availability=settings.radarr_minimum_availability or "released",
-        )
-        app_metrics.record_radarr_latency((time.monotonic() - t0) * 1000)
-        app_metrics.record_arr_submission(result[0] is not None or result[1])
-        return result
+    try:
+        # Resolve ArrInstance
+        instance = None
+        if user_obj:
+            instance_id = user_obj.sonarr_instance_id if item["media_type"] == "show" else user_obj.radarr_instance_id
+            if instance_id:
+                instance = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
+
+        if not instance:
+            # Fallback to default instance for requested type
+            target_arr_type = "sonarr" if item["media_type"] == "show" else "radarr"
+            instance = db.query(ArrInstance).filter(
+                ArrInstance.arr_type == target_arr_type,
+                ArrInstance.enabled,
+                ArrInstance.is_default
+            ).first()
+
+        if not instance:
+            # Fallback to default prowlarr instance
+            instance = db.query(ArrInstance).filter(
+                ArrInstance.arr_type == "prowlarr",
+                ArrInstance.enabled,
+                ArrInstance.is_default
+            ).first()
+
+        if not instance:
+            logger.warning("No enabled ArrInstance found for submission")
+            return None, False, None
+
+        # Store resolved instance ID inside item dict
+        item["_arr_instance_id"] = instance.id
+
+        if instance.arr_type == "prowlarr":
+            import json
+            indexer_ids = None
+            if instance.indexer_ids:
+                try:
+                    indexer_ids = json.loads(instance.indexer_ids)
+                except Exception:
+                    pass
+            results = await prowlarr.search(instance.url, instance.api_key, item["title"], item["media_type"], indexer_ids)
+            n_results = len(results)
+            if n_results > 0:
+                return None, False, f"prowlarr:{n_results}"
+            else:
+                raise Exception("No search results found in Prowlarr")
+
+        elif instance.arr_type == "sonarr":
+            t0 = time.monotonic()
+            result = await add_series(
+                instance.url,
+                instance.api_key,
+                instance.quality_profile_id,
+                instance.root_folder,
+                item,
+            )
+            app_metrics.record_sonarr_latency((time.monotonic() - t0) * 1000)
+            app_metrics.record_arr_submission(result[0] is not None or result[1])
+            return result
+
+        elif instance.arr_type == "radarr":
+            t0 = time.monotonic()
+            result = await add_movie(
+                instance.url,
+                instance.api_key,
+                instance.quality_profile_id,
+                instance.root_folder,
+                item,
+                minimum_availability=instance.minimum_availability or "released",
+            )
+            app_metrics.record_radarr_latency((time.monotonic() - t0) * 1000)
+            app_metrics.record_arr_submission(result[0] is not None or result[1])
+            return result
+
+    finally:
+        if close_db:
+            db.close()
 
     return None, False, None
 
@@ -654,6 +721,7 @@ async def _refresh_next_release(
     settings: Settings,
     series_list: list[dict] | None = None,
     movies_list: list[dict] | None = None,
+    inst: ArrInstance | None = None,
 ) -> None:
     """Met à jour req.next_release_at/label à partir de Sonarr/Radarr (best-effort).
 
@@ -662,21 +730,26 @@ async def _refresh_next_release(
     fois par run de check_arr_statuses) évitent un GET complet par demande.
     """
     try:
-        if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
+        url = inst.url if inst else (settings.sonarr_url if req.media_type == "show" else settings.radarr_url)
+        api_key = inst.api_key if inst else (settings.sonarr_api_key if req.media_type == "show" else settings.radarr_api_key)
+        if not url or not api_key:
+            return
+
+        if req.media_type == "show":
             data = await lookup_series(
-                settings.sonarr_url,
-                settings.sonarr_api_key,
+                url,
+                api_key,
                 arr_id=req.arr_id,
                 tvdb_id=req.tvdb_id,
                 series_list=series_list,
             )
             next_airing = data.get("nextAiring") if data else None
-            req.next_release_at = datetime.fromisoformat(next_airing.replace("Z", "+00:00")) if next_airing else None
+            req.next_release_at = datetime.fromisoformat(next_airing.replace("Z", "+00:00")).replace(tzinfo=None) if next_airing else None
             req.next_release_label = "Prochain épisode" if next_airing else None
-        elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
+        elif req.media_type == "movie":
             data = await lookup_movie(
-                settings.radarr_url,
-                settings.radarr_api_key,
+                url,
+                api_key,
                 arr_id=req.arr_id,
                 tmdb_id=req.tmdb_id,
                 imdb_id=req.imdb_id,
@@ -694,7 +767,7 @@ async def _refresh_next_release(
             future = [(d, label) for d, label in future if d > now]
             if future:
                 date, label = min(future, key=lambda x: x[0])
-                req.next_release_at, req.next_release_label = date, label
+                req.next_release_at, req.next_release_label = date.replace(tzinfo=None), label
             else:
                 req.next_release_at, req.next_release_label = None, None
     except Exception as e:
@@ -764,6 +837,40 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
 # ---------------------------------------------------------------------------
 
 
+def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
+    """Fallback / compatibilité pour les tests unitaires et les premières exécutions."""
+    if db.query(ArrInstance).count() == 0 and settings:
+        if settings.sonarr_url and settings.sonarr_api_key:
+            db.add(
+                ArrInstance(
+                    name="Sonarr Default",
+                    arr_type="sonarr",
+                    url=settings.sonarr_url,
+                    api_key=settings.sonarr_api_key,
+                    quality_profile_id=settings.sonarr_quality_profile_id,
+                    root_folder=settings.sonarr_root_folder,
+                    enabled=settings.sonarr_enabled if settings.sonarr_enabled is not None else True,
+                    is_default=True,
+                )
+            )
+        if settings.radarr_url and settings.radarr_api_key:
+            db.add(
+                ArrInstance(
+                    name="Radarr Default",
+                    arr_type="radarr",
+                    url=settings.radarr_url,
+                    api_key=settings.radarr_api_key,
+                    quality_profile_id=settings.radarr_quality_profile_id,
+                    root_folder=settings.radarr_root_folder,
+                    enabled=settings.radarr_enabled if settings.radarr_enabled is not None else True,
+                    is_default=True,
+                    minimum_availability=settings.radarr_minimum_availability or "released",
+                )
+            )
+        db.commit()
+
+
+
 async def poll_watchlists():
     """Lit les watchlists Plex et synchronise les demandes vers Sonarr/Radarr.
 
@@ -778,6 +885,11 @@ async def poll_watchlists():
     """
     logger.info("Polling watchlists...")
     _poll_start = time.monotonic()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    items_processed = 0
+    new_requests = 0
+    errors_count = 0
+    error_detail = None
     db = SessionLocal()
     _poll_error = False
     try:
@@ -785,11 +897,14 @@ async def poll_watchlists():
         if not settings:
             return
 
+        _check_and_seed_instances_from_settings(db, settings)
+
         items = await fetch_watchlist(settings)
         if not items:
             logger.info("No watchlist items returned")
             return
 
+        items_processed = len(items)
         await sync_users_from_feed(items, db)
 
         all_users = db.query(PlexUser).all()
@@ -893,13 +1008,15 @@ async def poll_watchlists():
 
             already_existed = False
             try:
-                arr_id, already_existed, arr_slug = await _submit_to_arr(settings, item, user_obj)
+                arr_id, already_existed, arr_slug = await _submit_to_arr(settings, item, user_obj, db=db)
                 req.status = RequestStatus.sent_to_arr
                 req.arr_id = arr_id
                 req.arr_slug = arr_slug
+                req.arr_instance_id = item.get("_arr_instance_id")
             except Exception as e:
                 logger.error(f"Failed to send '{item['title']}' to arr: {e}")
                 req.status = RequestStatus.failed
+                errors_count += 1
 
             db.commit()
             new_count += 1
@@ -915,13 +1032,37 @@ async def poll_watchlists():
                     "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
                 )
 
+        new_requests = new_count
         logger.info(f"Poll complete: {new_count} requests processed")
 
     except Exception as e:
         logger.error(f"Poll error: {e}")
         _poll_error = True
+        error_detail = str(e)
+        errors_count += 1
     finally:
         app_metrics.record_poll((time.monotonic() - _poll_start) * 1000, error=_poll_error)
+        # Persist PollHistory
+        duration_ms = int((time.monotonic() - _poll_start) * 1000)
+        poll_db = SessionLocal()
+        try:
+            history = PollHistory(
+                job="watchlist",
+                started_at=started_at,
+                duration_ms=duration_ms,
+                items_processed=items_processed,
+                new_requests=new_requests,
+                newly_available=0,
+                errors=errors_count,
+                error_detail=error_detail
+            )
+            poll_db.add(history)
+            poll_db.commit()
+        except Exception as pe:
+            logger.error(f"Failed to persist watchlist PollHistory: {pe}")
+        finally:
+            if poll_db is not db:
+                poll_db.close()
         db.close()
 
 
@@ -944,11 +1085,19 @@ async def check_arr_statuses():
     Seer et non l'ID Sonarr/Radarr).
     """
     logger.info("Checking arr statuses...")
+    _check_start = time.monotonic()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    items_processed = 0
+    newly_available = 0
+    errors_count = 0
+    error_detail = None
     db = SessionLocal()
     try:
         settings = db.query(Settings).first()
         if not settings:
             return
+
+        _check_and_seed_instances_from_settings(db, settings)
 
         candidates = (
             db.query(MediaRequest)
@@ -958,105 +1107,160 @@ async def check_arr_statuses():
             .all()
         )
 
+        # Filter out requests handled by Prowlarr since Prowlarr does not track availability
+        candidates = [c for c in candidates if not (c.arr_slug and c.arr_slug.startswith("prowlarr:"))]
+
         if not candidates:
             return
 
         logger.info(f"Checking {len(candidates)} sent_to_arr requests...")
+        items_processed = len(candidates)
 
-        # Pré-charger les listes complètes une seule fois par run (au lieu d'un GET
-        # complet par demande dans le fallback tvdb_id/tmdb_id) — réduit drastiquement
-        # le nombre d'appels HTTP quand plusieurs demandes n'ont pas encore d'arr_id.
-        series_list = None
-        movies_list = None
-        if settings.sonarr_url and settings.sonarr_api_key and any(r.media_type == "show" for r in candidates):
-            try:
-                series_list = await get_all_series(settings.sonarr_url, settings.sonarr_api_key)
-            except Exception as e:
-                logger.warning(f"Sonarr series prefetch failed: {e}")
-        if settings.radarr_url and settings.radarr_api_key and any(r.media_type == "movie" for r in candidates):
-            try:
-                movies_list = await get_all_movies(settings.radarr_url, settings.radarr_api_key)
-            except Exception as e:
-                logger.warning(f"Radarr movies prefetch failed: {e}")
+        # Load all enabled instances
+        instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
 
-        for req in candidates:
-            available = False
-            new_arr_id = None
-            new_slug = None
-            seer_checked = False
-            try:
-                if settings.seer_enabled and settings.seer_url:
-                    seer_checked = True
-                    available, new_arr_id, new_slug = await seer_available(
-                        settings.seer_url,
-                        settings.seer_api_key,
-                        seer_request_id=req.arr_id,
-                    )
-                elif req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
-                    available, new_arr_id, new_slug = await is_series_available(
-                        settings.sonarr_url,
-                        settings.sonarr_api_key,
-                        arr_id=req.arr_id,
-                        tvdb_id=req.tvdb_id,
-                        series_list=series_list,
-                    )
-                elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
-                    available, new_arr_id, new_slug = await is_movie_available(
-                        settings.radarr_url,
-                        settings.radarr_api_key,
-                        arr_id=req.arr_id,
-                        tmdb_id=req.tmdb_id,
-                        imdb_id=req.imdb_id,
-                        movies_list=movies_list,
-                    )
+        for inst in instances:
+            if inst.arr_type not in ("sonarr", "radarr"):
+                continue
 
-                # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
-                # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
-                if seer_checked and not available:
-                    if req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
-                        available, arr_new_id, arr_new_slug = await is_series_available(
-                            settings.sonarr_url,
-                            settings.sonarr_api_key,
+            # Filter candidates for this instance
+            inst_candidates = []
+            for req in candidates:
+                if req.arr_instance_id == inst.id:
+                    inst_candidates.append(req)
+                elif req.arr_instance_id is None:
+                    # Legacy requests check on default instance of correct type
+                    if req.media_type == "show" and inst.arr_type == "sonarr" and inst.is_default:
+                        inst_candidates.append(req)
+                    elif req.media_type == "movie" and inst.arr_type == "radarr" and inst.is_default:
+                        inst_candidates.append(req)
+
+            if not inst_candidates:
+                continue
+
+            logger.info(f"Checking {len(inst_candidates)} requests on instance '{inst.name}'...")
+
+            # Prefetch list for the instance
+            series_list = None
+            movies_list = None
+            if inst.arr_type == "sonarr":
+                try:
+                    series_list = await get_all_series(inst.url, inst.api_key)
+                except Exception as e:
+                    logger.warning(f"Sonarr series prefetch failed for '{inst.name}': {e}")
+                    errors_count += 1
+            elif inst.arr_type == "radarr":
+                try:
+                    movies_list = await get_all_movies(inst.url, inst.api_key)
+                except Exception as e:
+                    logger.warning(f"Radarr movies prefetch failed for '{inst.name}': {e}")
+                    errors_count += 1
+
+            for req in inst_candidates:
+                available = False
+                new_arr_id = None
+                new_slug = None
+                seer_checked = False
+                try:
+                    if settings.seer_enabled and settings.seer_url:
+                        seer_checked = True
+                        available, new_arr_id, new_slug = await seer_available(
+                            settings.seer_url,
+                            settings.seer_api_key,
+                            seer_request_id=req.arr_id,
+                        )
+                    elif req.media_type == "show" and inst.arr_type == "sonarr":
+                        available, new_arr_id, new_slug = await is_series_available(
+                            inst.url,
+                            inst.api_key,
+                            arr_id=req.arr_id,
                             tvdb_id=req.tvdb_id,
                             series_list=series_list,
                         )
-                        new_arr_id = new_arr_id or arr_new_id
-                        new_slug = new_slug or arr_new_slug
-                    elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
-                        available, arr_new_id, arr_new_slug = await is_movie_available(
-                            settings.radarr_url,
-                            settings.radarr_api_key,
+                    elif req.media_type == "movie" and inst.arr_type == "radarr":
+                        available, new_arr_id, new_slug = await is_movie_available(
+                            inst.url,
+                            inst.api_key,
+                            arr_id=req.arr_id,
                             tmdb_id=req.tmdb_id,
                             imdb_id=req.imdb_id,
                             movies_list=movies_list,
                         )
-                        new_arr_id = new_arr_id or arr_new_id
-                        new_slug = new_slug or arr_new_slug
-            except Exception as e:
-                logger.warning(f"Status check error for '{req.title}': {e}")
-                continue
 
-            # Mettre à jour arr_id / arr_slug si on les découvre maintenant
-            if new_arr_id and not req.arr_id:
-                req.arr_id = new_arr_id
-            if new_slug and not req.arr_slug:
-                req.arr_slug = new_slug
+                    # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
+                    # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
+                    if seer_checked and not available:
+                        if req.media_type == "show" and inst.arr_type == "sonarr":
+                            available, arr_new_id, arr_new_slug = await is_series_available(
+                                inst.url,
+                                inst.api_key,
+                                tvdb_id=req.tvdb_id,
+                                series_list=series_list,
+                            )
+                            new_arr_id = new_arr_id or arr_new_id
+                            new_slug = new_slug or arr_new_slug
+                        elif req.media_type == "movie" and inst.arr_type == "radarr":
+                            available, arr_new_id, arr_new_slug = await is_movie_available(
+                                inst.url,
+                                inst.api_key,
+                                tmdb_id=req.tmdb_id,
+                                imdb_id=req.imdb_id,
+                                movies_list=movies_list,
+                            )
+                            new_arr_id = new_arr_id or arr_new_id
+                            new_slug = new_slug or arr_new_slug
+                except Exception as e:
+                    logger.warning(f"Status check error for '{req.title}': {e}")
+                    errors_count += 1
+                    continue
 
-            if available:
-                req.status = RequestStatus.available
-                req.available_at = datetime.now(timezone.utc)
-                req.next_release_at = None
-                req.next_release_label = None
-                db.commit()
-                logger.info(f"'{req.title}' is now available")
-                _notify("available", settings, req, db)
-            else:
-                await _refresh_next_release(req, settings, series_list=series_list, movies_list=movies_list)
-                db.commit()
+                # Mettre à jour arr_id / arr_slug / arr_instance_id si on les découvre maintenant
+                if new_arr_id and not req.arr_id:
+                    req.arr_id = new_arr_id
+                if new_slug and not req.arr_slug:
+                    req.arr_slug = new_slug
+                if req.arr_instance_id is None:
+                    req.arr_instance_id = inst.id
+
+                if available:
+                    req.status = RequestStatus.available
+                    req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    req.next_release_at = None
+                    req.next_release_label = None
+                    db.commit()
+                    newly_available += 1
+                    logger.info(f"'{req.title}' is now available")
+                    _notify("available", settings, req, db)
+                else:
+                    await _refresh_next_release(req, settings, series_list=series_list, movies_list=movies_list, inst=inst)
+                    db.commit()
 
         logger.info("Arr status check complete")
 
     except Exception as e:
         logger.error(f"check_arr_statuses error: {e}")
+        error_detail = str(e)
+        errors_count += 1
     finally:
+        # Persist PollHistory
+        duration_ms = int((time.monotonic() - _check_start) * 1000)
+        poll_db = SessionLocal()
+        try:
+            history = PollHistory(
+                job="arr_status",
+                started_at=started_at,
+                duration_ms=duration_ms,
+                items_processed=items_processed,
+                new_requests=0,
+                newly_available=newly_available,
+                errors=errors_count,
+                error_detail=error_detail
+            )
+            poll_db.add(history)
+            poll_db.commit()
+        except Exception as pe:
+            logger.error(f"Failed to persist arr_status PollHistory: {pe}")
+        finally:
+            if poll_db is not db:
+                poll_db.close()
         db.close()

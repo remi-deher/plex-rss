@@ -1,46 +1,110 @@
 {% extends "base.html" %}
 {% set page = "logs" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2><i class="bi bi-terminal me-2 text-warning"></i>Logs applicatifs</h2>
-  <div class="d-flex gap-2 align-items-center">
-    <div class="btn-group btn-group-sm" id="timeFilter">
-      <button class="btn btn-outline-secondary" onclick="setTimeFilter(30)" data-mins="30">30 min</button>
-      <button class="btn btn-outline-secondary" onclick="setTimeFilter(60)" data-mins="60">1 h</button>
-      <button class="btn btn-outline-secondary active" onclick="setTimeFilter(0)" data-mins="0">Tout</button>
-    </div>
-    <select id="levelFilter" class="form-select form-select-sm" style="width:auto" onchange="applyFilter()">
-      <option value="">Tous les niveaux</option>
-      <option value="INFO">INFO</option>
-      <option value="WARNING">WARNING</option>
-      <option value="ERROR">ERROR</option>
-    </select>
-    <input type="text" id="searchFilter" class="form-control form-control-sm" placeholder="Rechercher..." style="width:180px" oninput="applyFilter()">
-    <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">
-      <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+
+<ul class="nav nav-tabs mb-4" id="logTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active d-flex align-items-center gap-2" id="app-logs-tab" data-bs-toggle="tab" data-bs-target="#tab-app-logs" type="button" role="tab">
+      <i class="bi bi-terminal"></i> Logs applicatifs
     </button>
-    <div class="form-check form-switch mb-0 ms-1">
-      <input class="form-check-input" type="checkbox" id="autoRefresh" checked onchange="toggleAuto()">
-      <label class="form-check-label text-secondary small" for="autoRefresh">Auto</label>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" id="poll-history-tab" data-bs-toggle="tab" data-bs-target="#tab-poll-history" type="button" role="tab" onclick="loadPollHistory()">
+      <i class="bi bi-clock-history"></i> Historique des polls
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="logTabContent">
+
+  <!-- ════════════════════════ TAB : LOGS APPLICATIFS ════════════════════════ -->
+  <div class="tab-pane fade show active" id="tab-app-logs" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Filtres de logs</h5>
+      <div class="d-flex gap-2 align-items-center">
+        <div class="btn-group btn-group-sm" id="timeFilter">
+          <button class="btn btn-outline-secondary" onclick="setTimeFilter(30)" data-mins="30">30 min</button>
+          <button class="btn btn-outline-secondary" onclick="setTimeFilter(60)" data-mins="60">1 h</button>
+          <button class="btn btn-outline-secondary active" onclick="setTimeFilter(0)" data-mins="0">Tout</button>
+        </div>
+        <select id="levelFilter" class="form-select form-select-sm bg-dark text-light border-secondary" style="width:auto" onchange="applyFilter()">
+          <option value="">Tous les niveaux</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <input type="text" id="searchFilter" class="form-control form-control-sm bg-dark text-light border-secondary" placeholder="Rechercher..." style="width:180px" oninput="applyFilter()">
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+        </button>
+        <div class="form-check form-switch mb-0 ms-1">
+          <input class="form-check-input" type="checkbox" id="autoRefresh" checked onchange="toggleAuto()">
+          <label class="form-check-label text-secondary small" for="autoRefresh">Auto</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-0">
+        <div id="log-container" style="font-family:monospace;font-size:12.5px;max-height:75vh;overflow-y:auto;background:#0d0d0d;border-radius:.375rem">
+          <div id="log-body">
+            <div class="text-center text-muted py-5">
+              <div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-2">
+      <small class="text-muted" id="log-count"></small>
+      <small class="text-muted" id="last-refresh"></small>
     </div>
   </div>
-</div>
 
-<div class="card">
-  <div class="card-body p-0">
-    <div id="log-container" style="font-family:monospace;font-size:12.5px;max-height:75vh;overflow-y:auto;background:#0d0d0d;border-radius:.375rem">
-      <div id="log-body">
-        <div class="text-center text-muted py-5">
-          <div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...
+  <!-- ════════════════════════ TAB : HISTORIQUE POLLS ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-poll-history" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Historique des exécutions</h5>
+      <div class="d-flex align-items-center gap-2">
+        <select id="pollJobFilter" class="form-select form-select-sm bg-dark text-light border-secondary" style="width:auto" onchange="loadPollHistory()">
+          <option value="">Tous les jobs</option>
+          <option value="watchlist">Watchlist (Sondage)</option>
+          <option value="arr_status">Status Check (Disponibilité)</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadPollHistory()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-dark align-middle mb-0" style="font-size: 13px">
+            <thead>
+              <tr>
+                <th class="text-muted fw-semibold">Date / Heure</th>
+                <th class="text-muted fw-semibold">Job</th>
+                <th class="text-muted fw-semibold">Durée</th>
+                <th class="text-muted fw-semibold">Traités</th>
+                <th class="text-muted fw-semibold">Nouv. req.</th>
+                <th class="text-muted fw-semibold">Nouv. dispo.</th>
+                <th class="text-muted fw-semibold">Erreurs</th>
+                <th class="text-muted fw-semibold">Détail Erreur</th>
+              </tr>
+            </thead>
+            <tbody id="poll-history-body">
+              <tr>
+                <td colspan="8" class="text-center text-muted py-5">Chargement...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   </div>
-</div>
 
-<div class="d-flex justify-content-between align-items-center mt-2">
-  <small class="text-muted" id="log-count"></small>
-  <small class="text-muted" id="last-refresh"></small>
 </div>
 
 {% endblock %}
@@ -134,6 +198,50 @@ function toggleAuto() {
   }
 }
 
+// ── Poll History ──────────────────────────────────────────────────────────────
+async function loadPollHistory() {
+  const body = document.getElementById('poll-history-body');
+  const job = document.getElementById('pollJobFilter').value;
+  body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...</td></tr>';
+  
+  try {
+    const r = await fetch(`/api/poll-history?limit=50&job=${job}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.length) {
+      body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">Aucun historique disponible</td></tr>';
+      return;
+    }
+    body.innerHTML = data.map(item => {
+      const jobBadge = item.job === 'watchlist' 
+        ? '<span class="badge bg-primary">Watchlist</span>'
+        : '<span class="badge bg-info text-dark">Status Check</span>';
+      
+      const errorCell = item.errors > 0
+        ? `<span class="badge bg-danger">${item.errors}</span>`
+        : '<span class="text-muted">0</span>';
+        
+      const errorDetail = item.error_detail
+        ? `<code class="small text-danger text-break" style="max-width:300px; display:inline-block" title="${escHtml(item.error_detail)}">${escHtml(item.error_detail.length > 50 ? item.error_detail.substring(0, 50) + '...' : item.error_detail)}</code>`
+        : '<span class="text-muted">—</span>';
+        
+      return `<tr>
+        <td class="text-muted">${item.started_at}</td>
+        <td>${jobBadge}</td>
+        <td>${item.duration_ms != null ? item.duration_ms + ' ms' : '—'}</td>
+        <td>${item.items_processed}</td>
+        <td><span class="badge bg-secondary">${item.new_requests}</span></td>
+        <td><span class="badge bg-success">${item.newly_available}</span></td>
+        <td>${errorCell}</td>
+        <td>${errorDetail}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="8" class="text-danger py-5">Erreur : ${e.message}</td></tr>`;
+  }
+}
+
+// Init
 loadLogs();
 autoTimer = setInterval(loadLogs, 5000);
 </script>
