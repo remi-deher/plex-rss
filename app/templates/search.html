@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h2 class="mb-0"><i class="bi bi-search me-2 text-warning"></i>Recherche Prowlarr</h2>
+</div>
+
+<div class="card p-4 mb-4">
+  <form id="search-form" onsubmit="performSearch(event)">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Titre du média</label>
+        <div class="input-group">
+          <input type="text" id="searchQuery" class="form-control bg-dark text-light border-secondary" placeholder="ex: Inception, Breaking Bad..." required>
+          <button type="submit" class="btn btn-warning d-flex align-items-center gap-1">
+            <i class="bi bi-search"></i> Rechercher
+          </button>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Type de média</label>
+        <select id="searchMediaType" class="form-select bg-dark text-light border-secondary">
+          <option value="movie">Film</option>
+          <option value="show">Série (TV)</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-semibold">Instance Prowlarr</label>
+        <select id="searchProwlarrInstance" class="form-select bg-dark text-light border-secondary">
+          <option value="">Par défaut</option>
+        </select>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card p-4 d-none" id="results-card">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Résultats de la recherche</h5>
+    <span class="badge bg-secondary" id="results-count">0 résultat(s)</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-dark table-hover align-middle mb-0" style="font-size: 13px">
+      <thead>
+        <tr>
+          <th>Titre de la Release</th>
+          <th>Indexeur</th>
+          <th>Taille</th>
+          <th>Seeders / Leechers</th>
+          <th>Protocole</th>
+          <th class="text-end">Action</th>
+        </tr>
+      </thead>
+      <tbody id="results-body">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="search-loading" class="text-center text-muted py-5 d-none">
+  <div class="spinner-border text-warning mb-2" role="status"></div>
+  <div class="small">Recherche en cours sur vos indexeurs Prowlarr...</div>
+</div>
+
+<div id="search-empty" class="text-center text-muted py-5 d-none">
+  <i class="bi bi-search-heart fs-1 d-block mb-3 opacity-50"></i>
+  <h5>Aucun résultat trouvé</h5>
+  <p class="small">Essayez d'ajuster les mots-clés ou de vérifier vos indexeurs.</p>
+</div>
+
+<!-- Modal Téléchargement Direct -->
+<div class="modal fade" id="downloadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--pr-surface); color: var(--bs-body-color)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Envoyer au téléchargement</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="dlReleaseUrl">
+        <div class="mb-3">
+          <label class="form-label">Client de téléchargement</label>
+          <select id="dlTargetClient" class="form-select bg-dark text-light border-secondary" onchange="onTargetClientChange()">
+          </select>
+        </div>
+        <div class="mb-3 qbit-only-modal">
+          <label class="form-label">Catégorie (optionnel)</label>
+          <input type="text" id="dlCategory" class="form-control" placeholder="Utilise la catégorie par défaut du client si vide">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tags (optionnel, séparés par virgules)</label>
+          <input type="text" id="dlTags" class="form-control" placeholder="Utilise les tags par défaut du client si vide">
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-warning" onclick="confirmDownload()">Lancer le téléchargement</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _downloadClientsList = [];
+
+// Charger les instances Prowlarr pour le select
+async function loadProwlarrInstances() {
+  try {
+    const r = await fetch('/api/arr-instances');
+    const instances = await r.json();
+    const select = document.getElementById('searchProwlarrInstance');
+    instances.filter(i => i.arr_type === 'prowlarr' && i.enabled).forEach(i => {
+      const opt = document.createElement('option');
+      opt.value = i.id;
+      opt.textContent = i.name + (i.is_default ? ' (Défaut)' : '');
+      select.appendChild(opt);
+    });
+  } catch(e) {
+    console.error("Impossible de charger les instances Prowlarr", e);
+  }
+}
+
+// Charger la liste des clients torrent
+async function loadDownloadClientsList() {
+  try {
+    const r = await fetch('/api/download-clients');
+    _downloadClientsList = await r.json();
+  } catch(e) {
+    console.error("Impossible de charger les clients torrent", e);
+  }
+}
+
+function formatBytes(bytes, decimals = 2) {
+  if (!bytes) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'Ko', 'Mo', 'Go', 'To'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+async function performSearch(e) {
+  e.preventDefault();
+  const query = document.getElementById('searchQuery').value.trim();
+  const mediaType = document.getElementById('searchMediaType').value;
+  const instId = document.getElementById('searchProwlarrInstance').value;
+  
+  if (!query) return;
+
+  const resultsCard = document.getElementById('results-card');
+  const loading = document.getElementById('search-loading');
+  const empty = document.getElementById('search-empty');
+  const tbody = document.getElementById('results-body');
+
+  resultsCard.classList.add('d-none');
+  empty.classList.add('d-none');
+  loading.classList.remove('d-none');
+  tbody.innerHTML = '';
+
+  let url = `/api/search?query=${encodeURIComponent(query)}&media_type=${mediaType}`;
+  if (instId) url += `&instance_id=${instId}`;
+
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      const errText = await r.text();
+      throw new Error(errText || 'Erreur serveur');
+    }
+    const data = await r.json();
+    loading.classList.add('d-none');
+
+    if (!data.length) {
+      empty.classList.remove('d-none');
+      return;
+    }
+
+    document.getElementById('results-count').textContent = `${data.length} résultat(s)`;
+    tbody.innerHTML = data.map(item => {
+      const sizeFmt = formatBytes(item.size);
+      const seeders = `<span class="text-success"><i class="bi bi-arrow-up-short"></i>${item.seeders}</span>`;
+      const leechers = `<span class="text-secondary"><i class="bi bi-arrow-down-short"></i>${item.leechers}</span>`;
+      
+      const protocolBadge = item.protocol === 'torrent'
+        ? '<span class="badge bg-info text-dark"><i class="bi bi-magnet me-1"></i>Torrent</span>'
+        : '<span class="badge bg-secondary"><i class="bi bi-hdd-network me-1"></i>Usenet</span>';
+        
+      return `<tr>
+        <td class="text-white-50">
+          <strong>${escHtml(item.title)}</strong>
+          <div class="small text-muted mt-1">${escHtml(item.indexer || '—')}</div>
+        </td>
+        <td><span class="badge bg-secondary bg-opacity-25 text-light">${escHtml(item.indexer || '—')}</span></td>
+        <td>${sizeFmt}</td>
+        <td>${seeders} / ${leechers}</td>
+        <td>${protocolBadge}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-warning d-inline-flex align-items-center gap-1" onclick="openDownloadModal('${escHtml(item.downloadUrl)}')">
+            <i class="bi bi-download"></i> Télécharger
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    resultsCard.classList.remove('d-none');
+  } catch(err) {
+    loading.classList.add('d-none');
+    showToast("Erreur de recherche: " + err.message, "danger");
+  }
+}
+
+function openDownloadModal(url) {
+  if (!_downloadClientsList.length) {
+    return showToast("Veuillez d'abord configurer un client de téléchargement dans les paramètres.", "warning");
+  }
+  
+  document.getElementById('dlReleaseUrl').value = url;
+  
+  const select = document.getElementById('dlTargetClient');
+  select.innerHTML = '';
+  _downloadClientsList.filter(c => c.enabled).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name + (c.is_default ? ' (Défaut)' : '');
+    select.appendChild(opt);
+  });
+
+  // Choisir le client par défaut s'il existe
+  const defaultClient = _downloadClientsList.find(c => c.is_default && c.enabled);
+  if (defaultClient) {
+    select.value = defaultClient.id;
+  }
+  
+  onTargetClientChange();
+  
+  new bootstrap.Modal(document.getElementById('downloadModal')).show();
+}
+
+function onTargetClientChange() {
+  const clientId = document.getElementById('dlTargetClient').value;
+  const client = _downloadClientsList.find(c => c.id == clientId);
+  const qbitOnly = document.querySelector('.qbit-only-modal');
+  
+  if (client && client.client_type === 'qbittorrent') {
+    qbitOnly.style.display = '';
+    document.getElementById('dlCategory').value = client.category || '';
+    document.getElementById('dlTags').value = client.tags || '';
+  } else {
+    qbitOnly.style.display = 'none';
+    document.getElementById('dlTags').value = (client && client.tags) || '';
+  }
+}
+
+async function confirmDownload() {
+  const url = document.getElementById('dlReleaseUrl').value;
+  const clientId = document.getElementById('dlTargetClient').value;
+  const category = document.getElementById('dlCategory').value.trim();
+  const tags = document.getElementById('dlTags').value.trim();
+
+  const payload = {
+    torrent_url_or_magnet: url,
+    client_id: parseInt(clientId),
+    category: category || null,
+    tags: tags || null
+  };
+
+  try {
+    const r = await fetch('/api/download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur lors du téléchargement');
+    
+    showToast(d.message || "Téléchargement lancé avec succès !", "success");
+    bootstrap.Modal.getInstance(document.getElementById('downloadModal')).hide();
+  } catch(e) {
+    showToast(e.message, "danger");
+  }
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// Initialiser la page
+loadProwlarrInstances();
+loadDownloadClientsList();
+</script>
+{% endblock %}

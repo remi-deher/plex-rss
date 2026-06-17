@@ -236,6 +236,12 @@ def logs_page(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(request, "logs.html")
 
 
+@router.get("/search", response_class=HTMLResponse)
+def search_page(request: Request, _: None = Depends(require_auth)):
+    """Page de recherche manuelle Prowlarr."""
+    return templates.TemplateResponse(request, "search.html", {"page": "search"})
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
     """Page de configuration globale de l'application."""

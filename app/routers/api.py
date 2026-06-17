@@ -30,11 +30,21 @@ from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
-from ..models import ArrInstance, MediaRequest, NotificationLog, PlexUser, PollHistory, RequestStatus, Settings
+from ..models import (
+    ArrInstance,
+    DownloadClient,
+    MediaRequest,
+    NotificationLog,
+    PlexUser,
+    PollHistory,
+    RequestStatus,
+    Settings,
+)
 from ..notification_queue import enqueue as enqueue_notification
 from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
 from ..scheduler import scheduler as _scheduler
 from ..services import email_service, prowlarr, radarr, sonarr
+from ..services.download_clients import add_torrent_to_client, check_client_connection
 from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
 from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
@@ -258,6 +268,165 @@ async def get_prowlarr_indexers(
     inst = _resolve_arr_instance(db, instance_id, "prowlarr")
     indexers = await prowlarr.get_indexers(inst.url, inst.api_key)
     return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
+
+
+# ---------------------------------------------------------------------------
+# Clients de téléchargement & Moteur de recherche Prowlarr
+# ---------------------------------------------------------------------------
+
+
+class DownloadClientCreate(BaseModel):
+    name: str
+    client_type: str
+    url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[str] = None
+    is_default: Optional[bool] = False
+    enabled: Optional[bool] = True
+
+
+class TestDownloadClientBody(BaseModel):
+    client_type: str
+    url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+class DownloadReleaseRequest(BaseModel):
+    torrent_url_or_magnet: str
+    client_id: int
+    category: Optional[str] = None
+    tags: Optional[str] = None
+
+
+@router.get("/download-clients")
+def list_download_clients(db: Session = Depends(get_db)):
+    return db.query(DownloadClient).all()
+
+
+@router.post("/download-clients")
+def create_download_client(data: DownloadClientCreate, db: Session = Depends(get_db)):
+    if data.is_default:
+        db.query(DownloadClient).filter(DownloadClient.client_type == data.client_type).update({"is_default": False})
+
+    client = DownloadClient(**data.model_dump())
+    db.add(client)
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+@router.put("/download-clients/{client_id}")
+def update_download_client(client_id: int, data: DownloadClientCreate, db: Session = Depends(get_db)):
+    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
+
+    if data.is_default:
+        db.query(DownloadClient).filter(
+            DownloadClient.client_type == data.client_type, DownloadClient.id != client_id
+        ).update({"is_default": False})
+
+    for k, v in data.model_dump().items():
+        setattr(client, k, v)
+
+    db.commit()
+    db.refresh(client)
+    return client
+
+
+@router.delete("/download-clients/{client_id}")
+def delete_download_client(client_id: int, db: Session = Depends(get_db)):
+    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
+    db.delete(client)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.post("/test/download-client")
+async def test_download_client(body: TestDownloadClientBody):
+    ok, msg = await check_client_connection(body.client_type, body.url, body.username, body.password)
+    return {"success": ok, "message": msg}
+
+
+# Cache en mémoire pour la recherche Prowlarr (60 minutes)
+# clé: (query, media_type, instance_id), valeur: (timestamp, results)
+_search_cache = {}
+
+
+@router.get("/search")
+async def search_prowlarr(
+    query: str,
+    media_type: str = "movie",
+    instance_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Effectue une recherche via Prowlarr avec un cache en mémoire de 60 minutes."""
+    cache_key = (query, media_type, instance_id)
+    now = time.time()
+
+    if cache_key in _search_cache:
+        cached_time, cached_results = _search_cache[cache_key]
+        if now - cached_time < 3600:  # 60 minutes
+            return cached_results
+
+    # Résolution de l'instance Prowlarr à utiliser
+    try:
+        inst = _resolve_arr_instance(db, instance_id, "prowlarr")
+    except HTTPException:
+        raise HTTPException(400, "Aucune instance Prowlarr configurée et active")
+
+    results = await prowlarr.search(
+        url=inst.url,
+        api_key=inst.api_key,
+        query=query,
+        media_type=media_type,
+        indexer_ids=None,  # utiliser tous les indexeurs par défaut
+    )
+
+    # Filtrer et formater pour l'UI
+    formatted_results = []
+    for r in results:
+        formatted_results.append(
+            {
+                "title": r.get("title"),
+                "size": r.get("size"),
+                "seeders": r.get("seeders", 0),
+                "leechers": r.get("leechers", 0),
+                "guid": r.get("guid"),
+                "downloadUrl": r.get("downloadUrl") or r.get("magnetUrl"),
+                "indexer": r.get("indexer"),
+                "protocol": r.get("protocol"),
+                "publishDate": r.get("publishDate"),
+                "infoUrl": r.get("infoUrl"),
+            }
+        )
+
+    # Tri par seeders décroissant
+    formatted_results.sort(key=lambda x: x["seeders"], reverse=True)
+
+    # Enregistrement dans le cache
+    _search_cache[cache_key] = (now, formatted_results)
+    return formatted_results
+
+
+@router.post("/download")
+async def download_release(body: DownloadReleaseRequest, db: Session = Depends(get_db)):
+    client = get_or_404(db, DownloadClient, body.client_id, "Client de téléchargement introuvable")
+
+    ok, msg = await add_torrent_to_client(
+        client_type=client.client_type,
+        url=client.url,
+        username=client.username,
+        password=client.password,
+        torrent_url_or_magnet=body.torrent_url_or_magnet,
+        category=body.category or client.category,
+        tags=body.tags or client.tags,
+    )
+
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg)
+    return {"success": True, "message": msg}
 
 
 # ---------------------------------------------------------------------------

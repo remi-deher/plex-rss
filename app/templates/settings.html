@@ -170,6 +170,43 @@
         </div>
       </div>
 
+      <!-- Clients de téléchargement -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-download text-warning me-2"></i>Clients de téléchargement Torrent</h5>
+            <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openDlClientModal()">
+              <i class="bi bi-plus-lg"></i> Ajouter un client
+            </button>
+          </div>
+          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
+            <i class="bi bi-info-circle me-1"></i>
+            Configurez vos clients qBittorrent ou Transmission pour y envoyer directement des téléchargements depuis le moteur de recherche.
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-dark align-middle mb-0" id="dl-clients-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>URL</th>
+                  <th>Catégorie</th>
+                  <th>Tags par défaut</th>
+                  <th>Défaut</th>
+                  <th>Statut</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="dl-clients-body">
+                <tr>
+                  <td colspan="8" class="text-center text-muted py-3">Chargement des clients...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- Seer -->
       <div class="col-12">
         <div class="card p-4">
@@ -760,6 +797,76 @@
   </div>
 </div>
 
+<!-- Modal Client Download -->
+<div class="modal fade" id="dlClientModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="background:var(--pr-surface); color: var(--bs-body-color)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="dlClientModalTitle">Ajouter un client de téléchargement</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="dlClientId">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nom du client</label>
+            <input type="text" class="form-control" id="dlClientName" placeholder="ex: qBittorrent Seedbox" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Type de client</label>
+            <select class="form-select bg-dark text-light border-secondary" id="dlClientType" onchange="onDlClientTypeChange()">
+              <option value="qbittorrent">qBittorrent</option>
+              <option value="transmission">Transmission</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">URL de l'interface Web / API</label>
+            <input type="url" class="form-control" id="dlClientUrl" placeholder="http://192.168.1.10:8080" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Nom d'utilisateur</label>
+            <input type="text" class="form-control" id="dlClientUser">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Mot de passe</label>
+            <div class="input-group">
+              <input type="password" class="form-control" id="dlClientPass">
+              <button type="button" class="btn btn-outline-secondary" onclick="togglePass('dlClientPass')"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-6 qbit-only">
+            <label class="form-label">Catégorie par défaut</label>
+            <input type="text" class="form-control" id="dlClientCategory" placeholder="ex: plex-rss">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Tags par défaut <span class="text-muted small">(séparés par virgules)</span></label>
+            <input type="text" class="form-control" id="dlClientTags" placeholder="ex: plex, rss">
+          </div>
+          <div class="col-md-6 d-flex align-items-center mt-4">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="dlClientEnabled" checked>
+              <label class="form-check-label" for="dlClientEnabled">Client activé</label>
+            </div>
+          </div>
+          <div class="col-md-6 d-flex align-items-center mt-4">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="dlClientIsDefault">
+              <label class="form-check-label" for="dlClientIsDefault">Client par défaut</label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary justify-content-between">
+        <button type="button" class="btn btn-outline-warning" onclick="testDlClientConn()">Tester la connexion</button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="button" class="btn btn-warning" onclick="saveDownloadClient()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Sticky save bar ── -->
 <div class="position-sticky bottom-0 py-3 mt-4" style="background:linear-gradient(transparent,var(--bs-body-bg) 45%);z-index:100">
   <div class="d-flex align-items-center gap-3">
@@ -1155,6 +1262,7 @@ restoreConnBadges();
 updateSeerMode();
 checkSectionWarnings();
 loadArrInstances();
+loadDownloadClients();
 
 // ── Maintenance tab ───────────────────────────────────────────────────────────
 
@@ -1942,6 +2050,209 @@ async function saveArrInstance() {
     showToast("Instance enregistrée !", "success");
     bootstrap.Modal.getInstance(document.getElementById('arrInstanceModal')).hide();
     loadArrInstances();
+  } catch (e) {
+    showToast("Erreur lors de la sauvegarde : " + e.message, "danger");
+  }
+}
+
+// ── Download Clients Management ──────────────────────────────────────────────
+let _downloadClients = [];
+
+async function loadDownloadClients() {
+  const tbody = document.getElementById('dl-clients-body');
+  try {
+    const r = await fetch('/api/download-clients');
+    _downloadClients = await r.json();
+    if (!_downloadClients.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Aucun client configuré. Cliquez sur "Ajouter un client".</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _downloadClients.map(client => {
+      const typeBadge = client.client_type === 'qbittorrent'
+        ? '<span class="badge bg-info text-dark"><i class="bi bi-download me-1"></i>qBittorrent</span>'
+        : '<span class="badge bg-primary"><i class="bi bi-download me-1"></i>Transmission</span>';
+
+      const defaultBadge = client.is_default
+        ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
+        : '<span class="text-muted">—</span>';
+
+      const statusBadge = client.enabled
+        ? '<span class="badge bg-success">Actif</span>'
+        : '<span class="badge bg-secondary">Désactivé</span>';
+
+      return `<tr>
+        <td><strong>${_esc(client.name)}</strong></td>
+        <td>${typeBadge}</td>
+        <td><code class="small text-muted">${_esc(client.url)}</code></td>
+        <td>${_esc(client.category || '—')}</td>
+        <td>${_esc(client.tags || '—')}</td>
+        <td>${defaultBadge}</td>
+        <td>${statusBadge}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-xs btn-outline-warning py-0 px-2" onclick="testExistingDlClientConn(${client.id}, this)"><i class="bi bi-plug"></i> Tester</button>
+          <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-2" onclick="editDownloadClient(${client.id})"><i class="bi bi-pencil"></i></button>
+          <button type="button" class="btn btn-xs btn-outline-danger py-0 px-2" onclick="deleteDownloadClient(${client.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
+  }
+}
+
+function openDlClientModal() {
+  document.getElementById('dlClientId').value = '';
+  document.getElementById('dlClientModalTitle').textContent = 'Ajouter un client de téléchargement';
+  document.getElementById('dlClientName').value = '';
+  document.getElementById('dlClientType').value = 'qbittorrent';
+  document.getElementById('dlClientUrl').value = '';
+  document.getElementById('dlClientUser').value = '';
+  document.getElementById('dlClientPass').value = '';
+  document.getElementById('dlClientCategory').value = '';
+  document.getElementById('dlClientTags').value = '';
+  document.getElementById('dlClientEnabled').checked = true;
+  document.getElementById('dlClientIsDefault').checked = false;
+
+  onDlClientTypeChange();
+
+  new bootstrap.Modal(document.getElementById('dlClientModal')).show();
+}
+
+function onDlClientTypeChange() {
+  const type = document.getElementById('dlClientType').value;
+  document.querySelectorAll('.qbit-only').forEach(el => el.style.display = (type === 'qbittorrent') ? '' : 'none');
+}
+
+async function testDlClientConn() {
+  const type = document.getElementById('dlClientType').value;
+  const url = document.getElementById('dlClientUrl').value.trim();
+  const username = document.getElementById('dlClientUser').value.trim();
+  const password = document.getElementById('dlClientPass').value.trim();
+
+  if (!url) {
+    return showToast("L'URL est requise", "warning");
+  }
+
+  showToast("Test de connexion...", "secondary");
+  try {
+    const r = await fetch('/api/test/download-client', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({client_type: type, url, username, password})
+    });
+    const d = await r.json();
+    if (d.success) {
+      showToast(d.message || "Connexion réussie !", "success");
+    } else {
+      showToast(d.message || "Échec de connexion", "danger");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function testExistingDlClientConn(id, btn) {
+  const client = _downloadClients.find(x => x.id === id);
+  if (!client) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  const start = performance.now();
+  try {
+    const r = await fetch('/api/test/download-client', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({client_type: client.client_type, url: client.url, username: client.username, password: client.password})
+    });
+    const duration = Math.round(performance.now() - start);
+    const d = await r.json();
+    if (d.success) {
+      showToast(`${d.message || "Connexion réussie"} (${duration} ms)`, "success");
+    } else {
+      showToast(d.message || "Échec de connexion", "danger");
+    }
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+function editDownloadClient(id) {
+  const client = _downloadClients.find(x => x.id === id);
+  if (!client) return;
+
+  document.getElementById('dlClientId').value = client.id;
+  document.getElementById('dlClientModalTitle').textContent = 'Modifier le client';
+  document.getElementById('dlClientName').value = client.name;
+  document.getElementById('dlClientType').value = client.client_type;
+  document.getElementById('dlClientUrl').value = client.url;
+  document.getElementById('dlClientUser').value = client.username || '';
+  document.getElementById('dlClientPass').value = client.password || '';
+  document.getElementById('dlClientCategory').value = client.category || '';
+  document.getElementById('dlClientTags').value = client.tags || '';
+  document.getElementById('dlClientEnabled').checked = client.enabled;
+  document.getElementById('dlClientIsDefault').checked = client.is_default;
+
+  onDlClientTypeChange();
+
+  new bootstrap.Modal(document.getElementById('dlClientModal')).show();
+}
+
+async function deleteDownloadClient(id) {
+  if (!confirm("Supprimer définitivement ce client de téléchargement ?")) return;
+  try {
+    const r = await fetch(`/api/download-clients/${id}`, {method: 'DELETE'});
+    if (!r.ok) throw new Error("Erreur de suppression");
+    showToast("Client supprimé", "success");
+    loadDownloadClients();
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function saveDownloadClient() {
+  const id = document.getElementById('dlClientId').value;
+  const name = document.getElementById('dlClientName').value.trim();
+  const type = document.getElementById('dlClientType').value;
+  const url = document.getElementById('dlClientUrl').value.trim();
+  const username = document.getElementById('dlClientUser').value.trim();
+  const password = document.getElementById('dlClientPass').value.trim();
+  const category = document.getElementById('dlClientCategory').value.trim();
+  const tags = document.getElementById('dlClientTags').value.trim();
+  const enabled = document.getElementById('dlClientEnabled').checked;
+  const isDefault = document.getElementById('dlClientIsDefault').checked;
+
+  if (!name || !url) {
+    return showToast("Veuillez remplir les champs obligatoires (Nom, URL)", "danger");
+  }
+
+  const payload = {
+    name,
+    client_type: type,
+    url,
+    username: username || null,
+    password: password || null,
+    category: category || null,
+    tags: tags || null,
+    enabled,
+    is_default: isDefault
+  };
+
+  const apiPath = id ? `/api/download-clients/${id}` : '/api/download-clients';
+  const method = id ? 'PUT' : 'POST';
+
+  try {
+    const r = await fetch(apiPath, {
+      method,
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    showToast("Client de téléchargement enregistré !", "success");
+    bootstrap.Modal.getInstance(document.getElementById('dlClientModal')).hide();
+    loadDownloadClients();
   } catch (e) {
     showToast("Erreur lors de la sauvegarde : " + e.message, "danger");
   }

@@ -209,3 +209,28 @@ class MediaRequest(Base):
 
     # Instance tracking
     arr_instance_id: Mapped[Optional[int]]
+
+
+class DownloadClient(Base):
+    __tablename__ = "download_clients"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str]  # ex: "Seedbox qBittorrent"
+    client_type: Mapped[str]  # "qbittorrent" | "transmission"
+    url: Mapped[str]
+    username: Mapped[Optional[str]]
+    password: Mapped[Optional[str]]
+    category: Mapped[Optional[str]]  # ex: "plex-rss"
+    tags: Mapped[Optional[str]]  # comma-separated tags
+    is_default: Mapped[bool] = mapped_column(default=False)
+    enabled: Mapped[bool] = mapped_column(default=True)
+
+
+class SearchCache(Base):
+    __tablename__ = "search_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    query: Mapped[str]
+    category: Mapped[Optional[str]]  # "movie" | "tv"
+    results_json: Mapped[str] = mapped_column(Text)
+    cached_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))

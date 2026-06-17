@@ -191,6 +191,9 @@
       <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}">
         <i class="bi bi-people me-2"></i>Utilisateurs
       </a>
+      <a href="/search" class="nav-link {% if page=='search' %}active{% endif %}">
+        <i class="bi bi-search me-2"></i>Recherche
+      </a>
       <hr class="border-secondary my-1">
       <a href="/settings" class="nav-link {% if page=='settings' %}active{% endif %}">
         <i class="bi bi-gear me-2"></i>Paramètres
@@ -230,6 +233,9 @@
   </a>
   <a href="/users" class="{% if page=='users' %}active{% endif %}">
     <i class="bi bi-people"></i>Utilisateurs
+  </a>
+  <a href="/search" class="{% if page=='search' %}active{% endif %}">
+    <i class="bi bi-search"></i>Recherche
   </a>
   <a href="/settings" class="{% if page=='settings' or page=='email-templates' %}active{% endif %}">
     <i class="bi bi-gear"></i>Paramètres
