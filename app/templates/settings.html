@@ -29,6 +29,11 @@
     </button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-templates" type="button" role="tab" id="tab-btn-templates" onclick="onTemplatesTabShow()">
+      <i class="bi bi-envelope-paper"></i> Templates
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-avance" type="button" role="tab">
       <i class="bi bi-gear"></i> Avancé
     </button>
@@ -55,246 +60,201 @@
 
   <!-- ════════════════════════ TAB : CONNEXIONS ════════════════════════ -->
   <div class="tab-pane fade show active" id="tab-connexions" role="tabpanel">
-    <div class="row g-4">
 
-      <!-- Plex -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
-            <div class="d-flex align-items-center gap-2">
-              <span id="conn-badge-plex-rss" class="conn-badge"></span>
-              <span id="conn-badge-plex-api" class="conn-badge"></span>
-            </div>
-          </div>
-          <!-- Connexion au serveur -->
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Connexion au serveur</h6>
-          <div class="row g-3 mb-4">
-            <div class="col-md-6">
-              <label class="form-label">URL Plex (local)</label>
-              <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Token Plex (admin)</label>
-              <div class="input-group mb-2">
-                <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
-                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
-              </div>
-              <div>
-                <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
-                  <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
-                </button>
-                <span id="sso-status" class="ms-2 small text-muted"></span>
-              </div>
-            </div>
-          </div>
+    <!-- ── Sous-navigation pills ── -->
+    <ul class="nav nav-pills mb-4 gap-1" id="connPills" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-plex" type="button" role="tab">
+          <i class="bi bi-collection-play-fill"></i> Plex
+          <span id="conn-badge-plex-rss" class="conn-badge"></span>
+          <span id="conn-badge-plex-api" class="conn-badge"></span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-arr" type="button" role="tab">
+          <i class="bi bi-server"></i> Arr &amp; Seer
+          <span id="conn-badge-seer" class="conn-badge"></span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-torrent" type="button" role="tab">
+          <i class="bi bi-magnet"></i> Torrent
+        </button>
+      </li>
+    </ul>
 
-          <!-- Source de la watchlist -->
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
-          <div class="row g-3 mb-3">
-            <div class="col-md-6">
-              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
-                <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
-                <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
-                <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
+    <div class="tab-content" id="connPillContent">
+
+      <!-- ──────────── PILL : PLEX ──────────── -->
+      <div class="tab-pane fade show active" id="conn-plex" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card p-4">
+              <h5 class="mb-4"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
+
+              <!-- Connexion au serveur -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Connexion au serveur</h6>
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">URL Plex (local)</label>
+                  <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Token Plex (admin)</label>
+                  <div class="input-group mb-2">
+                    <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
+                    <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
+                  </div>
+                  <div>
+                    <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
+                      <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
+                    </button>
+                    <span id="sso-status" class="ms-2 small text-muted"></span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="col-md-6">
-              <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
-                <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
-                <div class="input-group">
-                  <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                  <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+
+              <!-- Source de la watchlist -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                    <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
+                    <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
+                    <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                    <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
+                    <div class="input-group">
+                      <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                      <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Comportement -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Comportement</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Méthode prioritaire</label>
+                  <select class="form-select" name="watchlist_source_priority">
+                    <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>1. API Plex (token)</option>
+                    <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>2. Flux RSS</option>
+                  </select>
+                  <div class="form-text">La méthode utilisée en priorité à chaque sondage de la watchlist.</div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                  <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Intervalle de vérification (minutes)</label>
+                  <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
                 </div>
               </div>
             </div>
           </div>
-
-          <!-- Comportement -->
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Comportement</h6>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">Méthode prioritaire</label>
-              <select class="form-select" name="watchlist_source_priority">
-                <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>1. API Plex (token)</option>
-                <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>2. Flux RSS</option>
-              </select>
-              <div class="form-text">La méthode utilisée en priorité à chaque sondage de la watchlist.</div>
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
-              </div>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Intervalle de vérification (minutes)</label>
-              <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
-            </div>
-          </div>
         </div>
       </div>
 
-      <!-- Instances *arr -->
-      <div class="col-12" id="card-wrap-arr-instances">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-server text-warning me-2"></i>Instances Sonarr / Radarr / Prowlarr</h5>
-            <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openArrInstanceModal()">
-              <i class="bi bi-plus-lg"></i> Ajouter une instance
-            </button>
-          </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
-            <i class="bi bi-info-circle me-1"></i>
-            Configurez plusieurs instances. Par exemple, une instance Sonarr 1080p et une Sonarr 4K. Les demandes seront acheminées vers l'instance appropriée.
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-dark align-middle mb-0" id="arr-instances-table">
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th>Type</th>
-                  <th>URL</th>
-                  <th>Défaut</th>
-                  <th>Statut</th>
-                  <th class="text-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="arr-instances-body">
-                <tr>
-                  <td colspan="6" class="text-center text-muted py-3">Chargement des instances...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <!-- ──────────── PILL : ARR & SEER ──────────── -->
+      <div class="tab-pane fade" id="conn-arr" role="tabpanel">
+        <div class="row g-4">
 
-      <!-- Clients de téléchargement -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-download text-warning me-2"></i>Clients de téléchargement Torrent</h5>
-            <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openDlClientModal()">
-              <i class="bi bi-plus-lg"></i> Ajouter un client
-            </button>
-          </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
-            <i class="bi bi-info-circle me-1"></i>
-            Configurez vos clients qBittorrent ou Transmission pour y envoyer directement des téléchargements depuis le moteur de recherche.
-          </div>
-          <div class="table-responsive">
-            <table class="table table-sm table-dark align-middle mb-0" id="dl-clients-table">
-              <thead>
-                <tr>
-                  <th>Nom</th>
-                  <th>Type</th>
-                  <th>URL</th>
-                  <th>Catégorie</th>
-                  <th>Tags par défaut</th>
-                  <th>Défaut</th>
-                  <th>Statut</th>
-                  <th class="text-end">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="dl-clients-body">
-                <tr>
-                  <td colspan="8" class="text-center text-muted py-3">Chargement des clients...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- Configuration Torrent Avancée (Filtres et Nettoyage) -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-filter-square-fill text-warning me-2"></i>Filtres & Nettoyage Torrent</h5>
-          </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
-            <i class="bi bi-info-circle me-1"></i>
-            Ces paramètres s'appliquent à l'automatisation Watchlist-to-Torrent (lorsque Sonarr/Radarr sont inactifs).
-          </div>
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Filtres de Recherche Prowlarr</h6>
-          <div class="row g-3 mb-4">
-            <div class="col-md-6">
-              <label class="form-label">Mots-clés requis <span class="text-muted small">(séparés par virgules, ex: MULTI, VFF)</span></label>
-              <input type="text" class="form-control" name="torrent_required_keywords" value="{{ s.torrent_required_keywords or '' }}" placeholder="ex: MULTI, VFF">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Mots-clés interdits <span class="text-muted small">(séparés par virgules, ex: CAM, TS, 3D)</span></label>
-              <input type="text" class="form-control" name="torrent_forbidden_keywords" value="{{ s.torrent_forbidden_keywords or '' }}" placeholder="ex: CAM, TS, 3D">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Taille minimale d'une release (Go)</label>
-              <input type="number" step="0.1" class="form-control" name="torrent_min_size_gb" value="{{ s.torrent_min_size_gb or '' }}" placeholder="ex: 1.5">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Taille maximale d'une release (Go)</label>
-              <input type="number" step="0.1" class="form-control" name="torrent_max_size_gb" value="{{ s.torrent_max_size_gb or '' }}" placeholder="ex: 15">
-            </div>
-          </div>
-
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Règles de Partage & Nettoyage (qBittorrent / Transmission)</h6>
-          <div class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Ratio limite de partage (seeding)</label>
-              <input type="number" step="0.1" class="form-control" name="torrent_ratio_limit" value="{{ s.torrent_ratio_limit or '' }}" placeholder="ex: 2.0 (laisser vide pour aucun)">
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Temps limite de partage (heures)</label>
-              <input type="number" class="form-control" name="torrent_seed_time_limit_hours" value="{{ s.torrent_seed_time_limit_hours or '' }}" placeholder="ex: 24 (laisser vide pour aucun)">
-            </div>
-            <div class="col-md-4 d-flex align-items-end">
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" name="torrent_auto_delete_files" id="torrent_auto_delete_files_check" {% if s.torrent_auto_delete_files %}checked{% endif %}>
-                <label class="form-check-label" for="torrent_auto_delete_files_check">Supprimer également les fichiers physiques lors du nettoyage</label>
+          <!-- Instances *arr -->
+          <div class="col-12" id="card-wrap-arr-instances">
+            <div class="card p-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-server text-warning me-2"></i>Instances Sonarr / Radarr / Prowlarr</h5>
+                <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openArrInstanceModal()">
+                  <i class="bi bi-plus-lg"></i> Ajouter une instance
+                </button>
+              </div>
+              <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
+                <i class="bi bi-info-circle me-1"></i>
+                Configurez plusieurs instances. Par exemple, une instance Sonarr 1080p et une Sonarr 4K. Les demandes seront acheminées vers l'instance appropriée.
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-dark align-middle mb-0" id="arr-instances-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Type</th>
+                      <th>URL</th>
+                      <th>Défaut</th>
+                      <th>Statut</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="arr-instances-body">
+                    <tr>
+                      <td colspan="6" class="text-center text-muted py-3">Chargement des instances...</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Seer -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">
-              <i class="bi bi-send text-warning me-2"></i>Seer
-              <span class="badge bg-secondary ms-2" style="font-size:11px">Mode alternatif</span>
-            </h5>
-            <div class="d-flex align-items-center gap-3">
-              <span id="conn-badge-seer" class="conn-badge"></span>
-              <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" name="seer_enabled" id="seer_en" {% if s.seer_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="seer_en">Activé</label>
+          <!-- Seer -->
+          <div class="col-12">
+            <div class="card p-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-send text-warning me-2"></i>Seer <span class="text-muted fw-normal small ms-1">(Overseerr / Jellyseerr)</span></h5>
               </div>
-            </div>
-          </div>
-          <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
-            <i class="bi bi-info-circle me-1"></i>
-            Quand activé, les demandes sont envoyées à <strong>Seer</strong> plutôt que directement à Sonarr/Radarr.
-            Seer gère le routage et les profils de qualité selon sa propre configuration.
-          </div>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">URL Seer</label>
-              <input type="url" class="form-control" name="seer_url" value="{{ s.seer_url or '' }}" placeholder="http://192.168.1.10:5055">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Clé API</label>
-              <div class="input-group">
-                <input type="password" class="form-control" name="seer_api_key" value="{{ s.seer_api_key or '' }}" id="seer_key">
-                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('seer_key')"><i class="bi bi-eye"></i></button>
-                <button type="button" class="btn btn-outline-warning" onclick="testConn('seer')">Tester</button>
+
+              <!-- Connexion -->
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">URL Seer</label>
+                  <input type="url" class="form-control" name="seer_url" value="{{ s.seer_url or '' }}" placeholder="http://192.168.1.10:5055">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Clé API</label>
+                  <div class="input-group">
+                    <input type="password" class="form-control" name="seer_api_key" value="{{ s.seer_api_key or '' }}" id="seer_key">
+                    <button type="button" class="btn btn-outline-secondary" onclick="togglePass('seer_key')"><i class="bi bi-eye"></i></button>
+                    <button type="button" class="btn btn-outline-warning" onclick="testConn('seer')">Tester</button>
+                  </div>
+                  <div class="form-text">Seer → Paramètres → Général → Clé API</div>
+                </div>
               </div>
-              <div class="form-text">Seer → Paramètres → Général → Clé API</div>
-            </div>
-            <div class="col-12">
-              <hr class="border-secondary my-1">
-              <div class="d-flex gap-2 flex-wrap mt-2">
+
+              <hr class="border-secondary my-3">
+
+              <!-- Rôles -->
+              <h6 class="text-uppercase text-muted mb-3" style="font-size:11px;letter-spacing:.08em">Rôles</h6>
+              <div class="d-flex flex-column gap-3 mb-4">
+                <div class="d-flex align-items-start gap-3 p-3 rounded" style="background:var(--pr-surface-2)">
+                  <div class="form-check form-switch mt-1 flex-shrink-0">
+                    <input class="form-check-input" type="checkbox" name="seer_send_requests" id="seer_send_requests" {% if s.seer_send_requests %}checked{% endif %}>
+                  </div>
+                  <div>
+                    <label class="form-check-label fw-semibold" for="seer_send_requests">Envoyer les demandes via Seer</label>
+                    <div class="text-muted small mt-1">Les nouvelles demandes sont transmises à Seer plutôt que directement à Sonarr/Radarr. Sonarr/Radarr restent utilisés pour le suivi de statut et les profils qualité.</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-start gap-3 p-3 rounded" style="background:var(--pr-surface-2)">
+                  <div class="form-check form-switch mt-1 flex-shrink-0">
+                    <input class="form-check-input" type="checkbox" name="seer_fallback_arr" id="seer_fallback_arr" {% if s.seer_fallback_arr %}checked{% endif %}>
+                  </div>
+                  <div>
+                    <label class="form-check-label fw-semibold" for="seer_fallback_arr">Fallback sur Sonarr/Radarr si Seer est indisponible</label>
+                    <div class="text-muted small mt-1">Si l'envoi via Seer échoue (timeout, erreur), la demande est automatiquement retentée directement sur l'instance Sonarr/Radarr correspondante.</div>
+                  </div>
+                </div>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- Actions -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Actions</h6>
+              <div class="d-flex gap-2 flex-wrap">
                 <button type="button" id="btn-seer-sync-users" class="btn btn-outline-info btn-sm" onclick="seerSyncUsers()">
                   <i class="bi bi-people me-1"></i>Synchroniser les utilisateurs
                 </button>
@@ -302,13 +262,106 @@
                   <i class="bi bi-arrow-repeat me-1"></i>Mettre à jour les statuts (Hybride / Seer)
                 </button>
               </div>
-              <div class="form-text">Synchronise les comptes Seer avec les utilisateurs Plex et met à jour les badges Hybride / Seer.</div>
+              <div class="form-text mt-2">Synchronise les comptes Seer avec les utilisateurs Plex et met à jour les badges Hybride / Seer.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ──────────── PILL : TORRENT ──────────── -->
+      <div class="tab-pane fade" id="conn-torrent" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card p-4">
+              <h5 class="mb-4"><i class="bi bi-magnet text-warning me-2"></i>Torrent</h5>
+
+              <!-- 1. Clients -->
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="text-uppercase text-muted mb-0" style="font-size:11px;letter-spacing:.08em">
+                  <i class="bi bi-hdd-network me-1"></i>Clients de téléchargement
+                </h6>
+                <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openDlClientModal()">
+                  <i class="bi bi-plus-lg"></i> Ajouter
+                </button>
+              </div>
+              <p class="text-muted small mb-3">Configurez qBittorrent, Transmission ou un dossier surveillé. Les clients désactivés ne reçoivent aucun téléchargement.</p>
+              <div class="table-responsive mb-4">
+                <table class="table table-sm table-dark align-middle mb-0" id="dl-clients-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Type</th>
+                      <th>URL / Chemin</th>
+                      <th>Catégorie</th>
+                      <th>Défaut</th>
+                      <th>Actif</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dl-clients-body">
+                    <tr>
+                      <td colspan="7" class="text-center text-muted py-3">Chargement des clients...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- 2. Filtres -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">
+                <i class="bi bi-funnel me-1"></i>Filtres Prowlarr (automatisation Watchlist → Torrent)
+              </h6>
+              <p class="text-muted small mb-3">S'appliquent uniquement quand Sonarr/Radarr sont désactivés et qu'un client actif est configuré.</p>
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">Mots-clés requis <span class="text-muted small">(séparés par virgules)</span></label>
+                  <input type="text" class="form-control" name="torrent_required_keywords" value="{{ s.torrent_required_keywords or '' }}" placeholder="ex: MULTI, VFF">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Mots-clés interdits <span class="text-muted small">(séparés par virgules)</span></label>
+                  <input type="text" class="form-control" name="torrent_forbidden_keywords" value="{{ s.torrent_forbidden_keywords or '' }}" placeholder="ex: CAM, TS, 3D">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Taille minimale d'une release (Go)</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_min_size_gb" value="{{ s.torrent_min_size_gb or '' }}" placeholder="ex: 1.5">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Taille maximale d'une release (Go)</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_max_size_gb" value="{{ s.torrent_max_size_gb or '' }}" placeholder="ex: 15">
+                </div>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- 3. Nettoyage -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">
+                <i class="bi bi-trash me-1"></i>Nettoyage après téléchargement
+              </h6>
+              <p class="text-muted small mb-3">Le torrent est supprimé du client dès qu'une des deux conditions est atteinte (ratio <strong>ou</strong> durée). Laissez vide pour désactiver la condition.</p>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">Ratio limite de partage</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_ratio_limit" value="{{ s.torrent_ratio_limit or '' }}" placeholder="ex: 2.0">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Durée limite de partage (heures)</label>
+                  <input type="number" class="form-control" name="torrent_seed_time_limit_hours" value="{{ s.torrent_seed_time_limit_hours or '' }}" placeholder="ex: 24">
+                </div>
+                <div class="col-md-4 d-flex align-items-end pb-1">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="torrent_auto_delete_files" id="torrent_auto_delete_files_check" {% if s.torrent_auto_delete_files %}checked{% endif %}>
+                    <label class="form-check-label" for="torrent_auto_delete_files_check">Supprimer aussi les fichiers physiques</label>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-    </div>
+    </div><!-- /connPillContent -->
   </div>
 
   <!-- ════════════════════════ TAB : NOTIFICATIONS ════════════════════════ -->
@@ -386,21 +439,6 @@
               <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
               <div class="form-text">Plusieurs adresses séparées par des virgules. Chaque utilisateur peut activer ou non l'envoi d'une copie à l'admin.</div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modèles d'email -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-            <div>
-              <h5 class="mb-1"><i class="bi bi-envelope-paper text-secondary me-2"></i>Modèles d'email</h5>
-              <p class="text-muted small mb-0">Personnalisez le contenu des emails (objet + corps) avec un éditeur et un aperçu en direct.</p>
-            </div>
-            <a href="/settings/email-templates" class="btn btn-outline-secondary">
-              <i class="bi bi-pencil-square me-1"></i>Modifier les modèles
-            </a>
           </div>
         </div>
       </div>
@@ -743,6 +781,98 @@
 
   </div>
 
+  <!-- ════════════════════════ TAB : TEMPLATES ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-templates" role="tabpanel">
+
+    <!-- Variables disponibles -->
+    <div class="card p-3 mb-3" style="background:var(--pr-surface-2)">
+      <h6 class="mb-2 text-muted">Variables disponibles</h6>
+      <div class="d-flex flex-wrap gap-2">
+        {% for var, desc in template_variables %}
+        <span class="badge bg-secondary" style="cursor:pointer;font-size:13px" title="{{ desc }}" onclick="tmplInsertVar(event, '{{ var }}')">{{ var }}</span>
+        {% endfor %}
+      </div>
+      <small class="text-muted mt-2 d-block">Cliquez sur une variable pour l'insérer à la position du curseur. Syntaxe Jinja2 supportée : <code>{% raw %}{% if poster_url %}...{% endif %}{% endraw %}</code></small>
+    </div>
+
+    <!-- Onglets template -->
+    <ul class="nav nav-tabs mb-0" id="templateTabs">
+      <li class="nav-item">
+        <button class="nav-link active" id="tmpl-tab-request" onclick="tmplSwitchTab('request')">
+          <i class="bi bi-envelope me-1"></i>Nouvelle demande
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-available" onclick="tmplSwitchTab('available')">
+          <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-failure" onclick="tmplSwitchTab('failure')">
+          <i class="bi bi-exclamation-triangle me-1"></i>Échec de transmission
+        </button>
+      </li>
+      <li class="nav-item ms-auto d-flex align-items-center gap-2 pe-1">
+        <button class="btn btn-sm btn-outline-secondary" onclick="tmplReset()"><i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser</button>
+        <button class="btn btn-sm btn-outline-warning" onclick="tmplTestSend()"><i class="bi bi-send me-1"></i>Envoyer un test</button>
+        <button class="btn btn-sm btn-warning" onclick="tmplSave()"><i class="bi bi-save me-1"></i>Enregistrer</button>
+      </li>
+    </ul>
+
+    <div class="row g-0" style="height:calc(100vh - 320px);min-height:500px">
+      <!-- Éditeur -->
+      <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;border-right:none;display:flex;flex-direction:column">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
+          <span class="text-muted small">Éditeur HTML / Jinja2</span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="tmplLivePreview()"><i class="bi bi-eye me-1"></i>Prévisualiser</button>
+        </div>
+        <div class="p-3 bg-dark border-bottom border-secondary" style="flex-shrink:0">
+          <div id="tmpl-subject-group-request">
+            <label class="form-label small text-muted">Objet (Nouvelle demande)</label>
+            <input type="text" id="tmpl-subject-request" class="form-control form-control-sm" value="{{ request_subject }}" placeholder="[Plex] Nouvelle demande : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-available" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible sur Plex)</label>
+            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plex] Disponible : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-failure" style="display:none">
+            <label class="form-label small text-muted">Objet (Échec de transmission)</label>
+            <input type="text" id="tmpl-subject-failure" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plex] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+          </div>
+        </div>
+        <div style="flex-grow:1;position:relative">
+          <div id="tmpl-container-request" style="position:absolute;inset:0">
+            <textarea id="tmpl-editor-request" style="display:none">{{ request_template }}</textarea>
+          </div>
+          <div id="tmpl-container-available" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available" style="display:none">{{ available_template }}</textarea>
+          </div>
+          <div id="tmpl-container-failure" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-failure" style="display:none">{{ failure_template }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prévisualisation -->
+      <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;display:flex;flex-direction:column">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
+          <div class="d-flex align-items-center gap-2">
+            <span class="text-muted small">Prévisualisation en tant que</span>
+            <select id="tmpl-preview-user" class="form-select form-select-sm py-0 px-2" style="width:160px;font-size:11px;height:24px;background:var(--pr-surface-2);color:var(--bs-body-color);border-color:var(--pr-border)" onchange="tmplLivePreview()">
+              <option value="">(Par défaut)</option>
+              {% for u in users %}
+              <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <span class="badge bg-secondary" id="tmpl-preview-status">En attente</span>
+        </div>
+        <iframe id="tmpl-preview-frame" style="width:100%;flex-grow:1;border:none;background:#fff"></iframe>
+      </div>
+    </div>
+
+  </div>
+
 </div>
 <!-- Modal Instance Arr -->
 <div class="modal fade" id="arrInstanceModal" tabindex="-1">
@@ -918,8 +1048,8 @@
   </div>
 </div>
 
-<!-- ── Sticky save bar ── -->
-<div class="position-sticky bottom-0 py-3 mt-4" style="background:linear-gradient(transparent,var(--bs-body-bg) 45%);z-index:100">
+<!-- ── Sticky save bar (cachée sur l'onglet Templates) ── -->
+<div class="position-sticky bottom-0 py-3 mt-4" id="sticky-save-bar" style="background:linear-gradient(transparent,var(--bs-body-bg) 45%);z-index:100">
   <div class="d-flex align-items-center gap-3">
     <button type="button" class="btn btn-warning btn-lg" onclick="saveSettings()">
       <i class="bi bi-save me-1"></i>Enregistrer
@@ -968,15 +1098,18 @@ function restoreConnBadges() {
 
 // ── Seer → dim Sonarr/Radarr ────────────────────────────────────────────
 function updateSeerMode() {
-  const enabled = document.getElementById('seer_en').checked;
+  const sendReq = document.getElementById('seer_send_requests')?.checked;
+  const fallback = document.getElementById('seer_fallback_arr')?.checked;
   const wrap = document.getElementById('card-wrap-arr-instances');
   if (wrap) {
-    wrap.style.opacity = enabled ? '0.4' : '1';
-    wrap.style.pointerEvents = enabled ? 'none' : '';
-    wrap.title = enabled ? 'Géré par Seer — désactivez Seer pour modifier' : '';
+    const dimmed = sendReq && !fallback;
+    wrap.style.opacity = dimmed ? '0.4' : '1';
+    wrap.style.pointerEvents = dimmed ? 'none' : '';
+    wrap.title = dimmed ? 'Géré exclusivement par Seer (fallback désactivé)' : '';
   }
 }
-document.getElementById('seer_en').addEventListener('change', updateSeerMode);
+document.getElementById('seer_send_requests')?.addEventListener('change', updateSeerMode);
+document.getElementById('seer_fallback_arr')?.addEventListener('change', updateSeerMode);
 
 async function _seerAction(btnId, url, label) {
   const btn = document.getElementById(btnId);
@@ -2115,7 +2248,7 @@ async function loadDownloadClients() {
     const r = await fetch('/api/download-clients');
     _downloadClients = await r.json();
     if (!_downloadClients.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">Aucun client configuré. Cliquez sur "Ajouter un client".</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Aucun client configuré. Cliquez sur "Ajouter".</td></tr>';
       return;
     }
     tbody.innerHTML = _downloadClients.map(client => {
@@ -2126,30 +2259,29 @@ async function loadDownloadClients() {
         : '<span class="badge bg-secondary"><i class="bi bi-folder me-1"></i>Watch Folder</span>';
 
       const defaultBadge = client.is_default
-        ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
+        ? `<span class="badge ${client.enabled ? 'bg-success' : 'bg-secondary'}"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>`
         : '<span class="text-muted">—</span>';
 
-      const statusBadge = client.enabled
-        ? '<span class="badge bg-success">Actif</span>'
-        : '<span class="badge bg-secondary">Désactivé</span>';
+      const toggle = `<div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" ${client.enabled ? 'checked' : ''} onchange="toggleDownloadClient(${client.id}, this)" title="${client.enabled ? 'Désactiver' : 'Activer'}">
+      </div>`;
 
-      return `<tr>
+      return `<tr class="${client.enabled ? '' : 'opacity-50'}">
         <td><strong>${_esc(client.name)}</strong></td>
         <td>${typeBadge}</td>
         <td><code class="small text-muted">${_esc(client.url)}</code></td>
-        <td>${_esc(client.category || '—')}</td>
-        <td>${_esc(client.tags || '—')}</td>
+        <td class="text-muted small">${_esc(client.category || '—')}</td>
         <td>${defaultBadge}</td>
-        <td>${statusBadge}</td>
+        <td>${toggle}</td>
         <td class="text-end">
-          <button type="button" class="btn btn-xs btn-outline-warning py-0 px-2" onclick="testExistingDlClientConn(${client.id}, this)"><i class="bi bi-plug"></i> Tester</button>
+          <button type="button" class="btn btn-xs btn-outline-warning py-0 px-2" onclick="testExistingDlClientConn(${client.id}, this)" ${client.enabled ? '' : 'disabled'}><i class="bi bi-plug"></i> Tester</button>
           <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-2" onclick="editDownloadClient(${client.id})"><i class="bi bi-pencil"></i></button>
           <button type="button" class="btn btn-xs btn-outline-danger py-0 px-2" onclick="deleteDownloadClient(${client.id})"><i class="bi bi-trash"></i></button>
         </td>
       </tr>`;
     }).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
   }
 }
 
@@ -2268,6 +2400,19 @@ function editDownloadClient(id) {
   new bootstrap.Modal(document.getElementById('dlClientModal')).show();
 }
 
+async function toggleDownloadClient(id, checkbox) {
+  try {
+    const r = await fetch(`/api/download-clients/${id}/toggle`, {method: 'PATCH'});
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    showToast(d.enabled ? 'Client activé' : 'Client désactivé', 'success');
+    loadDownloadClients();
+  } catch {
+    showToast('Erreur lors du changement de statut', 'danger');
+    checkbox.checked = !checkbox.checked;
+  }
+}
+
 async function deleteDownloadClient(id) {
   if (!confirm("Supprimer définitivement ce client de téléchargement ?")) return;
   try {
@@ -2323,6 +2468,163 @@ async function saveDownloadClient() {
     loadDownloadClients();
   } catch (e) {
     showToast("Erreur lors de la sauvegarde : " + e.message, "danger");
+  }
+}
+
+// ── Sticky save bar : masquer sur l'onglet Templates ─────────────────────────
+document.querySelectorAll('#settingsTabs button[data-bs-toggle="tab"]').forEach(btn => {
+  btn.addEventListener('shown.bs.tab', () => {
+    const isTemplates = btn.getAttribute('data-bs-target') === '#tab-templates';
+    document.getElementById('sticky-save-bar').style.display = isTemplates ? 'none' : '';
+  });
+});
+</script>
+
+<!-- CodeMirror pour l'onglet Templates -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/monokai.min.css">
+<style>
+#tab-templates .CodeMirror { height: 100% !important; font-family: var(--bs-font-monospace); font-size: 13px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+<script>
+// ── Templates tab ─────────────────────────────────────────────────────────────
+let tmplCurrentTab = 'request';
+let tmplPreviewTimer = null;
+const tmplEditors = {};
+let tmplEditorsReady = false;
+
+function onTemplatesTabShow() {
+  if (tmplEditorsReady) {
+    Object.values(tmplEditors).forEach(cm => cm.refresh());
+    tmplLivePreview();
+    return;
+  }
+  tmplEditorsReady = true;
+  ['request', 'available', 'failure'].forEach(type => {
+    const el = document.getElementById('tmpl-editor-' + type);
+    tmplEditors[type] = CodeMirror.fromTextArea(el, {
+      mode: 'htmlmixed', theme: 'monokai', lineNumbers: true, lineWrapping: true, tabSize: 2,
+    });
+    tmplEditors[type].on('change', () => tmplSchedulePreview());
+  });
+  setTimeout(tmplLivePreview, 200);
+}
+
+function tmplGetValue(type) {
+  return tmplEditors[type] ? tmplEditors[type].getValue() : '';
+}
+
+function tmplSwitchTab(tab) {
+  tmplCurrentTab = tab;
+  ['request', 'available', 'failure'].forEach(t => {
+    document.getElementById('tmpl-container-' + t).style.display = t === tab ? '' : 'none';
+    document.getElementById('tmpl-subject-group-' + t).style.display = t === tab ? '' : 'none';
+    document.getElementById('tmpl-tab-' + t).classList.toggle('active', t === tab);
+  });
+  if (tmplEditors[tab]) tmplEditors[tab].refresh();
+  tmplLivePreview();
+}
+
+function tmplSchedulePreview() {
+  clearTimeout(tmplPreviewTimer);
+  tmplPreviewTimer = setTimeout(tmplLivePreview, 600);
+}
+
+async function tmplLivePreview() {
+  document.getElementById('tmpl-preview-status').textContent = 'Chargement...';
+  document.getElementById('tmpl-preview-status').className = 'badge bg-secondary';
+  try {
+    const userId = document.getElementById('tmpl-preview-user').value || null;
+    const r = await fetch('/api/email-preview', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        template: tmplGetValue(tmplCurrentTab),
+        subject: document.getElementById('tmpl-subject-' + tmplCurrentTab).value,
+        type: tmplCurrentTab,
+        user_id: userId ? parseInt(userId, 10) : null,
+      }),
+    });
+    document.getElementById('tmpl-preview-frame').srcdoc = await r.text();
+    document.getElementById('tmpl-preview-status').textContent = 'OK';
+    document.getElementById('tmpl-preview-status').className = 'badge bg-success';
+  } catch {
+    document.getElementById('tmpl-preview-status').textContent = 'Erreur';
+    document.getElementById('tmpl-preview-status').className = 'badge bg-danger';
+  }
+}
+
+async function tmplSave() {
+  try {
+    const r = await fetch('/api/email-templates', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        email_request_template: tmplGetValue('request'),
+        email_available_template: tmplGetValue('available'),
+        email_failure_template: tmplGetValue('failure'),
+        email_request_subject: document.getElementById('tmpl-subject-request').value,
+        email_available_subject: document.getElementById('tmpl-subject-available').value,
+        email_failure_subject: document.getElementById('tmpl-subject-failure').value,
+      }),
+    });
+    if (!r.ok) throw new Error();
+    showToast('Templates enregistrés !', 'success');
+  } catch {
+    showToast('Erreur lors de l\'enregistrement', 'danger');
+  }
+}
+
+async function tmplReset() {
+  if (!await confirmAction({
+    title: 'Réinitialiser les templates',
+    body: 'Réinitialiser les trois templates et objets par défaut ?',
+    okLabel: 'Réinitialiser', danger: true,
+  })) return;
+  await fetch('/api/email-templates/reset', {method: 'POST'});
+  showToast('Réinitialisé — rechargement...', 'success');
+  setTimeout(() => location.reload(), 1000);
+}
+
+async function tmplTestSend() {
+  showToast('Envoi du mail de test en cours...', 'info');
+  try {
+    const userId = document.getElementById('tmpl-preview-user').value || null;
+    const r = await fetch('/api/email-templates/test-send', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        template: tmplGetValue(tmplCurrentTab),
+        subject: document.getElementById('tmpl-subject-' + tmplCurrentTab).value,
+        type: tmplCurrentTab,
+        user_id: userId ? parseInt(userId, 10) : null,
+      }),
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Erreur SMTP');
+    showToast(res.message, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+function tmplInsertVar(e, varName) {
+  const subjectInput = document.getElementById('tmpl-subject-' + tmplCurrentTab);
+  if (document.activeElement === subjectInput) {
+    const start = subjectInput.selectionStart;
+    subjectInput.value = subjectInput.value.substring(0, start) + varName + subjectInput.value.substring(subjectInput.selectionEnd);
+    subjectInput.selectionStart = subjectInput.selectionEnd = start + varName.length;
+    subjectInput.focus();
+    tmplSchedulePreview();
+  } else if (tmplEditors[tmplCurrentTab]) {
+    const cm = tmplEditors[tmplCurrentTab];
+    cm.replaceRange(varName, cm.getDoc().getCursor());
+    cm.focus();
   }
 }
 </script>

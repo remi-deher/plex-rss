@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings
+from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_FAILURE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
@@ -236,10 +237,11 @@ def logs_page(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(request, "logs.html")
 
 
-@router.get("/search", response_class=HTMLResponse)
-def search_page(request: Request, _: None = Depends(require_auth)):
-    """Page de recherche manuelle Prowlarr."""
-    return templates.TemplateResponse(request, "search.html", {"page": "search"})
+@router.get("/search")
+def search_page():
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(url="/requests", status_code=301)
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -247,11 +249,30 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
     """Page de configuration globale de l'application."""
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")
+    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "s": s,
             "webhook_url": f"{base_url}/webhook/plex",
+            "users": users,
+            "request_template": (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE,
+            "available_template": (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
+            "failure_template": (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE,
+            "request_subject": (s.email_request_subject if s else None) or "",
+            "available_subject": (s.email_available_subject if s else None) or "",
+            "failure_subject": (s.email_failure_subject if s else None) or "",
+            "template_variables": [
+                ("{{ title }}", "Titre du film ou de la série"),
+                ("{{ year }}", "Année de sortie"),
+                ("{{ poster_url }}", "URL de l'affiche"),
+                ("{{ plex_user }}", "Nom de l'utilisateur"),
+                ("{{ media_type_label }}", "Film ou Série"),
+                ("{{ media_type_label_cap }}", "Le film / La série"),
+                ("{{ overview }}", "Synopsis"),
+                ("{{ genres }}", "Genres (ex: Action, Drame)"),
+                ("{{ reason }}", "Raison de l'échec (email d'échec uniquement)"),
+            ],
         },
     )

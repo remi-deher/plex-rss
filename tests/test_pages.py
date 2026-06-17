@@ -138,12 +138,12 @@ def test_settings_page_returns_200_html(client, db):
     assert "text/html" in resp.headers["content-type"]
 
 
-def test_email_templates_page_returns_200_html(client, db):
-    """GET /settings/email-templates → 200, HTML."""
+def test_email_templates_page_redirects(client, db):
+    """GET /settings/email-templates → 301 redirect vers /settings#tab-templates."""
     _seed(db)
-    resp = client.get("/settings/email-templates")
-    assert resp.status_code == 200
-    assert "text/html" in resp.headers["content-type"]
+    resp = client.get("/settings/email-templates", follow_redirects=False)
+    assert resp.status_code == 301
+    assert "/settings" in resp.headers["location"]
 
 
 # ---------------------------------------------------------------------------

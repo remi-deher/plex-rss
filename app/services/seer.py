@@ -38,8 +38,16 @@ MEDIA_STATUS_AVAILABLE = 5
 MEDIA_STATUS_PARTIALLY = 4
 
 
-def _headers(api_key: str) -> dict:
-    return {"X-Api-Key": api_key, "Content-Type": "application/json"}
+def _headers(api_key: str, base: str = "") -> dict:
+    headers = {
+        "X-Api-Key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if base:
+        headers["Origin"] = base
+        headers["Referer"] = base + "/"
+    return headers
 
 
 async def request_media(
@@ -57,7 +65,7 @@ async def request_media(
         - already_existed=True si la demande existait déjà (statut non-PENDING)
     """
     base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    headers = _headers(api_key, base)
     media_type = "movie" if item["media_type"] == "movie" else "tv"
 
     tmdb_id = await _resolve_tmdb_id(base, headers, item)

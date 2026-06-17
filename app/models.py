@@ -84,7 +84,9 @@ class Settings(Base):
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
     seer_api_key: Mapped[Optional[str]]
-    seer_enabled: Mapped[bool] = mapped_column(default=False)
+    seer_enabled: Mapped[bool] = mapped_column(default=False)  # legacy, remplacé par seer_send_requests
+    seer_send_requests: Mapped[bool] = mapped_column(default=False)
+    seer_fallback_arr: Mapped[bool] = mapped_column(default=True)
 
     # --- Notifications push (Discord / Telegram) ---
     discord_webhook_url: Mapped[Optional[str]]

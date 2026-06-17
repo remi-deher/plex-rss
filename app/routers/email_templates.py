@@ -1,8 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,9 +13,7 @@ from ..services.email_service import (
     DEFAULT_REQUEST_TEMPLATE,
     render_template,
 )
-from ..services.email_service import (
-    _send as smtp_send,
-)
+from ..services.email_service import _send as smtp_send
 
 
 def require_auth(request: Request):
@@ -25,7 +22,11 @@ def require_auth(request: Request):
 
 
 router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_auth)])
-templates = Jinja2Templates(directory="app/templates")
+
+
+@router.get("/settings/email-templates")
+def email_templates_redirect():
+    return RedirectResponse("/settings#tab-templates", status_code=301)
 
 
 SAMPLE_CONTEXT = {
@@ -39,37 +40,6 @@ SAMPLE_CONTEXT = {
     "overview": "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille.",
     "genres": "Crime, Drame, Thriller",
 }
-
-
-@router.get("/settings/email-templates", response_class=HTMLResponse)
-def email_templates_page(request: Request, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
-    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
-    return templates.TemplateResponse(
-        request,
-        "email_templates.html",
-        {
-            "page": "email-templates",
-            "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
-            "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,
-            "failure_template": s.email_failure_template or DEFAULT_FAILURE_TEMPLATE,
-            "request_subject": s.email_request_subject or "",
-            "available_subject": s.email_available_subject or "",
-            "failure_subject": s.email_failure_subject or "",
-            "users": users,
-            "variables": [
-                ("{{ title }}", "Titre du film ou de la série"),
-                ("{{ year }}", "Année de sortie"),
-                ("{{ poster_url }}", "URL de l'affiche"),
-                ("{{ plex_user }}", "Nom de l'utilisateur"),
-                ("{{ media_type_label }}", "Film ou Série"),
-                ("{{ media_type_label_cap }}", "Le film / La série"),
-                ("{{ overview }}", "Synopsis"),
-                ("{{ genres }}", "Genres (ex: Action, Drame)"),
-                ("{{ reason }}", "Raison de l'échec (email d'échec uniquement)"),
-            ],
-        },
-    )
 
 
 class PreviewRequest(BaseModel):

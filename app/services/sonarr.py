@@ -22,6 +22,7 @@ async def add_series(
     quality_profile_id: int,
     root_folder: str,
     item: dict,
+    tag_ids: list[int] | None = None,
 ) -> tuple[int | None, bool, str | None]:
     """Ajoute une série à Sonarr, ou retourne son ID si elle existe déjà.
 
@@ -61,6 +62,7 @@ async def add_series(
         "monitored": True,
         "addOptions": {"searchForMissingEpisodes": True},
         "seasons": [],
+        "tags": tag_ids or [],
     }
 
     try:
@@ -198,6 +200,17 @@ async def get_root_folders(sonarr_url: str, api_key: str) -> list[str]:
         )
         resp.raise_for_status()
         return [f["path"] for f in resp.json()]
+
+
+async def get_tags(sonarr_url: str, api_key: str) -> list[dict]:
+    """Retourne les tags configurés dans Sonarr (id + label)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{sonarr_url.rstrip('/')}/api/v3/tag",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return [{"id": t["id"], "label": t["label"]} for t in resp.json()]
 
 
 async def get_disk_space(sonarr_url: str, api_key: str) -> list[dict]:

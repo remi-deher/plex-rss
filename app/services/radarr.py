@@ -23,6 +23,7 @@ async def add_movie(
     root_folder: str,
     item: dict,
     minimum_availability: str = "released",
+    tag_ids: list[int] | None = None,
 ) -> tuple[int | None, bool, str | None]:
     """Ajoute un film à Radarr, ou retourne son ID s'il existe déjà.
 
@@ -58,9 +59,10 @@ async def add_movie(
         "tmdbId": int(tmdb_id),
         "qualityProfileId": quality_profile_id,
         "rootFolderPath": root_folder,
-        "minimumAvailability": minimum_availability,  # requis en Radarr v5
+        "minimumAvailability": minimum_availability,
         "monitored": True,
         "addOptions": {"searchForMovie": True},
+        "tags": tag_ids or [],
     }
 
     try:
@@ -234,6 +236,17 @@ async def get_root_folders(radarr_url: str, api_key: str) -> list[str]:
         )
         resp.raise_for_status()
         return [f["path"] for f in resp.json()]
+
+
+async def get_tags(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne les tags configurés dans Radarr (id + label)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{radarr_url.rstrip('/')}/api/v3/tag",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return [{"id": t["id"], "label": t["label"]} for t in resp.json()]
 
 
 async def get_disk_space(radarr_url: str, api_key: str) -> list[dict]:

@@ -24,6 +24,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -45,7 +46,8 @@ from ..notification_queue import enqueue as enqueue_notification
 from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
 from ..scheduler import scheduler as _scheduler
 from ..services import email_service, prowlarr, radarr, sonarr
-from ..services.download_clients import add_torrent_to_client, check_client_connection
+from ..services import seer as seer_service
+from ..services.download_clients import add_torrent_file_to_client, add_torrent_to_client, check_client_connection
 from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
 from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
@@ -125,7 +127,9 @@ class SettingsUpdate(BaseModel):
     radarr_minimum_availability: Optional[str] = None
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
-    seer_enabled: Optional[bool] = None
+    seer_enabled: Optional[bool] = None  # legacy
+    seer_send_requests: Optional[bool] = None
+    seer_fallback_arr: Optional[bool] = None
     notification_log_retention_days: Optional[int] = None
     email_request_template: Optional[str] = None
     email_available_template: Optional[str] = None
@@ -347,6 +351,14 @@ def update_download_client(client_id: int, data: DownloadClientCreate, db: Sessi
     return client
 
 
+@router.patch("/download-clients/{client_id}/toggle")
+def toggle_download_client(client_id: int, db: Session = Depends(get_db)):
+    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
+    client.enabled = not client.enabled
+    db.commit()
+    return {"id": client.id, "enabled": client.enabled}
+
+
 @router.delete("/download-clients/{client_id}")
 def delete_download_client(client_id: int, db: Session = Depends(get_db)):
     client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
@@ -447,6 +459,40 @@ async def download_release(body: DownloadReleaseRequest, db: Session = Depends(g
             req.status = "sent_to_arr"
             db.commit()
 
+    return {"success": True, "message": msg, "info_hash": info_hash}
+
+
+@router.post("/download/file")
+async def download_torrent_file(
+    file: __import__("fastapi").UploadFile,
+    client_id: int,
+    category: Optional[str] = None,
+    tags: Optional[str] = None,
+    request_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Upload d'un fichier .torrent directement vers un client de téléchargement."""
+    client = get_or_404(db, DownloadClient, client_id, "Client de téléchargement introuvable")
+    torrent_bytes = await file.read()
+    ok, msg, info_hash = await add_torrent_file_to_client(
+        client_type=client.client_type,
+        url=client.url,
+        username=client.username,
+        password=client.password,
+        torrent_bytes=torrent_bytes,
+        filename=file.filename or "upload.torrent",
+        category=category or client.category,
+        tags=tags or client.tags,
+    )
+    if not ok:
+        raise HTTPException(500, msg)
+    if request_id and info_hash:
+        req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
+        if req:
+            req.download_client_id = client.id
+            req.torrent_hash = info_hash
+            req.status = "sent_to_arr"
+            db.commit()
     return {"success": True, "message": msg, "info_hash": info_hash}
 
 
@@ -688,6 +734,26 @@ async def radarr_folders(
     db: Session = Depends(get_db),
 ):
     return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
+
+
+@router.get("/sonarr/tags")
+async def sonarr_tags(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_tags)
+
+
+@router.get("/radarr/tags")
+async def radarr_tags(
+    instance_id: Optional[int] = None,
+    url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_tags)
 
 
 # ---------------------------------------------------------------------------
@@ -1067,7 +1133,7 @@ async def health_check(db: Session = Depends(get_db)):
         checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)))
     if s and s.radarr_url and s.radarr_api_key:
         checks["radarr"] = ("failed", _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key)))
-    if s and s.seer_enabled and s.seer_url and s.seer_api_key:
+    if s and s.seer_url and s.seer_api_key:
         checks["seer"] = ("degraded", _timed_check(seer_test(s.seer_url, s.seer_api_key)))
     if s and s.plex_url and s.plex_token:
         checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token)))
@@ -1334,8 +1400,46 @@ def next_poll_info():
 
 
 @router.get("/requests")
-def list_requests(db: Session = Depends(get_db)):
-    return db.query(MediaRequest).order_by(MediaRequest.requested_at.desc()).limit(200).all()
+def list_requests(query: Optional[str] = None, db: Session = Depends(get_db)):
+    q = db.query(MediaRequest)
+    if query:
+        q = q.filter(MediaRequest.title.ilike(f"%{query}%"))
+    return q.order_by(MediaRequest.requested_at.desc()).limit(200).all()
+
+
+@router.get("/plex/library-search")
+async def plex_library_search(query: str, db: Session = Depends(get_db)):
+    """Cherche un titre dans la bibliothèque Plex locale."""
+    s = db.query(Settings).first()
+    if not s or not s.plex_url or not s.plex_token:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10, verify=False) as client:
+            r = await client.get(
+                f"{s.plex_url.rstrip('/')}/search",
+                params={"query": query, "X-Plex-Token": s.plex_token, "limit": 10},
+                headers={"Accept": "application/json"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            items = data.get("MediaContainer", {}).get("Metadata", [])
+            return [
+                {
+                    "title": i.get("title", ""),
+                    "year": i.get("year"),
+                    "media_type": "show" if i.get("type") in ("show", "season", "episode") else "movie",
+                    "thumb": f"{s.plex_url.rstrip('/')}{i['thumb']}?X-Plex-Token={s.plex_token}"
+                    if i.get("thumb")
+                    else None,
+                    "summary": i.get("summary", ""),
+                    "plex_type": i.get("type", ""),
+                }
+                for i in items
+                if i.get("type") in ("movie", "show")
+            ]
+    except Exception as e:
+        logger.warning(f"Plex library search failed: {e}")
+        return []
 
 
 @router.get("/requests/{request_id}")
@@ -2088,3 +2192,218 @@ def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depe
     db.delete(req)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Recherche unifiée de médias (lookup Sonarr/Radarr + add)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/media/capabilities")
+def media_capabilities(db: Session = Depends(get_db)):
+    """Retourne les services disponibles pour orienter le flux de recherche côté frontend."""
+    s = db.query(Settings).first()
+    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    arr_types = {i.arr_type for i in instances}
+    return {
+        "has_sonarr": "sonarr" in arr_types,
+        "has_radarr": "radarr" in arr_types,
+        "has_prowlarr": "prowlarr" in arr_types,
+        "has_seer": bool(s and s.seer_send_requests and s.seer_url and s.seer_api_key),
+        "seer_fallback_arr": bool(s and s.seer_fallback_arr),
+    }
+
+
+@router.get("/media/lookup")
+async def media_lookup(query: str, type: str = "movie", db: Session = Depends(get_db)):
+    """Cherche un titre via l'API Sonarr ou Radarr et retourne les métadonnées enrichies."""
+    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    arr_type = "sonarr" if type == "show" else "radarr"
+    inst = next((i for i in instances if i.arr_type == arr_type), None)
+
+    if not inst:
+        return []
+
+    base = inst.url.rstrip("/")
+    headers = {"X-Api-Key": inst.api_key}
+    endpoint = "/api/v3/series/lookup" if arr_type == "sonarr" else "/api/v3/movie/lookup"
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"{base}{endpoint}", params={"term": query}, headers=headers)
+            r.raise_for_status()
+            results = r.json()
+    except Exception as e:
+        logger.warning(f"Media lookup failed ({arr_type}): {e}")
+        return []
+
+    def _poster(item: dict) -> Optional[str]:
+        for img in item.get("images", []):
+            if img.get("coverType") == "poster":
+                remote = img.get("remoteUrl") or img.get("url", "")
+                if remote:
+                    return remote
+        return None
+
+    normalized = []
+    for item in results[:10]:
+        if arr_type == "sonarr":
+            normalized.append(
+                {
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "overview": item.get("overview", ""),
+                    "poster": _poster(item),
+                    "tvdb_id": item.get("tvdbId"),
+                    "tmdb_id": None,
+                    "media_type": "show",
+                    "already_added": item.get("id") is not None,
+                    "status": item.get("status", ""),
+                }
+            )
+        else:
+            normalized.append(
+                {
+                    "title": item.get("title", ""),
+                    "year": item.get("year"),
+                    "overview": item.get("overview", ""),
+                    "poster": _poster(item),
+                    "tmdb_id": item.get("tmdbId"),
+                    "tvdb_id": None,
+                    "media_type": "movie",
+                    "already_added": item.get("id") is not None,
+                    "status": item.get("status", ""),
+                }
+            )
+    return normalized
+
+
+class MediaAddRequest(BaseModel):
+    title: str
+    year: Optional[int] = None
+    media_type: str  # "movie" | "show"
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
+    quality_profile_id: Optional[int] = None
+    root_folder: Optional[str] = None
+    tag_ids: list[int] = []
+    plex_user_id: Optional[str] = None
+    instance_id: Optional[int] = None  # None = Seer ou instance par défaut
+    use_seer: bool = False
+
+
+@router.post("/media/add")
+async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
+    """Ajoute un média via Seer (prioritaire) ou directement dans Sonarr/Radarr."""
+    s = db.query(Settings).first()
+    item = body.model_dump()
+
+    arr_id = None
+    already = False
+    via = None
+
+    # --- Seer ---
+    # use_seer=True : choix explicite ; instance_id=None + seer configuré : comportement par défaut
+    seer_eligible = s and s.seer_send_requests and s.seer_url and s.seer_api_key
+    if body.use_seer or (not body.instance_id and seer_eligible):
+        if not seer_eligible:
+            raise HTTPException(400, "Seer n'est pas configuré.")
+        try:
+            seer_id, already, _ = await seer_service.request_media(s.seer_url, s.seer_api_key, item)
+            arr_id = seer_id
+            via = "seer"
+        except Exception as e:
+            if body.use_seer or not s.seer_fallback_arr:
+                raise HTTPException(502, f"Erreur Seer : {e}")
+            logger.warning(f"Seer failed, falling back to arr: {e}")
+
+    # --- Sonarr / Radarr (instance explicite ou fallback) ---
+    if via is None:
+        instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+        arr_type = "sonarr" if body.media_type == "show" else "radarr"
+
+        if body.instance_id:
+            inst = next((i for i in instances if i.id == body.instance_id and i.arr_type == arr_type), None)
+            if not inst:
+                raise HTTPException(400, f"Instance {body.instance_id} introuvable ou désactivée.")
+        else:
+            inst = next((i for i in instances if i.arr_type == arr_type and i.is_default), None)
+            if not inst:
+                inst = next((i for i in instances if i.arr_type == arr_type), None)
+
+        if not inst:
+            raise HTTPException(400, "Aucune instance Sonarr/Radarr configurée et Seer non activé.")
+
+        base = inst.url.rstrip("/")
+        headers = {"X-Api-Key": inst.api_key}
+
+        qp_id = body.quality_profile_id
+        rf = body.root_folder
+        if not qp_id or not rf:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    if not qp_id:
+                        qp_resp = await client.get(f"{base}/api/v3/qualityprofile", headers=headers)
+                        profiles = qp_resp.json()
+                        qp_id = profiles[0]["id"] if profiles else 1
+                    if not rf:
+                        rf_resp = await client.get(f"{base}/api/v3/rootfolder", headers=headers)
+                        folders = rf_resp.json()
+                        rf = folders[0]["path"] if folders else "/"
+            except Exception as e:
+                raise HTTPException(502, f"Impossible de récupérer la config {arr_type}: {e}")
+
+        try:
+            if arr_type == "sonarr":
+                arr_id, already, _ = await sonarr.add_series(
+                    inst.url, inst.api_key, qp_id, rf, item, tag_ids=body.tag_ids
+                )
+            else:
+                arr_id, already, _ = await radarr.add_movie(
+                    inst.url, inst.api_key, qp_id, rf, item, tag_ids=body.tag_ids
+                )
+            via = arr_type
+        except Exception as e:
+            raise HTTPException(502, f"Erreur {arr_type} : {e}")
+
+    # --- Enregistrement dans la DB locale si absent ---
+    tmdb_str = str(body.tmdb_id) if body.tmdb_id else None
+    tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
+    existing = (
+        db.query(MediaRequest)
+        .filter(
+            MediaRequest.title == body.title,
+            MediaRequest.media_type == body.media_type,
+        )
+        .first()
+    )
+    if tmdb_str and not existing:
+        existing = db.query(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str).first()
+    if tvdb_str and not existing:
+        existing = db.query(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str).first()
+
+    if not existing:
+        user_id = body.plex_user_id or "manual"
+        user_label = "Recherche manuelle"
+        if body.plex_user_id:
+            pu = db.query(PlexUser).filter(PlexUser.plex_user_id == body.plex_user_id).first()
+            if pu:
+                user_label = pu.display_name or pu.plex_user_id
+        req = MediaRequest(
+            plex_user_id=user_id,
+            plex_user=user_label,
+            title=body.title,
+            year=body.year,
+            media_type=body.media_type,
+            tmdb_id=tmdb_str,
+            tvdb_id=tvdb_str,
+            imdb_id=body.imdb_id,
+            status=RequestStatus.sent_to_arr,
+            source="manual_search",
+            arr_id=arr_id if isinstance(arr_id, int) else None,
+        )
+        db.add(req)
+        db.commit()
+
+    return {"ok": True, "via": via, "already_existed": already, "id": arr_id}

@@ -539,12 +539,15 @@ async def _submit_to_arr(
         logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
         return None, True, None
 
-    if settings.seer_enabled and settings.seer_url and settings.seer_api_key:
+    if settings.seer_send_requests and settings.seer_url and settings.seer_api_key:
         t0 = time.monotonic()
         result = await seer_request(settings.seer_url, settings.seer_api_key, item)
         app_metrics.record_seer_latency((time.monotonic() - t0) * 1000)
-        app_metrics.record_arr_submission(result[0] is not None or result[1])
-        return result
+        seer_ok = result[0] is not None or result[1]
+        app_metrics.record_arr_submission(seer_ok)
+        if seer_ok or not settings.seer_fallback_arr:
+            return result
+        logger.warning("Seer request failed, falling back to Sonarr/Radarr")
 
     ctx = db_session(SessionLocal) if db is None else nullcontext(db)
     with ctx as active_db:

@@ -416,6 +416,111 @@ async def add_torrent_to_client(
     return False, f"Type de client inconnu: {client_type}", None
 
 
+async def add_torrent_file_to_client(
+    client_type: str,
+    url: str,
+    username: Optional[str],
+    password: Optional[str],
+    torrent_bytes: bytes,
+    filename: str = "upload.torrent",
+    category: Optional[str] = None,
+    tags: Optional[str] = None,
+) -> tuple[bool, str, str | None]:
+    """Envoie un fichier .torrent (bytes) directement à un client. Retourne (success, message, hash)."""
+    import base64
+    import struct
+
+    def _parse_info_hash(data: bytes) -> str | None:
+        """Extrait le SHA1 info-hash d'un fichier .torrent via bencode minimal."""
+        try:
+            import hashlib
+
+            pos = data.find(b"4:info")
+            if pos == -1:
+                return None
+            pos += 6
+            # find end of dict
+            depth = 1
+            i = pos
+            while i < len(data) and depth > 0:
+                if data[i : i + 1] == b"d":
+                    depth += 1
+                    i += 1
+                elif data[i : i + 1] == b"e":
+                    depth -= 1
+                    i += 1
+                elif data[i : i + 1] == b"l":
+                    depth += 1
+                    i += 1
+                elif data[i : i + 1] in (b"i",):
+                    end = data.index(b"e", i + 1)
+                    i = end + 1
+                elif data[i : i + 1].isdigit():
+                    colon = data.index(b":", i)
+                    length = int(data[i:colon])
+                    i = colon + 1 + length
+                else:
+                    i += 1
+            info_dict = data[pos:i]
+            return hashlib.sha1(info_dict).hexdigest()
+        except Exception:
+            return None
+
+    if client_type == "qbittorrent":
+        async with httpx.AsyncClient() as client_http:
+            sid = await qbittorrent_login(client_http, url, username, password)
+            if not sid:
+                return False, "Échec de connexion qBittorrent", None
+            add_url = f"{url.rstrip('/')}/api/v2/torrents/add"
+            form_data = {}
+            if category:
+                form_data["category"] = category
+            if tags:
+                form_data["tags"] = tags
+            try:
+                r = await client_http.post(
+                    add_url,
+                    data=form_data,
+                    files={"torrents": (filename, torrent_bytes, "application/x-bittorrent")},
+                    cookies={"SID": sid},
+                    timeout=20,
+                )
+                r.raise_for_status()
+                info_hash = _parse_info_hash(torrent_bytes)
+                return True, "Fichier .torrent ajouté à qBittorrent", info_hash
+            except Exception as e:
+                return False, f"Erreur qBittorrent : {e}", None
+
+    elif client_type == "transmission":
+        async with httpx.AsyncClient() as client_http:
+            try:
+                metainfo = base64.b64encode(torrent_bytes).decode()
+                args: dict = {"metainfo": metainfo}
+                if tags:
+                    args["labels"] = [t.strip() for t in tags.split(",") if t.strip()]
+                res = await transmission_rpc(client_http, url, username, password, "torrent-add", args)
+                if res.get("result") == "success":
+                    torrent_info = res.get("arguments", {}).get("torrent-added") or res.get("arguments", {}).get(
+                        "torrent-duplicate"
+                    )
+                    info_hash = torrent_info.get("hashString") if torrent_info else _parse_info_hash(torrent_bytes)
+                    return True, "Fichier .torrent ajouté à Transmission", info_hash
+                return False, f"Erreur RPC: {res.get('result')}", None
+            except Exception as e:
+                return False, f"Erreur Transmission : {e}", None
+
+    elif client_type == "watch_folder":
+        try:
+            dest = os.path.join(url, filename)
+            with open(dest, "wb") as f:
+                f.write(torrent_bytes)
+            return True, f"Fichier copié dans {dest}", None
+        except Exception as e:
+            return False, f"Erreur watch folder : {e}", None
+
+    return False, f"Type de client inconnu : {client_type}", None
+
+
 async def get_torrent_status(
     client_type: str, url: str, username: Optional[str], password: Optional[str], torrent_hash: str
 ) -> dict | None:

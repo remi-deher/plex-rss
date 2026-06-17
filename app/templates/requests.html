@@ -103,6 +103,12 @@
       {% endfor %}
     </select>
   </div>
+  <div class="col-auto ms-auto">
+    <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-1"
+            onclick="openAddPanel(document.getElementById('searchInput').value.trim())">
+      <i class="bi bi-plus-circle"></i> Ajouter un titre
+    </button>
+  </div>
 </form>
 
 <!-- Chips filtres actifs (D) -->
@@ -206,11 +212,24 @@
   {% else %}
   <div class="col-12 text-center text-muted py-5">
     <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
-    {% if active_search or active_status or active_type or active_source or active_user %}
+    {% if active_search %}
+    <div class="mb-3">Aucune demande pour <strong>« {{ active_search }} »</strong>.</div>
+    <button class="btn btn-warning d-inline-flex align-items-center gap-2"
+            onclick="openAddPanel('{{ active_search }}')">
+      <i class="bi bi-plus-circle"></i> Rechercher et ajouter « {{ active_search }} »
+    </button>
+    <div class="mt-2">
+      <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+    </div>
+    {% elif active_status or active_type or active_source or active_user %}
     <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
     <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
     {% else %}
-    <div>Aucune demande pour le moment.</div>
+    <div class="mb-3">Aucune demande pour le moment.</div>
+    <button class="btn btn-warning d-inline-flex align-items-center gap-2"
+            onclick="openAddPanel('')">
+      <i class="bi bi-plus-circle"></i> Ajouter un titre
+    </button>
     {% endif %}
   </div>
   {% endfor %}
@@ -379,11 +398,24 @@
           {% else %}
           <tr><td colspan="13" class="text-center text-muted py-5">
             <i class="bi bi-inbox d-block fs-1 mb-2 opacity-50"></i>
-            {% if active_search or active_status or active_type or active_source or active_user %}
+            {% if active_search %}
+            <div class="mb-3">Aucune demande pour <strong>« {{ active_search }} »</strong>.</div>
+            <button class="btn btn-warning d-inline-flex align-items-center gap-2"
+                    onclick="openAddPanel('{{ active_search }}')">
+              <i class="bi bi-plus-circle"></i> Rechercher et ajouter « {{ active_search }} »
+            </button>
+            <div class="mt-2">
+              <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
+            </div>
+            {% elif active_status or active_type or active_source or active_user %}
             <div class="mb-2">Aucune demande ne correspond à ces filtres.</div>
             <a href="/requests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>Réinitialiser les filtres</a>
             {% else %}
-            <div>Aucune demande pour le moment.</div>
+            <div class="mb-3">Aucune demande pour le moment.</div>
+            <button class="btn btn-warning d-inline-flex align-items-center gap-2"
+                    onclick="openAddPanel('')">
+              <i class="bi bi-plus-circle"></i> Ajouter un titre
+            </button>
             {% endif %}
           </td></tr>
           {% endfor %}
@@ -395,6 +427,163 @@
 
 <!-- État vide filtres -->
 <div id="empty-state" class="text-center text-muted py-5" style="display:none"></div>
+
+<!-- ── Panel "Ajouter un titre" (inline) ── -->
+<div id="add-panel" class="d-none mt-4">
+  <div class="card p-4" style="background:var(--pr-surface-2);border:1px solid var(--pr-border)">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h6 class="mb-0 fw-semibold"><i class="bi bi-plus-circle me-2 text-warning"></i>Ajouter un titre</h6>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeAddPanel()"><i class="bi bi-x"></i></button>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-md-6">
+        <div class="input-group">
+          <input type="text" id="add-query" class="form-control" placeholder="Titre du film ou de la série…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();addPanelSearch();}">
+          <button class="btn btn-warning" onclick="addPanelSearch()"><i class="bi bi-search"></i></button>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select id="add-media-type" class="form-select">
+          <option value="movie">Film</option>
+          <option value="show">Série (TV)</option>
+        </select>
+      </div>
+    </div>
+    <div id="add-panel-loading" class="text-center text-muted py-3 d-none">
+      <div class="spinner-border spinner-border-sm text-warning me-2"></div>
+      <span class="small">Recherche en cours…</span>
+    </div>
+    <div id="add-panel-results" class="row g-3"></div>
+  </div>
+</div>
+
+<!-- ── Modale confirmation d'ajout ── -->
+<div class="modal fade" id="addMediaModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="background:var(--pr-surface);color:var(--bs-body-color)">
+      <div class="modal-header border-secondary">
+        <div class="d-flex align-items-center gap-3">
+          <img id="add-action-poster" src="" alt="" style="width:50px;height:75px;object-fit:cover;border-radius:6px;display:none">
+          <div>
+            <h5 class="modal-title mb-0" id="add-action-title"></h5>
+            <div class="text-muted small" id="add-action-meta"></div>
+          </div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-4" id="add-action-overview"></p>
+
+        <!-- Sélecteur de service / instance (pills visuelles ; le select reste la source de vérité) -->
+        <div class="mb-3" id="add-service-field">
+          <label class="form-label fw-semibold">Service</label>
+          <select id="add-service-select" class="d-none" onchange="onServiceChange()"></select>
+          <div id="add-service-pills"></div>
+        </div>
+        <!-- Raccourci affiché quand un seul service de médiathèque est configuré -->
+        <div id="add-manual-toggle" class="mb-3 d-none">
+          <a href="#" class="small text-warning text-decoration-none" onclick="revealManualDownload(event)">
+            <i class="bi bi-download me-1"></i>Télécharger manuellement…
+          </a>
+        </div>
+
+        <!-- Champs Sonarr / Radarr -->
+        <div id="add-arr-fields" class="d-none">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Profil qualité</label>
+              <select id="add-quality-profile" class="form-select">
+                <option value="">Chargement…</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Dossier racine</label>
+              <select id="add-root-folder" class="form-select">
+                <option value="">Chargement…</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
+            <div id="add-tags-container" class="d-flex flex-wrap gap-2 p-2 rounded" style="background:var(--pr-surface);border:1px solid var(--pr-border);min-height:42px">
+              <span class="text-muted small align-self-center">Chargement…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Champs Prowlarr -->
+        <div id="add-prowlarr-fields" class="d-none">
+          <div class="mb-3">
+            <button type="button" class="btn btn-outline-warning btn-sm d-flex align-items-center gap-2" onclick="addModalProwlarrSearch()">
+              <i class="bi bi-arrow-clockwise"></i> Relancer la recherche
+            </button>
+          </div>
+          <div id="add-prowlarr-loading" class="text-center text-muted py-2 d-none">
+            <div class="spinner-border spinner-border-sm text-warning me-2"></div>
+            <span class="small">Recherche Prowlarr…</span>
+          </div>
+          <div id="add-prowlarr-results" class="d-none" style="max-height:260px;overflow-y:auto">
+            <table class="table table-sm table-dark table-hover mb-0" style="font-size:12px">
+              <thead><tr><th>Titre</th><th>Taille</th><th>S/L</th><th></th></tr></thead>
+              <tbody id="add-prowlarr-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Champs Direct (magnet / fichier) -->
+        <div id="add-direct-fields" class="d-none">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Lien magnet ou URL</label>
+            <input type="text" id="add-direct-magnet" class="form-control" placeholder="magnet:?xt=urn:btih:… ou https://…">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Ou fichier .torrent</label>
+            <input type="file" id="add-direct-file" class="form-control" accept=".torrent">
+          </div>
+        </div>
+
+        <!-- Client de téléchargement (Prowlarr + Direct) -->
+        <div id="add-dl-client-fields" class="d-none">
+          <hr class="border-secondary">
+          <div id="add-selected-release" class="alert alert-secondary py-2 small mb-3 d-none">
+            <i class="bi bi-check-circle me-2"></i><span id="add-selected-release-title"></span>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Client de téléchargement</label>
+              <select id="add-dl-client" class="form-select" onchange="onAddDlClientChange()">
+                <option value="">Chargement…</option>
+              </select>
+            </div>
+            <div class="col-md-6 qbit-only-add">
+              <label class="form-label fw-semibold">Catégorie <span class="text-muted fw-normal">(optionnel)</span></label>
+              <input type="text" id="add-dl-category" class="form-control" placeholder="Défaut du client">
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
+            <input type="text" id="add-dl-tags" class="form-control" placeholder="Défaut du client, séparés par virgules">
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Attribuer à</label>
+          <select id="add-action-user" class="form-select">
+            <option value="">Recherche manuelle</option>
+          </select>
+        </div>
+        <div id="add-action-feedback" class="d-none"></div>
+      </div>
+      <div class="modal-footer border-secondary" id="add-action-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-success d-flex align-items-center gap-2" id="add-action-btn" onclick="addPanelConfirm()">
+          <i class="bi bi-plus-circle"></i> <span id="add-action-label">Ajouter</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Indicateur chargement AJAX (B) -->
 <div id="content-loading" style="display:none;position:fixed;inset:0;z-index:9000;align-items:center;justify-content:center;background:rgba(0,0,0,.35)">
@@ -1170,5 +1359,586 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState(null, '', location.pathname + location.search);
   }
 });
+
+// ── Panel "Ajouter un titre" ──────────────────────────────────────────────
+let _addPanelItem = null;
+let _addCaps = {};
+let _addUsers = [];
+
+async function _initAddPanel() {
+  const [capsR, usersR] = await Promise.all([
+    fetch('/api/media/capabilities'),
+    fetch('/api/users'),
+    _loadInstances(),
+  ]);
+  _addCaps = capsR.ok ? await capsR.json() : {};
+  _addUsers = usersR.ok ? await usersR.json() : [];
+  const sel = document.getElementById('add-action-user');
+  _addUsers.filter(u => u.enabled).forEach(u => {
+    const o = document.createElement('option');
+    o.value = u.plex_user_id;
+    o.textContent = u.display_name || u.plex_user_id;
+    sel.appendChild(o);
+  });
+}
+_initAddPanel();
+
+function openAddPanel(query) {
+  const panel = document.getElementById('add-panel');
+  panel.classList.remove('d-none');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const input = document.getElementById('add-query');
+  if (query) {
+    input.value = query;
+    addPanelSearch();
+  } else {
+    input.focus();
+  }
+}
+
+function closeAddPanel() {
+  document.getElementById('add-panel').classList.add('d-none');
+  document.getElementById('add-panel-results').innerHTML = '';
+  document.getElementById('add-panel-action').classList.add('d-none');
+  document.getElementById('add-action-feedback').classList.add('d-none');
+}
+
+async function addPanelSearch() {
+  const query = document.getElementById('add-query').value.trim();
+  const type = document.getElementById('add-media-type').value;
+  if (!query) return;
+  document.getElementById('add-panel-results').innerHTML = '';
+  document.getElementById('add-panel-loading').classList.remove('d-none');
+  try {
+    const r = await fetch(`/api/media/lookup?query=${encodeURIComponent(query)}&type=${type}`);
+    const items = r.ok ? await r.json() : [];
+    document.getElementById('add-panel-loading').classList.add('d-none');
+    window._addLookupItems = items;
+    const container = document.getElementById('add-panel-results');
+    if (!items.length) {
+      container.innerHTML = `<div class="col-12 text-center text-muted small py-3">Aucun résultat — vérifiez que Sonarr/Radarr est configuré.</div>`;
+      return;
+    }
+    container.innerHTML = items.map((item, idx) => {
+      const badge = item.already_added ? `<span class="badge bg-primary ms-1">Déjà ajouté</span>` : '';
+      return `<div class="col-md-6 col-lg-4">
+        <div class="card p-2 hover-card" style="background:var(--pr-surface);cursor:pointer" onclick="addPanelSelect(${idx})">
+          <div class="d-flex gap-2">
+            ${item.poster ? `<img src="${item.poster.replace(/"/g,'')}" style="width:40px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">` : ''}
+            <div class="min-w-0">
+              <div class="fw-semibold small text-truncate">${item.title}${item.year?` <span class="text-muted">(${item.year})</span>`:''}${badge}</div>
+              <div class="text-muted" style="font-size:11px">${(item.overview||'').slice(0,80)}${(item.overview||'').length>80?'…':''}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    document.getElementById('add-panel-loading').classList.add('d-none');
+    document.getElementById('add-panel-results').innerHTML = `<div class="col-12 text-danger small">${e.message}</div>`;
+  }
+}
+
+let _selectedTagIds = new Set();
+let _allInstances = [];
+
+async function _loadInstances() {
+  try {
+    const r = await fetch('/api/arr-instances');
+    _allInstances = r.ok ? await r.json() : [];
+  } catch(e) { _allInstances = []; }
+}
+
+async function addPanelSelect(idx) {
+  _addPanelItem = window._addLookupItems[idx];
+  if (!_addPanelItem) return;
+
+  document.getElementById('add-action-title').textContent =
+    _addPanelItem.title + (_addPanelItem.year ? ` (${_addPanelItem.year})` : '');
+  document.getElementById('add-action-meta').textContent =
+    _addPanelItem.media_type === 'show' ? 'Série TV' : 'Film';
+  document.getElementById('add-action-overview').textContent = (_addPanelItem.overview || '').slice(0, 200);
+
+  const poster = document.getElementById('add-action-poster');
+  poster.src = _addPanelItem.poster || '';
+  poster.style.display = _addPanelItem.poster ? '' : 'none';
+
+  document.getElementById('add-action-feedback').classList.add('d-none');
+  document.getElementById('add-action-footer').classList.remove('d-none');
+
+  const btn = document.getElementById('add-action-btn');
+  btn.disabled = false;
+  btn.classList.remove('d-none');
+
+  // Peupler le sélecteur de service
+  const isShow = _addPanelItem.media_type === 'show';
+  const arrType = isShow ? 'sonarr' : 'radarr';
+  const serviceSel = document.getElementById('add-service-select');
+  serviceSel.innerHTML = '';
+
+  // Groupe "Ajouter à la médiathèque"
+  const grpMedia = document.createElement('optgroup');
+  grpMedia.label = 'Ajouter à la médiathèque';
+
+  if (_addCaps.has_seer) {
+    const o = document.createElement('option');
+    o.value = 'seer';
+    o.textContent = 'Seer (Overseerr / Jellyseerr)';
+    grpMedia.appendChild(o);
+  }
+
+  const arrInstances = _allInstances.filter(i => i.arr_type === arrType && i.enabled);
+  arrInstances.forEach(i => {
+    const o = document.createElement('option');
+    o.value = `arr:${i.id}`;
+    o.textContent = `${i.name}${i.is_default ? ' (Défaut)' : ''}`;
+    grpMedia.appendChild(o);
+  });
+
+  if (grpMedia.children.length) serviceSel.appendChild(grpMedia);
+
+  // Groupe "Téléchargement manuel"
+  const grpDl = document.createElement('optgroup');
+  grpDl.label = 'Téléchargement manuel';
+
+  const prowlarrInstances = _allInstances.filter(i => i.arr_type === 'prowlarr' && i.enabled);
+  prowlarrInstances.forEach(i => {
+    const o = document.createElement('option');
+    o.value = `prowlarr:${i.id}`;
+    o.textContent = `Prowlarr — ${i.name}`;
+    grpDl.appendChild(o);
+  });
+
+  const oDirect = document.createElement('option');
+  oDirect.value = 'direct';
+  oDirect.textContent = 'Direct (magnet / .torrent)';
+  grpDl.appendChild(oDirect);
+  serviceSel.appendChild(grpDl);
+
+  if (!serviceSel.options.length) {
+    const o = document.createElement('option');
+    o.value = '';
+    o.textContent = 'Aucun service configuré';
+    serviceSel.appendChild(o);
+    btn.disabled = true;
+  }
+
+  // Pré-sélectionner instance par défaut
+  if (_addCaps.has_seer) {
+    serviceSel.value = 'seer';
+  } else if (arrInstances.length) {
+    const def = arrInstances.find(i => i.is_default) || arrInstances[0];
+    serviceSel.value = `arr:${def.id}`;
+  } else if (prowlarrInstances.length) {
+    serviceSel.value = `prowlarr:${prowlarrInstances[0].id}`;
+  } else {
+    serviceSel.value = 'direct';
+  }
+
+  // Cas nominal : un seul service de médiathèque et aucun Prowlarr →
+  // on masque le sélecteur (rien à choisir) et on propose un raccourci manuel discret.
+  const libraryCount = (_addCaps.has_seer ? 1 : 0) + arrInstances.length;
+  const field = document.getElementById('add-service-field');
+  const manualToggle = document.getElementById('add-manual-toggle');
+  if (libraryCount === 1 && !prowlarrInstances.length) {
+    field.classList.add('d-none');
+    manualToggle.classList.remove('d-none');
+  } else {
+    field.classList.remove('d-none');
+    manualToggle.classList.add('d-none');
+  }
+
+  renderServicePills();
+  await onServiceChange();
+  new bootstrap.Modal(document.getElementById('addMediaModal')).show();
+}
+
+let _prowlarrSelectedUrl = null;
+
+// Le raccourci "Télécharger manuellement" révèle le sélecteur (pour pouvoir revenir
+// à la médiathèque) et bascule directement sur le mode direct.
+function revealManualDownload(e) {
+  e.preventDefault();
+  document.getElementById('add-manual-toggle').classList.add('d-none');
+  document.getElementById('add-service-field').classList.remove('d-none');
+  setService('direct');
+}
+
+// ── Pills de sélection du service (couche visuelle au-dessus du <select> caché) ──
+function _serviceIcon(val) {
+  if (val === 'seer') return 'bi-collection-play';
+  if (val.startsWith('arr:')) return _addPanelItem?.media_type === 'show' ? 'bi-tv' : 'bi-film';
+  if (val.startsWith('prowlarr:')) return 'bi-search';
+  if (val === 'direct') return 'bi-magnet';
+  return 'bi-question-circle';
+}
+
+function _makeServicePill(opt) {
+  const pill = document.createElement('button');
+  pill.type = 'button';
+  pill.className = 'btn btn-sm btn-outline-secondary service-pill d-flex align-items-center gap-2';
+  pill.dataset.value = opt.value;
+  pill.innerHTML = `<i class="bi ${_serviceIcon(opt.value)}"></i> ${escHtml(opt.textContent)}`;
+  pill.disabled = !opt.value;
+  pill.onclick = () => setService(opt.value);
+  return pill;
+}
+
+function renderServicePills() {
+  const sel = document.getElementById('add-service-select');
+  const container = document.getElementById('add-service-pills');
+  container.innerHTML = '';
+  Array.from(sel.children).forEach(node => {
+    if (node.tagName === 'OPTGROUP') {
+      const grp = document.createElement('div');
+      grp.className = 'mb-2';
+      const lbl = document.createElement('div');
+      lbl.className = 'text-muted small fw-semibold mb-1';
+      lbl.textContent = node.label;
+      grp.appendChild(lbl);
+      const row = document.createElement('div');
+      row.className = 'd-flex flex-wrap gap-2';
+      Array.from(node.children).forEach(opt => row.appendChild(_makeServicePill(opt)));
+      grp.appendChild(row);
+      container.appendChild(grp);
+    } else if (node.tagName === 'OPTION') {
+      const row = document.createElement('div');
+      row.className = 'd-flex flex-wrap gap-2';
+      row.appendChild(_makeServicePill(node));
+      container.appendChild(row);
+    }
+  });
+  updatePillActive();
+}
+
+function updatePillActive() {
+  const val = document.getElementById('add-service-select').value;
+  document.querySelectorAll('#add-service-pills .service-pill').forEach(p => {
+    const active = p.dataset.value === val;
+    p.classList.toggle('btn-warning', active);
+    p.classList.toggle('text-dark', active);
+    p.classList.toggle('btn-outline-secondary', !active);
+  });
+}
+
+function setService(val) {
+  document.getElementById('add-service-select').value = val;
+  updatePillActive();
+  onServiceChange();
+}
+
+async function onServiceChange() {
+  if (!_addPanelItem) return;
+  const val = document.getElementById('add-service-select').value;
+  const btn = document.getElementById('add-action-btn');
+  _selectedTagIds = new Set();
+  _prowlarrSelectedUrl = null;
+  updatePillActive();
+
+  // Cacher toutes les sections
+  ['add-arr-fields','add-prowlarr-fields','add-direct-fields','add-dl-client-fields'].forEach(id =>
+    document.getElementById(id).classList.add('d-none')
+  );
+  document.getElementById('add-prowlarr-results').classList.add('d-none');
+  document.getElementById('add-selected-release').classList.add('d-none');
+
+  if (val === 'seer') {
+    document.getElementById('add-action-label').textContent =
+      _addPanelItem.already_added ? 'Importer dans les demandes' : 'Ajouter via Seer';
+    btn.className = _addPanelItem.already_added
+      ? 'btn btn-outline-secondary d-flex align-items-center gap-2'
+      : 'btn btn-success d-flex align-items-center gap-2';
+    btn.disabled = false;
+
+  } else if (val.startsWith('arr:')) {
+    const isShow = _addPanelItem.media_type === 'show';
+    document.getElementById('add-arr-fields').classList.remove('d-none');
+    await loadArrOptions(isShow ? 'sonarr' : 'radarr', val.replace('arr:', ''));
+    document.getElementById('add-action-label').textContent =
+      _addPanelItem.already_added ? 'Importer dans les demandes'
+        : `Ajouter dans ${isShow ? 'Sonarr' : 'Radarr'}`;
+    btn.className = _addPanelItem.already_added
+      ? 'btn btn-outline-secondary d-flex align-items-center gap-2'
+      : 'btn btn-success d-flex align-items-center gap-2';
+    btn.disabled = false;
+
+  } else if (val.startsWith('prowlarr:')) {
+    document.getElementById('add-prowlarr-fields').classList.remove('d-none');
+    document.getElementById('add-dl-client-fields').classList.remove('d-none');
+    await loadDlClients();
+    document.getElementById('add-action-label').textContent = 'Télécharger';
+    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
+    btn.disabled = true; // activé après sélection d'une release
+    addModalProwlarrSearch(); // recherche auto avec le titre déjà connu
+
+  } else if (val === 'direct') {
+    document.getElementById('add-direct-fields').classList.remove('d-none');
+    document.getElementById('add-dl-client-fields').classList.remove('d-none');
+    await loadDlClients();
+    document.getElementById('add-action-label').textContent = 'Télécharger';
+    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
+    btn.disabled = false;
+
+  } else {
+    btn.disabled = true;
+  }
+}
+
+async function loadDlClients() {
+  const sel = document.getElementById('add-dl-client');
+  sel.innerHTML = '<option>Chargement…</option>';
+  try {
+    const r = await fetch('/api/download-clients');
+    const clients = r.ok ? await r.json() : [];
+    sel.innerHTML = clients.filter(c => c.enabled).map(c =>
+      `<option value="${c.id}" data-type="${c.client_type}" data-cat="${c.category||''}" data-tags="${c.tags||''}">${c.name}${c.is_default?' (Défaut)':''}</option>`
+    ).join('');
+    onAddDlClientChange();
+  } catch(e) {
+    sel.innerHTML = '<option>Erreur</option>';
+  }
+}
+
+function onAddDlClientChange() {
+  const sel = document.getElementById('add-dl-client');
+  const opt = sel.options[sel.selectedIndex];
+  const isQbit = opt?.dataset.type === 'qbittorrent';
+  document.querySelectorAll('.qbit-only-add').forEach(el => {
+    el.style.display = isQbit ? '' : 'none';
+  });
+  if (opt) {
+    document.getElementById('add-dl-category').value = opt.dataset.cat || '';
+    document.getElementById('add-dl-tags').value = opt.dataset.tags || '';
+  }
+}
+
+async function addModalProwlarrSearch() {
+  const val = document.getElementById('add-service-select').value;
+  const instanceId = val.replace('prowlarr:', '');
+  const query = _addPanelItem?.title || '';
+  const mediaType = _addPanelItem?.media_type || 'movie';
+
+  document.getElementById('add-prowlarr-loading').classList.remove('d-none');
+  document.getElementById('add-prowlarr-results').classList.add('d-none');
+
+  let url = `/api/search?query=${encodeURIComponent(query)}&media_type=${mediaType}`;
+  if (instanceId) url += `&instance_id=${instanceId}`;
+
+  try {
+    const r = await fetch(url);
+    const data = r.ok ? await r.json() : [];
+    document.getElementById('add-prowlarr-loading').classList.add('d-none');
+
+    const tbody = document.getElementById('add-prowlarr-tbody');
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Aucune release</td></tr>';
+    } else {
+      tbody.innerHTML = data.map(item => `
+        <tr style="cursor:pointer" onclick="selectProwlarrRelease('${escHtml(item.downloadUrl)}', '${escHtml(item.title)}', this)">
+          <td><span class="text-white">${escHtml(item.title)}</span><br><small class="text-muted">${escHtml(item.indexer||'')}</small></td>
+          <td class="text-nowrap">${formatBytes(item.size)}</td>
+          <td class="text-nowrap"><span class="text-success">${item.seeders}</span>/<span class="text-muted">${item.leechers}</span></td>
+          <td><i class="bi bi-download text-warning"></i></td>
+        </tr>`).join('');
+    }
+    document.getElementById('add-prowlarr-results').classList.remove('d-none');
+  } catch(e) {
+    document.getElementById('add-prowlarr-loading').classList.add('d-none');
+    showToast('Erreur Prowlarr : ' + e.message, 'danger');
+  }
+}
+
+function selectProwlarrRelease(url, title, row) {
+  _prowlarrSelectedUrl = url;
+  document.querySelectorAll('#add-prowlarr-tbody tr').forEach(r => r.classList.remove('table-warning'));
+  row.classList.add('table-warning');
+  const badge = document.getElementById('add-selected-release');
+  document.getElementById('add-selected-release-title').textContent = title;
+  badge.classList.remove('d-none');
+  document.getElementById('add-action-btn').disabled = false;
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes) return '—';
+  const k = 1024, sizes = ['B','Ko','Mo','Go','To'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+}
+
+async function loadArrOptions(arrType, instanceId) {
+  const profileSel = document.getElementById('add-quality-profile');
+  const folderSel = document.getElementById('add-root-folder');
+  const tagsContainer = document.getElementById('add-tags-container');
+  profileSel.innerHTML = '<option>Chargement…</option>';
+  folderSel.innerHTML = '<option>Chargement…</option>';
+  tagsContainer.innerHTML = '<span class="text-muted small align-self-center">Chargement…</span>';
+
+  const qs = instanceId ? `?instance_id=${instanceId}` : '';
+  try {
+    const [profiles, folders, tags] = await Promise.all([
+      fetch(`/api/${arrType}/profiles${qs}`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/${arrType}/folders${qs}`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/${arrType}/tags${qs}`).then(r => r.ok ? r.json() : []),
+    ]);
+
+    profileSel.innerHTML = profiles.map(p =>
+      `<option value="${p.id}">${p.name}</option>`
+    ).join('');
+
+    folderSel.innerHTML = folders.map(f =>
+      `<option value="${f}">${f}</option>`
+    ).join('');
+
+    if (!tags.length) {
+      tagsContainer.innerHTML = '<span class="text-muted small align-self-center">Aucun tag configuré</span>';
+    } else {
+      tagsContainer.innerHTML = tags.map(t =>
+        `<span class="badge tag-toggle px-3 py-2" data-id="${t.id}"
+              style="cursor:pointer;background:var(--pr-surface-2);border:1px solid var(--pr-border);color:var(--pr-text-muted);font-weight:500"
+              onclick="toggleTag(this, ${t.id})">${t.label}</span>`
+      ).join('');
+    }
+  } catch(e) {
+    profileSel.innerHTML = '<option>Erreur de chargement</option>';
+    folderSel.innerHTML = '<option>Erreur de chargement</option>';
+    tagsContainer.innerHTML = `<span class="text-danger small">${e.message}</span>`;
+  }
+}
+
+function toggleTag(el, id) {
+  if (_selectedTagIds.has(id)) {
+    _selectedTagIds.delete(id);
+    el.style.background = 'var(--pr-surface-2)';
+    el.style.borderColor = 'var(--pr-border)';
+    el.style.color = 'var(--pr-text-muted)';
+  } else {
+    _selectedTagIds.add(id);
+    el.style.background = 'var(--bs-warning)';
+    el.style.borderColor = 'var(--bs-warning)';
+    el.style.color = '#000';
+  }
+}
+
+async function addPanelConfirm() {
+  if (!_addPanelItem) return;
+  const svcVal = document.getElementById('add-service-select').value;
+  const btn = document.getElementById('add-action-btn');
+  const fb = document.getElementById('add-action-feedback');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>En cours…';
+  fb.classList.add('d-none');
+  try {
+    if (svcVal.startsWith('prowlarr:') || svcVal === 'direct') {
+      await _confirmDownload();
+    } else {
+      await _confirmMediaAdd(svcVal);
+    }
+  } catch(e) {
+    fb.innerHTML = `<div class="alert alert-danger py-2 mb-0"><i class="bi bi-x-circle me-2"></i>${e.message}</div>`;
+    fb.classList.remove('d-none');
+    btn.disabled = false;
+    btn.innerHTML = `<i class="bi bi-arrow-repeat me-2"></i><span id="add-action-label">Réessayer</span>`;
+  }
+}
+
+async function _confirmMediaAdd(svcVal) {
+  const useSeer = svcVal === 'seer';
+  const instanceId = svcVal.startsWith('arr:') ? parseInt(svcVal.replace('arr:', '')) : null;
+  const r = await fetch('/api/media/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: _addPanelItem.title,
+      year: _addPanelItem.year,
+      media_type: _addPanelItem.media_type,
+      tmdb_id: _addPanelItem.tmdb_id,
+      tvdb_id: _addPanelItem.tvdb_id,
+      plex_user_id: document.getElementById('add-action-user').value || null,
+      use_seer: useSeer,
+      instance_id: instanceId,
+      quality_profile_id: parseInt(document.getElementById('add-quality-profile')?.value) || null,
+      root_folder: document.getElementById('add-root-folder')?.value || null,
+      tag_ids: [..._selectedTagIds],
+    }),
+  });
+  const ct = r.headers.get('content-type') || '';
+  const d = ct.includes('json') ? await r.json() : { detail: await r.text() };
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+  const via = d.via === 'seer' ? 'Seer' : d.via === 'sonarr' ? 'Sonarr' : 'Radarr';
+  const titleHtml = `<strong>${escHtml(_addPanelItem.title)}</strong>`;
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = d.already_existed
+    ? `<div class="alert alert-info d-flex align-items-start gap-2 mb-0">
+         <i class="bi bi-info-circle mt-1"></i>
+         <div>${titleHtml} était déjà présent dans <strong>${via}</strong>.<br>
+         <span class="small text-muted">Ajouté à vos demandes pour le suivi.</span></div>
+       </div>`
+    : `<div class="alert alert-success d-flex align-items-start gap-2 mb-0">
+         <i class="bi bi-check-circle mt-1"></i>
+         <div>${titleHtml} ajouté via <strong>${via}</strong>.<br>
+         <span class="small text-muted">La recherche de fichiers a démarré.</span></div>
+       </div>`;
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => {
+    bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide();
+    window.location.reload();
+  }, 1500);
+}
+
+async function _confirmDownload() {
+  const clientId = document.getElementById('add-dl-client').value;
+  if (!clientId) throw new Error('Sélectionner un client de téléchargement');
+  const category = document.getElementById('add-dl-category').value.trim();
+  const tags = document.getElementById('add-dl-tags').value.trim();
+  const magnetInput = document.getElementById('add-direct-magnet')?.value.trim();
+  const fileInput = document.getElementById('add-direct-file');
+  const hasFile = fileInput?.files?.length > 0;
+
+  let r;
+  if (hasFile) {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('client_id', clientId);
+    if (category) fd.append('category', category);
+    if (tags) fd.append('tags', tags);
+    r = await fetch('/api/download/file', { method: 'POST', body: fd });
+  } else {
+    const url = _prowlarrSelectedUrl || magnetInput;
+    if (!url) throw new Error('Fournir un lien magnet ou sélectionner une release Prowlarr');
+    r = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ torrent_url_or_magnet: url, client_id: parseInt(clientId), category: category || null, tags: tags || null }),
+    });
+  }
+
+  const ct = r.headers.get('content-type') || '';
+  const d = ct.includes('json') ? await r.json() : { detail: await r.text() };
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+
+  const clientSel = document.getElementById('add-dl-client');
+  const clientName = clientSel.options[clientSel.selectedIndex]?.textContent?.trim() || 'le client';
+  const what = hasFile ? `Fichier <strong>${escHtml(fileInput.files[0].name)}</strong>` : 'Téléchargement';
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = `<div class="alert alert-success d-flex align-items-start gap-2 mb-0">
+       <i class="bi bi-check-circle mt-1"></i>
+       <div>${what} envoyé à <strong>${escHtml(clientName)}</strong>.<br>
+       <span class="small text-muted">Suivez la progression dans votre client de téléchargement.</span></div>
+     </div>`;
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
+}
 </script>
+
+<style>
+.hover-card { transition: transform .12s, box-shadow .12s; }
+.hover-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+</style>
 {% endblock %}
