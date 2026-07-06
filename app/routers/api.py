@@ -56,7 +56,7 @@ from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
-from ..utils import get_or_404, parse_email_list
+from ..utils import get_or_404, identity_keys, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,78 @@ def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
     db.query(VfEpisodeStatus).filter(
         VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
     ).delete()
+
+
+def _request_status_value(req: MediaRequest) -> str:
+    return req.status.value if hasattr(req.status, "value") else str(req.status)
+
+
+def _media_identity_filter(db: Session, item) -> list[MediaRequest]:
+    """Retourne les demandes qui représentent le même média qu'un LibraryItem ou une demande."""
+    matches: dict[int, MediaRequest] = {}
+    if isinstance(item, LibraryItem):
+        for req in db.query(MediaRequest).filter(MediaRequest.library_item_id == item.id).all():
+            matches[req.id] = req
+    for key in identity_keys(item):
+        kind = key[0]
+        value = key[1] if len(key) > 1 else None
+        col = {
+            "guid": MediaRequest.plex_guid,
+            "tmdb": MediaRequest.tmdb_id,
+            "tvdb": MediaRequest.tvdb_id,
+            "imdb": MediaRequest.imdb_id,
+        }.get(kind)
+        if col is not None:
+            for req in db.query(MediaRequest).filter(col == value).all():
+                matches[req.id] = req
+    if getattr(item, "title", None) and getattr(item, "media_type", None):
+        q = db.query(MediaRequest).filter(
+            MediaRequest.title.ilike(item.title),
+            MediaRequest.media_type == item.media_type,
+        )
+        if getattr(item, "year", None):
+            q = q.filter(MediaRequest.year == item.year)
+        for req in q.all():
+            matches[req.id] = req
+    return sorted(matches.values(), key=lambda r: r.requested_at or datetime.min, reverse=True)
+
+
+def _request_summary_payload(req: MediaRequest, users: dict[str, str]) -> dict:
+    requester_ids = [req.plex_user_id]
+    extras = []
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+        for extra in extras:
+            uid = extra.get("plex_user_id")
+            if uid:
+                requester_ids.append(uid)
+                extra["display_name"] = users.get(uid, extra.get("display_name") or uid)
+    except Exception:
+        extras = []
+    requesters = [users.get(uid, uid) for uid in requester_ids]
+    return {
+        "id": req.id,
+        "title": req.title,
+        "year": req.year,
+        "media_type": req.media_type,
+        "status": _request_status_value(req),
+        "source": req.source,
+        "plex_user_id": req.plex_user_id,
+        "plex_user": users.get(req.plex_user_id, req.plex_user or req.plex_user_id),
+        "requesters": requesters,
+        "requested_by": ", ".join(requesters),
+        "extra_requesters": _json.dumps(extras),
+        "requested_at": _format_datetime(req.requested_at),
+        "available_at": _format_datetime(req.available_at),
+        "request_mail_sent": req.request_mail_sent,
+        "available_mail_sent": req.available_mail_sent,
+        "overview": req.overview,
+        "has_vf": req.has_vf,
+        "arr_id": req.arr_id,
+        "arr_slug": req.arr_slug,
+        "arr_instance_id": req.arr_instance_id,
+        "library_item_id": req.library_item_id,
+    }
 
 
 def require_auth(request: Request, db: Session = Depends(get_db)):
@@ -161,6 +233,7 @@ class SettingsUpdate(BaseModel):
     vff_recheck_interval_minutes: Optional[int] = None
     vff_auto_search: Optional[bool] = None
     email_on_vf_available: Optional[bool] = None
+    partial_notify_frequency: Optional[str] = None
 
 
 @router.get("/settings")
@@ -973,6 +1046,7 @@ class UserCreate(BaseModel):
     notify_vf_movie: Optional[bool] = True
     notify_vf_series: Optional[bool] = True
     notify_vf_anime: Optional[bool] = False
+    partial_notify_frequency: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
@@ -1721,6 +1795,7 @@ async def _vf_detail_payload(db: Session, req):
 
     from ..scheduler import _load_known_vf_episodes, _parse_vff_libraries, _persist_episode_status
     from ..services import vff as vff_svc
+    from ..services.radarr import lookup_movie
     from ..services.sonarr import get_episodes, lookup_series
 
     settings = db.query(Settings).first()
@@ -1736,10 +1811,23 @@ async def _vf_detail_payload(db: Session, req):
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
 
-    # ── Film : liste des pistes audio (nécessite Plex + VFF) ───────────────────
+    # ── Film : liste des pistes audio (nécessite Plex + VFF) + date de sortie ──
     if req.media_type == "movie":
+        release_date = None
+        try:
+            radarr_inst = _resolve_arr_instance(db, req.arr_instance_id, "radarr")
+            movie_data = await lookup_movie(
+                radarr_inst.url, radarr_inst.api_key, arr_id=req.arr_id, tmdb_id=req.tmdb_id, imdb_id=req.imdb_id
+            )
+            if movie_data:
+                release_date = (
+                    movie_data.get("inCinemas") or movie_data.get("digitalRelease") or movie_data.get("physicalRelease")
+                )
+        except Exception as e:
+            logger.debug(f"vf-detail: date de sortie Radarr indisponible pour '{req.title}': {e}")
+
         if not vf_detected:
-            return {"enabled": True, "media_type": "movie", "vf_available": False}
+            return {"enabled": True, "media_type": "movie", "vf_available": False, "release_date": release_date}
         res = await asyncio.to_thread(
             vff_svc.get_movie_audio_detail_blocking,
             settings.plex_url,
@@ -1751,7 +1839,7 @@ async def _vf_detail_payload(db: Session, req):
             req.tvdb_id,
             req.imdb_id,
         )
-        return {"enabled": True, "media_type": "movie", "vf_available": True, **res}
+        return {"enabled": True, "media_type": "movie", "vf_available": True, "release_date": release_date, **res}
 
     # ── Série : Sonarr (liste attendue) + Plex (VF réelle, si VFF actif) ────────
     # known_vf : épisodes déjà confirmés VF lors d'un scan précédent (scheduler ou
@@ -1775,17 +1863,24 @@ async def _vf_detail_payload(db: Session, req):
     )
 
     sonarr_episodes = None
+    first_aired = None
+    next_episode_at = None
     try:
         inst = _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
         # Résolution de l'ID série Sonarr : on privilégie le tvdb_id (fiable quelle que
         # soit la source). req.arr_id n'est utilisable que pour les demandes non-Seer
         # (pour Seer, arr_id désigne l'ID de la demande Seer, pas la série Sonarr).
         series_id = None
+        data = None
         if req.tvdb_id:
             data = await lookup_series(inst.url, inst.api_key, tvdb_id=req.tvdb_id)
             series_id = data.get("id") if data else None
         if not series_id and getattr(req, "source", None) != "seer" and req.arr_id:
             series_id = req.arr_id
+            data = data or await lookup_series(inst.url, inst.api_key, arr_id=series_id)
+        if data:
+            first_aired = data.get("firstAired")
+            next_episode_at = data.get("nextAiring")
         if series_id:
             sonarr_episodes = await get_episodes(inst.url, inst.api_key, series_id)
     except Exception as e:
@@ -1847,6 +1942,8 @@ async def _vf_detail_payload(db: Session, req):
         "vf_available": vf_detected,
         "found": bool(plex_res.get("found")) or bool(sonarr_episodes),
         "sonarr_available": sonarr_episodes is not None,
+        "first_aired": first_aired,
+        "next_episode_at": next_episode_at,
         "seasons": out_seasons,
     }
 
@@ -1864,6 +1961,154 @@ def get_library_item(item_id: int, db: Session = Depends(get_db)):
         "arr_id": item.arr_id,
         "arr_instance_id": item.arr_instance_id,
         "arr_slug": item.arr_slug,
+    }
+
+
+async def _media_schedule_payload(db: Session, item) -> dict:
+    timeline = {
+        "first_aired": None,
+        "next_episode_at": None,
+        "last_aired_at": None,
+        "ended_at": None,
+        "series_status": None,
+        "in_cinemas": None,
+        "digital_release": None,
+        "physical_release": None,
+        "release_date": None,
+    }
+    events: list[dict] = []
+
+    if item.media_type == "show":
+        try:
+            inst = _resolve_arr_instance(db, item.arr_instance_id, "sonarr")
+            data = None
+            series_id = None
+            if item.tvdb_id:
+                data = await sonarr.lookup_series(inst.url, inst.api_key, tvdb_id=item.tvdb_id)
+                series_id = data.get("id") if data else None
+            if not series_id and getattr(item, "source", None) != "seer" and item.arr_id:
+                series_id = item.arr_id
+                data = data or await sonarr.lookup_series(inst.url, inst.api_key, arr_id=series_id)
+            if data:
+                timeline["first_aired"] = data.get("firstAired")
+                timeline["next_episode_at"] = data.get("nextAiring")
+                timeline["series_status"] = data.get("status")
+                series_id = series_id or data.get("id")
+            if series_id:
+                episodes = await sonarr.get_episodes(inst.url, inst.api_key, series_id)
+                dated = []
+                for ep in episodes:
+                    air = ep.get("airDateUtc") or ep.get("airDate")
+                    if not air or ep.get("seasonNumber") == 0:
+                        continue
+                    dated.append(air)
+                    events.append(
+                        {
+                            "type": "episode",
+                            "date": air,
+                            "title": item.title,
+                            "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
+                            + (f" — {ep.get('title')}" if ep.get("title") else ""),
+                            "has_file": bool(ep.get("hasFile")),
+                            "instance": inst.name,
+                        }
+                    )
+                if dated:
+                    timeline["last_aired_at"] = max(dated)
+                    if timeline["series_status"] == "ended":
+                        timeline["ended_at"] = max(dated)
+        except Exception as e:
+            logger.debug(f"media detail: calendrier Sonarr indisponible pour '{item.title}': {e}")
+    else:
+        try:
+            inst = _resolve_arr_instance(db, item.arr_instance_id, "radarr")
+            data = await radarr.lookup_movie(
+                inst.url, inst.api_key, arr_id=item.arr_id, tmdb_id=item.tmdb_id, imdb_id=item.imdb_id
+            )
+            if data:
+                date_fields = [
+                    ("in_cinemas", "Cinema", data.get("inCinemas")),
+                    ("digital_release", "Digital", data.get("digitalRelease")),
+                    ("physical_release", "Physique", data.get("physicalRelease")),
+                ]
+                for key, label, value in date_fields:
+                    timeline[key] = value
+                    if value:
+                        events.append(
+                            {
+                                "type": "movie",
+                                "date": value,
+                                "title": item.title,
+                                "subtitle": label,
+                                "has_file": bool(data.get("hasFile")),
+                                "instance": inst.name,
+                            }
+                        )
+                timeline["release_date"] = (
+                    timeline["in_cinemas"] or timeline["digital_release"] or timeline["physical_release"]
+                )
+        except Exception as e:
+            logger.debug(f"media detail: calendrier Radarr indisponible pour '{item.title}': {e}")
+
+    events.sort(key=lambda e: e["date"])
+    return {"timeline": timeline, "events": events}
+
+
+@router.get("/media/detail")
+async def media_detail(
+    library_id: Optional[int] = None,
+    request_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Détail média unifié pour la modale Bibliothèque."""
+    if not library_id and not request_id:
+        raise HTTPException(400, "library_id or request_id is required")
+
+    selected_request = None
+    library_item = None
+    if library_id:
+        library_item = get_or_404(db, LibraryItem, library_id, "Library item not found")
+        media_obj = library_item
+    else:
+        selected_request = get_or_404(db, MediaRequest, request_id, "Request not found")
+        if selected_request.library_item_id:
+            library_item = db.query(LibraryItem).filter(LibraryItem.id == selected_request.library_item_id).first()
+        media_obj = library_item or selected_request
+
+    related_requests = _media_identity_filter(db, media_obj)
+    if selected_request and selected_request.id not in {r.id for r in related_requests}:
+        related_requests.insert(0, selected_request)
+
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    request_payloads = [_request_summary_payload(req, users) for req in related_requests]
+    schedule = await _media_schedule_payload(db, media_obj)
+
+    return {
+        "media": {
+            "kind": "library" if library_item else "request",
+            "library_id": library_item.id if library_item else None,
+            "request_id": selected_request.id if selected_request else (related_requests[0].id if related_requests else None),
+            "vf_source_type": "library" if library_item else "request",
+            "vf_source_id": library_item.id if library_item else (selected_request.id if selected_request else None),
+            "title": media_obj.title,
+            "year": media_obj.year,
+            "media_type": media_obj.media_type,
+            "poster_url": media_obj.poster_url,
+            "overview": media_obj.overview,
+            "has_vf": media_obj.has_vf,
+            "arr_id": media_obj.arr_id,
+            "arr_slug": media_obj.arr_slug,
+            "arr_instance_id": media_obj.arr_instance_id,
+            "tmdb_id": media_obj.tmdb_id,
+            "tvdb_id": media_obj.tvdb_id,
+            "imdb_id": media_obj.imdb_id,
+            "plex_guid": media_obj.plex_guid,
+            "in_library": library_item is not None,
+            "added_at": _format_datetime(library_item.added_at) if library_item else None,
+        },
+        "requests": request_payloads,
+        "timeline": schedule["timeline"],
+        "calendar": schedule["events"],
     }
 
 
@@ -2035,6 +2280,98 @@ def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
         }
         for r in rows
     ]
+
+
+@router.get("/calendar")
+async def unified_calendar(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    tracked_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Calendrier unifié : épisodes Sonarr + sorties Radarr sur une plage de dates.
+
+    Croise chaque entrée avec nos LibraryItem/MediaRequest (par tvdb_id/tmdb_id) pour
+    marquer les médias suivis et réutiliser leur affiche déjà connue (pas d'appel
+    supplémentaire aux images Sonarr/Radarr). `tracked_only=true` ne garde que les
+    médias suivis (utilisé par l'onglet Calendrier de la Bibliothèque).
+
+    Par défaut : 7 jours avant aujourd'hui à 21 jours après (contexte + à venir).
+    """
+    now = datetime.now(timezone.utc)
+    start_dt = datetime.fromisoformat(start) if start else now - timedelta(days=7)
+    end_dt = datetime.fromisoformat(end) if end else now + timedelta(days=21)
+
+    # Index des médias suivis par identifiant externe, pour marquer/enrichir les entrées.
+    shows_by_tvdb: dict[str, dict] = {}
+    movies_by_tmdb: dict[str, dict] = {}
+    for li in db.query(LibraryItem).all():
+        entry = {"poster_url": li.poster_url, "library_item_id": li.id, "request_id": None}
+        if li.media_type == "show" and li.tvdb_id:
+            shows_by_tvdb[li.tvdb_id] = entry
+        elif li.media_type == "movie" and li.tmdb_id:
+            movies_by_tmdb[li.tmdb_id] = entry
+    for r in db.query(MediaRequest).all():
+        if r.media_type == "show" and r.tvdb_id and r.tvdb_id not in shows_by_tvdb:
+            shows_by_tvdb[r.tvdb_id] = {"poster_url": r.poster_url, "library_item_id": r.library_item_id, "request_id": r.id}
+        elif r.media_type == "movie" and r.tmdb_id and r.tmdb_id not in movies_by_tmdb:
+            movies_by_tmdb[r.tmdb_id] = {"poster_url": r.poster_url, "library_item_id": r.library_item_id, "request_id": r.id}
+
+    instances = db.query(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])).all()
+    events = []
+    for inst in instances:
+        try:
+            if inst.arr_type == "sonarr":
+                episodes = await sonarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+                for ep in episodes:
+                    date = ep.get("airDateUtc")
+                    if not date:
+                        continue
+                    series = ep.get("series") or {}
+                    tvdb_id = str(series.get("tvdbId")) if series.get("tvdbId") else None
+                    tracked = shows_by_tvdb.get(tvdb_id) if tvdb_id else None
+                    if tracked_only and not tracked:
+                        continue
+                    events.append({
+                        "type": "episode",
+                        "date": date,
+                        "title": series.get("title") or "",
+                        "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
+                        + (f" — {ep.get('title')}" if ep.get("title") else ""),
+                        "poster_url": (tracked or {}).get("poster_url"),
+                        "has_file": bool(ep.get("hasFile")),
+                        "tracked": bool(tracked),
+                        "library_item_id": (tracked or {}).get("library_item_id"),
+                        "request_id": (tracked or {}).get("request_id"),
+                        "instance": inst.name,
+                    })
+            else:
+                movies = await radarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+                for m in movies:
+                    date = m.get("inCinemas") or m.get("digitalRelease") or m.get("physicalRelease")
+                    if not date:
+                        continue
+                    tmdb_id = str(m.get("tmdbId")) if m.get("tmdbId") else None
+                    tracked = movies_by_tmdb.get(tmdb_id) if tmdb_id else None
+                    if tracked_only and not tracked:
+                        continue
+                    events.append({
+                        "type": "movie",
+                        "date": date,
+                        "title": m.get("title") or "",
+                        "subtitle": "Sortie",
+                        "poster_url": (tracked or {}).get("poster_url"),
+                        "has_file": bool(m.get("hasFile")),
+                        "tracked": bool(tracked),
+                        "library_item_id": (tracked or {}).get("library_item_id"),
+                        "request_id": (tracked or {}).get("request_id"),
+                        "instance": inst.name,
+                    })
+        except Exception as e:
+            logger.warning(f"Calendar fetch failed for '{inst.name}': {e}")
+
+    events.sort(key=lambda e: e["date"])
+    return events
 
 
 @router.get("/metrics")

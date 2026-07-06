@@ -472,6 +472,31 @@
         </div>
       </div>
 
+      <!-- Disponibilité partielle (séries en cours de diffusion) -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-2"><i class="bi bi-hourglass-split text-warning me-2"></i>Disponibilité partielle</h5>
+          <p class="text-muted small mb-3">
+            Une série en cours de diffusion peut être « partiellement disponible » (certains épisodes
+            téléchargés, d'autres pas encore diffusés). Réglage par défaut pour toutes les demandes —
+            chaque utilisateur peut le remplacer depuis sa fiche (page Utilisateurs).
+          </p>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Fréquence des notifications</label>
+              <select class="form-select" name="partial_notify_frequency">
+                <option value="milestones" {% if (s.partial_notify_frequency or 'milestones') == 'milestones' %}selected{% endif %}>
+                  Étapes clés uniquement (1ère dispo partielle + dispo complète)
+                </option>
+                <option value="every_episode" {% if s.partial_notify_frequency == 'every_episode' %}selected{% endif %}>
+                  À chaque nouvel épisode disponible
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Push -->
       <div class="col-12">
         <div class="card p-4">

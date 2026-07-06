@@ -2,52 +2,89 @@
 {% set page = "library" %}
 {% block content %}
 
-<!-- En-tête -->
+{% macro status_badge(status, media_type='movie') %}
+{% if status == 'available' %}
+<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>
+{% elif status == 'sent_to_arr' %}
+<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis</span>
+{% elif status == 'failed' %}
+<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>
+{% elif status == 'pending' %}
+<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Recue</span>
+{% else %}
+<span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Aucune demande</span>
+{% endif %}
+{% endmacro %}
+
+{% macro vf_badge(has_vf, in_library) %}
+{% if in_library %}
+  {% if has_vf == true %}<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>
+  {% elif has_vf == false %}<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO</span>
+  {% else %}<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>?</span>
+  {% endif %}
+{% endif %}
+{% endmacro %}
+
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
   <div>
-    <h2 class="mb-0"><i class="bi bi-collection-play me-2 text-warning"></i>Bibliothèque</h2>
-    <div class="text-muted small mt-1">Médias présents dans Plex et demandes en cours — état VF/VFF</div>
+    <h2 class="mb-0"><i class="bi bi-collection-play me-2 text-warning"></i>Bibliotheque</h2>
+    <div class="text-muted small mt-1" id="header-count">
+      {{ total }} media{% if total > 1 %}s{% endif %} affiche{% if total > 1 %}s{% endif %}
+      {% if active_search %} pour "{{ active_search }}"{% endif %}
+    </div>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-1"
+            onclick="openAddPanel(document.getElementById('searchInput')?.value.trim() || '')">
+      <i class="bi bi-plus-circle"></i> Ajouter un titre
+    </button>
+    <div class="btn-group btn-group-sm">
+      <button class="btn btn-outline-secondary" id="btn-grid" onclick="setViewMode('grid')" title="Vue grille">
+        <i class="bi bi-grid-3x3-gap"></i>
+      </button>
+      <button class="btn btn-outline-secondary" id="btn-list" onclick="setViewMode('list')" title="Vue liste">
+        <i class="bi bi-list-ul"></i>
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- Onglets Films / Séries -->
-<ul class="nav nav-pills mb-3" id="type-tabs">
-  <li class="nav-item">
-    <a href="/library?type=movie" class="nav-link {% if active_type != 'show' %}active{% endif %}"><i class="bi bi-film me-1"></i>Films</a>
-  </li>
-  <li class="nav-item">
-    <a href="/library?type=show" class="nav-link {% if active_type == 'show' %}active{% endif %}"><i class="bi bi-tv me-1"></i>Séries</a>
-  </li>
+<ul class="nav nav-pills mb-3" id="library-tabs">
+  <li class="nav-item"><a href="/library" class="nav-link {% if active_view == 'all' and not active_type and not active_vf %}active{% endif %}"><i class="bi bi-collection me-1"></i>Tout</a></li>
+  <li class="nav-item"><a href="/library?type=movie" class="nav-link {% if active_type == 'movie' %}active{% endif %}"><i class="bi bi-film me-1"></i>Films</a></li>
+  <li class="nav-item"><a href="/library?type=show" class="nav-link {% if active_type == 'show' %}active{% endif %}"><i class="bi bi-tv me-1"></i>Series</a></li>
+  <li class="nav-item"><a href="/library?view=requests" class="nav-link {% if active_view == 'requests' %}active{% endif %}"><i class="bi bi-inbox me-1"></i>Demandes <span class="badge bg-secondary ms-1">{{ counts.requests }}</span></a></li>
+  <li class="nav-item"><a href="/library?vf=vo" class="nav-link {% if active_vf == 'vo' %}active{% endif %}"><i class="bi bi-translate me-1"></i>VO en attente <span class="badge bg-primary ms-1">{{ counts.vo }}</span></a></li>
+  <li class="nav-item"><a href="/library?view=calendar" class="nav-link {% if active_view == 'calendar' %}active{% endif %}"><i class="bi bi-calendar3 me-1"></i>Calendrier</a></li>
 </ul>
 
 {% if vff_enabled %}
-<!-- Actions VFF globales -->
 <div class="card p-3 mb-3" style="background:var(--pr-surface-2);">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div class="text-muted small"><i class="bi bi-translate me-1 text-warning"></i>Suivi VFF : détection des pistes audio françaises sur les médias disponibles</div>
+    <div class="text-muted small"><i class="bi bi-translate me-1 text-warning"></i>Suivi VFF : detection des pistes audio francaises sur les medias disponibles</div>
     <div class="d-flex align-items-center gap-2">
-      <div class="form-check form-check-inline m-0" title="Ignore le cache par épisode et re-vérifie tout depuis zéro">
+      <div class="form-check form-check-inline m-0" title="Ignore le cache par episode et re-verifie tout depuis zero">
         <input class="form-check-input" type="checkbox" id="vff-force-check">
-        <label class="form-check-label small text-muted" for="vff-force-check">Forcer (ignorer le cache)</label>
+        <label class="form-check-label small text-muted" for="vff-force-check">Forcer</label>
       </div>
       <button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" id="vff-sync-btn" onclick="vffSync(this)">
-        <i class="bi bi-cloud-arrow-down"></i> Synchroniser avec Plex
+        <i class="bi bi-cloud-arrow-down"></i> Synchroniser Plex
       </button>
       <button class="btn btn-sm btn-warning d-flex align-items-center gap-1" id="vff-scan-btn" onclick="vffScan(this)">
-        <i class="bi bi-arrow-clockwise"></i> Analyser toutes les bibliothèques
+        <i class="bi bi-arrow-clockwise"></i> Analyser VFF
       </button>
     </div>
   </div>
   <div id="vff-progress-card" class="mt-2 d-none">
     <div class="d-flex justify-content-between align-items-center mb-1">
-      <span class="text-warning small"><i class="bi bi-translate me-1 spin"></i>Analyse en cours…</span>
+      <span class="text-warning small"><i class="bi bi-translate me-1 spin"></i>Analyse en cours...</span>
       <span id="vff-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
     </div>
     <div class="progress" style="height: 8px;"><div id="vff-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
   </div>
   <div id="plex-sync-progress-card" class="mt-2 d-none">
     <div class="d-flex justify-content-between align-items-center mb-1">
-      <span class="text-warning small"><i class="bi bi-cloud-arrow-down me-1 spin"></i>Synchronisation en cours…</span>
+      <span class="text-warning small"><i class="bi bi-cloud-arrow-down me-1 spin"></i>Synchronisation en cours...</span>
       <span id="plex-sync-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
     </div>
     <div class="progress" style="height: 8px;"><div id="plex-sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
@@ -55,26 +92,138 @@
 </div>
 {% endif %}
 
-<!-- Compteurs + recherche -->
-<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-  {% set tq = '&type=' ~ active_type if active_type in ('movie','show') else '' %}
-  <a href="/library{{ '?type=' ~ active_type if active_type in ('movie','show') else '' }}" class="badge {{ 'bg-secondary' if active_vf else 'bg-warning text-dark' }} text-decoration-none py-1 px-2"><i class="bi bi-collection me-1"></i>Tout</a>
-  <a href="/library?vf=vf{{ tq }}" class="badge badge-available text-decoration-none py-1 px-2 {{ 'border border-light' if active_vf == 'vf' else '' }}"><i class="bi bi-translate me-1"></i>{{ counts.vf }} VF</a>
-  <a href="/library?vf=vo{{ tq }}" class="badge badge-sent text-decoration-none py-1 px-2 {{ 'border border-light' if active_vf == 'vo' else '' }}"><i class="bi bi-translate me-1"></i>{{ counts.vo }} VO</a>
-  <a href="/library?vf=unchecked{{ tq }}" class="badge badge-pending text-decoration-none py-1 px-2 {{ 'border border-light' if active_vf == 'unchecked' else '' }}"><i class="bi bi-translate me-1"></i>{{ counts.unchecked }} non analysé{{ 's' if counts.unchecked > 1 else '' }}</a>
-  <a href="/library?vf=requested{{ tq }}" class="badge bg-secondary text-decoration-none py-1 px-2 {{ 'border border-light' if active_vf == 'requested' else '' }}"><i class="bi bi-inbox me-1"></i>{{ counts.requested }} demandé{{ 's' if counts.requested > 1 else '' }}</a>
-  <div class="input-group input-group-sm ms-auto" style="max-width:280px">
-    <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
-    <input type="text" id="lib-search" class="form-control bg-dark border-secondary text-white" placeholder="Rechercher un titre…" oninput="filterLib()">
+<div class="d-flex flex-wrap gap-2 mb-3" id="library-counts-bar">
+  <a href="/library" class="badge {{ 'bg-warning text-dark' if not active_vf and active_view == 'all' else 'bg-secondary' }} text-decoration-none py-1 px-2"><i class="bi bi-collection me-1"></i>{{ counts.total }} total</a>
+  <a href="/library?vf=vf" class="badge badge-available text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vf }} VF</a>
+  <a href="/library?vf=vo" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vo }} VO</a>
+  <a href="/library?vf=unchecked" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-question-circle me-1"></i>{{ counts.unchecked }} non analyses</a>
+  <a href="/library?vf=requested" class="badge bg-secondary text-decoration-none py-1 px-2"><i class="bi bi-inbox me-1"></i>{{ counts.requested }} demandes hors Plex</a>
+  {% if status_counts.failed %}<a href="/library?view=requests&status=failed" class="badge badge-failed text-decoration-none py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} echecs</a>{% endif %}
+  {% if status_counts.pending %}<a href="/library?view=requests&status=pending" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} recues</a>{% endif %}
+  {% if status_counts.sent_to_arr %}<a href="/library?view=requests&status=sent_to_arr" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmises</a>{% endif %}
+</div>
+
+<form id="library-filter-form" method="get" action="/library" class="row g-2 mb-3">
+  <input type="hidden" name="page" value="1">
+  <input type="hidden" name="per_page" value="{{ per_page }}">
+  <input type="hidden" name="sort" value="{{ sort }}">
+  <input type="hidden" name="order" value="{{ order }}">
+  <div class="col-12 col-md-3">
+    <div class="input-group input-group-sm">
+      <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
+      <input type="search" class="form-control bg-dark border-secondary text-white" id="searchInput" name="search" placeholder="Rechercher un titre..." value="{{ active_search }}">
+      <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-arrow-return-left"></i></button>
+    </div>
+  </div>
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" name="view" onchange="this.form.submit()">
+      <option value="all" {% if active_view == 'all' %}selected{% endif %}>Tous medias</option>
+      <option value="requests" {% if active_view == 'requests' %}selected{% endif %}>Avec demandes</option>
+      <option value="calendar" {% if active_view == 'calendar' %}selected{% endif %}>Calendrier</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" name="user" onchange="this.form.submit()">
+      <option value="">Tous utilisateurs</option>
+      {% for u in all_users %}
+      <option value="{{ u.plex_user_id }}" {% if active_user == u.plex_user_id %}selected{% endif %}>{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" name="status" onchange="this.form.submit()">
+      <option value="">Tous statuts</option>
+      <option value="pending" {% if active_status == 'pending' %}selected{% endif %}>Recues</option>
+      <option value="sent_to_arr" {% if active_status == 'sent_to_arr' %}selected{% endif %}>Transmises</option>
+      <option value="available" {% if active_status == 'available' %}selected{% endif %}>Disponibles</option>
+      <option value="failed" {% if active_status == 'failed' %}selected{% endif %}>Echecs</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-1">
+    <select class="form-select form-select-sm" name="type" onchange="this.form.submit()">
+      <option value="">Types</option>
+      <option value="movie" {% if active_type == 'movie' %}selected{% endif %}>Films</option>
+      <option value="show" {% if active_type == 'show' %}selected{% endif %}>Series</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-1">
+    <select class="form-select form-select-sm" name="vf" onchange="this.form.submit()">
+      <option value="">VF</option>
+      <option value="vf" {% if active_vf == 'vf' %}selected{% endif %}>VF</option>
+      <option value="vo" {% if active_vf == 'vo' %}selected{% endif %}>VO</option>
+      <option value="unchecked" {% if active_vf == 'unchecked' %}selected{% endif %}>?</option>
+      <option value="requested" {% if active_vf == 'requested' %}selected{% endif %}>Demande</option>
+    </select>
+  </div>
+  <div class="col-6 col-md-1">
+    <select class="form-select form-select-sm" name="source" onchange="this.form.submit()">
+      <option value="">Sources</option>
+      {% for s in sources %}
+      <option value="{{ s }}" {% if active_source == s %}selected{% endif %}>{{ 'Plex' if s == 'plex_sync' else s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</form>
+
+{% set has_filters = active_search or active_user or active_status or active_type or active_source or active_vf or active_view != 'all' %}
+{% if has_filters %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <span class="text-muted small">Filtres actifs</span>
+  {% if active_view != 'all' %}<span class="badge bg-secondary">{{ active_view }}</span>{% endif %}
+  {% if active_search %}<span class="badge bg-secondary"><i class="bi bi-search me-1"></i>{{ active_search }}</span>{% endif %}
+  {% if active_user %}<span class="badge bg-secondary"><i class="bi bi-person me-1"></i>{{ users_map.get(active_user, active_user) }}</span>{% endif %}
+  {% if active_status %}<span class="badge bg-secondary">{{ active_status }}</span>{% endif %}
+  {% if active_type %}<span class="badge bg-secondary">{{ 'Serie' if active_type == 'show' else 'Film' }}</span>{% endif %}
+  {% if active_vf %}<span class="badge bg-secondary">{{ active_vf }}</span>{% endif %}
+  {% if active_source %}<span class="badge bg-secondary">{{ active_source }}</span>{% endif %}
+  <a href="/library" class="text-muted small text-decoration-none"><i class="bi bi-x-circle me-1"></i>Tout effacer</a>
+</div>
+{% endif %}
+
+<div id="bulk-actions-bar" class="bg-dark border border-secondary rounded p-2 mb-3 align-items-center gap-2" style="display:none!important">
+  <span class="text-white small ms-2"><strong id="bulk-select-count">0</strong> selectionne(s)</span>
+  <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkRetry()"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>
+  <button type="button" class="btn btn-sm btn-outline-success" onclick="bulkMarkProcessed()"><i class="bi bi-check-all me-1"></i>Marquer traite</button>
+  <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="bulkDelete()"><i class="bi bi-trash me-1"></i>Supprimer</button>
+</div>
+
+<div id="add-panel" class="d-none mb-4">
+  <div class="card p-4" style="background:var(--pr-surface-2);border:1px solid var(--pr-border)">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h6 class="mb-0 fw-semibold"><i class="bi bi-plus-circle me-2 text-warning"></i>Ajouter un titre</h6>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeAddPanel()"><i class="bi bi-x"></i></button>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-md-6">
+        <div class="input-group">
+          <input type="text" id="add-query" class="form-control" placeholder="Titre du film ou de la serie..." onkeydown="if(event.key==='Enter'){event.preventDefault();addPanelSearch();}">
+          <button class="btn btn-warning" onclick="addPanelSearch()"><i class="bi bi-search"></i></button>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select id="add-media-type" class="form-select"><option value="movie">Film</option><option value="show">Serie</option></select>
+      </div>
+    </div>
+    <div id="add-panel-loading" class="text-center text-muted py-3 d-none"><span class="spinner-border spinner-border-sm text-warning me-2"></span>Recherche...</div>
+    <div id="add-panel-results" class="row g-3"></div>
   </div>
 </div>
 
-<!-- Grille -->
-<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3" id="lib-grid">
+{% if active_view == 'calendar' %}
+<div id="global-calendar-container">
+  <div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>
+</div>
+{% else %}
+<div id="view-grid" class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
   {% for it in items %}
-  <div class="col lib-item" data-title="{{ it.title | lower }}">
+  <div class="col lib-item request-item" data-title="{{ it.title | lower }}" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}">
     <div class="card position-relative overflow-hidden request-card h-100" style="min-height:260px;border-radius:8px;border:1px solid var(--pr-border);cursor:pointer"
-         onclick="openLibDetail('{{ it.kind }}', {{ it.ref_id }}, '{{ it.media_type }}', {{ 'true' if it.has_vf == true else ('false' if it.has_vf == false else 'null') }}, {{ it.in_library | tojson }})">
+         onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
+      {% if it.primary_request_id %}
+      <div class="position-absolute" style="top:6px;left:6px;z-index:20" onclick="event.stopPropagation()">
+        <input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()" style="width:18px;height:18px;cursor:pointer;opacity:.9" data-grid-check>
+      </div>
+      {% endif %}
       {% if it.poster_url %}
       <div style="position:absolute;inset:0;background:url('{{ it.poster_url }}') center/cover no-repeat"></div>
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.1) 0%,rgba(20,20,20,.95) 72%)"></div>
@@ -83,32 +232,21 @@
         <i class="bi bi-{% if it.media_type == 'show' %}tv{% else %}camera-video{% endif %} opacity-25" style="font-size:3rem"></i>
       </div>
       {% endif %}
-
-      <!-- Badges haut gauche -->
-      <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start z-3">
-        <span class="badge {% if it.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px">{% if it.media_type == 'show' %}Série{% else %}Film{% endif %}</span>
-        {% if it.in_library %}
-          {% if it.has_vf == true %}<span class="badge badge-available" style="font-size:9px"><i class="bi bi-translate me-1"></i>VF</span>
-          {% elif it.has_vf == false %}<span class="badge badge-sent" style="font-size:9px"><i class="bi bi-translate me-1"></i>VO</span>
-          {% else %}<span class="badge badge-pending" style="font-size:9px"><i class="bi bi-translate me-1"></i>?</span>{% endif %}
-        {% endif %}
+      <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start z-3" style="{% if it.primary_request_id %}padding-left:24px{% endif %}">
+        <span class="badge {% if it.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px">{% if it.media_type == 'show' %}Serie{% else %}Film{% endif %}</span>
+        {{ vf_badge(it.has_vf, it.in_library) }}
+        {% if it.request_count %}<span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>{{ it.request_count }}</span>{% endif %}
       </div>
-
-      <!-- Badge haut droit : présence -->
-      <div class="position-absolute top-0 end-0 m-2 z-3">
-        {% if it.in_library %}
-        <span class="badge bg-success" style="font-size:9px" title="Présent dans Plex"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
-        {% else %}
-        <span class="badge bg-secondary" style="font-size:9px" title="Demandé — pas encore en bibliothèque"><i class="bi bi-inbox me-1"></i>Demandé</span>
-        {% endif %}
+      <div class="position-absolute top-0 end-0 m-2 z-3 d-flex flex-column gap-1 align-items-end">
+        {% if it.in_library %}<span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
+        {% else %}<span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>Demande</span>{% endif %}
+        {% if it.request_status %}{{ status_badge(it.request_status, it.media_type) }}{% endif %}
       </div>
-
-      <!-- Contenu bas -->
       <div class="position-absolute bottom-0 start-0 end-0 p-2 z-3">
         <div class="text-white fw-semibold text-truncate" style="font-size:13px" title="{{ it.title }}">{{ it.title }}</div>
         <div class="d-flex justify-content-between align-items-center text-white-50" style="font-size:11px">
-          <span>{% if it.year %}{{ it.year }}{% else %}—{% endif %}</span>
-          {% if it.requested_by %}<span class="text-truncate" style="max-width:60%"><i class="bi bi-person me-1"></i>{{ it.requested_by }}</span>{% endif %}
+          <span>{% if it.year %}{{ it.year }}{% else %}-{% endif %}</span>
+          {% if it.requested_by %}<span class="text-truncate" style="max-width:65%"><i class="bi bi-person me-1"></i>{{ it.requested_by }}</span>{% endif %}
         </div>
       </div>
     </div>
@@ -116,244 +254,533 @@
   {% else %}
   <div class="col-12 text-center text-muted py-5">
     <i class="bi bi-collection fs-1 d-block mb-2 opacity-25"></i>
-    <p class="small">Aucun média. Lancez une synchronisation Plex pour peupler la bibliothèque.</p>
+    <p class="small">Aucun media ne correspond a ces filtres.</p>
   </div>
   {% endfor %}
 </div>
-<div id="lib-empty" class="text-center text-muted py-5 d-none"><p class="small">Aucun média ne correspond à la recherche.</p></div>
 
-<!-- Modale de détail bibliothèque -->
-<div class="modal fade" id="libModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content bg-dark border-secondary text-white">
-      <div class="modal-header border-secondary">
-        <h5 class="modal-title" id="libModalTitle">Détail</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="libModalBody"></div>
-      <div class="modal-footer border-secondary" id="libModalFooter"></div>
+<div id="view-list" style="display:none">
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-dark table-hover mb-0 align-middle">
+        <thead><tr>
+          <th style="width:36px"><input type="checkbox" id="selectAll" class="form-check-input" onclick="toggleSelectAll(this)"></th>
+          <th style="width:56px">Poster</th><th>Titre</th><th>Type</th><th>Statut</th><th>VF</th><th>Demandes</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for it in items %}
+          <tr class="request-item" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}" role="button" onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
+            <td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()">{% endif %}</td>
+            <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
+            <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
+            <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
+            <td>{{ status_badge(it.request_status, it.media_type) }}</td>
+            <td>{{ vf_badge(it.has_vf, it.in_library) }}</td>
+            <td class="small">{{ it.requested_by or '-' }}</td>
+            <td>{% if it.request_status in ('failed','pending') and it.primary_request_id %}<button class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();retryRequest({{ it.primary_request_id }}, this)"><i class="bi bi-arrow-clockwise"></i></button>{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
 
+{% if total_pages > 1 %}
+<nav class="mt-3">
+  {% set pq %}{% if active_view %}view={{ active_view }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}per_page={{ per_page }}&sort={{ sort }}&order={{ order }}{% endset %}
+  <ul class="pagination pagination-sm justify-content-center flex-wrap gap-1 mb-0">
+    <li class="page-item {% if current_page == 1 %}disabled{% endif %}"><a class="page-link" href="?{{ pq }}&page={{ current_page - 1 }}">‹</a></li>
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == 1 or p == total_pages or (p >= current_page - 2 and p <= current_page + 2) %}
+      <li class="page-item {% if p == current_page %}active{% endif %}"><a class="page-link" href="?{{ pq }}&page={{ p }}">{{ p }}</a></li>
+      {% elif p == current_page - 3 or p == current_page + 3 %}
+      <li class="page-item disabled"><span class="page-link">...</span></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if current_page == total_pages %}disabled{% endif %}"><a class="page-link" href="?{{ pq }}&page={{ current_page + 1 }}">›</a></li>
+  </ul>
+</nav>
+{% endif %}
+{% endif %}
+
+<div class="modal fade" id="mediaModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark border-secondary text-white">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="mediaModalTitle">Detail</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="mediaModalBody"></div>
+      <div class="modal-footer border-secondary" id="mediaModalFooter">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addMediaModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content" style="background:var(--pr-surface);color:var(--bs-body-color)">
+      <div class="modal-header border-secondary">
+        <div class="d-flex align-items-center gap-3">
+          <img id="add-action-poster" src="" alt="" style="width:50px;height:75px;object-fit:cover;border-radius:6px;display:none">
+          <div><h5 class="modal-title mb-0" id="add-action-title"></h5><div class="text-muted small" id="add-action-meta"></div></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-4" id="add-action-overview"></p>
+
+        <div id="add-arr-interactive" class="mb-3 d-none">
+          <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-2" onclick="addModalArrSearch(this)">
+            <i class="bi bi-search"></i> Recherche interactive Sonarr/Radarr (VF en tete)
+          </button>
+          <div id="add-arr-releases" class="mt-2" style="max-height:300px;overflow-y:auto"></div>
+        </div>
+
+        <div class="mb-3" id="add-service-field">
+          <label class="form-label fw-semibold">Service</label>
+          <select id="add-service-select" class="d-none" onchange="onServiceChange()"></select>
+          <div id="add-service-pills"></div>
+        </div>
+        <div id="add-manual-toggle" class="mb-3 d-none">
+          <a href="#" class="small text-warning text-decoration-none" onclick="revealManualDownload(event)">
+            <i class="bi bi-download me-1"></i>Telecharger manuellement...
+          </a>
+        </div>
+        <div id="add-prowlarr-toggle" class="mb-3 d-none">
+          <a href="#" class="small text-muted text-decoration-none" onclick="revealProwlarrOption(event)">
+            <i class="bi bi-search me-1"></i>Rechercher via Prowlarr a la place...
+          </a>
+        </div>
+
+        <div id="add-arr-fields" class="d-none">
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Profil qualite</label>
+              <select id="add-quality-profile" class="form-select"><option value="">Chargement...</option></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Dossier racine</label>
+              <select id="add-root-folder" class="form-select"><option value="">Chargement...</option></select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
+            <div id="add-tags-container" class="d-flex flex-wrap gap-2 p-2 rounded" style="background:var(--pr-surface);border:1px solid var(--pr-border);min-height:42px">
+              <span class="text-muted small align-self-center">Chargement...</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="add-prowlarr-fields" class="d-none">
+          <div class="alert alert-warning py-2 small mb-3">
+            <i class="bi bi-exclamation-triangle me-1"></i>Telechargement direct : contourne Sonarr/Radarr (pas d'import, renommage ou upgrade automatique).
+          </div>
+          <button type="button" class="btn btn-outline-warning btn-sm d-flex align-items-center gap-2 mb-3" onclick="addModalProwlarrSearch()">
+            <i class="bi bi-arrow-clockwise"></i> Relancer la recherche
+          </button>
+          <div id="add-prowlarr-loading" class="text-center text-muted py-2 d-none">
+            <span class="spinner-border spinner-border-sm text-warning me-2"></span>Recherche Prowlarr...
+          </div>
+          <div id="add-prowlarr-results" class="d-none" style="max-height:260px;overflow-y:auto">
+            <table class="table table-sm table-dark table-hover mb-0" style="font-size:12px">
+              <thead><tr><th>Titre</th><th>Taille</th><th>S/L</th><th></th></tr></thead>
+              <tbody id="add-prowlarr-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="add-direct-fields" class="d-none">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Lien magnet ou URL</label>
+            <input type="text" id="add-direct-magnet" class="form-control" placeholder="magnet:?xt=urn:btih:... ou https://...">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Ou fichier .torrent</label>
+            <input type="file" id="add-direct-file" class="form-control" accept=".torrent">
+          </div>
+        </div>
+
+        <div id="add-dl-client-fields" class="d-none">
+          <hr class="border-secondary">
+          <div id="add-selected-release" class="alert alert-secondary py-2 small mb-3 d-none">
+            <i class="bi bi-check-circle me-2"></i><span id="add-selected-release-title"></span>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Client de telechargement</label>
+              <select id="add-dl-client" class="form-select" onchange="onAddDlClientChange()"><option value="">Chargement...</option></select>
+            </div>
+            <div class="col-md-6 qbit-only-add">
+              <label class="form-label fw-semibold">Categorie <span class="text-muted fw-normal">(optionnel)</span></label>
+              <input type="text" id="add-dl-category" class="form-control" placeholder="Defaut du client">
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
+            <input type="text" id="add-dl-tags" class="form-control" placeholder="Defaut du client, separes par virgules">
+          </div>
+        </div>
+
+        <label class="form-label fw-semibold">Attribuer a</label>
+        <select id="add-action-user" class="form-select mb-3"><option value="">Recherche manuelle</option></select>
+        <div id="add-action-feedback" class="d-none"></div>
+      </div>
+      <div class="modal-footer border-secondary" id="add-action-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button class="btn btn-success d-flex align-items-center gap-2" id="add-action-btn" onclick="addPanelConfirm()">
+          <i class="bi bi-plus-circle"></i><span id="add-action-label">Ajouter</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const VFF_ENABLED = {{ 'true' if vff_enabled else 'false' }};
+const ACTIVE_VIEW = {{ active_view|tojson }};
+const mediaModal = new bootstrap.Modal(document.getElementById('mediaModal'));
+let currentMediaDetail = null;
 
 function escHtml(s) {
-  if (!s) return '';
+  if (s == null) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
-
-// ── Recherche client ──────────────────────────────────────────────────────────
-function filterLib() {
-  const q = document.getElementById('lib-search').value.toLowerCase().trim();
-  let visible = 0;
-  document.querySelectorAll('.lib-item').forEach(el => {
-    const match = !q || (el.dataset.title || '').includes(q);
-    el.classList.toggle('d-none', !match);
-    if (match) visible++;
-  });
-  document.getElementById('lib-empty').classList.toggle('d-none', visible > 0);
+function fmtDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(String(iso).includes('T') ? iso : iso + 'T00:00:00');
+  return isNaN(d) ? '-' : d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' });
 }
-
-// ── Détail bibliothèque ───────────────────────────────────────────────────────
-const libModal = new bootstrap.Modal(document.getElementById('libModal'));
-const VF_STATUS_META = {
-  vf:      { badge: 'badge-available', icon: 'bi-translate',       label: 'VF' },
-  vo:      { badge: 'badge-sent',      icon: 'bi-translate',       label: 'VO' },
-  present: { badge: 'bg-info text-dark',icon: 'bi-check-circle',   label: 'Présent' },
-  absent:  { badge: 'badge-pending',   icon: 'bi-dash-circle',     label: 'Absent' },
-  unknown: { badge: 'bg-secondary',    icon: 'bi-question-circle', label: 'Présent' },
-};
-
+function fmtDateTime(iso) {
+  if (!iso) return '-';
+  const s = String(iso).endsWith('Z') || String(iso).includes('+') ? iso : iso + 'Z';
+  const d = new Date(s);
+  return isNaN(d) ? '-' : d.toLocaleString('fr-FR');
+}
 function formatBytes(bytes, decimals = 1) {
-  if (!bytes) return '—';
+  if (!bytes) return '-';
   const k = 1024, sizes = ['B','Ko','Mo','Go','To'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
 }
+function typeLabel(mt) { return mt === 'show' ? 'Serie' : 'Film'; }
+function sourcePath(kind) { return kind === 'library' ? 'library' : 'requests'; }
 
-async function openLibDetail(kind, id, mediaType, hasVf, inLibrary) {
-  // Les demandes non encore en bibliothèque : rediriger vers le hub Demandes.
-  if (kind === 'request') { window.location = '/requests'; return; }
+const PREF_KEY = 'library_view_mode';
+let currentViewMode = localStorage.getItem(PREF_KEY) || 'grid';
+function setViewMode(v) {
+  currentViewMode = v;
+  localStorage.setItem(PREF_KEY, v);
+  document.getElementById('view-grid')?.style.setProperty('display', v === 'grid' ? '' : 'none', v === 'grid' ? '' : 'important');
+  const list = document.getElementById('view-list');
+  if (list) list.style.display = v === 'list' ? '' : 'none';
+  document.getElementById('btn-grid')?.classList.toggle('active', v === 'grid');
+  document.getElementById('btn-list')?.classList.toggle('active', v === 'list');
+}
+if (ACTIVE_VIEW !== 'calendar') document.addEventListener('DOMContentLoaded', () => setViewMode(currentViewMode));
 
-  document.getElementById('libModalTitle').textContent = 'Détail du média';
-  const body = document.getElementById('libModalBody');
-  body.innerHTML = '<div class="text-center py-4"><span class="spinner-border text-warning"></span></div>';
-  const footer = document.getElementById('libModalFooter');
-  footer.innerHTML = '';
-  libModal.show();
-
-  // Identité (arr_id) pour la recherche interactive Sonarr/Radarr.
-  let info = {};
-  try { info = await fetch(`/api/library/${id}`).then(r => r.json()); } catch (e) {}
-
-  if (VFF_ENABLED) {
-    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-warning btn-sm" onclick="libScan(${id})"><i class="bi bi-arrow-clockwise me-1"></i>Vérifier VFF</button>`);
-    if (mediaType === 'show') footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-warning btn-sm" onclick="libScan(${id}, {force: true})" title="Ignore le cache et re-vérifie toute la série"><i class="bi bi-exclamation-triangle me-1"></i>Forcer</button>`);
-    if (hasVf === false) footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-success btn-sm" onclick="libIgnore(${id})"><i class="bi bi-bell-slash me-1"></i>Arrêter le suivi</button>`);
-  }
-  if (info.arr_id) {
-    const label = hasVf === false ? 'Chercher la VF' : 'Chercher une version';
-    const inst = info.arr_instance_id == null ? 'null' : info.arr_instance_id;
-    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-primary btn-sm" onclick='arrReleaseSearch(${JSON.stringify(mediaType)}, ${info.arr_id}, ${inst}, null)'><i class="bi bi-search me-1"></i>${label}</button>`);
-  }
-  footer.insertAdjacentHTML('beforeend', `<button class="btn btn-secondary btn-sm ms-auto" data-bs-dismiss="modal">Fermer</button>`);
-
-  try {
-    const d = await fetch(`/api/library/${id}/vf-detail`).then(r => r.json());
-    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d, id) : renderVfTracks(d);
-  } catch (e) {
-    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
-  }
+function statusBadge(status) {
+  const map = {
+    available: '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
+    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis</span>',
+    failed: '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>',
+    pending: '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Recue</span>',
+  };
+  return map[status] || `<span class="badge bg-secondary">${escHtml(status || 'Aucune demande')}</span>`;
+}
+function vfBadge(hasVf, inLibrary = true) {
+  if (!inLibrary) return '<span class="badge bg-secondary"><i class="bi bi-inbox me-1"></i>Hors Plex</span>';
+  if (hasVf === true) return '<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>';
+  if (hasVf === false) return '<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO</span>';
+  return '<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>Non analyse</span>';
 }
 
-// ── Recherche interactive Sonarr/Radarr (releases scorées, VF en tête) ────────
-async function arrReleaseSearch(mediaType, arrId, instanceId, requestId) {
-  const body = document.getElementById('libModalBody');
-  body.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Recherche interactive Sonarr/Radarr…</span></div>';
-  let url = `/api/arr/releases?media_type=${mediaType}&arr_id=${arrId}`;
-  if (instanceId != null) url += `&instance_id=${instanceId}`;
+async function openMediaDetail(libraryId, requestId) {
+  document.getElementById('mediaModalTitle').textContent = 'Chargement...';
+  document.getElementById('mediaModalBody').innerHTML = '<div class="text-center py-4"><span class="spinner-border text-warning"></span></div>';
+  mediaModal.show();
+  const params = new URLSearchParams();
+  if (libraryId != null) params.set('library_id', libraryId);
+  else if (requestId != null) params.set('request_id', requestId);
   try {
-    const rels = await fetch(url).then(r => r.json());
-    body.innerHTML = renderArrReleases(rels, mediaType, instanceId, requestId);
-  } catch (e) {
-    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
-  }
-}
-
-function renderArrReleases(rels, mediaType, instanceId, requestId) {
-  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvée.</div>';
-  const inst = instanceId == null ? 'null' : instanceId;
-  const req = requestId == null ? 'null' : requestId;
-  const rows = rels.map(r => {
-    const vf = r.is_french ? '<span class="badge badge-available me-1"><i class="bi bi-translate"></i> VF</span>' : '';
-    const rej = r.rejected ? `<i class="bi bi-exclamation-triangle text-warning ms-1" title="${escHtml((r.rejections||[]).join('; '))}"></i>` : '';
-    const langs = (r.languages||[]).join(', ');
-    const hl = r.is_french ? 'style="background:rgba(229,160,13,.08)"' : '';
-    return `<tr ${hl}>
-      <td><div class="small">${vf}${escHtml(r.title)}${rej}</div>
-        <div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}${langs ? ' · ' + escHtml(langs) : ''}</div></td>
-      <td class="text-nowrap small">${formatBytes(r.size)}</td>
-      <td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td>
-      <td class="text-nowrap small" title="Score custom format">${r.custom_format_score}</td>
-      <td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td>
-    </tr>`;
-  }).join('');
-  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0">
-    <thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
-}
-
-async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, btn) {
-  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-  try {
-    const r = await fetch('/api/arr/grab', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ media_type: mediaType, guid, indexer_id: indexerId, instance_id: instanceId, request_id: requestId }),
+    currentMediaDetail = await fetch(`/api/media/detail?${params.toString()}`).then(r => {
+      if (!r.ok) throw new Error('Detail introuvable');
+      return r.json();
     });
-    if (r.ok) {
-      showToast('Release envoyée à ' + (mediaType === 'movie' ? 'Radarr' : 'Sonarr') + ' — téléchargement + import en cours', 'success');
-      btn.innerHTML = '<i class="bi bi-check-lg"></i>';
-    } else {
-      const d = await r.json().catch(() => ({}));
-      showToast('Échec : ' + (d.detail || 'erreur'), 'danger');
-      btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
-    }
+    renderMediaModal(currentMediaDetail);
   } catch (e) {
-    showToast('Erreur réseau', 'danger');
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
+    document.getElementById('mediaModalBody').innerHTML = `<div class="alert alert-danger">${escHtml(e.message)}</div>`;
   }
 }
 
-function renderVfTracks(d) {
-  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
-  if (d.vf_available === false) return '<div class="alert alert-secondary py-2 mb-0" style="font-size:12px">Suivi VFF désactivé.</div>';
-  if (!d.found) return '<div class="text-muted small py-2">Film introuvable dans les bibliothèques Plex configurées.</div>';
-  if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio détectée.</div>';
-  const rows = d.tracks.map(t => `
-    <li class="d-flex align-items-center gap-2 py-1">
-      <span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px"><i class="bi bi-translate me-1"></i>${t.is_fr ? 'VF' : 'VO'}</span>
-      <span class="small">${escHtml(t.label || t.lang || '?')}</span>
-    </li>`).join('');
-  return `<ul class="list-unstyled mb-0">${rows}</ul>`;
+function renderMediaModal(d) {
+  const m = d.media;
+  document.getElementById('mediaModalTitle').textContent = `${m.title}${m.year ? ' (' + m.year + ')' : ''}`;
+  document.getElementById('mediaModalBody').innerHTML = `
+    <ul class="nav nav-tabs mb-3" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button"><i class="bi bi-info-circle me-1"></i>Resume</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-requests" type="button"><i class="bi bi-inbox me-1"></i>Demandes <span class="badge bg-secondary ms-1">${d.requests.length}</span></button></li>
+      <li class="nav-item"><button class="nav-link" id="tab-vf-btn" data-bs-toggle="tab" data-bs-target="#tab-vf" type="button"><i class="bi bi-translate me-1"></i>${m.media_type === 'show' ? 'VF / Episodes' : 'Pistes audio'}</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-calendar" type="button"><i class="bi bi-calendar3 me-1"></i>Calendrier</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button"><i class="bi bi-search me-1"></i>Recherche</button></li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="tab-summary">${renderSummary(d)}</div>
+      <div class="tab-pane fade" id="tab-requests">${renderRequestsTab(d.requests)}</div>
+      <div class="tab-pane fade" id="tab-vf"><div id="vf-tab-body">${VFF_ENABLED || m.media_type === 'show' ? '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span></div>' : '<div class="text-muted small">Suivi VFF desactive.</div>'}</div></div>
+      <div class="tab-pane fade" id="tab-calendar">${renderCalendarTab(d)}</div>
+      <div class="tab-pane fade" id="tab-search">${renderSearchTab(m)}</div>
+    </div>`;
+  loadVfDetail(d.media);
 }
 
-function renderVfSeasons(d, id) {
-  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
-  if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable dans Plex / Sonarr, ou aucun épisode suivi.</div>';
-  const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
-  const items = d.seasons.map((s, i) => {
-    const c = s.counts;
-    const summary = [
-      c.vf ? `<span class="text-success">${c.vf} VF</span>` : '',
-      c.vo ? `<span class="text-primary">${c.vo} VO</span>` : '',
-      c.present ? `<span class="text-info">${c.present} présent</span>` : '',
-      c.absent ? `<span class="text-muted">${c.absent} absent</span>` : '',
-    ].filter(Boolean).join(' · ');
-    const eps = s.episodes.map(e => {
-      const m = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
-      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
-        <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
-        <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
-        <span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span>
-        <button class="btn btn-link btn-sm p-0 text-muted" title="Forcer la vérification de cet épisode"
-                onclick="libScan(${id}, {force: true, season: ${s.season_number}, episode: ${e.episode}})">
-          <i class="bi bi-arrow-repeat"></i>
-        </button>
-      </li>`;
-    }).join('');
-    return `<div class="accordion-item" style="background:transparent;border-color:var(--pr-border)">
-      <h2 class="accordion-header d-flex align-items-center" style="gap:4px">
-        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1">
-          <span class="me-2"><strong>Saison ${s.season_number}</strong></span><span class="small">${summary}</span>
-        </button>
-        <button class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:11px" title="Forcer la vérification de cette saison"
-                onclick="libScan(${id}, {force: true, season: ${s.season_number}})">
-          <i class="bi bi-arrow-repeat"></i>
-        </button>
-      </h2>
-      <div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div>
+function renderSummary(d) {
+  const m = d.media, t = d.timeline || {};
+  const poster = m.poster_url
+    ? `<img src="${escHtml(m.poster_url)}" class="img-fluid rounded" style="width:120px;object-fit:cover">`
+    : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:120px;height:180px"><i class="bi bi-image fs-2 text-muted"></i></div>`;
+  const requestStatus = d.requests.length ? d.requests.map(r => statusBadge(r.status)).join(' ') : '<span class="badge bg-secondary">Aucune demande</span>';
+  const requesterNames = [...new Set(d.requests.flatMap(r => r.requesters || []))].join(', ') || '-';
+  const scheduleRows = m.media_type === 'show'
+    ? `
+      <tr><td class="text-muted">Premiere diffusion</td><td>${fmtDate(t.first_aired)}</td></tr>
+      <tr><td class="text-muted">Prochaine diffusion</td><td>${fmtDateTime(t.next_episode_at)}</td></tr>
+      <tr><td class="text-muted">Fin de diffusion</td><td>${t.ended_at ? fmtDate(t.ended_at) : (t.series_status === 'ended' ? fmtDate(t.last_aired_at) : 'En cours')}</td></tr>`
+    : `
+      <tr><td class="text-muted">Sortie cinema</td><td>${fmtDate(t.in_cinemas)}</td></tr>
+      <tr><td class="text-muted">Sortie digitale</td><td>${fmtDate(t.digital_release)}</td></tr>
+      <tr><td class="text-muted">Sortie physique</td><td>${fmtDate(t.physical_release)}</td></tr>`;
+  return `<div class="row g-3">
+    <div class="col-auto">${poster}</div>
+    <div class="col">
+      <div class="mb-2">
+        <span class="badge ${m.media_type === 'show' ? 'bg-info text-dark' : 'bg-primary'}">${typeLabel(m.media_type)}</span>
+        ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>'}
+        <span class="ms-1">${vfBadge(m.has_vf, m.in_library)}</span>
+      </div>
+      <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
+        <tr><td class="text-muted" style="width:150px">Demandes</td><td>${requestStatus}</td></tr>
+        <tr><td class="text-muted">Demandeurs</td><td>${escHtml(requesterNames)}</td></tr>
+        ${scheduleRows}
+        <tr><td class="text-muted">TMDB / TVDB / IMDB</td><td>${[m.tmdb_id && 'TMDB '+m.tmdb_id, m.tvdb_id && 'TVDB '+m.tvdb_id, m.imdb_id && 'IMDB '+m.imdb_id].filter(Boolean).map(escHtml).join(' · ') || '-'}</td></tr>
+      </table>
+    </div>
+    ${m.overview ? `<div class="col-12"><p class="text-muted small mb-0" style="line-height:1.6">${escHtml(m.overview)}</p></div>` : ''}
+  </div>`;
+}
+
+function renderRequestsTab(requests) {
+  if (!requests.length) return '<div class="text-muted small py-3">Aucune demande liee a ce media.</div>';
+  return requests.map(r => {
+    const error = r.overview && r.overview.includes('[ERREUR]') ? `<div class="text-danger small mt-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(r.overview.split('[ERREUR]').pop().trim())}</div>` : '';
+    return `<div class="border rounded p-3 mb-2" style="border-color:var(--pr-border)!important;background:var(--pr-surface-2)">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <div>
+          <div class="fw-semibold">${statusBadge(r.status)} <span class="badge bg-secondary ms-1">${escHtml(r.source || '?')}</span></div>
+          <div class="text-muted small mt-1"><i class="bi bi-person me-1"></i>${escHtml(r.requested_by || '-')}</div>
+          <div class="text-muted small">Demandee le ${fmtDateTime(r.requested_at)}${r.available_at ? ' · Disponible le ' + fmtDateTime(r.available_at) : ''}</div>
+          <div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} · Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>
+          ${error}
+        </div>
+        <div class="d-flex flex-wrap gap-1 align-self-start">
+          ${(r.status === 'failed' || r.status === 'pending') ? `<button class="btn btn-sm btn-outline-warning" onclick="retryRequest(${r.id}, this)"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>` : ''}
+          ${!r.request_mail_sent ? `<button class="btn btn-sm btn-outline-secondary" onclick="markProcessed(${r.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Mail demande</button>` : ''}
+          ${r.status !== 'available' ? `<button class="btn btn-sm btn-outline-success" onclick="markProcessed(${r.id}, this, 'available')"><i class="bi bi-check-all me-1"></i>Cloturer</button>` : ''}
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteRequest(${r.id})"><i class="bi bi-trash"></i></button>
+        </div>
+      </div>
     </div>`;
   }).join('');
-  return `<div class="accordion mt-2" id="${accId}">${items}</div>`;
 }
 
-async function libScan(id, { force = false, season = null, episode = null } = {}) {
-  if (force) {
-    const scope = episode != null ? `l'épisode S${season}E${episode}` : season != null ? `la saison ${season}` : 'toute la série';
-    if (!await confirmAction({
-      title: 'Forcer la vérification',
-      body: `Purge le cache VF pour ${scope} et re-vérifie dans Plex. Continuer ?`,
-      okLabel: 'Forcer',
-    })) return;
+function renderCalendarTab(d) {
+  const events = d.calendar || [];
+  if (!events.length) return '<div class="text-muted small py-3">Aucune date connue pour ce media.</div>';
+  return `<div class="list-group list-group-flush" style="max-height:520px;overflow:auto">
+    ${events.map(e => `<div class="list-group-item bg-transparent text-white border-secondary d-flex align-items-center gap-3">
+      <span class="badge ${e.type === 'episode' ? 'bg-info text-dark' : 'bg-primary'}">${e.type === 'episode' ? 'Episode' : 'Film'}</span>
+      <div class="flex-grow-1">
+        <div class="fw-semibold">${escHtml(e.subtitle || e.title)}</div>
+        <div class="text-muted small">${fmtDateTime(e.date)}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div>
+      </div>
+      ${e.has_file ? '<span class="badge badge-available">Telecharge</span>' : '<span class="badge bg-secondary">A venir</span>'}
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderSearchTab(m) {
+  if (!m.arr_id) return '<div class="text-muted small py-3">Aucun identifiant Sonarr/Radarr disponible pour lancer une recherche interactive.</div>';
+  const reqId = m.request_id == null ? 'null' : m.request_id;
+  const inst = m.arr_instance_id == null ? 'null' : m.arr_instance_id;
+  return `<div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="text-muted small">Recherche interactive ${m.media_type === 'show' ? 'Sonarr' : 'Radarr'} avec les releases VF en tete.</div>
+    <button class="btn btn-sm btn-outline-primary" onclick="loadReleaseSearch('${m.media_type}', ${m.arr_id}, ${inst}, ${reqId})"><i class="bi bi-search me-1"></i>Charger les releases</button>
+  </div><div id="release-results"></div>`;
+}
+
+async function loadVfDetail(m) {
+  const body = document.getElementById('vf-tab-body');
+  if (!body || !m.vf_source_id) {
+    if (body) body.innerHTML = '<div class="text-muted small">Aucune source VFF disponible.</div>';
+    return;
   }
+  const path = sourcePath(m.vf_source_type);
+  try {
+    const d = await fetch(`/api/${path}/${m.vf_source_id}/vf-detail`).then(r => r.json());
+    const actions = VFF_ENABLED ? vfActionsBar(m) : '';
+    body.innerHTML = actions + (m.media_type === 'show' ? renderVfSeasons(d, m) : renderVfTracks(d));
+  } catch (e) {
+    body.innerHTML = `<div class="text-danger small">${escHtml(e.message)}</div>`;
+  }
+}
+function vfActionsBar(m) {
+  const force = m.media_type === 'show' ? `<button class="btn btn-sm btn-outline-warning" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true})"><i class="bi bi-exclamation-triangle me-1"></i>Forcer</button>` : '';
+  const ignore = m.has_vf === false ? `<button class="btn btn-sm btn-outline-success" onclick="ignoreVff('${m.vf_source_type}', ${m.vf_source_id})"><i class="bi bi-bell-slash me-1"></i>Arreter le suivi</button>` : '';
+  return `<div class="d-flex justify-content-end gap-2 mb-2"><button class="btn btn-sm btn-outline-warning" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id})"><i class="bi bi-arrow-clockwise me-1"></i>Verifier VFF</button>${force}${ignore}</div>`;
+}
+const VF_STATUS_META = {
+  vf: { badge: 'badge-available', icon: 'bi-translate', label: 'VF' },
+  vo: { badge: 'badge-sent', icon: 'bi-translate', label: 'VO' },
+  present: { badge: 'bg-info text-dark', icon: 'bi-check-circle', label: 'Present' },
+  absent: { badge: 'badge-pending', icon: 'bi-dash-circle', label: 'Absent' },
+  unknown: { badge: 'bg-secondary', icon: 'bi-question-circle', label: 'Present' },
+};
+function renderVfTracks(d) {
+  if (d.error) return `<div class="text-warning small py-2">${escHtml(d.error)}</div>`;
+  if (d.vf_available === false) return '<div class="alert alert-secondary py-2 small">Suivi VFF desactive.</div>';
+  if (!d.found) return '<div class="text-muted small py-2">Film introuvable dans les bibliotheques Plex configurees.</div>';
+  if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio detectee.</div>';
+  return `<ul class="list-unstyled mb-0">${d.tracks.map(t => `<li class="d-flex align-items-center gap-2 py-1"><span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px">${t.is_fr ? 'VF' : 'VO'}</span><span class="small">${escHtml(t.label || t.lang || '?')}</span></li>`).join('')}</ul>`;
+}
+function renderVfSeasons(d, m) {
+  if (d.error) return `<div class="text-warning small py-2">${escHtml(d.error)}</div>`;
+  if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Aucun episode suivi trouve.</div>';
+  const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
+  return `<div class="accordion mt-2" id="${accId}">${d.seasons.map((s, i) => {
+    const c = s.counts || {};
+    const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} inconnus`, c.absent && `${c.absent} absents`].filter(Boolean).join(' · ');
+    const eps = (s.episodes || []).map(e => {
+      const meta = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
+      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px"><span class="badge ${meta.badge}" style="min-width:58px"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span><span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span><span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span><button class="btn btn-link btn-sm p-0 text-muted" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-arrow-repeat"></i></button></li>`;
+    }).join('');
+    return `<div class="accordion-item" style="background:transparent;border-color:var(--pr-border)"><h2 class="accordion-header d-flex align-items-center" style="gap:4px"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1"><strong class="me-2">Saison ${s.season_number}</strong><span class="small">${summary}</span></button><button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}})"><i class="bi bi-arrow-repeat"></i></button></h2><div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div></div>`;
+  }).join('')}</div>`;
+}
+async function scanVff(kind, id, { force = false, season = null, episode = null } = {}) {
+  if (force && !await confirmAction({ title:'Forcer la verification', body:'Purger le cache VF et re-verifier dans Plex ?', okLabel:'Forcer' })) return;
   const params = new URLSearchParams();
   if (force) params.set('force', 'true');
   if (season != null) params.set('season', season);
   if (episode != null) params.set('episode', episode);
-  const qs = params.toString() ? `?${params.toString()}` : '';
+  const qs = params.toString() ? '?' + params.toString() : '';
+  const path = sourcePath(kind);
   try {
-    const r = await fetch(`/api/library/${id}/vff-scan${qs}`, { method: 'POST' });
-    const res = await r.json();
-    if (r.ok) { showToast('Scan VFF réussi !', 'success'); setTimeout(() => window.location.reload(), 800); }
-    else showToast('Échec : ' + (res.detail || 'Erreur inconnue'), 'danger');
-  } catch (e) { showToast('Erreur réseau', 'danger'); }
+    const r = await fetch(`/api/${path}/${id}/vff-scan${qs}`, { method:'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast('Scan VFF reussi', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
+}
+async function ignoreVff(kind, id) {
+  if (!await confirmAction({ title:'Arreter le suivi VFF', body:'Marquer ce media comme traite ?', okLabel:'Arreter' })) return;
+  const path = sourcePath(kind);
+  const r = await fetch(`/api/${path}/${id}/vff-ignore`, { method:'POST' });
+  if (r.ok) { showToast('Suivi VFF arrete', 'success'); setTimeout(() => location.reload(), 800); }
+  else showToast('Echec', 'danger');
 }
 
-async function libIgnore(id) {
-  if (!await confirmAction({ title: 'Arrêter le suivi VFF', body: 'Marquer ce média comme traité (arrêter le suivi VF) ?', okLabel: 'Arrêter le suivi' })) return;
+async function loadReleaseSearch(mediaType, arrId, instanceId, requestId) {
+  const target = document.getElementById('release-results');
+  target.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div>';
+  let url = `/api/arr/releases?media_type=${mediaType}&arr_id=${arrId}`;
+  if (instanceId != null) url += `&instance_id=${instanceId}`;
   try {
-    const r = await fetch(`/api/library/${id}/vff-ignore`, { method: 'POST' });
-    if (r.ok) { showToast('Suivi VFF arrêté', 'success'); setTimeout(() => window.location.reload(), 800); }
-    else showToast('Échec', 'danger');
-  } catch (e) { showToast('Erreur réseau', 'danger'); }
+    const rels = await fetch(url).then(r => r.json());
+    target.innerHTML = renderArrReleases(rels, mediaType, instanceId, requestId);
+  } catch (e) {
+    target.innerHTML = `<div class="text-danger small">${escHtml(e.message)}</div>`;
+  }
+}
+function renderArrReleases(rels, mediaType, instanceId, requestId) {
+  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
+  const inst = instanceId == null ? 'null' : instanceId;
+  const req = requestId == null ? 'null' : requestId;
+  const rows = rels.map(r => {
+    const vf = r.is_french ? '<span class="badge badge-available me-1">VF</span>' : '';
+    return `<tr ${r.is_french ? 'style="background:rgba(229,160,13,.08)"' : ''}><td><div class="small">${vf}${escHtml(r.title)}${r.rejected ? '<i class="bi bi-exclamation-triangle text-warning ms-1"></i>' : ''}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+  }).join('');
+  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, btn) {
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/arr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ media_type:mediaType, guid, indexer_id:indexerId, instance_id:instanceId, request_id:requestId }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
+    showToast('Release envoyee', 'success'); btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+  } catch (e) { showToast('Echec : ' + e.message, 'danger'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; }
 }
 
-// ── Actions VFF globales (scan / synchronisation Plex) ────────────────────────
+function getSelectedIds() { return Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => parseInt(cb.value)).filter(Boolean); }
+function toggleSelectAll(master) { document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = master.checked); updateBulkBar(); }
+function updateBulkBar() {
+  const count = getSelectedIds().length;
+  document.getElementById('bulk-select-count').textContent = count;
+  document.getElementById('bulk-actions-bar').style.setProperty('display', count ? 'flex' : 'none', 'important');
+}
+async function retryRequest(id, btn) {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  try {
+    const r = await fetch(`/api/requests/${id}/retry`, { method:'POST' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast('Verification relancee', 'warning');
+    setTimeout(() => location.reload(), 1000);
+  } catch (e) { showToast('Erreur : ' + e.message, 'danger'); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i>'; } }
+}
+async function markProcessed(id, btn, event) {
+  const label = event === 'request' ? 'Renvoyer le mail de demande ?' : 'Envoyer le mail de disponibilite et cloturer ?';
+  if (!await confirmAction({ title:'Confirmer', body:label, okLabel:'Confirmer' })) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch(`/api/requests/${id}/mark-processed?event=${event}`, { method:'POST' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast('Action effectuee', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { showToast('Erreur : ' + e.message, 'danger'); if (btn) btn.disabled = false; }
+}
+async function deleteRequest(id) {
+  if (!await confirmAction({ title:'Supprimer la demande', body:'Supprimer definitivement cette demande ?', okLabel:'Supprimer', danger:true })) return;
+  try {
+    const r = await fetch(`/api/requests/${id}`, { method:'DELETE' });
+    if (!r.ok) throw new Error('Erreur');
+    showToast('Demande supprimee', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
+}
+async function bulkRetry() {
+  const ids = getSelectedIds(); if (!ids.length) return;
+  const r = await fetch('/api/requests/bulk/retry', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids}) });
+  const d = await r.json(); showToast(`${d.count || 0} demande(s) relancee(s)`, r.ok ? 'warning' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
+}
+async function bulkMarkProcessed() {
+  const ids = getSelectedIds(); if (!ids.length) return;
+  if (!await confirmAction({ title:'Marquer traite', body:`Marquer ${ids.length} demande(s) comme disponibles ?`, okLabel:'Marquer' })) return;
+  const r = await fetch('/api/requests/bulk/mark-processed', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids}) });
+  const d = await r.json(); showToast(`${d.count || 0} demande(s) traitee(s)`, r.ok ? 'success' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
+}
+async function bulkDelete() {
+  const ids = getSelectedIds(); if (!ids.length) return;
+  if (!await confirmAction({ title:'Supprimer les demandes', body:`Supprimer ${ids.length} demande(s) ?`, okLabel:'Supprimer', danger:true })) return;
+  const r = await fetch('/api/requests/bulk/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids}) });
+  const d = await r.json(); showToast(`${d.count || 0} demande(s) supprimee(s)`, r.ok ? 'success' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
+}
+
 let vffPollInterval = null;
 async function checkScanStatus() {
   try {
@@ -366,7 +793,7 @@ async function checkScanStatus() {
       document.getElementById('vff-progress-bar').style.width = (d.total_items ? (d.items_scanned / d.total_items) * 100 : 0) + '%';
       if (!vffPollInterval) vffPollInterval = setInterval(checkScanStatus, 1500);
     } else {
-      if (vffPollInterval) { clearInterval(vffPollInterval); vffPollInterval = null; showToast('Analyse VFF terminée !', 'success'); setTimeout(() => window.location.reload(), 1000); }
+      if (vffPollInterval) { clearInterval(vffPollInterval); vffPollInterval = null; showToast('Analyse VFF terminee', 'success'); setTimeout(() => location.reload(), 1000); }
       card.classList.add('d-none'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin');
     }
   } catch (e) {}
@@ -383,33 +810,530 @@ async function checkSyncStatus() {
       document.getElementById('plex-sync-progress-bar').style.width = (d.total_items ? (d.items_synced / d.total_items) * 100 : 0) + '%';
       if (!plexSyncPollInterval) plexSyncPollInterval = setInterval(checkSyncStatus, 1500);
     } else {
-      if (plexSyncPollInterval) { clearInterval(plexSyncPollInterval); plexSyncPollInterval = null; showToast('Synchronisation terminée !', 'success'); setTimeout(() => window.location.reload(), 1000); }
+      if (plexSyncPollInterval) { clearInterval(plexSyncPollInterval); plexSyncPollInterval = null; showToast('Synchronisation terminee', 'success'); setTimeout(() => location.reload(), 1000); }
       card.classList.add('d-none'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin');
     }
   } catch (e) {}
 }
 async function vffScan(btn) {
   const force = document.getElementById('vff-force-check')?.checked;
-  if (force && !await confirmAction({
-    title: 'Forcer l\'analyse complète',
-    body: 'Purge tout le cache VF par épisode et re-vérifie tous les médias depuis zéro. Peut générer beaucoup d\'appels Plex sur une grosse bibliothèque. Continuer ?',
-    okLabel: 'Forcer',
-  })) return;
+  if (force && !await confirmAction({ title:'Forcer analyse complete', body:'Purger tout le cache VF et re-verifier tous les medias ?', okLabel:'Forcer' })) return;
   btn.disabled = true; btn.querySelector('i')?.classList.add('spin');
   try {
-    const res = await fetch(`/api/vff/scan${force ? '?force=true' : ''}`, { method: 'POST' }).then(r => r.json());
-    if (res.status === 'started' || res.status === 'already_running') { showToast('Analyse lancée', 'info'); checkScanStatus(); }
-    else { showToast('Échec', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
-  } catch (e) { showToast('Erreur réseau', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
+    const res = await fetch(`/api/vff/scan${force ? '?force=true' : ''}`, { method:'POST' }).then(r => r.json());
+    if (res.status === 'started' || res.status === 'already_running') { showToast('Analyse lancee', 'info'); checkScanStatus(); }
+    else throw new Error('Echec');
+  } catch (e) { showToast('Erreur reseau', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
 }
 async function vffSync(btn) {
   btn.disabled = true; btn.querySelector('i')?.classList.add('spin');
   try {
-    const res = await fetch('/api/vff/sync-plex', { method: 'POST' }).then(r => r.json());
-    if (res.status === 'started' || res.status === 'already_running') { showToast('Synchronisation lancée', 'info'); checkSyncStatus(); }
-    else { showToast('Échec', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
-  } catch (e) { showToast('Erreur réseau', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
+    const res = await fetch('/api/vff/sync-plex', { method:'POST' }).then(r => r.json());
+    if (res.status === 'started' || res.status === 'already_running') { showToast('Synchronisation lancee', 'info'); checkSyncStatus(); }
+    else throw new Error('Echec');
+  } catch (e) { showToast('Erreur reseau', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
 }
 if (VFF_ENABLED) document.addEventListener('DOMContentLoaded', () => { checkScanStatus(); checkSyncStatus(); });
+
+let _addPanelItem = null;
+let _addCaps = {};
+let _addUsers = [];
+let _allInstances = [];
+let _selectedTagIds = new Set();
+let _hiddenProwlarrInstances = [];
+let _prowlarrSelectedUrl = null;
+let _prowlarrSelectedGuid = null;
+let _prowlarrSelectedIndexerId = null;
+let _prowlarrUseNativeClient = false;
+
+async function _loadInstances() {
+  try {
+    const r = await fetch('/api/arr-instances');
+    _allInstances = r.ok ? await r.json() : [];
+  } catch(e) { _allInstances = []; }
+}
+async function _initAddPanel() {
+  try {
+    const [capsR, usersR] = await Promise.all([
+      fetch('/api/media/capabilities'),
+      fetch('/api/users'),
+      _loadInstances(),
+    ]);
+    _addCaps = capsR.ok ? await capsR.json() : {};
+    _addUsers = usersR.ok ? await usersR.json() : [];
+    const sel = document.getElementById('add-action-user');
+    _addUsers.filter(u => u.enabled).forEach(u => {
+      const o = document.createElement('option');
+      o.value = u.plex_user_id; o.textContent = u.display_name || u.plex_user_id; sel.appendChild(o);
+    });
+  } catch(e) {}
+}
+_initAddPanel();
+
+function openAddPanel(query) {
+  const panel = document.getElementById('add-panel');
+  panel.classList.remove('d-none');
+  panel.scrollIntoView({ behavior:'smooth', block:'start' });
+  const input = document.getElementById('add-query');
+  input.value = query || '';
+  if (query) addPanelSearch(); else input.focus();
+}
+function closeAddPanel() {
+  document.getElementById('add-panel').classList.add('d-none');
+  document.getElementById('add-panel-results').innerHTML = '';
+  document.getElementById('add-action-feedback')?.classList.add('d-none');
+}
+async function addPanelSearch() {
+  const query = document.getElementById('add-query').value.trim();
+  const type = document.getElementById('add-media-type').value;
+  if (!query) return;
+  document.getElementById('add-panel-loading').classList.remove('d-none');
+  document.getElementById('add-panel-results').innerHTML = '';
+  try {
+    const items = await fetch(`/api/media/lookup?query=${encodeURIComponent(query)}&type=${type}`).then(r => r.ok ? r.json() : []);
+    window._addLookupItems = items;
+    const container = document.getElementById('add-panel-results');
+    if (!items.length) {
+      container.innerHTML = '<div class="col-12 text-muted small py-3">Aucun resultat. Verifiez que Sonarr/Radarr est configure.</div>';
+    } else {
+      container.innerHTML = items.map((item, idx) => {
+        const badge = item.already_added ? ' <span class="badge bg-primary">Deja ajoute</span>' : '';
+        const poster = item.poster ? `<img src="${escHtml(item.poster)}" style="width:40px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">` : '';
+        return `<div class="col-md-6 col-lg-4"><div class="card p-2 hover-card" style="background:var(--pr-surface);cursor:pointer" onclick="addPanelSelect(${idx})"><div class="d-flex gap-2">${poster}<div class="min-w-0"><div class="fw-semibold small text-truncate">${escHtml(item.title)}${item.year ? ` <span class="text-muted">(${item.year})</span>` : ''}${badge}</div><div class="text-muted" style="font-size:11px">${escHtml((item.overview || '').slice(0,90))}</div></div></div></div></div>`;
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('add-panel-results').innerHTML = `<div class="col-12 text-danger small">${escHtml(e.message)}</div>`;
+  } finally {
+    document.getElementById('add-panel-loading').classList.add('d-none');
+  }
+}
+async function addPanelSelect(idx) {
+  _addPanelItem = window._addLookupItems[idx];
+  if (!_addPanelItem) return;
+  document.getElementById('add-action-title').textContent = _addPanelItem.title + (_addPanelItem.year ? ` (${_addPanelItem.year})` : '');
+  document.getElementById('add-action-meta').textContent = typeLabel(_addPanelItem.media_type);
+  document.getElementById('add-action-overview').textContent = (_addPanelItem.overview || '').slice(0, 240);
+  const poster = document.getElementById('add-action-poster');
+  poster.src = _addPanelItem.poster || ''; poster.style.display = _addPanelItem.poster ? '' : 'none';
+
+  const arrBlock = document.getElementById('add-arr-interactive');
+  arrBlock.classList.toggle('d-none', !(_addPanelItem.already_added && _addPanelItem.arr_id));
+  document.getElementById('add-arr-releases').innerHTML = '';
+  document.getElementById('add-action-feedback').classList.add('d-none');
+  document.getElementById('add-action-footer').classList.remove('d-none');
+  const btn = document.getElementById('add-action-btn');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-plus-circle"></i><span id="add-action-label">Ajouter</span>';
+
+  const isShow = _addPanelItem.media_type === 'show';
+  const arrType = isShow ? 'sonarr' : 'radarr';
+  const serviceSel = document.getElementById('add-service-select');
+  serviceSel.innerHTML = '';
+
+  const grpMedia = document.createElement('optgroup');
+  grpMedia.label = 'Ajouter a la mediatheque';
+  if (_addCaps.has_seer) {
+    const o = document.createElement('option');
+    o.value = 'seer'; o.textContent = 'Seer (Overseerr / Jellyseerr)';
+    grpMedia.appendChild(o);
+  }
+  const arrInstances = _allInstances.filter(i => i.arr_type === arrType && i.enabled);
+  arrInstances.forEach(i => {
+    const o = document.createElement('option');
+    o.value = `arr:${i.id}`;
+    o.textContent = `${i.name}${i.is_default ? ' (Defaut)' : ''}`;
+    grpMedia.appendChild(o);
+  });
+  if (grpMedia.children.length) serviceSel.appendChild(grpMedia);
+
+  const grpDl = document.createElement('optgroup');
+  grpDl.label = 'Telechargement direct (hors *arr)';
+  const prowlarrInstances = _allInstances.filter(i => i.arr_type === 'prowlarr' && i.enabled);
+  _hiddenProwlarrInstances = arrInstances.length ? prowlarrInstances : [];
+  if (!_hiddenProwlarrInstances.length) {
+    prowlarrInstances.forEach(i => {
+      const o = document.createElement('option');
+      o.value = `prowlarr:${i.id}`; o.textContent = `Prowlarr - ${i.name}`;
+      grpDl.appendChild(o);
+    });
+  }
+  const oDirect = document.createElement('option');
+  oDirect.value = 'direct'; oDirect.textContent = 'Direct (magnet / .torrent)';
+  grpDl.appendChild(oDirect);
+  serviceSel.appendChild(grpDl);
+  document.getElementById('add-prowlarr-toggle').classList.toggle('d-none', !_hiddenProwlarrInstances.length);
+
+  if (_addCaps.has_seer) serviceSel.value = 'seer';
+  else if (arrInstances.length) {
+    const def = arrInstances.find(i => i.is_default) || arrInstances[0];
+    serviceSel.value = `arr:${def.id}`;
+  } else if (prowlarrInstances.length) serviceSel.value = `prowlarr:${prowlarrInstances[0].id}`;
+  else serviceSel.value = 'direct';
+
+  const libraryCount = (_addCaps.has_seer ? 1 : 0) + arrInstances.length;
+  document.getElementById('add-service-field').classList.toggle('d-none', libraryCount === 1 && !prowlarrInstances.length);
+  document.getElementById('add-manual-toggle').classList.toggle('d-none', !(libraryCount === 1 && !prowlarrInstances.length));
+  renderServicePills();
+  await onServiceChange();
+  new bootstrap.Modal(document.getElementById('addMediaModal')).show();
+}
+
+function revealManualDownload(e) {
+  e.preventDefault();
+  document.getElementById('add-manual-toggle').classList.add('d-none');
+  document.getElementById('add-service-field').classList.remove('d-none');
+  setService('direct');
+}
+function revealProwlarrOption(e) {
+  e.preventDefault();
+  const sel = document.getElementById('add-service-select');
+  const grpDl = Array.from(sel.children).find(n => n.tagName === 'OPTGROUP' && n.label.includes('direct'));
+  const target = grpDl || sel;
+  _hiddenProwlarrInstances.forEach(i => {
+    const o = document.createElement('option');
+    o.value = `prowlarr:${i.id}`;
+    o.textContent = `Prowlarr - ${i.name}`;
+    target.insertBefore(o, target.firstChild);
+  });
+  const firstId = _hiddenProwlarrInstances[0]?.id;
+  _hiddenProwlarrInstances = [];
+  document.getElementById('add-prowlarr-toggle').classList.add('d-none');
+  renderServicePills();
+  if (firstId != null) setService(`prowlarr:${firstId}`);
+}
+function _serviceIcon(val) {
+  if (val === 'seer') return 'bi-collection-play';
+  if (val.startsWith('arr:')) return _addPanelItem?.media_type === 'show' ? 'bi-tv' : 'bi-film';
+  if (val.startsWith('prowlarr:')) return 'bi-search';
+  if (val === 'direct') return 'bi-magnet';
+  return 'bi-question-circle';
+}
+function _makeServicePill(opt) {
+  const pill = document.createElement('button');
+  pill.type = 'button';
+  pill.className = 'btn btn-sm btn-outline-secondary service-pill d-flex align-items-center gap-2';
+  pill.dataset.value = opt.value;
+  pill.innerHTML = `<i class="bi ${_serviceIcon(opt.value)}"></i> ${escHtml(opt.textContent)}`;
+  pill.disabled = !opt.value;
+  pill.onclick = () => setService(opt.value);
+  return pill;
+}
+function renderServicePills() {
+  const sel = document.getElementById('add-service-select');
+  const container = document.getElementById('add-service-pills');
+  container.innerHTML = '';
+  Array.from(sel.children).forEach(node => {
+    if (node.tagName === 'OPTGROUP') {
+      const grp = document.createElement('div');
+      grp.className = 'mb-2';
+      const lbl = document.createElement('div');
+      lbl.className = 'text-muted small fw-semibold mb-1';
+      lbl.textContent = node.label;
+      grp.appendChild(lbl);
+      const row = document.createElement('div');
+      row.className = 'd-flex flex-wrap gap-2';
+      Array.from(node.children).forEach(opt => row.appendChild(_makeServicePill(opt)));
+      grp.appendChild(row);
+      container.appendChild(grp);
+    }
+  });
+  updatePillActive();
+}
+function updatePillActive() {
+  const val = document.getElementById('add-service-select').value;
+  document.querySelectorAll('#add-service-pills .service-pill').forEach(p => {
+    const active = p.dataset.value === val;
+    p.classList.toggle('btn-warning', active);
+    p.classList.toggle('text-dark', active);
+    p.classList.toggle('btn-outline-secondary', !active);
+  });
+}
+function setService(val) {
+  document.getElementById('add-service-select').value = val;
+  updatePillActive();
+  onServiceChange();
+}
+async function onServiceChange() {
+  if (!_addPanelItem) return;
+  const val = document.getElementById('add-service-select').value;
+  const btn = document.getElementById('add-action-btn');
+  _selectedTagIds = new Set();
+  _prowlarrSelectedUrl = null;
+  _prowlarrSelectedGuid = null;
+  _prowlarrSelectedIndexerId = null;
+  _prowlarrUseNativeClient = false;
+  updatePillActive();
+  ['add-arr-fields','add-prowlarr-fields','add-direct-fields','add-dl-client-fields'].forEach(id => document.getElementById(id).classList.add('d-none'));
+  document.getElementById('add-prowlarr-results').classList.add('d-none');
+  document.getElementById('add-selected-release').classList.add('d-none');
+
+  if (val === 'seer') {
+    document.getElementById('add-action-label').textContent = _addPanelItem.already_added ? 'Importer dans les demandes' : 'Ajouter via Seer';
+    btn.className = _addPanelItem.already_added ? 'btn btn-outline-secondary d-flex align-items-center gap-2' : 'btn btn-success d-flex align-items-center gap-2';
+    btn.disabled = false;
+  } else if (val.startsWith('arr:')) {
+    const isShow = _addPanelItem.media_type === 'show';
+    document.getElementById('add-arr-fields').classList.remove('d-none');
+    await loadArrOptions(isShow ? 'sonarr' : 'radarr', val.replace('arr:', ''));
+    document.getElementById('add-action-label').textContent = _addPanelItem.already_added ? 'Importer dans les demandes' : `Ajouter dans ${isShow ? 'Sonarr' : 'Radarr'}`;
+    btn.className = _addPanelItem.already_added ? 'btn btn-outline-secondary d-flex align-items-center gap-2' : 'btn btn-success d-flex align-items-center gap-2';
+    btn.disabled = false;
+  } else if (val.startsWith('prowlarr:')) {
+    document.getElementById('add-prowlarr-fields').classList.remove('d-none');
+    const instanceId = val.replace('prowlarr:', '');
+    try {
+      const status = await fetch(`/api/prowlarr/${instanceId}/download-client-status`).then(r => r.json());
+      _prowlarrUseNativeClient = !!status.has_client;
+    } catch(e) { _prowlarrUseNativeClient = false; }
+    if (!_prowlarrUseNativeClient) {
+      document.getElementById('add-dl-client-fields').classList.remove('d-none');
+      await loadDlClients();
+    }
+    document.getElementById('add-action-label').textContent = 'Telecharger';
+    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
+    btn.disabled = true;
+    addModalProwlarrSearch();
+  } else if (val === 'direct') {
+    document.getElementById('add-direct-fields').classList.remove('d-none');
+    document.getElementById('add-dl-client-fields').classList.remove('d-none');
+    await loadDlClients();
+    document.getElementById('add-action-label').textContent = 'Telecharger';
+    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
+    btn.disabled = false;
+  } else {
+    btn.disabled = true;
+  }
+}
+async function loadDlClients() {
+  const sel = document.getElementById('add-dl-client');
+  sel.innerHTML = '<option>Chargement...</option>';
+  try {
+    const clients = await fetch('/api/download-clients').then(r => r.ok ? r.json() : []);
+    const enabled = clients.filter(c => c.enabled);
+    sel.innerHTML = enabled.length ? enabled.map(c => `<option value="${c.id}" data-type="${c.client_type}" data-cat="${escHtml(c.category||'')}" data-tags="${escHtml(c.tags||'')}">${escHtml(c.name)}${c.is_default ? ' (Defaut)' : ''}</option>`).join('') : '<option value="">Aucun client actif</option>';
+    onAddDlClientChange();
+  } catch(e) { sel.innerHTML = '<option value="">Erreur</option>'; }
+}
+function onAddDlClientChange() {
+  const sel = document.getElementById('add-dl-client');
+  const opt = sel.options[sel.selectedIndex];
+  const isQbit = opt?.dataset.type === 'qbittorrent';
+  document.querySelectorAll('.qbit-only-add').forEach(el => { el.style.display = isQbit ? '' : 'none'; });
+  if (opt) {
+    document.getElementById('add-dl-category').value = opt.dataset.cat || '';
+    document.getElementById('add-dl-tags').value = opt.dataset.tags || '';
+  }
+}
+async function addModalProwlarrSearch() {
+  const val = document.getElementById('add-service-select').value;
+  const instanceId = val.replace('prowlarr:', '');
+  const query = _addPanelItem?.title || '';
+  const mediaType = _addPanelItem?.media_type || 'movie';
+  document.getElementById('add-prowlarr-loading').classList.remove('d-none');
+  document.getElementById('add-prowlarr-results').classList.add('d-none');
+  let url = `/api/search?query=${encodeURIComponent(query)}&media_type=${mediaType}`;
+  if (instanceId) url += `&instance_id=${instanceId}`;
+  try {
+    const data = await fetch(url).then(r => r.ok ? r.json() : []);
+    const tbody = document.getElementById('add-prowlarr-tbody');
+    tbody.innerHTML = data.length ? data.map(item => `<tr style="cursor:pointer" onclick="selectProwlarrRelease('${escHtml(item.downloadUrl)}', '${escHtml(item.title)}', this, '${escHtml(item.guid)}', ${item.indexerId})"><td><span class="text-white">${escHtml(item.title)}</span><br><small class="text-muted">${escHtml(item.indexer||'')}</small></td><td class="text-nowrap">${formatBytes(item.size)}</td><td class="text-nowrap"><span class="text-success">${item.seeders}</span>/<span class="text-muted">${item.leechers}</span></td><td><i class="bi bi-download text-warning"></i></td></tr>`).join('') : '<tr><td colspan="4" class="text-center text-muted py-3">Aucune release</td></tr>';
+    document.getElementById('add-prowlarr-results').classList.remove('d-none');
+  } catch(e) {
+    showToast('Erreur Prowlarr : ' + e.message, 'danger');
+  } finally {
+    document.getElementById('add-prowlarr-loading').classList.add('d-none');
+  }
+}
+async function addModalArrSearch(btn) {
+  if (!_addPanelItem || !_addPanelItem.arr_id) return;
+  const container = document.getElementById('add-arr-releases');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Recherche interactive...</span></div>';
+  const mt = _addPanelItem.media_type;
+  const inst = _addPanelItem.arr_instance_id == null ? null : _addPanelItem.arr_instance_id;
+  let url = `/api/arr/releases?media_type=${mt}&arr_id=${_addPanelItem.arr_id}`;
+  if (inst != null) url += `&instance_id=${inst}`;
+  try {
+    const rels = await fetch(url).then(r => r.json());
+    container.innerHTML = renderAddArrReleases(rels, mt, inst, null);
+  } catch(e) {
+    container.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
+  }
+}
+function renderAddArrReleases(rels, mediaType, instanceId, requestId) {
+  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
+  const inst = instanceId == null ? 'null' : instanceId;
+  const req = requestId == null ? 'null' : requestId;
+  const rows = rels.map(r => {
+    const vf = r.is_french ? '<span class="badge badge-available me-1"><i class="bi bi-translate"></i> VF</span>' : '';
+    const rej = r.rejected ? `<i class="bi bi-exclamation-triangle text-warning ms-1" title="${escHtml((r.rejections||[]).join('; '))}"></i>` : '';
+    const langs = (r.languages||[]).join(', ');
+    const hl = r.is_french ? 'style="background:rgba(229,160,13,.08)"' : '';
+    return `<tr ${hl}><td><div class="small">${vf}${escHtml(r.title)}${rej}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} - ${escHtml(r.quality||'')}${langs ? ' - ' + escHtml(langs) : ''}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabAddRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+  }).join('');
+  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0" style="font-size:12px"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function grabAddRelease(mediaType, guid, indexerId, instanceId, requestId, btn) {
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/arr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ media_type:mediaType, guid, indexer_id:indexerId, instance_id:instanceId, request_id:requestId }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
+    showToast('Release envoyee a ' + (mediaType === 'movie' ? 'Radarr' : 'Sonarr'), 'success');
+    btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
+  }
+}
+function selectProwlarrRelease(url, title, row, guid, indexerId) {
+  _prowlarrSelectedUrl = url;
+  _prowlarrSelectedGuid = guid;
+  _prowlarrSelectedIndexerId = indexerId;
+  document.querySelectorAll('#add-prowlarr-tbody tr').forEach(r => r.classList.remove('table-warning'));
+  row.classList.add('table-warning');
+  document.getElementById('add-selected-release-title').textContent = title;
+  document.getElementById('add-selected-release').classList.remove('d-none');
+  document.getElementById('add-action-btn').disabled = false;
+}
+async function loadArrOptions(arrType, instanceId) {
+  const profileSel = document.getElementById('add-quality-profile');
+  const folderSel = document.getElementById('add-root-folder');
+  const tagsContainer = document.getElementById('add-tags-container');
+  profileSel.innerHTML = '<option>Chargement...</option>';
+  folderSel.innerHTML = '<option>Chargement...</option>';
+  tagsContainer.innerHTML = '<span class="text-muted small align-self-center">Chargement...</span>';
+  const qs = instanceId ? `?instance_id=${instanceId}` : '';
+  try {
+    const [profiles, folders, tags] = await Promise.all([
+      fetch(`/api/${arrType}/profiles${qs}`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/${arrType}/folders${qs}`).then(r => r.ok ? r.json() : []),
+      fetch(`/api/${arrType}/tags${qs}`).then(r => r.ok ? r.json() : []),
+    ]);
+    profileSel.innerHTML = profiles.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+    folderSel.innerHTML = folders.map(f => `<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('');
+    tagsContainer.innerHTML = tags.length ? tags.map(t => `<span class="badge tag-toggle px-3 py-2" data-id="${t.id}" style="cursor:pointer;background:var(--pr-surface-2);border:1px solid var(--pr-border);color:var(--pr-text-muted);font-weight:500" onclick="toggleTag(this, ${t.id})">${escHtml(t.label)}</span>`).join('') : '<span class="text-muted small align-self-center">Aucun tag configure</span>';
+  } catch(e) {
+    profileSel.innerHTML = '<option>Erreur de chargement</option>';
+    folderSel.innerHTML = '<option>Erreur de chargement</option>';
+    tagsContainer.innerHTML = `<span class="text-danger small">${escHtml(e.message)}</span>`;
+  }
+}
+function toggleTag(el, id) {
+  if (_selectedTagIds.has(id)) {
+    _selectedTagIds.delete(id);
+    el.style.background = 'var(--pr-surface-2)';
+    el.style.borderColor = 'var(--pr-border)';
+    el.style.color = 'var(--pr-text-muted)';
+  } else {
+    _selectedTagIds.add(id);
+    el.style.background = 'var(--bs-warning)';
+    el.style.borderColor = 'var(--bs-warning)';
+    el.style.color = '#000';
+  }
+}
+async function addPanelConfirm() {
+  if (!_addPanelItem) return;
+  const svcVal = document.getElementById('add-service-select').value;
+  const btn = document.getElementById('add-action-btn');
+  const fb = document.getElementById('add-action-feedback');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>En cours...';
+  fb.classList.add('d-none');
+  try {
+    if (svcVal.startsWith('prowlarr:') && _prowlarrUseNativeClient) await _confirmProwlarrGrab(svcVal);
+    else if (svcVal.startsWith('prowlarr:') || svcVal === 'direct') await _confirmDownload();
+    else await _confirmMediaAdd(svcVal);
+  } catch(e) {
+    fb.innerHTML = `<div class="alert alert-danger mb-0">${escHtml(e.message)}</div>`; fb.classList.remove('d-none');
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i><span id="add-action-label">Reessayer</span>';
+  }
+}
+async function _confirmMediaAdd(svcVal) {
+  const useSeer = svcVal === 'seer';
+  const instanceId = svcVal.startsWith('arr:') ? parseInt(svcVal.replace('arr:', '')) : null;
+  const r = await fetch('/api/media/add', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    title:_addPanelItem.title, year:_addPanelItem.year, media_type:_addPanelItem.media_type,
+    tmdb_id:_addPanelItem.tmdb_id, tvdb_id:_addPanelItem.tvdb_id, imdb_id:_addPanelItem.imdb_id,
+    plex_user_id:document.getElementById('add-action-user').value || null,
+    use_seer:useSeer, instance_id:instanceId,
+    quality_profile_id:parseInt(document.getElementById('add-quality-profile')?.value) || null,
+    root_folder:document.getElementById('add-root-folder')?.value || null,
+    tag_ids:[..._selectedTagIds],
+  })});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+  const via = d.via === 'seer' ? 'Seer' : d.via === 'sonarr' ? 'Sonarr' : 'Radarr';
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = `<div class="alert alert-success mb-0"><strong>${escHtml(_addPanelItem.title)}</strong> ${d.already_existed ? 'etait deja present et a ete ajoute au suivi' : 'ajoute'} via <strong>${escHtml(via)}</strong>.</div>`;
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => { bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(); location.reload(); }, 1500);
+}
+async function _confirmDownload() {
+  const clientId = document.getElementById('add-dl-client').value;
+  if (!clientId) throw new Error('Selectionner un client de telechargement');
+  const category = document.getElementById('add-dl-category').value.trim();
+  const tags = document.getElementById('add-dl-tags').value.trim();
+  const magnetInput = document.getElementById('add-direct-magnet')?.value.trim();
+  const fileInput = document.getElementById('add-direct-file');
+  const hasFile = fileInput?.files?.length > 0;
+  let r;
+  if (hasFile) {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('client_id', clientId);
+    if (category) fd.append('category', category);
+    if (tags) fd.append('tags', tags);
+    r = await fetch('/api/download/file', { method:'POST', body:fd });
+  } else {
+    const url = _prowlarrSelectedUrl || magnetInput;
+    if (!url) throw new Error('Fournir un lien magnet ou selectionner une release Prowlarr');
+    r = await fetch('/api/download', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ torrent_url_or_magnet:url, client_id:parseInt(clientId), category:category || null, tags:tags || null }) });
+  }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+  const clientSel = document.getElementById('add-dl-client');
+  const clientName = clientSel.options[clientSel.selectedIndex]?.textContent?.trim() || 'le client';
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = `<div class="alert alert-success mb-0">Telechargement envoye a <strong>${escHtml(clientName)}</strong>.</div>`;
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
+}
+async function _confirmProwlarrGrab(svcVal) {
+  if (!_prowlarrSelectedGuid || _prowlarrSelectedIndexerId == null) throw new Error('Selectionner une release Prowlarr');
+  const instanceId = parseInt(svcVal.replace('prowlarr:', ''));
+  const r = await fetch('/api/prowlarr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ guid:_prowlarrSelectedGuid, indexer_id:_prowlarrSelectedIndexerId, instance_id:instanceId }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = '<div class="alert alert-success mb-0">Release envoyee au client configure dans Prowlarr.</div>';
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
+}
+
+function renderGlobalCalendar(events) {
+  if (!events.length) return '<div class="text-center text-muted py-5"><i class="bi bi-calendar-x fs-1 d-block mb-2 opacity-25"></i>Aucune sortie suivie.</div>';
+  const byDay = {};
+  events.forEach(e => { const day = e.date.slice(0,10); (byDay[day] = byDay[day] || []).push(e); });
+  return Object.keys(byDay).sort().map(day => `<div class="mb-3"><h6 class="text-warning mb-2">${fmtDate(day)}</h6><div class="card p-2">${byDay[day].map(e => `<div class="d-flex align-items-center gap-3 py-2 px-1" style="border-bottom:1px solid var(--pr-border)"><div class="flex-grow-1"><strong>${escHtml(e.title)}</strong><div class="text-muted small">${escHtml(e.subtitle || '')}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div></div><span class="badge ${e.type === 'episode' ? 'bg-info text-dark' : 'bg-primary'}">${e.type === 'episode' ? 'Serie' : 'Film'}</span>${e.has_file ? '<span class="badge badge-available">Telecharge</span>' : ''}</div>`).join('')}</div></div>`).join('');
+}
+async function loadGlobalCalendar() {
+  const container = document.getElementById('global-calendar-container');
+  if (!container) return;
+  try {
+    const events = await fetch('/api/calendar?tracked_only=true').then(r => r.json());
+    container.innerHTML = renderGlobalCalendar(events);
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-danger">Erreur calendrier : ${escHtml(e.message)}</div>`;
+  }
+}
+if (ACTIVE_VIEW === 'calendar') loadGlobalCalendar();
 </script>
+
+<style>
+.hover-card { transition: transform .12s, box-shadow .12s; }
+.hover-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+</style>
 {% endblock %}

@@ -345,20 +345,26 @@ async def test_check_arr_movie_not_yet_available(db):
 
 @pytest.mark.asyncio
 async def test_check_arr_show_becomes_available(db):
-    """is_series_available → True : statut passe à available."""
+    """get_series_episode_stats → série complète : statut passe à available."""
     db.add(_settings())
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
     db.commit()
 
+    series_stats = {
+        "arr_id": 7, "title_slug": None,
+        "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
+    }
     with (
         _patch_session(db),
-        patch("app.scheduler.is_series_available", new=AsyncMock(return_value=(True, 7, None))),
+        patch("app.scheduler.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
 
     req = db.query(MediaRequest).first()
     assert req.status == RequestStatus.available
+    assert req.episodes_available_count == 5
+    assert req.episodes_total_count == 5
     mock_enqueue.assert_called_once()
 
 
@@ -430,10 +436,14 @@ async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
     db.commit()
 
+    series_stats = {
+        "arr_id": 7, "title_slug": None,
+        "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
+    }
     with (
         _patch_session(db),
         patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.scheduler.is_series_available", new=AsyncMock(return_value=(True, 7, None))) as mock_sonarr,
+        patch("app.scheduler.get_series_episode_stats", new=AsyncMock(return_value=series_stats)) as mock_sonarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()

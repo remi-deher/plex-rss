@@ -10,7 +10,7 @@
     <div class="text-muted small">{{ user.display_name }}</div>
     {% endif %}
   </div>
-  <a href="/requests?user={{ user.plex_user_id }}" class="btn btn-outline-secondary">
+  <a href="/library?view=requests&user={{ user.plex_user_id }}" class="btn btn-outline-secondary">
     <i class="bi bi-list-ul me-1"></i>Voir dans Demandes
   </a>
 </div>
@@ -47,7 +47,7 @@
 <div class="row g-3">
   {% for r in requests %}
   <div class="col-6 col-md-4 col-lg-3">
-    <a href="/requests?user={{ user.plex_user_id }}" class="text-decoration-none">
+    <a href="/library?view=requests&user={{ user.plex_user_id }}" class="text-decoration-none">
       <div class="card h-100 position-relative overflow-hidden" style="border-color:var(--pr-border);min-height:220px;cursor:pointer">
         {% if r.poster_url %}
         <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>

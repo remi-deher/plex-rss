@@ -21,6 +21,7 @@ from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.email_service import (
     send_available_notification,
     send_failure_notification,
+    send_partially_available_notification,
     send_request_notification,
     send_vf_available_notification,
     send_vo_only_notification,
@@ -67,6 +68,8 @@ async def _send_with_retry(
                 await send_vo_only_notification(settings, req, recipient, display_name)
             elif event == "vf_available":
                 await send_vf_available_notification(settings, req, recipient, display_name)
+            elif event == "partially_available":
+                await send_partially_available_notification(settings, req, recipient, reason, display_name)
             elif event == "failed":
                 await send_failure_notification(settings, req, recipient, reason, display_name)
             logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
@@ -132,6 +135,9 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 req.vo_only_mail_sent = True
             elif event == "vf_available":
                 req.vf_available_mail_sent = True
+            elif event == "partially_available":
+                req.partial_available_mail_sent = True
+                req.last_notified_episode_count = req.episodes_available_count
         db.commit()
 
         # Push global (Discord + Telegram + ntfy + Gotify configurés dans Settings)

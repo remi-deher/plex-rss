@@ -2,10 +2,12 @@
 Client pour l'API Sonarr v3 (séries TV).
 
 Fonctions principales :
-- add_series          : ajoute une série et lance la recherche de fichiers
-- is_series_available : vérifie si au moins un fichier épisode existe (episodeFileCount > 0)
-- lookup_series       : recherche une série par arr_id ou tvdb_id
-- test_connection     : vérifie la connectivité avec l'instance Sonarr
+- add_series             : ajoute une série et lance la recherche de fichiers
+- is_series_available     : vérifie si au moins un fichier épisode existe (episodeFileCount > 0)
+- get_series_episode_stats: compteurs d'épisodes (fichiers / diffusés / total) pour la
+  disponibilité partielle des séries en cours de diffusion
+- lookup_series           : recherche une série par arr_id ou tvdb_id
+- test_connection         : vérifie la connectivité avec l'instance Sonarr
 - get_quality_profiles / get_root_folders : données de configuration UI
 """
 
@@ -141,6 +143,35 @@ async def lookup_series(
     return None
 
 
+async def get_series_episode_stats(
+    sonarr_url: str,
+    api_key: str,
+    arr_id: int = None,
+    tvdb_id: str = None,
+    series_list: list[dict] | None = None,
+) -> dict | None:
+    """Statistiques d'épisodes d'une série Sonarr, pour distinguer une disponibilité
+    partielle (série en cours de diffusion) d'une disponibilité complète.
+
+    - episode_file_count : épisodes avec un fichier sur disque
+    - episode_count       : épisodes déjà diffusés à ce jour (Sonarr statistics.episodeCount)
+    - total_episode_count : total de la série, diffusés + à venir (statistics.totalEpisodeCount)
+
+    Retourne None si la série n'est pas trouvée dans Sonarr.
+    """
+    data = await lookup_series(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
+    if not data:
+        return None
+    stats = data.get("statistics", {})
+    return {
+        "arr_id": data.get("id"),
+        "title_slug": data.get("titleSlug"),
+        "episode_file_count": stats.get("episodeFileCount", 0),
+        "episode_count": stats.get("episodeCount", 0),
+        "total_episode_count": stats.get("totalEpisodeCount", 0),
+    }
+
+
 async def is_series_available(
     sonarr_url: str,
     api_key: str,
@@ -153,12 +184,10 @@ async def is_series_available(
     Returns:
         (is_available, arr_id, title_slug)
     """
-    data = await lookup_series(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
-    if not data:
+    stats = await get_series_episode_stats(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
+    if not stats:
         return False, None, None
-    stats = data.get("statistics", {})
-    available = stats.get("episodeFileCount", 0) > 0
-    return available, data.get("id"), data.get("titleSlug")
+    return stats["episode_file_count"] > 0, stats["arr_id"], stats["title_slug"]
 
 
 async def search_series(sonarr_url: str, api_key: str, series_id: int) -> bool:
@@ -376,3 +405,23 @@ async def get_disk_space(sonarr_url: str, api_key: str) -> list[dict]:
         )
         resp.raise_for_status()
         return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]
+
+
+async def get_calendar(sonarr_url: str, api_key: str, start: str, end: str) -> list[dict]:
+    """Épisodes attendus/diffusés entre deux dates (GET /api/v3/calendar).
+
+    `start`/`end` : dates ISO 8601. Chaque entrée inclut la série (includeSeries=true)
+    pour le titre, les identifiants externes et l'affiche.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{sonarr_url.rstrip('/')}/api/v3/calendar",
+                params={"start": start, "end": end, "includeSeries": "true"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.error(f"Sonarr get_calendar failed: {e}")
+        return []

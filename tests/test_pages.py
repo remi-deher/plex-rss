@@ -91,6 +91,10 @@ def _seed(db):
     db.commit()
 
 
+def _requests_view_url(query: str = "") -> str:
+    return "/library?view=requests" + (f"&{query.lstrip('?')}" if query else "")
+
+
 # ---------------------------------------------------------------------------
 # Pages protégées — rendu HTML (régression TemplateResponse)
 # ---------------------------------------------------------------------------
@@ -108,10 +112,20 @@ def test_dashboard_returns_200_html(client, db):
 def test_requests_page_returns_200_html(client, db):
     """GET /requests → 200, HTML, contient la liste des demandes."""
     _seed(db)
-    resp = client.get("/requests")
+    resp = client.get(_requests_view_url())
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Inception" in resp.text
+
+
+def test_requests_page_redirects_to_library(client, db):
+    _seed(db)
+    resp = client.get("/requests?user=alice&search=Inception")
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert location.startswith("/library?view=requests")
+    assert "user=alice" in location
+    assert "search=Inception" in location
 
 
 def test_users_page_returns_200_html(client, db):
@@ -217,12 +231,12 @@ def test_dashboard_contains_plex_rss_monitor(client, db):
     """Le dashboard contient le nom de l'application."""
     _seed(db)
     resp = client.get("/")
-    assert "Plex RSS Monitor" in resp.text
+    assert "Plexarr" in resp.text
 
 
 def test_requests_page_empty_db_still_renders(client, db):
     """La page demandes se rend même sans données (DB vide)."""
-    resp = client.get("/requests")
+    resp = client.get(_requests_view_url())
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
 
@@ -246,7 +260,7 @@ def test_requests_page_pagination_no_500(client, db):
     entière `page` du contexte backend. Le renommage en `current_page` corrige ça.
     """
     _seed(db)
-    resp = client.get("/requests?page=2")
+    resp = client.get(_requests_view_url("page=2"))
     # Page 2 vide mais pas 500
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
@@ -255,7 +269,7 @@ def test_requests_page_pagination_no_500(client, db):
 def test_requests_page_first_page(client, db):
     """La page 1 de /requests se rend sans erreur."""
     _seed(db)
-    resp = client.get("/requests?page=1")
+    resp = client.get(_requests_view_url("page=1"))
     assert resp.status_code == 200
     assert "Inception" in resp.text
 
@@ -294,7 +308,7 @@ def _seed_with_co_requesters(db):
 def test_requests_page_shows_co_requester(client, db):
     """La page demandes affiche les co-demandeurs depuis extra_requesters."""
     _seed_with_co_requesters(db)
-    resp = client.get("/requests")
+    resp = client.get(_requests_view_url())
     assert resp.status_code == 200
     assert "Bob" in resp.text
 
@@ -378,7 +392,7 @@ def test_requests_page_filter_by_user(client, db):
         )
     )
     db.commit()
-    resp = client.get("/requests?user=alice")
+    resp = client.get(_requests_view_url("user=alice"))
     assert resp.status_code == 200
     assert "Inception" in resp.text
     assert "Dune" not in resp.text
@@ -397,7 +411,7 @@ def test_requests_page_filter_by_search(client, db):
         )
     )
     db.commit()
-    resp = client.get("/requests?search=Dune")
+    resp = client.get(_requests_view_url("search=Dune"))
     assert resp.status_code == 200
     assert "Dune" in resp.text
     assert "Inception" not in resp.text
@@ -416,7 +430,7 @@ def test_requests_page_filter_by_status(client, db):
         )
     )
     db.commit()
-    resp = client.get("/requests?status=available")
+    resp = client.get(_requests_view_url("status=available"))
     assert resp.status_code == 200
     assert "Dune" in resp.text
     assert "Inception" not in resp.text
@@ -435,7 +449,7 @@ def test_requests_page_filter_by_type(client, db):
         )
     )
     db.commit()
-    resp = client.get("/requests?type=show")
+    resp = client.get(_requests_view_url("type=show"))
     assert resp.status_code == 200
     assert "Dune" in resp.text
     assert "Inception" not in resp.text
@@ -444,7 +458,7 @@ def test_requests_page_filter_by_type(client, db):
 def test_requests_page_sort_asc(client, db):
     """GET /requests?sort=title&order=asc → 200 sans erreur."""
     _seed(db)
-    resp = client.get("/requests?sort=title&order=asc")
+    resp = client.get(_requests_view_url("sort=title&order=asc"))
     assert resp.status_code == 200
 
 
@@ -577,12 +591,12 @@ def test_requests_page_filter_by_source(client, db):
             r.source = "plex"
     db.commit()
 
-    resp = client.get("/requests?source=plex")
+    resp = client.get(_requests_view_url("source=plex"))
     assert resp.status_code == 200
     assert "Inception" in resp.text
     assert "Dune" not in resp.text
 
-    resp = client.get("/requests?source=seer")
+    resp = client.get(_requests_view_url("source=seer"))
     assert resp.status_code == 200
     assert "Dune" in resp.text
     assert "Inception" not in resp.text
@@ -613,13 +627,13 @@ def test_requests_page_sort_by_available_date(client, db):
     db.add_all([r1, r2])
     db.commit()
 
-    resp = client.get("/requests?sort=available_date&order=asc")
+    resp = client.get(_requests_view_url("sort=available_date&order=asc"))
     assert resp.status_code == 200
     idx_a = resp.text.find("Movie A")
     idx_b = resp.text.find("Movie B")
     assert idx_b < idx_a
 
-    resp = client.get("/requests?sort=available_date&order=desc")
+    resp = client.get(_requests_view_url("sort=available_date&order=desc"))
     assert resp.status_code == 200
     idx_a = resp.text.find("Movie A")
     idx_b = resp.text.find("Movie B")

@@ -187,7 +187,9 @@ plex-rss/
 │   └── templates/               # HTML Bootstrap 5 dark
 │       ├── base.html
 │       ├── dashboard.html
-│       ├── requests.html
+│       ├── library.html
+│       ├── calendar.html
+│       ├── search.html
 │       ├── users.html
 │       ├── logs.html
 │       ├── settings.html

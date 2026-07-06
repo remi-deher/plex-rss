@@ -60,7 +60,7 @@
 <!-- Stats -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
-    <a href="/requests" class="text-decoration-none">
+    <a href="/library?view=requests" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#e5a00d'" onmouseout="this.style.borderColor=''">
         <div class="display-6 fw-bold text-warning count-up" data-target="{{ stats.total }}">{{ stats.total }}</div>
         <div class="text-muted small mt-1">Total demandes</div>
@@ -68,7 +68,7 @@
     </a>
   </div>
   <div class="col-6 col-md-3">
-    <a href="/requests?status=sent_to_arr" class="text-decoration-none">
+    <a href="/library?view=requests&status=sent_to_arr" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#0d6efd'" onmouseout="this.style.borderColor=''">
         <div class="display-6 fw-bold text-primary count-up" data-target="{{ stats.sent }}">{{ stats.sent }}</div>
         <div class="text-muted small mt-1">Transmises</div>
@@ -76,7 +76,7 @@
     </a>
   </div>
   <div class="col-6 col-md-3">
-    <a href="/requests?status=available" class="text-decoration-none">
+    <a href="/library?view=requests&status=available" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#198754'" onmouseout="this.style.borderColor=''">
         <div class="display-6 fw-bold text-success count-up" data-target="{{ stats.available }}">{{ stats.available }}</div>
         <div class="text-muted small mt-1">Disponibles</div>
@@ -84,7 +84,7 @@
     </a>
   </div>
   <div class="col-6 col-md-3">
-    <a href="/requests?status=failed" class="text-decoration-none">
+    <a href="/library?view=requests&status=failed" class="text-decoration-none">
       <div class="card p-3 text-center" style="cursor:pointer;transition:border-color .2s" onmouseover="this.style.borderColor='#dc3545'" onmouseout="this.style.borderColor=''">
         <div class="display-6 fw-bold text-danger count-up" data-target="{{ stats.failed }}">{{ stats.failed }}</div>
         <div class="text-muted small mt-1">Échouées</div>
@@ -147,7 +147,7 @@
 <div class="card p-3 mb-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h6 class="mb-0">Demandes par utilisateur</h6>
-    <a href="/requests" class="btn btn-sm btn-outline-secondary">Tout voir</a>
+    <a href="/library?view=requests" class="btn btn-sm btn-outline-secondary">Tout voir</a>
   </div>
   <div id="stats-by-user">
     <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
@@ -157,13 +157,13 @@
 <!-- Demandes recentes -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h5 class="mb-0">Demandes recentes</h5>
-  <a href="/requests" class="btn btn-sm btn-outline-secondary">Voir tout <i class="bi bi-arrow-right ms-1"></i></a>
+  <a href="/library?view=requests" class="btn btn-sm btn-outline-secondary">Voir tout <i class="bi bi-arrow-right ms-1"></i></a>
 </div>
 
 <div class="row g-3">
   {% for r in recent_requests %}
   <div class="col-6 col-md-4 col-lg-3">
-    <a href="/requests" class="text-decoration-none">
+    <a href="/library?view=requests" class="text-decoration-none">
       <div class="card h-100 position-relative overflow-hidden" style="border-color:var(--pr-border);min-height:220px;cursor:pointer">
         {% if r.poster_url %}
         <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat"></div>
@@ -383,7 +383,7 @@ async function loadStatsByUser() {
     el.innerHTML = rows.map(r => `
       <div class="d-flex align-items-center gap-2 mb-2">
         <div class="text-truncate" style="width:140px;font-size:13px">
-          <a href="/requests?user=${r.plex_user_id}" class="text-decoration-none text-white">${r.display_name}</a>
+          <a href="/library?view=requests&user=${r.plex_user_id}" class="text-decoration-none text-white">${r.display_name}</a>
         </div>
         <div class="flex-grow-1">
           <div class="progress" style="height:8px;background:var(--pr-surface-2)">

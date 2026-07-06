@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.radarr import add_movie, check_connection, is_movie_available
+from app.services.radarr import add_movie, check_connection, get_calendar, is_movie_available
 
 URL = "http://radarr.local:7878"
 KEY = "testradarrkey"
@@ -235,3 +235,30 @@ async def test_connection_failure():
 
     assert success is False
     assert "Connection refused" in msg
+
+
+# ---------------------------------------------------------------------------
+# get_calendar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_success():
+    movies = [{"title": "Inception", "tmdbId": 27205, "hasFile": False, "inCinemas": "2026-07-15T00:00:00Z"}]
+    client = _mock_client(get_return=_resp(200, movies))
+
+    with patch("app.services.radarr.httpx.AsyncClient", return_value=client):
+        result = await get_calendar(URL, KEY, "2026-07-01T00:00:00", "2026-07-31T00:00:00")
+
+    assert len(result) == 1
+    assert result[0]["title"] == "Inception"
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_failure_returns_empty_list():
+    client = _mock_client(get_side_effect=Exception("timeout"))
+
+    with patch("app.services.radarr.httpx.AsyncClient", return_value=client):
+        result = await get_calendar(URL, KEY, "2026-07-01", "2026-07-31")
+
+    assert result == []

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from app.services.sonarr import add_series, check_connection, is_series_available, lookup_series
+from app.services.sonarr import add_series, check_connection, get_calendar, is_series_available, lookup_series
 
 URL = "http://sonarr.local:8989"
 KEY = "testapikey"
@@ -242,3 +242,46 @@ async def test_connection_failure():
 
     assert success is False
     assert "Connection refused" in msg
+
+
+# ---------------------------------------------------------------------------
+# get_calendar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_success():
+    episodes = [
+        {
+            "seasonNumber": 2, "episodeNumber": 5, "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Episode Title", "hasFile": False, "monitored": True,
+            "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
+    resp = _make_response(200, episodes)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+        result = await get_calendar(URL, KEY, "2026-07-01T00:00:00", "2026-07-31T00:00:00")
+
+    assert len(result) == 1
+    assert result[0]["series"]["title"] == "Breaking Bad"
+    call_kwargs = client_mock.get.call_args
+    assert call_kwargs.kwargs["params"]["includeSeries"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_failure_returns_empty_list():
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(side_effect=Exception("timeout"))
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+        result = await get_calendar(URL, KEY, "2026-07-01", "2026-07-31")
+
+    assert result == []

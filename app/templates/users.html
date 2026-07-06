@@ -172,6 +172,16 @@
             </div>
 
             <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
+            <div class="mb-3">
+              <select class="form-select bg-dark text-light border-secondary" id="fPartialNotifyFrequency">
+                <option value="">Réglage global par défaut</option>
+                <option value="milestones">Étapes clés uniquement (1ère dispo partielle + dispo complète)</option>
+                <option value="every_episode">À chaque nouvel épisode disponible</option>
+              </select>
+            </div>
+
+            <hr class="border-secondary">
             <div class="row g-3 mb-3">
               <div class="col-md-6">
                 <label class="form-label">Instance Sonarr</label>
@@ -315,6 +325,7 @@ function _setFields(u) {
   document.getElementById('fNotifyVfMovie').checked = u.notify_vf_movie !== false;
   document.getElementById('fNotifyVfSeries').checked = u.notify_vf_series !== false;
   document.getElementById('fNotifyVfAnime').checked = !!u.notify_vf_anime;
+  document.getElementById('fPartialNotifyFrequency').value = u.partial_notify_frequency || '';
   document.getElementById('fSonarrInstance').value = u.sonarr_instance_id || '';
   document.getElementById('fRadarrInstance').value = u.radarr_instance_id || '';
   document.getElementById('fDiscordWebhook').value = u.discord_webhook_url || '';
@@ -380,7 +391,7 @@ function renderHubActivity(u) {
     </div>
     ${u.last_requested_at ? `<div class="text-muted small mb-3"><i class="bi bi-clock-history me-1"></i>Dernière demande : ${new Date(u.last_requested_at.endsWith('Z')||u.last_requested_at.includes('+')?u.last_requested_at:u.last_requested_at+'Z').toLocaleString('fr-FR')}</div>` : ''}
     <div class="d-flex gap-2 flex-wrap">
-      <a href="/requests?user=${encodeURIComponent(u.plex_user_id)}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-list-ul me-1"></i>Voir ses demandes</a>
+      <a href="/library?view=requests&user=${encodeURIComponent(u.plex_user_id)}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-list-ul me-1"></i>Voir ses demandes</a>
       <a href="/users/${u.id}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill me-1"></i>Historique complet</a>
     </div>`;
 }
@@ -563,6 +574,7 @@ async function saveUser() {
     notify_vf_movie: document.getElementById('fNotifyVfMovie').checked,
     notify_vf_series: document.getElementById('fNotifyVfSeries').checked,
     notify_vf_anime: document.getElementById('fNotifyVfAnime').checked,
+    partial_notify_frequency: document.getElementById('fPartialNotifyFrequency').value || null,
     discord_webhook_url: document.getElementById('fDiscordWebhook').value.trim() || null,
     telegram_chat_id: document.getElementById('fTelegramChatId').value.trim() || null,
     sonarr_instance_id: parseInt(document.getElementById('fSonarrInstance').value) || null,

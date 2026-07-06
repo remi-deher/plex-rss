@@ -10,6 +10,7 @@ from app.services.email_service import (
     render_template,
     send_available_notification,
     send_failure_notification,
+    send_partially_available_notification,
     send_request_notification,
 )
 
@@ -182,6 +183,27 @@ async def test_send_available_uses_custom_template():
         await send_available_notification(s, _req(), "dest@example.com")
 
     assert "Disponible: Inception" in mock_send.call_args[0][0].as_string()
+
+
+# ---------------------------------------------------------------------------
+# send_partially_available_notification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_partially_available_includes_episode_counts():
+    """Email de disponibilité partielle : sujet + compteurs d'épisodes dans le corps."""
+    req = _req(
+        media_type="show", title="Breaking Bad",
+        episodes_available_count=3, episodes_aired_count=5, episodes_total_count=10,
+    )
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_partially_available_notification(_settings(), req, "dest@example.com", reason="3/5")
+
+    msg = mock_send.call_args[0][0]
+    assert "Partiellement disponible" in msg["Subject"]
+    body = msg.as_string()
+    assert "3" in body and "5" in body
 
 
 # ---------------------------------------------------------------------------

@@ -389,3 +389,23 @@ async def get_disk_space(radarr_url: str, api_key: str) -> list[dict]:
         )
         resp.raise_for_status()
         return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]
+
+
+async def get_calendar(radarr_url: str, api_key: str, start: str, end: str) -> list[dict]:
+    """Films dont une date de sortie tombe entre deux dates (GET /api/v3/calendar).
+
+    `start`/`end` : dates ISO 8601. Chaque film inclut inCinemas/physicalRelease/
+    digitalRelease — Radarr renvoie un film dès qu'UNE de ces dates est dans la plage.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{radarr_url.rstrip('/')}/api/v3/calendar",
+                params={"start": start, "end": end},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.error(f"Radarr get_calendar failed: {e}")
+        return []

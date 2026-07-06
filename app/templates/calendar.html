@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% set page = "calendar" %}
+{% block content %}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-calendar3 me-2 text-warning"></i>Calendrier</h2>
+    <div class="text-muted small mt-1">Sorties films et diffusions d'épisodes (Sonarr / Radarr)</div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <div class="form-check form-switch m-0">
+      <input class="form-check-input" type="checkbox" id="cal-tracked-only" onchange="loadCalendar()">
+      <label class="form-check-label small text-muted" for="cal-tracked-only">Suivis uniquement</label>
+    </div>
+    <span id="cal-updated" class="text-muted small"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadCalendar()"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+</div>
+
+<div id="cal-container">
+  <div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+
+function dayLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffDays = Math.round((d - today) / 86400000);
+  const weekday = d.toLocaleDateString('fr-FR', { weekday: 'long' });
+  const full = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
+  if (diffDays === 0) return `Aujourd'hui — ${full}`;
+  if (diffDays === 1) return `Demain — ${full}`;
+  if (diffDays === -1) return `Hier — ${full}`;
+  return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${full}`;
+}
+
+function renderEvent(e) {
+  const isPast = new Date(e.date) < new Date();
+  const typeBadge = e.type === 'episode'
+    ? '<span class="badge bg-info text-dark" style="font-size:9px"><i class="bi bi-tv me-1"></i>Série</span>'
+    : '<span class="badge bg-primary" style="font-size:9px"><i class="bi bi-film me-1"></i>Film</span>';
+  const trackedBadge = e.tracked ? '<span class="badge bg-warning text-dark" style="font-size:9px"><i class="bi bi-bookmark-star-fill me-1"></i>Suivi</span>' : '';
+  const fileBadge = e.has_file
+    ? '<span class="badge badge-available" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Téléchargé</span>'
+    : (isPast ? '<span class="badge badge-pending" style="font-size:9px"><i class="bi bi-hourglass-split me-1"></i>En attente</span>' : '');
+  const poster = e.poster_url
+    ? `<img src="${escHtml(e.poster_url)}" style="width:40px;height:60px;object-fit:cover;border-radius:4px" alt="">`
+    : `<div style="width:40px;height:60px;border-radius:4px;background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center"><i class="bi ${e.type === 'episode' ? 'bi-tv' : 'bi-film'} text-muted"></i></div>`;
+  const time = new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return `<div class="d-flex align-items-center gap-3 py-2 px-1" style="border-bottom:1px solid var(--pr-border)">
+    ${poster}
+    <div class="flex-grow-1" style="min-width:0">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <strong class="text-truncate">${escHtml(e.title)}</strong>
+        ${typeBadge}${trackedBadge}${fileBadge}
+      </div>
+      <div class="text-muted small text-truncate">${escHtml(e.subtitle || '')}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div>
+    </div>
+    <div class="text-muted small text-nowrap">${time}</div>
+  </div>`;
+}
+
+function render(events) {
+  if (!events.length) {
+    return `<div class="text-center text-muted py-5"><i class="bi bi-calendar-x fs-1 d-block mb-2 opacity-25"></i><p class="small">Aucune sortie sur cette période.</p></div>`;
+  }
+  const byDay = {};
+  for (const e of events) {
+    const day = e.date.slice(0, 10);
+    (byDay[day] = byDay[day] || []).push(e);
+  }
+  const days = Object.keys(byDay).sort();
+  return days.map(day => `
+    <div class="mb-3">
+      <h6 class="text-warning mb-2">${dayLabel(day)}</h6>
+      <div class="card p-2">${byDay[day].map(renderEvent).join('')}</div>
+    </div>
+  `).join('');
+}
+
+function initTrackedOnlyFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('tracked_only') === 'true') document.getElementById('cal-tracked-only').checked = true;
+}
+
+async function loadCalendar() {
+  const trackedOnly = document.getElementById('cal-tracked-only').checked;
+  const container = document.getElementById('cal-container');
+  container.innerHTML = '<div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>';
+  try {
+    const events = await fetch(`/api/calendar?tracked_only=${trackedOnly}`).then(r => r.json());
+    container.innerHTML = render(events);
+    document.getElementById('cal-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-danger">Erreur de chargement : ${escHtml(e.message)}</div>`;
+  }
+}
+
+initTrackedOnlyFromQuery();
+loadCalendar();
+</script>
+{% endblock %}

@@ -131,6 +131,13 @@ class Settings(Base):
     vff_auto_search: Mapped[bool] = mapped_column(default=False)
     email_on_vf_available: Mapped[bool] = mapped_column(default=True)
 
+    # --- Disponibilité partielle (séries en cours de diffusion) ---
+    # Fréquence par défaut des notifications quand une série n'est encore que
+    # partiellement disponible : "milestones" (1ère dispo partielle + dispo complète,
+    # 2 notifs max) ou "every_episode" (une notif à chaque nouvel épisode téléchargé).
+    # Écrasable par utilisateur via PlexUser.partial_notify_frequency.
+    partial_notify_frequency: Mapped[str] = mapped_column(default="milestones")
+
 
 class ArrInstance(Base):
     __tablename__ = "arr_instances"
@@ -179,6 +186,11 @@ class PlexUser(Base):
     notify_vf_movie: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_series: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_anime: Mapped[Optional[bool]] = mapped_column(default=False)
+
+    # Fréquence de notification pour une série suivie en disponibilité partielle
+    # (épisodes en cours de diffusion). None = hérite du réglage global
+    # (Settings.partial_notify_frequency). Valeurs : "milestones" | "every_episode".
+    partial_notify_frequency: Mapped[Optional[str]] = mapped_column(default=None)
 
 
 class NotificationLog(Base):
@@ -263,6 +275,20 @@ class MediaRequest(Base):
     # scanné indépendamment : il est propagé depuis le LibraryItem (source de vérité
     # unique), pour éviter deux scans Plex divergents du même média.
     library_item_id: Mapped[Optional[int]]
+
+    # --- Disponibilité partielle (séries en cours de diffusion, Sonarr uniquement) ---
+    # episodes_available_count : épisodes avec un fichier sur disque (episodeFileCount)
+    # episodes_aired_count     : épisodes déjà diffusés à ce jour (episodeCount Sonarr)
+    # episodes_total_count     : total de la série, diffusés + à venir (totalEpisodeCount)
+    # Une série est "complète" quand episodes_available_count >= episodes_total_count.
+    episodes_available_count: Mapped[Optional[int]] = mapped_column(default=None)
+    episodes_aired_count: Mapped[Optional[int]] = mapped_column(default=None)
+    episodes_total_count: Mapped[Optional[int]] = mapped_column(default=None)
+    # Anti-doublon "milestones" : une seule notif à la 1ère dispo partielle.
+    partial_available_mail_sent: Mapped[bool] = mapped_column(default=False)
+    # Dernier episodes_available_count notifié en mode "every_episode" (évite de
+    # renvoyer une notif si le compte n'a pas progressé depuis le dernier cycle).
+    last_notified_episode_count: Mapped[Optional[int]] = mapped_column(default=None)
 
 
 class LibraryItem(Base):

@@ -138,7 +138,7 @@ def test_show_has_full_french_audio_rules():
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from app.models import Base, Settings, MediaRequest, ArrInstance
+from app.models import Base, Settings, MediaRequest, ArrInstance, LibraryItem
 from app.services.vff import sync_plex_library_blocking
 
 def test_sync_plex_library_blocking():
@@ -237,13 +237,11 @@ async def test_sync_plex_media():
         
         await sync_plex_media()
         
-        # Verify the movie was added to db and associated with Radarr
-        req = db.query(MediaRequest).filter(MediaRequest.plex_guid == "plex://movie/999").first()
-        assert req is not None
-        assert req.title == "New Movie From Plex"
-        assert req.source == "plex_sync"
-        assert req.available_mail_sent is True
-        assert req.arr_instance_id == 1
-        assert req.arr_id == 42
-        assert req.arr_slug == "new-movie-from-plex"
+        # Verify the movie was added to the unified library table and associated with Radarr.
+        item = db.query(LibraryItem).filter(LibraryItem.plex_guid == "plex://movie/999").first()
+        assert item is not None
+        assert item.title == "New Movie From Plex"
+        assert item.arr_instance_id == 1
+        assert item.arr_id == 42
+        assert item.arr_slug == "new-movie-from-plex"
 

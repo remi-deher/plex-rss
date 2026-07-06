@@ -174,7 +174,7 @@
     <span class="navbar-brand"><i class="bi bi-collection-play-fill me-2"></i>Plexarr</span>
     {% if request.session.get('username') %}
     <div class="d-flex align-items-center gap-2">
-      <button type="button" id="global-search-btn" onclick="window.location='/requests'" aria-label="Rechercher une demande (raccourci /)"
+      <button type="button" id="global-search-btn" onclick="window.location='/library?view=requests'" aria-label="Rechercher une demande (raccourci /)"
         class="btn btn-sm d-none d-sm-inline-flex align-items-center gap-1" title="Rechercher (touche /)"
         style="background:rgba(128,128,128,.12);border:1px solid var(--pr-border);color:var(--pr-text-muted);border-radius:8px;font-size:.8rem;padding:5px 10px;">
         <i class="bi bi-search"></i><kbd style="background:transparent;border:1px solid var(--pr-border);color:var(--pr-text-muted);padding:0 5px;font-size:.7rem;">/</kbd>
@@ -222,7 +222,7 @@
       </a>
 
       <div class="sidebar-section">Activité</div>
-      <a href="/requests" class="nav-link d-flex align-items-center {% if page=='requests' %}active{% endif %}" {% if page=='requests' %}aria-current="page"{% endif %} title="Demandes">
+      <a href="/library?view=requests" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}" title="Demandes">
         <i class="bi bi-inbox me-2"></i><span class="nav-label">Demandes</span>
         <span id="sidebar-badge-req-progress" class="badge bg-secondary ms-auto" style="display:none" title="Demandes en cours (reçues + transmises)"></span>
         <span id="sidebar-badge-req-failed" class="badge bg-danger ms-1" style="display:none" title="Demandes échouées"></span>
@@ -230,6 +230,9 @@
       <a href="/downloads" class="nav-link d-flex align-items-center {% if page=='downloads' %}active{% endif %}" {% if page=='downloads' %}aria-current="page"{% endif %} title="Téléchargements">
         <i class="bi bi-download me-2"></i><span class="nav-label">Téléchargements</span>
         <span id="sidebar-badge-dl" class="badge bg-warning text-dark ms-auto" style="display:none" title="Téléchargements en cours"></span>
+      </a>
+      <a href="/calendar" class="nav-link d-flex align-items-center {% if page=='calendar' %}active{% endif %}" {% if page=='calendar' %}aria-current="page"{% endif %} title="Calendrier">
+        <i class="bi bi-calendar3 me-2"></i><span class="nav-label">Calendrier</span>
       </a>
 
       <div class="sidebar-section">Administration</div>
@@ -275,7 +278,7 @@
   <a href="/library?type=show" class="{% if page=='library' and request.query_params.get('type')=='show' %}active{% endif %}">
     <i class="bi bi-tv"></i>Séries
   </a>
-  <a href="/requests" class="{% if page=='requests' %}active{% endif %}">
+  <a href="/library?view=requests" class="{% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}">
     <i class="bi bi-inbox"></i>Demandes
   </a>
   <a href="/settings" class="{% if page=='settings' or page=='email-templates' %}active{% endif %}">
@@ -351,7 +354,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     const local = document.getElementById('searchInput');
     if (local) { local.focus(); local.select(); }   // déjà sur la page Demandes
-    else window.location = '/requests#focus-search';
+    else window.location = '/library?view=requests#focus-search';
   }
 });
 

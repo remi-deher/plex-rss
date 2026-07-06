@@ -338,7 +338,7 @@ function renderResults(lookupItems, reqItems, plexItems, mediaType) {
             <i class="bi bi-${req.media_type==='show'?'tv':'camera-video'} me-1"></i>${req.media_type==='show'?'Série':'Film'}
           </div>
           <div class="mt-2">
-            <a href="/requests?highlight=${req.id}" class="btn btn-xs btn-outline-secondary py-0 px-2" style="font-size:11px">
+            <a href="/library?view=requests&highlight=${req.id}" class="btn btn-xs btn-outline-secondary py-0 px-2" style="font-size:11px">
               <i class="bi bi-arrow-right me-1"></i>Voir la demande
             </a>
           </div>
@@ -625,7 +625,7 @@ async function confirmDownload() {
     if (!r.ok) throw new Error(d.detail || 'Erreur');
     showToast(d.message || 'Téléchargement lancé !', 'success');
     bootstrap.Modal.getInstance(document.getElementById('downloadModal')).hide();
-    if (_requestId) setTimeout(() => { window.location.href = '/requests'; }, 1500);
+    if (_requestId) setTimeout(() => { window.location.href = '/library?view=requests'; }, 1500);
   } catch(e) { showToast(e.message, 'danger'); }
 }
 

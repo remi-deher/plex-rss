@@ -11,8 +11,6 @@ import json
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import asc
-from sqlalchemy import desc as sqldesc
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -46,6 +44,46 @@ def build_users_map(db: Session) -> dict:
     Priorité : nom d'usage (custom_name) → display_name → plex_user_id.
     """
     return {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+
+
+def _status_value(req: MediaRequest) -> str:
+    return req.status.value if hasattr(req.status, "value") else str(req.status)
+
+
+def _request_summary(req: MediaRequest, users_map: dict[str, str]) -> dict:
+    requester_ids = [req.plex_user_id] if req.plex_user_id else []
+    requester_names = [users_map.get(req.plex_user_id, req.plex_user or req.plex_user_id)] if req.plex_user_id else []
+    try:
+        for extra in json.loads(req.extra_requesters or "[]"):
+            uid = extra.get("plex_user_id")
+            if uid and uid not in requester_ids:
+                requester_ids.append(uid)
+                requester_names.append(users_map.get(uid, extra.get("display_name") or uid))
+    except Exception:
+        pass
+    return {
+        "id": req.id,
+        "title": req.title,
+        "year": req.year,
+        "media_type": req.media_type,
+        "status": _status_value(req),
+        "source": req.source,
+        "plex_user_id": req.plex_user_id,
+        "plex_user": users_map.get(req.plex_user_id, req.plex_user or req.plex_user_id),
+        "requester_ids": requester_ids,
+        "requesters": requester_names,
+        "requested_by": ", ".join(requester_names),
+        "requested_at": req.requested_at,
+        "available_at": req.available_at,
+        "request_mail_sent": req.request_mail_sent,
+        "available_mail_sent": req.available_mail_sent,
+        "extra_requesters": req.extra_requesters or "[]",
+        "overview": req.overview,
+        "arr_id": req.arr_id,
+        "arr_slug": req.arr_slug,
+        "arr_instance_id": req.arr_instance_id,
+        "has_vf": req.has_vf,
+    }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -89,83 +127,28 @@ def requests_page(
     db: Session = Depends(get_db),
 ):
     """Page des demandes avec tri, recherche et pagination côté serveur."""
-    sort_col = {
-        "title": MediaRequest.title,
-        "date": MediaRequest.requested_at,
-        "available_date": MediaRequest.available_at,
-        "status": MediaRequest.status,
-        "type": MediaRequest.media_type,
-    }.get(sort, MediaRequest.requested_at)
+    from urllib.parse import urlencode
 
-    sort_fn = asc if order == "asc" else sqldesc
-    q = db.query(MediaRequest).order_by(sort_fn(sort_col))
-
-    if user:
-        q = q.filter(MediaRequest.plex_user_id == user)
-    if search:
-        q = q.filter(MediaRequest.title.ilike(f"%{search}%"))
-    if source:
-        q = q.filter(MediaRequest.source == source)
+    params = {
+        "view": "requests",
+        "user": user,
+        "search": search,
+        "status": status,
+        "type": type,
+        "source": source,
+        "vf": vf,
+        "page": page,
+        "per_page": per_page,
+        "sort": sort,
+        "order": order,
+    }
+    qs = urlencode({k: v for k, v in params.items() if v not in (None, "")})
+    return RedirectResponse(f"/library?{qs}", status_code=302)
 
     # Compteurs globaux (avant filtre statut/type et pagination, après filtre user/search/source)
-    all_unfiltered_status = q.all()
-    status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
-    for r in all_unfiltered_status:
-        s = r.status.value if hasattr(r.status, "value") else str(r.status)
-        if s in status_counts:
-            status_counts[s] += 1
-
     # Appliquer les filtres de statut et de type de média
-    if status:
-        q = q.filter(MediaRequest.status == status)
-    if type:
-        q = q.filter(MediaRequest.media_type == type)
     # Filtre VFF (uniquement pertinent sur les médias disponibles)
-    if vf == "vf":
-        q = q.filter(MediaRequest.has_vf.is_(True))
-    elif vf == "vo":
-        q = q.filter(MediaRequest.has_vf.is_(False))
-    elif vf == "unchecked":
-        q = q.filter(MediaRequest.status == RequestStatus.available, MediaRequest.has_vf.is_(None))
-
-    all_filtered = q.all()
-    total = len(all_filtered)
-    total_pages = max(1, (total + per_page - 1) // per_page)
-    page = max(1, min(page, total_pages))
-    requests_page_data = all_filtered[(page - 1) * per_page : page * per_page]
-
     # Extraire les sources uniques pour le filtre
-    distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
-
-    settings = db.query(Settings).first()
-    return templates.TemplateResponse(
-        request,
-        "requests.html",
-        {
-            "requests": requests_page_data,
-            "users_map": build_users_map(db),
-            "users_obj_map": {u.plex_user_id: u for u in db.query(PlexUser).all()},
-            "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
-            "sources": distinct_sources,
-            "active_user": user,
-            "active_search": search or "",
-            "active_status": status or "",
-            "active_type": type or "",
-            "active_source": source or "",
-            "active_vf": vf or "",
-            "vff_enabled": bool(settings and settings.vff_enabled),
-            "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
-            "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
-            "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",
-            "current_page": page,
-            "per_page": per_page,
-            "total": total,
-            "total_pages": total_pages,
-            "sort": sort,
-            "order": order,
-            "status_counts": status_counts,
-        },
-    )
 
 
 @router.get("/library", response_class=HTMLResponse)
@@ -173,6 +156,15 @@ def library_page(
     request: Request,
     type: str = None,
     vf: str = None,
+    view: str = "all",
+    user: str = None,
+    search: str = None,
+    status: str = None,
+    source: str = None,
+    page: int = 1,
+    per_page: int = 60,
+    sort: str = "date",
+    order: str = "desc",
     _: None = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
@@ -188,13 +180,14 @@ def library_page(
 
     users_map = build_users_map(db)
     index: dict = {}
+    by_library_id: dict[int, dict] = {}
     items: list = []
 
-    # 1. Éléments de bibliothèque (base : présents dans Plex)
     for li in lib_q.all():
         vm = {
             "kind": "library",
             "ref_id": li.id,
+            "library_id": li.id,
             "in_library": True,
             "title": li.title,
             "year": li.year,
@@ -203,29 +196,38 @@ def library_page(
             "has_vf": li.has_vf,
             "arr_slug": li.arr_slug,
             "arr_id": li.arr_id,
+            "arr_instance_id": li.arr_instance_id,
             "plex_guid": li.plex_guid,
             "request_status": None,
             "requested_by": None,
+            "requests": [],
             "sort_at": li.added_at,
+            "available_sort_at": None,
         }
         items.append(vm)
+        by_library_id[li.id] = vm
         for k in _identity_keys(li):
             index.setdefault(k, vm)
 
-    # 2. Demandes : rattachées à un élément existant, sinon ajoutées comme « demandé »
-    for r in req_q.all():
-        matched = None
-        for k in _identity_keys(r):
-            if k in index:
-                matched = index[k]
-                break
+    request_rows = req_q.all()
+    for r in request_rows:
+        matched = by_library_id.get(r.library_item_id) if r.library_item_id else None
+        if not matched:
+            for k in _identity_keys(r):
+                if k in index:
+                    matched = index[k]
+                    break
+
+        summary = _request_summary(r, users_map)
         if matched:
-            matched["request_status"] = r.status.value if hasattr(r.status, "value") else str(r.status)
+            matched["request_status"] = _status_value(r)
             matched["requested_by"] = users_map.get(r.plex_user_id, r.plex_user or r.plex_user_id)
+            matched["requests"].append(summary)
         else:
             vm = {
                 "kind": "request",
                 "ref_id": r.id,
+                "library_id": None,
                 "in_library": False,
                 "title": r.title,
                 "year": r.year,
@@ -234,10 +236,13 @@ def library_page(
                 "has_vf": r.has_vf,
                 "arr_slug": r.arr_slug,
                 "arr_id": r.arr_id,
+                "arr_instance_id": r.arr_instance_id,
                 "plex_guid": r.plex_guid,
-                "request_status": r.status.value if hasattr(r.status, "value") else str(r.status),
+                "request_status": _status_value(r),
                 "requested_by": users_map.get(r.plex_user_id, r.plex_user or r.plex_user_id),
+                "requests": [summary],
                 "sort_at": r.requested_at,
+                "available_sort_at": r.available_at,
             }
             items.append(vm)
             for k in _identity_keys(r):
@@ -245,14 +250,56 @@ def library_page(
 
     from datetime import datetime as _dt
 
-    items.sort(key=lambda v: v["sort_at"] or _dt.min, reverse=True)
+    status_priority = {"failed": 0, "pending": 1, "sent_to_arr": 2, "available": 3}
+    for vm in items:
+        reqs = vm["requests"]
+        vm["request_ids"] = [r["id"] for r in reqs]
+        vm["primary_request_id"] = vm["request_ids"][0] if vm["request_ids"] else None
+        vm["request_count"] = len(reqs)
+        statuses = sorted({r["status"] for r in reqs}, key=lambda s: status_priority.get(s, 99))
+        vm["request_statuses"] = statuses
+        vm["request_status"] = statuses[0] if statuses else None
+        vm["request_sources"] = sorted({r["source"] for r in reqs if r["source"]})
+        names = []
+        for req in reqs:
+            for name in req["requesters"]:
+                if name not in names:
+                    names.append(name)
+        vm["requested_by"] = ", ".join(names) if names else vm.get("requested_by")
+        if not vm["sort_at"] and reqs:
+            vm["sort_at"] = max((r["requested_at"] for r in reqs if r["requested_at"]), default=None)
+        available_dates = [r["available_at"] for r in reqs if r["available_at"]]
+        if available_dates:
+            vm["available_sort_at"] = max(available_dates)
 
     counts = {
         "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
         "vo": sum(1 for v in items if v["in_library"] and v["has_vf"] is False),
         "unchecked": sum(1 for v in items if v["in_library"] and v["has_vf"] is None),
         "requested": sum(1 for v in items if not v["in_library"]),
+        "requests": sum(1 for v in items if v["request_ids"]),
+        "total": len(items),
     }
+    status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
+    for r in request_rows:
+        s = _status_value(r)
+        if s in status_counts:
+            status_counts[s] += 1
+
+    def _matches_request_filter(vm: dict, predicate) -> bool:
+        return any(predicate(r) for r in vm["requests"])
+
+    if view == "requests":
+        items = [v for v in items if v["request_ids"]]
+    if search:
+        sq = search.lower()
+        items = [v for v in items if sq in (v["title"] or "").lower()]
+    if user:
+        items = [v for v in items if _matches_request_filter(v, lambda r: user in r["requester_ids"])]
+    if status:
+        items = [v for v in items if _matches_request_filter(v, lambda r: r["status"] == status)]
+    if source:
+        items = [v for v in items if _matches_request_filter(v, lambda r: r["source"] == source)]
 
     # Filtre VF/VO/non analysé/demandé (counts calculés avant filtrage → totaux)
     if vf == "vf":
@@ -264,19 +311,54 @@ def library_page(
     elif vf == "requested":
         items = [v for v in items if not v["in_library"]]
 
+    reverse = order != "asc"
+    if sort == "title":
+        items.sort(key=lambda v: (v["title"] or "").lower(), reverse=reverse)
+    elif sort == "type":
+        items.sort(key=lambda v: v["media_type"] or "", reverse=reverse)
+    elif sort == "status":
+        items.sort(key=lambda v: status_priority.get(v.get("request_status"), 99), reverse=reverse)
+    elif sort == "available_date":
+        items.sort(key=lambda v: v["available_sort_at"] or _dt.min, reverse=reverse)
+    else:
+        items.sort(key=lambda v: v["sort_at"] or _dt.min, reverse=reverse)
+
+    total = len(items)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    page_items = items[(page - 1) * per_page : page * per_page]
+    distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
+
     return templates.TemplateResponse(
         request,
         "library.html",
         {
             "page": "library",
             "settings": settings,
-            "items": items,
-            "active_type": type or "movie",
+            "items": page_items,
+            "active_view": view or "all",
+            "active_type": type or "",
             "active_vf": vf or "",
+            "active_user": user or "",
+            "active_search": search or "",
+            "active_status": status or "",
+            "active_source": source or "",
             "counts": counts,
+            "status_counts": status_counts,
+            "users_map": users_map,
+            "users_obj_map": {u.plex_user_id: u for u in db.query(PlexUser).all()},
+            "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
+            "sources": distinct_sources,
             "vff_enabled": bool(settings and settings.vff_enabled),
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
             "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
+            "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",
+            "current_page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "sort": sort,
+            "order": order,
         },
     )
 
@@ -361,6 +443,12 @@ def downloads_page(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(request, "downloads.html", {"page": "downloads"})
 
 
+@router.get("/calendar", response_class=HTMLResponse)
+def calendar_page(request: Request, _: None = Depends(require_auth)):
+    """Page Calendrier : sorties films/séries des prochains jours (Sonarr/Radarr)."""
+    return templates.TemplateResponse(request, "calendar.html", {"page": "calendar"})
+
+
 @router.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, _: None = Depends(require_auth)):
     """Page des logs applicatifs en temps réel."""
@@ -371,7 +459,7 @@ def logs_page(request: Request, _: None = Depends(require_auth)):
 def search_page():
     from fastapi.responses import RedirectResponse
 
-    return RedirectResponse(url="/requests", status_code=301)
+    return RedirectResponse(url="/library?view=requests", status_code=301)
 
 
 @router.get("/settings", response_class=HTMLResponse)

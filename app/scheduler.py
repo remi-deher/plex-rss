@@ -22,7 +22,7 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
@@ -49,7 +49,14 @@ from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series, search_series
+from .services.sonarr import (
+    add_series,
+    get_all_series,
+    get_series_episode_stats,
+    is_series_available,
+    lookup_series,
+    search_series,
+)
 from .services.watchlist import fetch_watchlist
 from .utils import db_session, parse_email_list
 
@@ -891,6 +898,68 @@ def _notify_vf(event: str, settings: Settings, req: MediaRequest, db: Session):
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
     enqueue_notification(event, req.id, recipients, "")
+
+
+def _resolve_partial_notify_frequency(settings: Settings, user_obj: PlexUser | None) -> str:
+    """Fréquence de notification pour une série en disponibilité partielle.
+
+    Le réglage par utilisateur (PlexUser.partial_notify_frequency) prime sur le
+    réglage global (Settings.partial_notify_frequency) s'il est défini.
+    """
+    if user_obj and user_obj.partial_notify_frequency:
+        return user_obj.partial_notify_frequency
+    return settings.partial_notify_frequency or "milestones"
+
+
+def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
+    """Empile une notification « disponibilité partielle » (série en cours de diffusion).
+
+    Respecte le flag notify_on_available par utilisateur (même portée que la notif
+    « disponible » classique — c'est toujours une annonce de disponibilité, partielle
+    ou non).
+    """
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
+    reason = f"{req.episodes_available_count or 0}/{req.episodes_aired_count or 0}"
+    enqueue_notification("partially_available", req.id, recipients, reason)
+
+
+def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
+    """Décide et envoie la notification de disponibilité pour une série suivie par
+    compteurs d'épisodes (Sonarr direct — pas de suivi partiel via Seer).
+
+    - episodes_available_count >= episodes_total_count : série complète -> notif
+      "available" classique (une seule fois, via available_mail_sent).
+    - Sinon (encore partielle) selon la fréquence choisie (globale ou par utilisateur) :
+        · "milestones" (défaut) : une notif à la 1ère dispo partielle seulement.
+        · "every_episode" : une notif à chaque nouvel épisode téléchargé.
+
+    Si aucune donnée de progression n'est disponible (ex: média géré par Seer), la
+    demande garde le comportement historique : une notif "available" classique.
+    """
+    if req.media_type != "show" or not req.episodes_total_count:
+        if not req.available_mail_sent:
+            _notify("available", settings, req, db)
+        return
+
+    is_complete = (req.episodes_available_count or 0) >= req.episodes_total_count
+    if is_complete:
+        if not req.available_mail_sent:
+            _notify("available", settings, req, db)
+        return
+
+    if (req.episodes_available_count or 0) <= 0:
+        return  # aucun fichier pour l'instant, rien à notifier
+
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    frequency = _resolve_partial_notify_frequency(settings, user_obj)
+
+    if frequency == "every_episode":
+        if (req.episodes_available_count or 0) > (req.last_notified_episode_count or 0):
+            _notify_partial(settings, req, db)
+    else:  # "milestones"
+        if not req.partial_available_mail_sent:
+            _notify_partial(settings, req, db)
 
 
 def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
@@ -2038,7 +2107,19 @@ async def check_arr_statuses():
         candidates = (
             db.query(MediaRequest)
             .filter(
-                MediaRequest.status == RequestStatus.sent_to_arr,
+                or_(
+                    MediaRequest.status == RequestStatus.sent_to_arr,
+                    # Séries déjà "available" mais encore partiellement diffusées : on
+                    # continue de rafraîchir leurs compteurs d'épisodes tant qu'elles
+                    # n'ont pas atteint episodes_total_count (nouveaux épisodes chaque
+                    # semaine), pour le badge et les notifs de progression.
+                    and_(
+                        MediaRequest.status == RequestStatus.available,
+                        MediaRequest.media_type == "show",
+                        MediaRequest.episodes_total_count.isnot(None),
+                        MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
+                    ),
+                )
             )
             .all()
         )
@@ -2097,6 +2178,7 @@ async def check_arr_statuses():
                 new_arr_id = None
                 new_slug = None
                 seer_checked = False
+                series_stats = None
                 try:
                     if settings.seer_enabled and settings.seer_url:
                         seer_checked = True
@@ -2106,13 +2188,17 @@ async def check_arr_statuses():
                             seer_request_id=req.arr_id,
                         )
                     elif req.media_type == "show" and inst.arr_type == "sonarr":
-                        available, new_arr_id, new_slug = await is_series_available(
+                        series_stats = await get_series_episode_stats(
                             inst.url,
                             inst.api_key,
                             arr_id=req.arr_id,
                             tvdb_id=req.tvdb_id,
                             series_list=series_list,
                         )
+                        if series_stats:
+                            available = series_stats["episode_file_count"] > 0
+                            new_arr_id = series_stats["arr_id"]
+                            new_slug = series_stats["title_slug"]
                     elif req.media_type == "movie" and inst.arr_type == "radarr":
                         available, new_arr_id, new_slug = await is_movie_available(
                             inst.url,
@@ -2127,14 +2213,16 @@ async def check_arr_statuses():
                     # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
                     if seer_checked and not available:
                         if req.media_type == "show" and inst.arr_type == "sonarr":
-                            available, arr_new_id, arr_new_slug = await is_series_available(
+                            series_stats = await get_series_episode_stats(
                                 inst.url,
                                 inst.api_key,
                                 tvdb_id=req.tvdb_id,
                                 series_list=series_list,
                             )
-                            new_arr_id = new_arr_id or arr_new_id
-                            new_slug = new_slug or arr_new_slug
+                            if series_stats:
+                                available = series_stats["episode_file_count"] > 0
+                                new_arr_id = new_arr_id or series_stats["arr_id"]
+                                new_slug = new_slug or series_stats["title_slug"]
                         elif req.media_type == "movie" and inst.arr_type == "radarr":
                             available, arr_new_id, arr_new_slug = await is_movie_available(
                                 inst.url,
@@ -2158,18 +2246,32 @@ async def check_arr_statuses():
                 if req.arr_instance_id is None:
                     req.arr_instance_id = inst.id
 
+                if series_stats:
+                    req.episodes_available_count = series_stats["episode_file_count"]
+                    req.episodes_aired_count = series_stats["episode_count"]
+                    req.episodes_total_count = series_stats["total_episode_count"]
+
+                was_already_available = req.status == RequestStatus.available
                 if available:
-                    req.status = RequestStatus.available
-                    req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                    req.next_release_at = None
-                    req.next_release_label = None
+                    if not was_already_available:
+                        req.status = RequestStatus.available
+                        req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        req.next_release_at = None
+                        req.next_release_label = None
+                        newly_available += 1
+                        logger.info(f"'{req.title}' is now available")
                     db.commit()
-                    newly_available += 1
-                    logger.info(f"'{req.title}' is now available")
-                    # Quand VFF est actif, on diffère la notification « available » :
-                    # check_vf_statuses enverra soit « available » (VF présente) soit
-                    # « vo_only » (VO seule) — une seule notification, pas de doublon.
-                    if not settings.vff_enabled:
+
+                    if req.media_type == "show":
+                        # Gère la disponibilité partielle (série en cours de diffusion) :
+                        # décide de la notif à envoyer (partielle / complète) selon la
+                        # progression et la fréquence choisie. Tourne à chaque cycle tant
+                        # que la série n'est pas intégralement disponible.
+                        _handle_show_progress_notification(settings, req, db)
+                    elif not was_already_available and not settings.vff_enabled:
+                        # Quand VFF est actif, on diffère la notification « available » :
+                        # check_vf_statuses enverra soit « available » (VF présente) soit
+                        # « vo_only » (VO seule) — une seule notification, pas de doublon.
                         _notify("available", settings, req, db)
                 else:
                     await _refresh_next_release(

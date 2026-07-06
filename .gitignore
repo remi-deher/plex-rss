@@ -49,3 +49,5 @@ logs/
 .pytest_cache/
 htmlcov/
 
+# Codex local reports
+.codex/
