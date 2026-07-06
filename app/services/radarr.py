@@ -197,6 +197,27 @@ async def is_movie_available(
     return data.get("hasFile", False), data.get("id"), data.get("titleSlug")
 
 
+async def search_movie(radarr_url: str, api_key: str, movie_id: int) -> bool:
+    """Lance une recherche de fichier pour un film Radarr (commande MoviesSearch).
+
+    Utilisé par l'auto-search VFF : relance une recherche quand un film n'est
+    disponible qu'en VO, dans l'espoir de trouver une version française.
+    """
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json={"name": "MoviesSearch", "movieIds": [movie_id]},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True
+    except Exception as e:
+        logger.warning(f"Radarr MoviesSearch échec (movie {movie_id}): {e}")
+        return False
+
+
 async def check_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Radarr.
 

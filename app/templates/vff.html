@@ -1,0 +1,699 @@
+{% extends "base.html" %}
+{% set page = "vff" %}
+{% block content %}
+
+{# Macro pour générer une carte de média style premium #}
+{% macro media_card(r, status_key, badge_class, badge_label) %}
+<div class="col media-card-item" data-status="{{ status_key }}" data-title="{{ r.title | lower }}" data-id="{{ r.id }}">
+  <div class="card position-relative overflow-hidden request-card h-100" style="min-height: 280px; border-radius: 8px; border: 1px solid var(--pr-border); cursor: pointer;" onclick="openDetail(this.closest('.media-card-item').dataset.id)">
+    
+    <!-- Poster Background -->
+    {% if r.poster_url %}
+    <div style="position:absolute;inset:0;background:url('{{ r.poster_url }}') center/cover no-repeat; transition: transform .3s;" class="poster-img"></div>
+    <div style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(20,20,20,0.1) 0%, rgba(20,20,20,0.95) 75%);"></div>
+    {% else %}
+    <div style="position:absolute;inset:0;background:var(--pr-surface-2);display:flex;flex-direction:column;align-items:center;justify-content:center;" class="d-flex flex-column gap-2 text-muted">
+      <i class="bi bi-{% if r.media_type == 'show' %}tv{% else %}camera-video{% endif %} opacity-25" style="font-size:3rem;"></i>
+    </div>
+    {% endif %}
+
+    <!-- Badges supérieurs -->
+    <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start z-3">
+      <span class="badge {% if r.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px;">
+        {% if r.media_type == 'show' %}Série{% else %}Film{% endif %}
+      </span>
+      {% if r.vf_category %}
+      <span class="badge bg-secondary" style="font-size:9px;">{{ r.vf_category | upper }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Badge Statut supérieur droit -->
+    <div class="position-absolute top-0 end-0 m-2 z-3">
+      <span class="badge {{ badge_class }}" style="font-size: 10px;">{{ badge_label }}</span>
+    </div>
+
+    <!-- Contenu inférieur -->
+    <div class="position-absolute bottom-0 start-0 end-0 p-2 z-3 d-flex flex-column gap-1">
+      <h6 class="text-white mb-0 text-truncate fw-semibold" title="{{ r.title }}">{{ r.title }}</h6>
+      <div class="d-flex justify-content-between align-items-center text-muted" style="font-size:11px;">
+        <span>{% if r.year %}{{ r.year }}{% else %}—{% endif %}</span>
+        <span class="text-truncate" style="max-width: 60%;"><i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user or 'Inconnu') }}</span>
+      </div>
+
+      <!-- Barre d'actions rapides (apparaît au survol ou visible en bas) -->
+      <div class="d-flex gap-1 mt-2 pt-2 border-top border-secondary action-buttons" onclick="event.stopPropagation()">
+        <button class="btn btn-xs btn-outline-warning flex-grow-1 py-1" onclick="scanSingle(this.closest('.media-card-item').dataset.id, this)" title="Re-scanner sur Plex">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+        {% if status_key == 'vo' %}
+        <a href="/search?query={{ r.title | urlencode }}&media_type={{ r.media_type }}&request_id={{ r.id }}" class="btn btn-xs btn-outline-primary flex-grow-1 py-1" title="Recherche Manuelle">
+          <i class="bi bi-search"></i>
+        </a>
+        <button class="btn btn-xs btn-outline-success flex-grow-1 py-1" onclick="ignoreSingle(this.closest('.media-card-item').dataset.id, this)" title="Ignorer et arrêter le suivi VFF">
+          <i class="bi bi-bell-slash"></i>
+        </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-translate me-2 text-warning"></i>Suivi VFF</h2>
+    <div class="text-muted small mt-1">Détection des pistes audio françaises sur les médias disponibles dans votre Plex</div>
+  </div>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-warning d-flex align-items-center gap-1" id="vff-sync-btn" onclick="vffSync(this)">
+      <i class="bi bi-cloud-arrow-down"></i> Synchroniser avec Plex
+    </button>
+    <button class="btn btn-warning d-flex align-items-center gap-1" id="vff-scan-btn" onclick="vffScan(this)">
+      <i class="bi bi-arrow-clockwise"></i> Analyser toutes les bibliothèques
+    </button>
+  </div>
+</div>
+
+{% if not vff_enabled %}
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-4" role="alert">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <div>
+    Le suivi VFF est désactivé. Activez-le et configurez vos bibliothèques dans
+    <a href="/settings#vff" class="alert-link">Paramètres → VFF</a>.
+  </div>
+</div>
+{% endif %}
+
+<!-- Carte de progression de l'analyse globale -->
+<div id="vff-progress-card" class="card p-3 mb-4 border-warning d-none" style="background:var(--pr-surface-2);">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+      <strong class="text-warning"><i class="bi bi-translate me-1 spin"></i>Analyse des bibliothèques Plex en arrière-plan...</strong>
+      <span class="text-muted small ms-2" id="vff-progress-time"></span>
+    </div>
+    <span id="vff-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+  </div>
+  <div class="progress" style="height: 10px;">
+    <div id="vff-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 0%;"></div>
+  </div>
+</div>
+
+<!-- Carte de progression de la synchronisation Plex -->
+<div id="plex-sync-progress-card" class="card p-3 mb-4 border-warning d-none" style="background:var(--pr-surface-2);">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+      <strong class="text-warning"><i class="bi bi-cloud-arrow-down me-1 spin"></i>Synchronisation de la bibliothèque Plex...</strong>
+      <span class="text-muted small ms-2" id="plex-sync-progress-time"></span>
+    </div>
+    <span id="plex-sync-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+  </div>
+  <div class="progress" style="height: 10px;">
+    <div id="plex-sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" role="progressbar" style="width: 0%;"></div>
+  </div>
+</div>
+
+<!-- Compteurs & Filtres -->
+<div class="row g-3 mb-4">
+  <div class="col-md-8">
+    <div class="card p-3 h-100">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <span class="text-muted small me-2">Filtrer par statut :</span>
+        <button class="btn btn-sm btn-outline-warning active" onclick="filterStatut('all', this)" id="btn-filter-all">
+          Tous <span class="badge bg-secondary ms-1">{{ (vo_only|length) + (vf_ok|length) + (unchecked|length) }}</span>
+        </button>
+        <button class="btn btn-sm btn-outline-primary" onclick="filterStatut('vo', this)">
+          VO uniquement <span class="badge bg-primary ms-1">{{ vo_only|length }}</span>
+        </button>
+        <button class="btn btn-sm btn-outline-success" onclick="filterStatut('vf', this)">
+          VF disponible <span class="badge bg-success ms-1">{{ vf_ok|length }}</span>
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="filterStatut('unchecked', this)">
+          Non analysé <span class="badge bg-secondary ms-1">{{ unchecked|length }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card p-3 h-100 justify-content-center">
+      <div class="input-group">
+        <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
+        <input type="text" id="vff-search-input" class="form-control bg-dark border-secondary text-white" placeholder="Rechercher par titre..." oninput="filterGrid()">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Liste des médias (Grid de posters premium) -->
+<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3" id="vff-media-grid">
+  {% for r in vo_only %}
+    {{ media_card(r, 'vo', 'badge-sent', 'VO uniquement') }}
+  {% endfor %}
+  {% for r in vf_ok %}
+    {{ media_card(r, 'vf', 'badge-available', 'VF disponible') }}
+  {% endfor %}
+  {% for r in unchecked %}
+    {{ media_card(r, 'unchecked', 'badge-pending', 'Non analysé') }}
+  {% endfor %}
+</div>
+
+<!-- État vide si aucun élément ne correspond -->
+<div id="grid-empty" class="text-center text-muted py-5 d-none">
+  <i class="bi bi-folder2-open fs-1 d-block mb-3 opacity-25"></i>
+  <p class="small">Aucun média ne correspond aux critères de recherche/filtrage.</p>
+</div>
+
+
+
+<!-- Modale de détail (reprise à l'identique de requests.html) -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary text-white">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="modalTitle">Détail du média</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-footer border-secondary" id="modalFooter"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Variables de configuration
+const VFF_ENABLED = true;
+const sonarr_url = '{{ settings.sonarr_url or "" }}';
+const radarr_url = '{{ settings.radarr_url or "" }}';
+
+let currentStatutFilter = 'all';
+
+// Filtre dynamique par statut
+function filterStatut(statut, btn) {
+  currentStatutFilter = statut;
+  
+  // Mettre à jour la classe active sur les boutons
+  const buttons = btn.parentElement.querySelectorAll('button');
+  buttons.forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  
+  filterGrid();
+}
+
+// Filtre général (Recherche textuelle + Statut)
+function filterGrid() {
+  const query = document.getElementById('vff-search-input').value.toLowerCase().trim();
+  const items = document.querySelectorAll('.media-card-item');
+  let countVisible = 0;
+  
+  items.forEach(el => {
+    const title = el.dataset.title || '';
+    const status = el.dataset.status || '';
+    
+    const matchesSearch = !query || title.includes(query);
+    const matchesStatus = currentStatutFilter === 'all' || status === currentStatutFilter;
+    
+    if (matchesSearch && matchesStatus) {
+      el.classList.remove('d-none');
+      countVisible++;
+    } else {
+      el.classList.add('d-none');
+    }
+  });
+  
+  const emptyState = document.getElementById('grid-empty');
+  if (countVisible === 0) {
+    emptyState.classList.remove('d-none');
+  } else {
+    emptyState.classList.add('d-none');
+  }
+}
+
+let pollInterval = null;
+
+async function checkScanStatus() {
+  try {
+    const r = await fetch('/api/vff/scan-status');
+    const d = await r.json();
+    const progressCard = document.getElementById('vff-progress-card');
+    const scanBtn = document.getElementById('vff-scan-btn');
+    
+    if (d.status === 'running') {
+      progressCard.classList.remove('d-none');
+      if (scanBtn) {
+        scanBtn.disabled = true;
+        const icon = scanBtn.querySelector('i');
+        if (icon) icon.classList.add('spin');
+      }
+      
+      const text = `${d.items_scanned} / ${d.total_items || '?'}`;
+      document.getElementById('vff-progress-text').textContent = text;
+      
+      const pct = d.total_items ? (d.items_scanned / d.total_items) * 100 : 0;
+      document.getElementById('vff-progress-bar').style.width = pct + '%';
+      
+      if (d.started_at) {
+        const start = new Date(d.started_at);
+        document.getElementById('vff-progress-time').textContent = `Démarré à ${start.toLocaleTimeString('fr-FR')}`;
+      }
+      
+      if (!pollInterval) {
+        pollInterval = setInterval(checkScanStatus, 1500);
+      }
+    } else {
+      // Si on était en train de tourner et qu'on vient de s'arrêter
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        showToast('Analyse VFF terminée !', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      }
+      
+      progressCard.classList.add('d-none');
+      if (scanBtn) {
+        scanBtn.disabled = false;
+        const icon = scanBtn.querySelector('i');
+        if (icon) icon.classList.remove('spin');
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching VFF status:", e);
+  }
+}
+
+let pollSyncInterval = null;
+
+async function checkSyncStatus() {
+  try {
+    const r = await fetch('/api/vff/sync-status');
+    const d = await r.json();
+    const progressCard = document.getElementById('plex-sync-progress-card');
+    const syncBtn = document.getElementById('vff-sync-btn');
+    
+    if (d.status === 'running') {
+      progressCard.classList.remove('d-none');
+      if (syncBtn) {
+        syncBtn.disabled = true;
+        const icon = syncBtn.querySelector('i');
+        if (icon) icon.classList.add('spin');
+      }
+      
+      const text = `${d.items_synced} / ${d.total_items || '?'}`;
+      document.getElementById('plex-sync-progress-text').textContent = text;
+      
+      const pct = d.total_items ? (d.items_synced / d.total_items) * 100 : 0;
+      document.getElementById('plex-sync-progress-bar').style.width = pct + '%';
+      
+      if (d.started_at) {
+        const start = new Date(d.started_at);
+        document.getElementById('plex-sync-progress-time').textContent = `Démarré à ${start.toLocaleTimeString('fr-FR')}`;
+      }
+      
+      if (!pollSyncInterval) {
+        pollSyncInterval = setInterval(checkSyncStatus, 1500);
+      }
+    } else {
+      if (pollSyncInterval) {
+        clearInterval(pollSyncInterval);
+        pollSyncInterval = null;
+        showToast('Synchronisation Plex terminée !', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      }
+      
+      progressCard.classList.add('d-none');
+      if (syncBtn) {
+        syncBtn.disabled = false;
+        const icon = syncBtn.querySelector('i');
+        if (icon) icon.classList.remove('spin');
+      }
+    }
+  } catch (e) {
+    console.error("Error fetching Plex sync status:", e);
+  }
+}
+
+// Lancer la détection automatique au chargement
+document.addEventListener('DOMContentLoaded', () => {
+  checkScanStatus();
+  checkSyncStatus();
+});
+
+// Analyse globale
+async function vffScan(btn) {
+  btn.disabled = true;
+  const icon = btn.querySelector('i');
+  if (icon) icon.classList.add('spin');
+  try {
+    const r = await fetch('/api/vff/scan', { method: 'POST' });
+    const res = await r.json();
+    if (r.ok && (res.status === 'started' || res.status === 'already_running')) {
+      showToast('Analyse lancée en arrière-plan', 'info');
+      checkScanStatus();
+    } else {
+      showToast('Échec de l\'analyse globale', 'danger');
+      btn.disabled = false;
+      if (icon) icon.classList.remove('spin');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+    if (icon) icon.classList.remove('spin');
+  }
+}
+
+// Synchronisation Plex
+async function vffSync(btn) {
+  btn.disabled = true;
+  const icon = btn.querySelector('i');
+  if (icon) icon.classList.add('spin');
+  try {
+    const r = await fetch('/api/vff/sync-plex', { method: 'POST' });
+    const res = await r.json();
+    if (r.ok && (res.status === 'started' || res.status === 'already_running')) {
+      showToast('Synchronisation Plex lancée en arrière-plan', 'info');
+      checkSyncStatus();
+    } else {
+      showToast('Échec de la synchronisation', 'danger');
+      btn.disabled = false;
+      if (icon) icon.classList.remove('spin');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+    if (icon) icon.classList.remove('spin');
+  }
+}
+
+// Scan individuel
+async function scanSingle(id, btn) {
+  btn.disabled = true;
+  const icon = btn.querySelector('i');
+  if (icon) icon.classList.add('spin');
+  
+  try {
+    const r = await fetch(`/api/requests/${id}/vff-scan`, { method: 'POST' });
+    const res = await r.json();
+    if (r.ok) {
+      showToast('Scan individuel réussi !', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } else {
+      showToast('Échec : ' + (res.detail || 'Erreur inconnue'), 'danger');
+      btn.disabled = false;
+      if (icon) icon.classList.remove('spin');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+    if (icon) icon.classList.remove('spin');
+  }
+}
+
+// Arrêter le suivi (ignorer VFF)
+async function ignoreSingle(id, btn) {
+  if (!confirm('Voulez-vous vraiment arrêter le suivi VFF pour ce média ? Cela le marquera comme traité.')) {
+    return;
+  }
+  
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/requests/${id}/vff-ignore`, { method: 'POST' });
+    if (r.ok) {
+      showToast('Suivi VFF arrêté avec succès !', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } else {
+      showToast('Échec de la désactivation du suivi', 'danger');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+  }
+}
+
+// ── Logique de la Modale de Détail (copiée de requests.html) ──────────────────
+
+const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+
+const VF_STATUS_META = {
+  vf:      { badge: 'badge-available', icon: 'bi-translate',       label: 'VF' },
+  vo:      { badge: 'badge-sent',      icon: 'bi-translate',       label: 'VO' },
+  present: { badge: 'bg-info text-dark',icon: 'bi-check-circle',   label: 'Présent' },
+  absent:  { badge: 'badge-pending',   icon: 'bi-dash-circle',     label: 'Absent' },
+  unknown: { badge: 'bg-secondary',    icon: 'bi-question-circle', label: 'Présent' },
+};
+
+async function openDetail(id) {
+  document.getElementById('modalTitle').textContent = 'Chargement...';
+  document.getElementById('modalBody').innerHTML = '<div class="text-center py-4"><span class="spinner-border text-warning"></span></div>';
+  document.getElementById('modalFooter').innerHTML = '';
+  detailModal.show();
+  try {
+    const r = await fetch(`/api/requests/${id}`);
+    const d = await r.json();
+    renderDetail(d);
+  } catch(e) {
+    document.getElementById('modalBody').innerHTML = `<div class="text-danger">Erreur : ${e.message}</div>`;
+  }
+}
+
+async function loadVfDetailInto(id, mediaType) {
+  const body = document.getElementById(`vf-detail-body-${id}`);
+  if (!body || body.dataset.loaded) return;
+  body.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Analyse Plex / Sonarr…</span></div>';
+  try {
+    const d = await fetch(`/api/requests/${id}/vf-detail`).then(r => r.json());
+    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d);
+    body.dataset.loaded = '1';
+  } catch (e) {
+    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${e.message}</div>`;
+  }
+}
+
+function renderVfTracks(d) {
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (d.vf_available === false) return '<div class="alert alert-secondary py-2 mb-2" style="font-size:12px"><i class="bi bi-info-circle me-1"></i>Suivi VFF désactivé.</div>';
+  if (!d.found) return '<div class="text-muted small py-2">Film introuvable dans les bibliothèques Plex.</div>';
+  if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio détectée.</div>';
+  const rows = d.tracks.map(t => `
+    <li class="d-flex align-items-center gap-2 py-1">
+      <span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px">
+        <i class="bi bi-translate me-1"></i>${t.is_fr ? 'VF' : 'VO'}
+      </span>
+      <span class="small">${t.label || t.lang || '?'}</span>
+    </li>`).join('');
+  return `<ul class="list-unstyled mb-0">${rows}</ul>`;
+}
+
+function renderVfSeasons(d) {
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable ou aucun épisode suivi.</div>';
+  const hint = d.vf_available === false ? '<div class="alert alert-secondary py-2 mb-2" style="font-size:12px">Suivi VFF désactivé.</div>' : '';
+  const srcNote = d.sonarr_available
+    ? ''
+    : '<div class="text-muted" style="font-size:11px"><i class="bi bi-info-circle me-1"></i>Sonarr indisponible — seuls les épisodes présents dans Plex sont listés.</div>';
+  const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
+  const items = d.seasons.map((s, i) => {
+    const c = s.counts;
+    const summary = [
+      c.vf ? `<span class="text-success">${c.vf} VF</span>` : '',
+      c.vo ? `<span class="text-primary">${c.vo} VO</span>` : '',
+      c.present ? `<span class="text-info">${c.present} présent</span>` : '',
+      c.unknown ? `<span class="text-secondary">${c.unknown} présent</span>` : '',
+      c.absent ? `<span class="text-muted">${c.absent} absent</span>` : '',
+    ].filter(Boolean).join(' · ');
+    const eps = s.episodes.map(e => {
+      const m = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
+      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
+        <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
+        <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
+        <span class="text-truncate">${e.title || ''}</span>
+      </li>`;
+    }).join('');
+    const headId = `${accId}-h${i}`, colId = `${accId}-c${i}`;
+    return `
+      <div class="accordion-item" style="background:transparent;border-color:var(--pr-border)">
+        <h2 class="accordion-header" id="${headId}">
+          <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
+                  data-bs-target="#${colId}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px">
+            <span class="me-2"><strong>Saison ${s.season_number}</strong></span>
+            <span class="small">${summary}</span>
+          </button>
+        </h2>
+        <div id="${colId}" class="accordion-collapse collapse" data-bs-parent="#${accId}">
+          <div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div>
+        </div>
+      </div>`;
+  }).join('');
+  return `${hint}${srcNote}<div class="accordion mt-2" id="${accId}">${items}</div>`;
+}
+
+function arrName(mediaType) { return mediaType === 'show' ? 'Sonarr' : 'Radarr'; }
+
+function statusBadge(s, mediaType) {
+  const map = {
+    available:   '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
+    sent_to_arr: `<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis à ${arrName(mediaType)}</span>`,
+    failed:      '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>',
+    pending:     '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>',
+  };
+  return map[s] || `<span class="badge bg-secondary">${s}</span>`;
+}
+
+function formatRequesters(d) {
+  const names = [d.plex_user || d.plex_user_id];
+  try {
+    const extras = JSON.parse(d.extra_requesters || '[]');
+    for (const e of extras) names.push(e.display_name || e.plex_user_id);
+  } catch(_) {}
+  return names.join(', ');
+}
+
+function journeyFrise(d) {
+  if (d.status === 'failed') {
+    return `<div class="d-flex align-items-center mb-3" style="font-size:12px">
+      <span class="d-flex align-items-center gap-1 text-success"><i class="bi bi-inbox-fill"></i>Reçue</span>
+      <span class="flex-grow-1 mx-2" style="height:2px;background:#dc3545"></span>
+      <span class="d-flex align-items-center gap-1 text-danger"><i class="bi bi-x-circle-fill"></i>Échec</span>
+    </div>`;
+  }
+  const stage = { pending: 0, sent_to_arr: 1, available: 2 }[d.status] ?? 0;
+  const steps = [
+    { label: 'Reçue', icon: 'bi-inbox-fill' },
+    { label: 'Transmise', icon: 'bi-send-fill' },
+    { label: 'Disponible', icon: 'bi-check-circle-fill' },
+  ];
+  return '<div class="d-flex align-items-center mb-3" style="font-size:12px">' + steps.map((s, i) => {
+    const color = i < stage ? 'text-success' : i === stage ? 'text-warning' : 'text-muted';
+    const connector = i > 0 ? `<span class="flex-grow-1 mx-2" style="height:2px;background:${i <= stage ? '#198754' : '#444'}"></span>` : '';
+    return `${connector}<span class="d-flex align-items-center gap-1 ${color}"><i class="bi ${s.icon}"></i>${s.label}</span>`;
+  }).join('') + '</div>';
+}
+
+function renderDetail(d) {
+  document.getElementById('modalTitle').textContent = `${d.title}${d.year ? ' (' + d.year + ')' : ''}`;
+  const typeLabel = d.media_type === 'show' ? 'Série' : 'Film';
+  const typeColor = d.media_type === 'show' ? 'info' : 'primary';
+  const toLocalDate = iso => {
+    if (!iso) return '—';
+    const s = iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z';
+    const dt = new Date(s);
+    return isNaN(dt) ? '—' : dt.toLocaleString('fr-FR');
+  };
+
+  const ids = [
+    d.imdb_id ? `<span class="badge bg-secondary me-1">IMDB: ${d.imdb_id}</span>` : '',
+    d.tmdb_id ? `<span class="badge bg-secondary me-1">TMDB: ${d.tmdb_id}</span>` : '',
+    d.tvdb_id ? `<span class="badge bg-secondary me-1">TVDB: ${d.tvdb_id}</span>` : '',
+    d.arr_id  ? `<span class="badge bg-secondary me-1">ID ${arrName(d.media_type)}: ${d.arr_id}</span>` : '',
+  ].filter(Boolean).join('');
+
+  const errorBlock = d.overview && d.overview.includes('[ERREUR]')
+    ? `<div class="alert alert-danger py-2 mt-3" style="font-size:13px"><i class="bi bi-exclamation-triangle me-1"></i>${d.overview.split('[ERREUR]').pop().trim()}</div>` : '';
+  const overview = d.overview ? d.overview.split('\n[ERREUR]')[0].trim() : '';
+
+  // Contenu de l'onglet « Détail »
+  const detailPane = `
+    <div class="row g-3">
+      <div class="col-auto" style="width:120px">
+        ${d.poster_url
+          ? `<img src="${d.poster_url}" class="img-fluid rounded" style="width:110px;object-fit:cover">`
+          : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:110px;height:165px"><i class="bi bi-image fs-2 text-muted"></i></div>`}
+      </div>
+      <div class="col">
+        <div class="mb-2">
+          <span class="badge bg-${typeColor} me-1">${typeLabel}</span>
+          ${statusBadge(d.status, d.media_type)}
+          <span class="badge bg-secondary ms-1">${d.source || '?'}</span>
+        </div>
+        ${journeyFrise(d)}
+        <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
+          <tr><td class="text-muted" style="width:120px">Demandé par</td><td>${formatRequesters(d)}</td></tr>
+          <tr><td class="text-muted">Date demande</td><td>${toLocalDate(d.requested_at)}</td></tr>
+          ${d.available_at ? `<tr><td class="text-muted">Disponible le</td><td class="text-success">${toLocalDate(d.available_at)}</td></tr>` : ''}
+          <tr><td class="text-muted">Email dem.</td><td>${d.request_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}</td></tr>
+          <tr><td class="text-muted">Email dispo.</td><td>${d.available_mail_sent ? '<i class="bi bi-check-circle-fill text-success"></i> Envoyé' : '<i class="bi bi-x-circle text-muted"></i> Non envoyé'}</td></tr>
+        </table>
+        ${ids ? `<div class="mt-2">${ids}</div>` : ''}
+        ${errorBlock}
+      </div>
+    </div>
+    ${overview ? `<p class="text-muted mt-3 mb-0" style="font-size:13px;line-height:1.6">${overview}</p>` : ''}`;
+
+  const isShow = d.media_type === 'show';
+  const hasSecondTab = isShow || VFF_ENABLED;
+  const secondLabel = isShow ? 'Episodes' : 'Pistes audio';
+  const secondIcon = isShow ? 'bi-collection-play' : 'bi-music-note-list';
+
+  if (hasSecondTab) {
+    document.getElementById('modalBody').innerHTML = `
+      <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#modal-tab-detail" type="button" role="tab">
+            <i class="bi bi-info-circle me-1"></i>Détail
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="modal-tab-eps-btn" data-bs-toggle="tab" data-bs-target="#modal-tab-eps" type="button" role="tab">
+            <i class="bi ${secondIcon} me-1"></i>${secondLabel}
+          </button>
+        </li>
+      </ul>
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="modal-tab-detail" role="tabpanel">${detailPane}</div>
+        <div class="tab-pane fade" id="modal-tab-eps" role="tabpanel">
+          <div id="vf-detail-body-${d.id}"></div>
+        </div>
+      </div>`;
+    document.getElementById('modal-tab-eps-btn')
+      .addEventListener('shown.bs.tab', () => loadVfDetailInto(d.id, d.media_type), { once: true });
+  } else {
+    document.getElementById('modalBody').innerHTML = detailPane;
+  }
+
+  const footer = document.getElementById('modalFooter');
+  footer.innerHTML = '';
+  
+  // Quick scan action in modal too
+  footer.insertAdjacentHTML('beforeend', `<button class="btn btn-warning btn-sm me-1" onclick="scanSingle(${d.id}, this)"><i class="bi bi-arrow-clockwise me-1"></i>Vérifier VFF</button>`);
+  
+  if (d.has_vf === false) {
+    footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-success btn-sm me-1" onclick="ignoreSingle(${d.id}, this)"><i class="bi bi-bell-slash me-1"></i>Arrêter suivi VFF</button>`);
+    footer.insertAdjacentHTML('beforeend', `<a href="/search?query=${encodeURIComponent(d.title)}&media_type=${d.media_type}&request_id=${d.id}" class="btn btn-outline-warning btn-sm me-1"><i class="bi bi-search me-1"></i>Recherche VF</a>`);
+  }
+
+  if (d.arr_slug) {
+    const arrBase = d.media_type === 'show' ? sonarr_url : radarr_url;
+    const arrPath = d.media_type === 'show' ? 'series' : 'movie';
+    if (arrBase) footer.insertAdjacentHTML('beforeend', `<a href="${arrBase}/${arrPath}/${d.arr_slug}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>Voir dans ${arrName(d.media_type)}</a>`);
+  }
+  
+  footer.insertAdjacentHTML('beforeend', `<button class="btn btn-secondary btn-sm ms-auto" data-bs-dismiss="modal">Fermer</button>`);
+}
+
+</script>
+
+<style>
+/* CSS effects for premium layout */
+.request-card {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.request-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+  border-color: var(--pr-accent) !important;
+}
+.request-card:hover .poster-img {
+  transform: scale(1.03);
+}
+.action-buttons {
+  opacity: 0.85;
+}
+.btn-xs {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+}
+</style>
+{% endblock %}

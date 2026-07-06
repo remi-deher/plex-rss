@@ -2,11 +2,21 @@
 {% set page = "requests" %}
 {% block content %}
 
+{# Badge VFF — affiché uniquement si le suivi VFF est activé, sur les médias disponibles #}
+{% macro vf_badge(r) %}
+{% if vff_enabled and r.status == 'available' %}
+  {% if r.has_vf == true %}<span class="badge badge-available" title="Version française disponible"><i class="bi bi-translate me-1"></i>VF</span>
+  {% elif r.has_vf == false %}<span class="badge badge-sent" title="Disponible en VO — VF en attente"><i class="bi bi-translate me-1"></i>VO</span>
+  {% else %}<span class="badge badge-pending" title="VF non encore analysée"><i class="bi bi-translate me-1"></i>?</span>
+  {% endif %}
+{% endif %}
+{% endmacro %}
+
 <!-- En-tête -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <div>
     <h2 class="mb-0">
-      Demandes
+      {% if active_type == 'movie' %}<i class="bi bi-film me-2"></i>Films{% elif active_type == 'show' %}<i class="bi bi-tv me-2"></i>Séries{% else %}Demandes{% endif %}
       {% if active_user %}
       <span class="fs-5 text-warning ms-2">— {{ users_map.get(active_user, active_user) }}</span>
       <a href="/requests{% if active_search %}?search={{ active_search }}{% endif %}" class="btn btn-sm btn-outline-secondary ms-2" title="Effacer filtre utilisateur"><i class="bi bi-x"></i></a>
@@ -30,22 +40,22 @@
 {% if status_counts %}
 <div class="d-flex flex-wrap gap-2 mb-3" id="status-counts-bar">
   {% if status_counts.failed %}
-  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=failed&page=1" class="text-decoration-none">
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}status=failed&page=1" class="text-decoration-none">
     <span class="badge badge-failed py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} échouée{% if status_counts.failed > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.pending %}
-  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=pending&page=1" class="text-decoration-none">
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}status=pending&page=1" class="text-decoration-none">
     <span class="badge badge-pending py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} reçue{% if status_counts.pending > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.sent_to_arr %}
-  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=sent_to_arr&page=1" class="text-decoration-none">
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}status=sent_to_arr&page=1" class="text-decoration-none">
     <span class="badge badge-sent py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmise{% if status_counts.sent_to_arr > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
   {% if status_counts.available %}
-  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}status=available&page=1" class="text-decoration-none">
+  <a href="?{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}status=available&page=1" class="text-decoration-none">
     <span class="badge badge-available py-1 px-2"><i class="bi bi-check-circle-fill me-1"></i>{{ status_counts.available }} disponible{% if status_counts.available > 1 %}s{% endif %}</span>
   </a>
   {% endif %}
@@ -99,10 +109,24 @@
     <select class="form-select form-select-sm" id="filterSource" name="source" onchange="filterItems()">
       <option value="">Toutes sources</option>
       {% for s in sources %}
-      <option value="{{ s }}" {% if active_source == s %}selected{% endif %}>{{ s | upper }}</option>
+      <option value="{{ s }}" {% if active_source == s %}selected{% endif %}>
+        {% if s == 'plex_sync' %}Plex seulement{% else %}{{ s | upper }}{% endif %}
+      </option>
       {% endfor %}
     </select>
   </div>
+  {% if vff_enabled %}
+  <div class="col-6 col-md-2">
+    <select class="form-select form-select-sm" id="filterVf" name="vf" onchange="filterItems()" title="Filtrer par version française">
+      <option value="">Toutes VF</option>
+      <option value="vf" {% if active_vf == 'vf' %}selected{% endif %}>VF disponible</option>
+      <option value="vo" {% if active_vf == 'vo' %}selected{% endif %}>VO en attente</option>
+      <option value="unchecked" {% if active_vf == 'unchecked' %}selected{% endif %}>Non analysé</option>
+    </select>
+  </div>
+  {% else %}
+  <input type="hidden" name="vf" value="{{ active_vf }}">
+  {% endif %}
   <div class="col-auto ms-auto">
     <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-1"
             onclick="openAddPanel(document.getElementById('searchInput').value.trim())">
@@ -112,7 +136,7 @@
 </form>
 
 <!-- Chips filtres actifs (D) -->
-{% set has_filters = active_search or active_user or active_status or active_type or active_source %}
+{% set has_filters = active_search or active_user or active_status or active_type or active_source or active_vf %}
 {% if has_filters %}
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center" id="filter-chips">
   <span class="text-muted small me-1">Filtres :</span>
@@ -129,7 +153,12 @@
   <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-{% if active_type == 'show' %}tv{% else %}camera-video{% endif %} me-1"></i>{{ 'Séries' if active_type == 'show' else 'Films' }}<i class="bi bi-x ms-1"></i></a>
   {% endif %}
   {% if active_source %}
-  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-rss me-1"></i>{{ active_source | upper }}<i class="bi bi-x ms-1"></i></a>
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2">
+    <i class="bi bi-rss me-1"></i>{% if active_source == 'plex_sync' %}Plex seulement{% else %}{{ active_source | upper }}{% endif %}<i class="bi bi-x ms-1"></i>
+  </a>
+  {% endif %}
+  {% if active_vf %}
+  <a href="/requests?{% if active_search %}search={{ active_search }}&{% endif %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1" class="badge bg-secondary text-decoration-none d-flex align-items-center gap-1 py-1 px-2"><i class="bi bi-translate me-1"></i>{{ {'vf':'VF disponible','vo':'VO en attente','unchecked':'Non analysé'}.get(active_vf, active_vf) }}<i class="bi bi-x ms-1"></i></a>
   {% endif %}
   <a href="/requests" class="text-muted small ms-1 text-decoration-none"><i class="bi bi-x-circle me-1"></i>Tout effacer</a>
 </div>
@@ -166,10 +195,27 @@
         {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill"></i></span>
         {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split"></i></span>{% endif %}
       </div>
-      <div class="position-absolute top-0 start-0 m-2">
+      <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start" style="z-index: 11;">
         <span class="badge {% if r.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px">
           {% if r.media_type == 'show' %}Série{% else %}Film{% endif %}
         </span>
+        <span style="font-size:10px">{{ vf_badge(r) }}</span>
+        {% if r.source == 'plex_sync' %}
+          <span class="badge bg-warning text-dark" style="font-size:9px;" title="Média synchronisé depuis Plex"><i class="bi bi-cloud-arrow-down me-1"></i>Plex</span>
+          {% if r.arr_slug %}
+            {% if r.media_type == 'show' and sonarr_url %}
+            <a href="{{ sonarr_url }}/series/{{ r.arr_slug }}" target="_blank" rel="noopener"
+               class="badge bg-info text-dark text-decoration-none" style="font-size:9px;" title="Suivi dans Sonarr" onclick="event.stopPropagation()">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Sonarr
+            </a>
+            {% elif r.media_type == 'movie' and radarr_url %}
+            <a href="{{ radarr_url }}/movie/{{ r.arr_slug }}" target="_blank" rel="noopener"
+               class="badge bg-primary text-white text-decoration-none" style="font-size:9px;" title="Suivi dans Radarr" onclick="event.stopPropagation()">
+              <i class="bi bi-box-arrow-up-right me-1"></i>Radarr
+            </a>
+            {% endif %}
+          {% endif %}
+        {% endif %}
       </div>
       <div class="position-absolute bottom-0 start-0 end-0 p-2">
         <div class="d-flex align-items-end justify-content-between gap-1">
@@ -178,7 +224,7 @@
               {{ r.title }}{% if r.year %} <span class="fw-normal" style="opacity:.7">({{ r.year }})</span>{% endif %}
             </div>
             <div class="text-white-50" style="font-size:11px">
-              <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user_id) }}
+              <i class="bi bi-person me-1"></i>{{ users_map.get(r.plex_user_id, r.plex_user or 'Plex') }}
               {% for co in r.extra_requesters | fromjson %}
               <span class="opacity-75">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
@@ -243,7 +289,7 @@
         <thead><tr>
           <th style="width:36px;text-align:center;"><input type="checkbox" id="selectAll" class="form-check-input" onclick="toggleSelectAll(this)"></th>
           <th style="width:56px">Poster</th>
-          {% set sq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}page=1&per_page={{ per_page }}{% endset %}
+          {% set sq %}{% if active_user %}user={{ active_user }}&{% endif %}{% if active_search %}search={{ active_search }}&{% endif %}{% if active_status %}status={{ active_status }}&{% endif %}{% if active_type %}type={{ active_type }}&{% endif %}{% if active_source %}source={{ active_source }}&{% endif %}{% if active_vf %}vf={{ active_vf }}&{% endif %}page=1&per_page={{ per_page }}{% endset %}
           <th>{% set ns='title' %}{% set no='asc' if sort=='title' and order=='desc' else 'desc' %}
             <a href="?{{ sq }}&sort={{ ns }}&order={{ no }}" class="text-decoration-none text-white">
               Titre {% if sort=='title' %}<i class="bi bi-chevron-{{ 'up' if order=='asc' else 'down' }}"></i>{% endif %}
@@ -314,7 +360,7 @@
               {% endif %}
             </td>
             <td>
-              {{ users_map.get(r.plex_user_id, r.plex_user_id) }}
+              {{ users_map.get(r.plex_user_id, r.plex_user or 'Plex') }}
               {% for co in r.extra_requesters | fromjson %}
               <span class="text-muted">, {{ users_map.get(co.plex_user_id, co.display_name) }}</span>
               {% endfor %}
@@ -326,6 +372,7 @@
               {% elif r.status == 'failed' %}<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Échec</span>
               {% else %}<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Reçue</span>{% endif %}
               </span>
+              {{ vf_badge(r) }}
             </td>
             <td class="d-none d-lg-table-cell" onclick="event.stopPropagation()">
               {% if r.source == 'seer' %}
@@ -343,6 +390,21 @@
                    class="btn btn-sm py-0 px-1 btn-outline-info ms-1" title="Voir dans Seer">
                   <i class="bi bi-box-arrow-up-right"></i>
                 </a>
+                {% endif %}
+              {% elif r.source == 'plex_sync' %}
+                <span class="badge bg-warning text-dark" title="Média synchronisé depuis Plex"><i class="bi bi-cloud-arrow-down me-1"></i>Plex</span>
+                {% if r.arr_slug %}
+                  {% if r.media_type == 'show' and sonarr_url %}
+                  <a href="{{ sonarr_url }}/series/{{ r.arr_slug }}" target="_blank" rel="noopener"
+                     class="badge bg-info text-dark ms-1 text-decoration-none" style="font-size: 10px; vertical-align: middle;" title="Suivi dans Sonarr">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Sonarr
+                  </a>
+                  {% elif r.media_type == 'movie' and radarr_url %}
+                  <a href="{{ radarr_url }}/movie/{{ r.arr_slug }}" target="_blank" rel="noopener"
+                     class="badge bg-primary text-white ms-1 text-decoration-none" style="font-size: 10px; vertical-align: middle;" title="Suivi dans Radarr">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Radarr
+                  </a>
+                  {% endif %}
                 {% endif %}
               {% else %}
                 <span class="badge bg-secondary"><i class="bi bi-rss me-1"></i>{{ r.source or '?' }}</span>
@@ -646,6 +708,7 @@
 
 {% block scripts %}
 <script>
+const VFF_ENABLED = {{ 'true' if vff_enabled else 'false' }};
 // ── Vue ──────────────────────────────────────────────────────────────────────
 const PREF_KEY = 'requests_view';
 let currentView = localStorage.getItem(PREF_KEY) || 'list';
@@ -1168,6 +1231,90 @@ function journeyFrise(d) {
   }).join('') + '</div>';
 }
 
+// ── Détail VF (saisons / épisodes / pistes) ──────────────────────────────────
+const VF_STATUS_META = {
+  vf:      { badge: 'badge-available', icon: 'bi-translate',       label: 'VF' },
+  vo:      { badge: 'badge-sent',      icon: 'bi-translate',       label: 'VO' },
+  present: { badge: 'bg-info text-dark',icon: 'bi-check-circle',   label: 'Présent' },
+  absent:  { badge: 'badge-pending',   icon: 'bi-dash-circle',     label: 'Absent' },
+  unknown: { badge: 'bg-secondary',    icon: 'bi-question-circle', label: 'Présent' },
+};
+
+// Charge le contenu de l'onglet « Episodes » / « Pistes audio » (une seule fois).
+async function loadVfDetailInto(id, mediaType) {
+  const body = document.getElementById(`vf-detail-body-${id}`);
+  if (!body || body.dataset.loaded) return;
+  body.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Analyse Plex / Sonarr…</span></div>';
+  try {
+    const d = await fetch(`/api/requests/${id}/vf-detail`).then(r => r.json());
+    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d);
+    body.dataset.loaded = '1';
+  } catch (e) {
+    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${e.message}</div>`;
+  }
+}
+
+const VFF_HINT = '<div class="alert alert-secondary py-2 mb-2" style="font-size:12px"><i class="bi bi-info-circle me-1"></i>'
+  + 'Activez le suivi VFF (<a href="/settings#vff" class="alert-link">Paramètres → VFF</a>) pour voir le statut VF par épisode.</div>';
+
+function renderVfTracks(d) {
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (d.vf_available === false) return VFF_HINT;
+  if (!d.found) return '<div class="text-muted small py-2">Film introuvable dans les bibliothèques Plex configurées.</div>';
+  if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio détectée.</div>';
+  const rows = d.tracks.map(t => `
+    <li class="d-flex align-items-center gap-2 py-1">
+      <span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px">
+        <i class="bi bi-translate me-1"></i>${t.is_fr ? 'VF' : 'VO'}
+      </span>
+      <span class="small">${t.label || t.lang || '?'}</span>
+    </li>`).join('');
+  return `<ul class="list-unstyled mb-0">${rows}</ul>`;
+}
+
+function renderVfSeasons(d) {
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable dans Plex / Sonarr, ou aucun épisode suivi.</div>';
+  const hint = d.vf_available === false ? VFF_HINT : '';
+  const srcNote = d.sonarr_available
+    ? ''
+    : '<div class="text-muted" style="font-size:11px"><i class="bi bi-info-circle me-1"></i>Sonarr indisponible — seuls les épisodes présents dans Plex sont listés.</div>';
+  const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
+  const items = d.seasons.map((s, i) => {
+    const c = s.counts;
+    const summary = [
+      c.vf ? `<span class="text-success">${c.vf} VF</span>` : '',
+      c.vo ? `<span class="text-primary">${c.vo} VO</span>` : '',
+      c.present ? `<span class="text-info">${c.present} présent</span>` : '',
+      c.unknown ? `<span class="text-secondary">${c.unknown} présent</span>` : '',
+      c.absent ? `<span class="text-muted">${c.absent} absent</span>` : '',
+    ].filter(Boolean).join(' · ');
+    const eps = s.episodes.map(e => {
+      const m = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
+      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
+        <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
+        <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
+        <span class="text-truncate">${e.title || ''}</span>
+      </li>`;
+    }).join('');
+    const headId = `${accId}-h${i}`, colId = `${accId}-c${i}`;
+    return `
+      <div class="accordion-item" style="background:transparent;border-color:var(--pr-border)">
+        <h2 class="accordion-header" id="${headId}">
+          <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
+                  data-bs-target="#${colId}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px">
+            <span class="me-2"><strong>Saison ${s.season_number}</strong></span>
+            <span class="small">${summary}</span>
+          </button>
+        </h2>
+        <div id="${colId}" class="accordion-collapse collapse" data-bs-parent="#${accId}">
+          <div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div>
+        </div>
+      </div>`;
+  }).join('');
+  return `${hint}${srcNote}<div class="accordion mt-2" id="${accId}">${items}</div>`;
+}
+
 function renderDetail(d) {
   document.getElementById('modalTitle').textContent = `${d.title}${d.year ? ' (' + d.year + ')' : ''}`;
   const typeLabel = d.media_type === 'show' ? 'Série' : 'Film';
@@ -1223,7 +1370,8 @@ function renderDetail(d) {
     `;
   }
 
-  document.getElementById('modalBody').innerHTML = `
+  // Contenu de l'onglet « Détail » (résumé, état de la demande, notifs…)
+  const detailPane = `
     <div class="row g-3">
       <div class="col-auto" style="width:120px">
         ${d.poster_url
@@ -1254,8 +1402,40 @@ function renderDetail(d) {
         ${errorBlock}
       </div>
     </div>
-    ${overview ? `<p class="text-muted mt-3 mb-0" style="font-size:13px;line-height:1.6">${overview}</p>` : ''}
-  `;
+    ${overview ? `<p class="text-muted mt-3 mb-0" style="font-size:13px;line-height:1.6">${overview}</p>` : ''}`;
+
+  // Second onglet : « Episodes » (séries) ou « Pistes audio » (films, si VFF actif)
+  const isShow = d.media_type === 'show';
+  const hasSecondTab = isShow || VFF_ENABLED;
+  const secondLabel = isShow ? 'Episodes' : 'Pistes audio';
+  const secondIcon = isShow ? 'bi-collection-play' : 'bi-music-note-list';
+
+  if (hasSecondTab) {
+    document.getElementById('modalBody').innerHTML = `
+      <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#modal-tab-detail" type="button" role="tab">
+            <i class="bi bi-info-circle me-1"></i>Détail
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="modal-tab-eps-btn" data-bs-toggle="tab" data-bs-target="#modal-tab-eps" type="button" role="tab">
+            <i class="bi ${secondIcon} me-1"></i>${secondLabel}
+          </button>
+        </li>
+      </ul>
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="modal-tab-detail" role="tabpanel">${detailPane}</div>
+        <div class="tab-pane fade" id="modal-tab-eps" role="tabpanel">
+          <div id="vf-detail-body-${d.id}"></div>
+        </div>
+      </div>`;
+    // Chargement paresseux au premier affichage de l'onglet
+    document.getElementById('modal-tab-eps-btn')
+      .addEventListener('shown.bs.tab', () => loadVfDetailInto(d.id, d.media_type), { once: true });
+  } else {
+    document.getElementById('modalBody').innerHTML = detailPane;
+  }
 
   const footer = document.getElementById('modalFooter');
   footer.innerHTML = '';

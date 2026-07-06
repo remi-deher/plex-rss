@@ -116,6 +116,17 @@ class Settings(Base):
     torrent_seed_time_limit_hours: Mapped[Optional[int]]
     torrent_auto_delete_files: Mapped[bool] = mapped_column(default=True)
 
+    # --- VFF (audit / suivi des pistes françaises) ---
+    vff_enabled: Mapped[bool] = mapped_column(default=False)
+    # Bibliothèques Plex à inspecter, JSON: [{"name": "Films", "kind": "movie"},
+    # {"name": "Animes", "kind": "series"}]. Null → auto-détection des sections.
+    vff_libraries: Mapped[Optional[str]] = mapped_column(Text)
+    # Intervalle du re-scan des médias suivis en VO (minutes)
+    vff_recheck_interval_minutes: Mapped[int] = mapped_column(default=360)
+    # Déclencher une recherche Sonarr/Radarr quand un média est suivi en VO seule
+    vff_auto_search: Mapped[bool] = mapped_column(default=False)
+    email_on_vf_available: Mapped[bool] = mapped_column(default=True)
+
 
 class ArrInstance(Base):
     __tablename__ = "arr_instances"
@@ -156,6 +167,14 @@ class PlexUser(Base):
     # Routing
     sonarr_instance_id: Mapped[Optional[int]]
     radarr_instance_id: Mapped[Optional[int]]
+
+    # --- VFF : notifications par type de média ---
+    # Prévenir cet utilisateur quand un média devient dispo mais uniquement en VO,
+    # puis quand la VF arrive. Distinction par type pour éviter les faux positifs
+    # (ex : animes japonais en VO à leur sortie).
+    notify_vf_movie: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_vf_series: Mapped[Optional[bool]] = mapped_column(default=True)
+    notify_vf_anime: Mapped[Optional[bool]] = mapped_column(default=False)
 
 
 class NotificationLog(Base):
@@ -224,6 +243,29 @@ class MediaRequest(Base):
     arr_instance_id: Mapped[Optional[int]]
     download_client_id: Mapped[Optional[int]]
     torrent_hash: Mapped[Optional[str]]
+
+    # --- VFF : état de la piste française au moment de la disponibilité ---
+    # None = pas encore analysé ; True = VF présente ; False = VO uniquement (suivi actif)
+    has_vf: Mapped[Optional[bool]] = mapped_column(default=None)
+    # Catégorie VFF ("movie" | "series" | "anime") déterminée par la bibliothèque Plex
+    vf_category: Mapped[Optional[str]] = mapped_column(default=None)
+    vf_checked_at: Mapped[Optional[datetime]]
+    vf_available_at: Mapped[Optional[datetime]]
+    vf_available_mail_sent: Mapped[bool] = mapped_column(default=False)
+    vo_only_mail_sent: Mapped[bool] = mapped_column(default=False)
+
+
+class VfCategory(str, enum.Enum):
+    """Type de média du point de vue VFF, pour cibler les notifications.
+
+    - movie  : film (bibliothèque de type « movie »)
+    - series : série classique
+    - anime  : série d'une bibliothèque marquée comme animes (VO japonaise fréquente)
+    """
+
+    movie = "movie"
+    series = "series"
+    anime = "anime"
 
 
 class DownloadClient(Base):

@@ -1,0 +1,5 @@
+- [x] Modifier la logique de détection TV show dans `app/services/vff.py`
+- [x] Adapter `_scan_vf_blocking` dans `app/scheduler.py`
+- [x] Créer les endpoints de scan individuel et ignore dans `app/routers/api.py`
+- [x] Refondre l'UI de `app/templates/vff.html` (posters, filtres, modale de détails, actions)
+- [x] Vérifier le bon fonctionnement global (tests unitaires et manuel)

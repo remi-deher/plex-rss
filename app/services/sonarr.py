@@ -161,6 +161,44 @@ async def is_series_available(
     return available, data.get("id"), data.get("titleSlug")
 
 
+async def search_series(sonarr_url: str, api_key: str, series_id: int) -> bool:
+    """Lance une recherche de fichiers pour une série Sonarr (commande SeriesSearch).
+
+    Utilisé par l'auto-search VFF : relance une recherche quand une série n'est
+    disponible qu'en VO, dans l'espoir de trouver une version française.
+    """
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json={"name": "SeriesSearch", "seriesId": series_id},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True
+    except Exception as e:
+        logger.warning(f"Sonarr SeriesSearch échec (series {series_id}): {e}")
+        return False
+
+
+async def get_episodes(sonarr_url: str, api_key: str, series_id: int) -> list[dict]:
+    """Retourne tous les épisodes d'une série Sonarr (saison, numéro, titre, présence fichier).
+
+    Utilisé pour le détail VF par saison/épisode : Sonarr donne la liste attendue
+    complète (y compris épisodes non encore téléchargés), Plex fournit la VF réelle.
+    """
+    base = sonarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{base}/api/v3/episode",
+            params={"seriesId": series_id},
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Sonarr.
 

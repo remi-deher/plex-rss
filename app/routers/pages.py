@@ -79,6 +79,7 @@ def requests_page(
     status: str = None,
     type: str = None,
     source: str = None,
+    vf: str = None,
     page: int = 1,
     per_page: int = 50,
     sort: str = "date",
@@ -118,6 +119,13 @@ def requests_page(
         q = q.filter(MediaRequest.status == status)
     if type:
         q = q.filter(MediaRequest.media_type == type)
+    # Filtre VFF (uniquement pertinent sur les médias disponibles)
+    if vf == "vf":
+        q = q.filter(MediaRequest.has_vf.is_(True))
+    elif vf == "vo":
+        q = q.filter(MediaRequest.has_vf.is_(False))
+    elif vf == "unchecked":
+        q = q.filter(MediaRequest.status == RequestStatus.available, MediaRequest.has_vf.is_(None))
 
     all_filtered = q.all()
     total = len(all_filtered)
@@ -127,6 +135,8 @@ def requests_page(
 
     # Extraire les sources uniques pour le filtre
     distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
+    if "plex_sync" not in distinct_sources:
+        distinct_sources.append("plex_sync")
 
     settings = db.query(Settings).first()
     return templates.TemplateResponse(
@@ -143,6 +153,8 @@ def requests_page(
             "active_status": status or "",
             "active_type": type or "",
             "active_source": source or "",
+            "active_vf": vf or "",
+            "vff_enabled": bool(settings and settings.vff_enabled),
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
             "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
             "seer_url": (settings.seer_url or "").rstrip("/") if settings else "",
@@ -227,6 +239,40 @@ def user_detail_page(user_id: int, request: Request, _: None = Depends(require_a
             "user": user,
             "requests": user_requests,
             "stats": stats,
+        },
+    )
+
+
+@router.get("/vff", response_class=HTMLResponse)
+def vff_page(
+    request: Request,
+    filter: str = "all",
+    _: None = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Page VFF : suivi des pistes françaises sur les médias disponibles.
+
+    Trois états : VO uniquement (suivi actif), VF disponible, non encore analysé.
+    """
+    settings = db.query(Settings).first()
+    base_q = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.available)
+
+    vo_only = base_q.filter(MediaRequest.has_vf.is_(False)).order_by(MediaRequest.available_at.desc()).all()
+    vf_ok = base_q.filter(MediaRequest.has_vf.is_(True)).order_by(MediaRequest.vf_available_at.desc()).all()
+    unchecked = base_q.filter(MediaRequest.has_vf.is_(None)).order_by(MediaRequest.available_at.desc()).all()
+
+    return templates.TemplateResponse(
+        request,
+        "vff.html",
+        {
+            "page": "vff",
+            "settings": settings,
+            "vff_enabled": bool(settings and settings.vff_enabled),
+            "vo_only": vo_only,
+            "vf_ok": vf_ok,
+            "unchecked": unchecked,
+            "active_filter": filter,
+            "users_map": build_users_map(db),
         },
     )
 

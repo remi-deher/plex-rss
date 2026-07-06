@@ -35,6 +35,12 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
     elif event == "available":
         title = f"Disponible — {request.title}{year}"
         body = f"{type_label} maintenant disponible sur Plex !"
+    elif event == "vo_only":
+        title = f"Disponible en VO — {request.title}{year}"
+        body = f"{type_label} disponible en VO uniquement. Vous serez prévenu dès que la VF arrive."
+    elif event == "vf_available":
+        title = f"VF disponible — {request.title}{year}"
+        body = f"{type_label} est maintenant disponible en version française sur Plex !"
     else:
         title = f"Echec — {request.title}{year}"
         body = f"Impossible de transmettre à {'Sonarr' if request.media_type == 'show' else 'Radarr'}"
@@ -45,7 +51,13 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
 def _build_discord_embed(event: str, request: MediaRequest, include_synopsis: bool = False) -> dict:
     """Construit un embed Discord pour un événement donné."""
     title, body = _build_message(event, request)
-    color = {"request": 0xE5A00D, "available": 0x1DB954, "failed": 0xDC3545}.get(event, 0x888888)
+    color = {
+        "request": 0xE5A00D,
+        "available": 0x1DB954,
+        "vo_only": 0x0D6EFD,
+        "vf_available": 0x1DB954,
+        "failed": 0xDC3545,
+    }.get(event, 0x888888)
     embed: dict = {"title": title, "description": body, "color": color}
     if request.poster_url:
         embed["thumbnail"] = {"url": request.poster_url}

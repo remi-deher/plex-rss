@@ -11,6 +11,7 @@ Scheduler APScheduler gérant les deux tâches périodiques :
     Fallback : si arr_id est absent, recherche par tvdb_id/imdb_id/tmdb_id.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -37,20 +38,41 @@ from .models import (
 from .notification_queue import enqueue as enqueue_notification
 from .services import prowlarr
 from .services.download_clients import add_torrent_to_client, delete_torrent, get_torrent_status
-from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id
+from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id, search_movie
 from .services.seer import _headers as _seer_headers
 from .services.seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series
+from .services import vff
+from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series, search_series
 from .services.watchlist import fetch_watchlist
 from .utils import db_session, parse_email_list
 
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+
+# État en mémoire du scan VFF (partagé)
+vff_scan_state = {
+    "status": "idle",  # "idle" | "running" | "failed"
+    "started_at": None,
+    "finished_at": None,
+    "items_scanned": 0,
+    "total_items": 0,
+    "error": None
+}
+
+# État en mémoire de la synchronisation Plex (partagé)
+plex_sync_state = {
+    "status": "idle",  # "idle" | "running" | "failed"
+    "started_at": None,
+    "finished_at": None,
+    "items_synced": 0,
+    "total_items": 0,
+    "error": None
+}
 
 
 # ---------------------------------------------------------------------------
@@ -178,12 +200,15 @@ def start_scheduler(poll_minutes: int = 5):
     with db_session(SessionLocal) as db:
         settings = db.query(Settings).first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
+        vff_interval = settings.vff_recheck_interval_minutes if settings and settings.vff_recheck_interval_minutes else 360
 
     scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(check_torrent_statuses, "interval", minutes=2, id="torrent_status_check", replace_existing=True)
+    scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
+    scheduler.add_job(sync_plex_media, "interval", hours=24, id="plex_library_sync", replace_existing=True)
     if digest_hour is not None:
         scheduler.add_job(_send_digest, "cron", hour=digest_hour, minute=0, id="digest", replace_existing=True)
     scheduler.start()
@@ -820,6 +845,51 @@ def _get_recipients(user_obj, settings: Settings, event: str = "request") -> lis
     return recipients
 
 
+def _user_wants_vf(user_obj: PlexUser | None, vf_category: str | None) -> bool:
+    """Indique si l'utilisateur souhaite les notifications VF pour ce type de média.
+
+    Défauts : films et séries activés, animes désactivés (VO japonaise fréquente
+    à la sortie → éviter les faux positifs, mais l'utilisateur peut l'activer).
+    """
+    if not user_obj or not user_obj.enabled:
+        return False
+    if vf_category == "movie":
+        return user_obj.notify_vf_movie is not False
+    if vf_category == "anime":
+        return user_obj.notify_vf_anime is True
+    return user_obj.notify_vf_series is not False
+
+
+def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_category: str | None) -> list[str]:
+    """Résout les destinataires email d'une notification VF (respecte les flags par type)."""
+    if not _user_wants_vf(user_obj, vf_category):
+        return []
+    raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
+    recipients = parse_email_list(raw)
+    admin_email = (settings.admin_notification_email or "").strip()
+    if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
+        for addr in parse_email_list(admin_email):
+            if addr not in recipients:
+                recipients.append(addr)
+    return recipients
+
+
+def _notify_vf(event: str, settings: Settings, req: MediaRequest, db: Session):
+    """Empile une notification VF ("vo_only" ou "vf_available") dans la queue.
+
+    Respecte les flags anti-doublon (vo_only_mail_sent / vf_available_mail_sent) et
+    les préférences de notification VF par utilisateur et par type de média.
+    """
+    if event == "vo_only" and req.vo_only_mail_sent:
+        return
+    if event == "vf_available" and req.vf_available_mail_sent:
+        return
+    email_flag = settings.email_on_vf_available if event == "vf_available" else True
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
+    enqueue_notification(event, req.id, recipients, "")
+
+
 def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
     """Empile une notification dans la queue après résolution des destinataires.
 
@@ -1237,6 +1307,485 @@ async def poll_watchlists():
         db.close()
 
 
+def _parse_vff_libraries(settings: Settings) -> list[dict]:
+    """Parse la config JSON des bibliothèques VFF. Retourne [] si absente/invalide.
+
+    Format : [{"name": "Films", "kind": "movie"}, {"name": "Animes", "kind": "anime"}]
+    kind ∈ {"movie", "series", "anime"} — "anime" est traité comme une section Plex
+    de type série mais catégorisé à part pour le ciblage des notifications.
+    """
+    raw = getattr(settings, "vff_libraries", None)
+    if not raw:
+        return []
+    try:
+        libs = json.loads(raw)
+    except Exception:
+        logger.warning("vff_libraries : JSON invalide, ignoré")
+        return []
+    out = []
+    for entry in libs if isinstance(libs, list) else []:
+        name = (entry.get("name") or "").strip()
+        kind = (entry.get("kind") or "").strip().lower()
+        if name and kind in ("movie", "series", "anime"):
+            out.append({"name": name, "kind": kind})
+    return out
+
+
+def _scan_vf_blocking(plex_url: str, plex_token: str, candidates: list[dict], libs: list[dict]) -> list[dict]:
+    """Analyse (bloquante, plexapi) la présence de VF pour chaque candidat.
+
+    Exécutée dans un thread via asyncio.to_thread pour ne pas bloquer la boucle async.
+    Retourne une liste de dicts : {"id", "found", "has_vf", "category"}.
+    """
+    try:
+        plex = vff.connect(plex_url, plex_token)
+    except Exception as exc:
+        logger.warning(f"VFF : connexion Plex impossible : {exc}")
+        return []
+
+    movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
+    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+
+    results: list[dict] = []
+    for c in candidates:
+        try:
+            if c["media_type"] == "movie":
+                item = vff.find_item_in_libraries(
+                    plex, movie_libs, c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"], plex_guid=c.get("plex_guid")
+                )
+                if not item:
+                    results.append({"id": c["id"], "found": False})
+                    continue
+                results.append(
+                    {"id": c["id"], "found": True, "has_vf": vff.movie_has_french_audio(item), "category": "movie"}
+                )
+            else:
+                item = None
+                category = "series"
+                for name, kind in show_libs:
+                    item = vff.find_item_in_libraries(
+                        plex, [name], c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"], plex_guid=c.get("plex_guid")
+                    )
+                    if item:
+                        category = "anime" if kind == "anime" else "series"
+                        break
+                if not item:
+                    results.append({"id": c["id"], "found": False})
+                    continue
+                complete, should_track, _, _ = vff.show_has_full_french_audio(item)
+                has_vf = complete or (not should_track)
+                results.append({"id": c["id"], "found": True, "has_vf": has_vf, "category": category})
+        except Exception as exc:
+            logger.warning(f"VFF : erreur analyse '{c.get('title')}' : {exc}")
+            results.append({"id": c["id"], "found": False})
+        finally:
+            vff_scan_state["items_scanned"] += 1
+    return results
+
+
+def _resolve_vf_arr_instance(db: Session, req: MediaRequest, arr_type: str) -> ArrInstance | None:
+    """Résout l'instance Sonarr/Radarr à utiliser pour l'auto-search VFF d'une demande."""
+    if req.arr_instance_id:
+        inst = (
+            db.query(ArrInstance)
+            .filter(ArrInstance.id == req.arr_instance_id, ArrInstance.arr_type == arr_type, ArrInstance.enabled)
+            .first()
+        )
+        if inst:
+            return inst
+    return (
+        db.query(ArrInstance)
+        .filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default)
+        .first()
+    )
+
+
+async def _trigger_vf_search(db: Session, settings: Settings, req: MediaRequest) -> None:
+    """Relance une recherche Sonarr/Radarr pour un média détecté en VO seule (auto-search VFF).
+
+    Ignoré si arr_id absent ou si la demande provient de Seer (arr_id = ID Seer, pas Sonarr/Radarr).
+    """
+    if not req.arr_id or req.source == "seer":
+        return
+    arr_type = "radarr" if req.media_type == "movie" else "sonarr"
+    inst = _resolve_vf_arr_instance(db, req, arr_type)
+    if not inst:
+        return
+    try:
+        if arr_type == "radarr":
+            ok = await search_movie(inst.url, inst.api_key, req.arr_id)
+        else:
+            ok = await search_series(inst.url, inst.api_key, req.arr_id)
+        if ok:
+            logger.info(f"VFF auto-search lancé pour '{req.title}' ({arr_type})")
+    except Exception as e:
+        logger.warning(f"VFF auto-search échec pour '{req.title}': {e}")
+
+
+async def check_vf_statuses():
+    """Job VFF : détecte la présence de VF sur les médias disponibles et notifie.
+
+    - Première analyse d'un média (has_vf IS NULL) :
+        · VF présente  → has_vf=True (pas de notification, l'« available » a suffi)
+        · VO seulement → has_vf=False + notification « disponible en VO » + suivi actif
+    - Ré-analyse des médias suivis (has_vf=False) :
+        · VF désormais présente → has_vf=True + notification « VF disponible »
+
+    La détection Plex (plexapi) est bloquante : elle est déportée dans un thread.
+    """
+    if vff_scan_state["status"] == "running":
+        logger.info("VFF : un scan est déjà en cours, skip")
+        return
+
+    vff_scan_state["status"] = "running"
+    vff_scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    vff_scan_state["finished_at"] = None
+    vff_scan_state["items_scanned"] = 0
+    vff_scan_state["total_items"] = 0
+    vff_scan_state["error"] = None
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings or not settings.vff_enabled:
+            vff_scan_state["status"] = "idle"
+            return
+        if not settings.plex_url or not settings.plex_token:
+            logger.info("VFF : Plex non configuré, skip")
+            vff_scan_state["status"] = "idle"
+            return
+
+        libs = _parse_vff_libraries(settings)
+        if not libs:
+            logger.info("VFF : aucune bibliothèque configurée, skip")
+            vff_scan_state["status"] = "idle"
+            return
+
+        candidates_q = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.status == RequestStatus.available,
+                (MediaRequest.has_vf.is_(None)) | (MediaRequest.has_vf.is_(False)),
+            )
+            .all()
+        )
+        if not candidates_q:
+            vff_scan_state["status"] = "idle"
+            vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return
+
+        candidates = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "year": r.year,
+                "media_type": r.media_type,
+                "tmdb_id": r.tmdb_id,
+                "tvdb_id": r.tvdb_id,
+                "imdb_id": r.imdb_id,
+                "plex_guid": r.plex_guid,
+            }
+            for r in candidates_q
+        ]
+        vff_scan_state["total_items"] = len(candidates)
+        logger.info(f"VFF : analyse de {len(candidates)} média(s) disponible(s)")
+
+        results = await asyncio.to_thread(
+            _scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs
+        )
+        results_by_id = {r["id"]: r for r in results}
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        newly_vo = 0
+        newly_vf = 0
+        newly_fallback = 0
+        for req in candidates_q:
+            res = results_by_id.get(req.id)
+
+            was_tracking = req.has_vf is False  # déjà identifié VO au passage précédent
+
+            if not res or not res.get("found"):
+                # Média disponible mais pas (encore) indexé dans Plex.
+                # Filet de sécurité : si l'« available » a été différé (VFF actif) et
+                # jamais envoyé, notifier la disponibilité générique maintenant pour
+                # ne pas laisser l'utilisateur sans information. has_vf reste None :
+                # un passage ultérieur détectera la VF/VO (suivi silencieux, pas de doublon).
+                if req.has_vf is None and not req.available_mail_sent:
+                    _notify("available", settings, req, db)
+                    newly_fallback += 1
+                continue
+
+            req.vf_category = res.get("category") or req.vf_category
+            req.vf_checked_at = now
+
+            if res["has_vf"]:
+                req.has_vf = True
+                if was_tracking:
+                    # Transition VO → VF : on prévient
+                    req.vf_available_at = now
+                    db.commit()
+                    _notify_vf("vf_available", settings, req, db)
+                    newly_vf += 1
+                    logger.info(f"VFF : '{req.title}' est désormais disponible en VF")
+                else:
+                    # Première analyse, VF présente : envoie l'« available » différé
+                    # (une seule notification — pas de doublon avec vo_only).
+                    db.commit()
+                    _notify("available", settings, req, db)
+            else:
+                # VO uniquement
+                req.has_vf = False
+                if not was_tracking:
+                    if not req.available_mail_sent:
+                        # Première détection VO : la notification « VO » tient lieu
+                        # d'annonce de disponibilité. On marque available_mail_sent
+                        # pour éviter tout doublon « available » ultérieur.
+                        req.available_mail_sent = True
+                        db.commit()
+                        _notify_vf("vo_only", settings, req, db)
+                        newly_vo += 1
+                        logger.info(f"VFF : '{req.title}' disponible en VO uniquement — suivi VF activé")
+                    else:
+                        # Dispo déjà notifiée (fallback scan-lag) → suivi silencieux
+                        db.commit()
+                    if settings.vff_auto_search:
+                        await _trigger_vf_search(db, settings, req)
+                else:
+                    db.commit()
+
+        logger.info(
+            f"VFF : analyse terminée ({newly_vo} nouveau(x) VO, {newly_vf} VF détectée(s), "
+            f"{newly_fallback} dispo notifiée(s) en filet)"
+        )
+        vff_scan_state["status"] = "idle"
+        vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        logger.error(f"Erreur check_vf_statuses : {e}")
+        vff_scan_state["status"] = "failed"
+        vff_scan_state["error"] = str(e)
+    finally:
+        db.close()
+
+
+async def sync_plex_media():
+    """Tâche planifiée : synchronise les médias Plex configurés avec la base de données.
+
+    Vérifie l'existence de chaque média par GUID Plex ou identifiant externe.
+    Enregistre les nouveaux médias en statut disponible avec la source "plex_sync".
+    """
+    if plex_sync_state["status"] == "running":
+        logger.info("VFF Sync : une synchronisation est déjà en cours, skip")
+        return
+
+    plex_sync_state["status"] = "running"
+    plex_sync_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    plex_sync_state["finished_at"] = None
+    plex_sync_state["items_synced"] = 0
+    plex_sync_state["total_items"] = 0
+    plex_sync_state["error"] = None
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings or not settings.vff_enabled:
+            plex_sync_state["status"] = "idle"
+            return
+        if not settings.plex_url or not settings.plex_token:
+            logger.info("VFF Sync : Plex non configuré, skip")
+            plex_sync_state["status"] = "idle"
+            return
+
+        libs = _parse_vff_libraries(settings)
+        if not libs:
+            logger.info("VFF Sync : aucune bibliothèque configurée, skip")
+            plex_sync_state["status"] = "idle"
+            return
+
+        logger.info("VFF Sync : début de la synchronisation de la bibliothèque Plex")
+        plex_items = await asyncio.to_thread(
+            vff.sync_plex_library_blocking, settings.plex_url, settings.plex_token, libs
+        )
+        
+        plex_sync_state["total_items"] = len(plex_items)
+        logger.info(f"VFF Sync : {len(plex_items)} média(s) récupéré(s) de Plex, intégration en base...")
+
+        # Charger la table de correspondance Sonarr/Radarr
+        instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+        arr_lookup = {}
+        for inst in instances:
+            try:
+                if inst.arr_type == "radarr":
+                    movies = await get_all_movies(inst.url, inst.api_key)
+                    for m in movies:
+                        tmdb = str(m.get("tmdbId") or "")
+                        imdb = m.get("imdbId")
+                        slug = m.get("titleSlug")
+                        arr_id = m.get("id")
+                        if tmdb:
+                            arr_lookup[("movie", "tmdb", tmdb)] = (inst.id, arr_id, slug)
+                        if imdb:
+                            arr_lookup[("movie", "imdb", imdb)] = (inst.id, arr_id, slug)
+                else:  # sonarr
+                    series = await get_all_series(inst.url, inst.api_key)
+                    for s in series:
+                        tvdb = str(s.get("tvdbId") or "")
+                        tmdb = str(s.get("tmdbId") or "")
+                        imdb = s.get("imdbId")
+                        slug = s.get("titleSlug")
+                        arr_id = s.get("id")
+                        if tvdb:
+                            arr_lookup[("show", "tvdb", tvdb)] = (inst.id, arr_id, slug)
+                        if tmdb:
+                            arr_lookup[("show", "tmdb", tmdb)] = (inst.id, arr_id, slug)
+                        if imdb:
+                            arr_lookup[("show", "imdb", imdb)] = (inst.id, arr_id, slug)
+            except Exception as inst_exc:
+                logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
+
+        added_count = 0
+        for item in plex_items:
+            # Recherche si le média existe déjà dans la base
+            # 1. Par GUID Plex
+            exists = False
+            if item["plex_guid"]:
+                exists = db.query(MediaRequest).filter(MediaRequest.plex_guid == item["plex_guid"]).first() is not None
+
+            # 2. Par identifiants externes (si non trouvé)
+            if not exists:
+                q = db.query(MediaRequest)
+                conditions = []
+                if item["tmdb_id"]:
+                    conditions.append(MediaRequest.tmdb_id == item["tmdb_id"])
+                if item["tvdb_id"]:
+                    conditions.append(MediaRequest.tvdb_id == item["tvdb_id"])
+                if item["imdb_id"]:
+                    conditions.append(MediaRequest.imdb_id == item["imdb_id"])
+                
+                if conditions:
+                    from sqlalchemy import or_
+                    exists = q.filter(or_(*conditions)).first() is not None
+
+            # 3. Par titre + année (si non trouvé)
+            if not exists:
+                exists = (
+                    db.query(MediaRequest)
+                    .filter(
+                        MediaRequest.title.ilike(item["title"]),
+                        MediaRequest.year == item["year"],
+                        MediaRequest.media_type == item["media_type"],
+                    )
+                    .first()
+                    is not None
+                )
+
+            # Tenter de trouver une correspondance Arr
+            arr_match = None
+            if item["media_type"] == "movie":
+                if item["tmdb_id"] and ("movie", "tmdb", item["tmdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("movie", "tmdb", item["tmdb_id"])]
+                elif item["imdb_id"] and ("movie", "imdb", item["imdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("movie", "imdb", item["imdb_id"])]
+            else:
+                if item["tvdb_id"] and ("show", "tvdb", item["tvdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "tvdb", item["tvdb_id"])]
+                elif item["tmdb_id"] and ("show", "tmdb", item["tmdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "tmdb", item["tmdb_id"])]
+                elif item["imdb_id"] and ("show", "imdb", item["imdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "imdb", item["imdb_id"])]
+
+            arr_instance_id = arr_match[0] if arr_match else None
+            arr_id = arr_match[1] if arr_match else None
+            arr_slug = arr_match[2] if arr_match else None
+
+            if not exists:
+                # Création d'une nouvelle demande automatique
+                # Résolution de la date de création
+                req_date = item["added_at"]
+                if req_date and req_date.tzinfo:
+                    req_date = req_date.replace(tzinfo=None)
+                
+                new_req = MediaRequest(
+                    plex_user_id="admin",
+                    plex_user="Plex Library",
+                    title=item["title"],
+                    year=item["year"],
+                    media_type=item["media_type"],
+                    status=RequestStatus.available,
+                    source="plex_sync",
+                    plex_guid=item["plex_guid"],
+                    tmdb_id=item["tmdb_id"],
+                    tvdb_id=item["tvdb_id"],
+                    imdb_id=item["imdb_id"],
+                    poster_url=item["poster_url"],
+                    overview=item["overview"],
+                    requested_at=req_date or datetime.now(),
+                    available_at=req_date or datetime.now(),
+                    available_mail_sent=True,
+                    request_mail_sent=True,
+                    has_vf=None,
+                    arr_instance_id=arr_instance_id,
+                    arr_id=arr_id,
+                    arr_slug=arr_slug,
+                )
+                db.add(new_req)
+                added_count += 1
+            else:
+                # Si le média existe déjà, on met à jour ses identifiants Arr si absents
+                req_item = None
+                if item["plex_guid"]:
+                    req_item = db.query(MediaRequest).filter(MediaRequest.plex_guid == item["plex_guid"]).first()
+                if not req_item:
+                    conditions = []
+                    if item["tmdb_id"]:
+                        conditions.append(MediaRequest.tmdb_id == item["tmdb_id"])
+                    if item["tvdb_id"]:
+                        conditions.append(MediaRequest.tvdb_id == item["tvdb_id"])
+                    if item["imdb_id"]:
+                        conditions.append(MediaRequest.imdb_id == item["imdb_id"])
+                    if conditions:
+                        from sqlalchemy import or_
+                        req_item = db.query(MediaRequest).filter(or_(*conditions)).first()
+                if not req_item:
+                    req_item = (
+                        db.query(MediaRequest)
+                        .filter(
+                            MediaRequest.title.ilike(item["title"]),
+                            MediaRequest.year == item["year"],
+                            MediaRequest.media_type == item["media_type"],
+                        )
+                        .first()
+                    )
+                if req_item:
+                    # Associer le GUID Plex s'il n'est pas encore présent (crucial pour l'analyse VFF)
+                    if not req_item.plex_guid and item["plex_guid"]:
+                        req_item.plex_guid = item["plex_guid"]
+                    # Mettre à jour les informations Arr
+                    if not req_item.arr_instance_id and arr_match:
+                        req_item.arr_instance_id = arr_instance_id
+                        req_item.arr_id = arr_id
+                        req_item.arr_slug = arr_slug
+                    db.commit()
+
+            plex_sync_state["items_synced"] += 1
+
+        if added_count > 0:
+            db.commit()
+            logger.info(f"VFF Sync : {added_count} nouveau(x) média(s) Plex synchronisé(s) dans la DB")
+            # Déclencher immédiatement une analyse VFF pour les nouveaux médias ajoutés
+            asyncio.create_task(check_vf_statuses())
+        else:
+            logger.info("VFF Sync : aucun nouveau média Plex détecté")
+
+        plex_sync_state["status"] = "idle"
+        plex_sync_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        logger.error(f"VFF Sync : erreur synchronisation : {e}")
+        plex_sync_state["status"] = "failed"
+        plex_sync_state["error"] = str(e)
+    finally:
+        db.close()
+
+
 async def check_arr_statuses():
     """Vérifie si des demandes `sent_to_arr` sont désormais disponibles dans *arr.
 
@@ -1401,12 +1950,24 @@ async def check_arr_statuses():
                     db.commit()
                     newly_available += 1
                     logger.info(f"'{req.title}' is now available")
-                    _notify("available", settings, req, db)
+                    # Quand VFF est actif, on diffère la notification « available » :
+                    # check_vf_statuses enverra soit « available » (VF présente) soit
+                    # « vo_only » (VO seule) — une seule notification, pas de doublon.
+                    if not settings.vff_enabled:
+                        _notify("available", settings, req, db)
                 else:
                     await _refresh_next_release(
                         req, settings, series_list=series_list, movies_list=movies_list, inst=inst
                     )
                     db.commit()
+
+        # Analyse VF immédiate des nouvelles disponibilités (évite le délai jusqu'au
+        # prochain passage planifié pour l'envoi de la notification différée).
+        if settings.vff_enabled and newly_available > 0:
+            try:
+                await check_vf_statuses()
+            except Exception as e:
+                logger.warning(f"VFF : analyse immédiate post-disponibilité échouée : {e}")
 
         logger.info("Arr status check complete")
 

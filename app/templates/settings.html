@@ -38,6 +38,11 @@
       <i class="bi bi-gear"></i> Avancé
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-vff" type="button" role="tab" onclick="initVffTab()">
+      <i class="bi bi-translate"></i> VFF
+    </button>
+  </li>
   <li class="nav-item ms-auto d-flex align-items-center" role="presentation">
     <span class="text-muted text-uppercase px-2" style="font-size:11px;letter-spacing:.08em" title="Outils d'administration et de dépannage">
       <i class="bi bi-wrench-adjustable me-1"></i>Outils
@@ -696,6 +701,70 @@
     </div>
   </div>
 
+  <!-- ════════════════════════ TAB : VFF ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-vff" role="tabpanel">
+    <h5 class="mb-1"><i class="bi bi-translate me-2"></i>Suivi des versions françaises (VFF)</h5>
+    <p class="text-muted small mb-4">
+      Analyse les pistes audio des médias disponibles sur votre serveur Plex. Prévient les utilisateurs
+      quand un média n'est disponible qu'en VO, puis lorsqu'une piste française apparaît.
+    </p>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" name="vff_enabled" id="vff_enabled"
+                 {% if s.vff_enabled %}checked{% endif %}>
+          <label class="form-check-label" for="vff_enabled"><strong>Activer le suivi VFF</strong></label>
+        </div>
+
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" name="email_on_vf_available" id="email_on_vf_available"
+                 {% if s.email_on_vf_available %}checked{% endif %}>
+          <label class="form-check-label" for="email_on_vf_available">Envoyer un email quand la VF devient disponible</label>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Intervalle de ré-analyse (minutes)</label>
+            <input type="number" min="15" class="form-control" name="vff_recheck_interval_minutes"
+                   value="{{ s.vff_recheck_interval_minutes or 360 }}">
+            <div class="form-text">Fréquence de vérification des médias en VO en attente de VF.</div>
+          </div>
+          <div class="col-md-6 d-flex align-items-end">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" name="vff_auto_search" id="vff_auto_search"
+                     {% if s.vff_auto_search %}checked{% endif %}>
+              <label class="form-check-label" for="vff_auto_search">Relancer une recherche Sonarr/Radarr sur un média VO
+                <span class="text-muted small">(cherche une version française)</span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between" style="background:var(--pr-surface-2)">
+        <span><i class="bi bi-collection me-2"></i>Bibliothèques Plex à analyser</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadVffSections()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Recharger depuis Plex
+        </button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          Sélectionnez le type de chaque bibliothèque. Marquez vos bibliothèques d'animes comme
+          <strong>Anime</strong> : les notifications VF y sont désactivées par défaut (VO japonaise fréquente),
+          mais restent activables par utilisateur.
+        </p>
+        <div id="vff-sections-list" class="d-flex flex-column gap-2">
+          <div class="text-muted small">Chargement des bibliothèques…</div>
+        </div>
+        <!-- JSON compilé, envoyé au backend -->
+        <input type="hidden" name="vff_libraries" id="vff_libraries"
+               value='{{ s.vff_libraries or "" }}'>
+      </div>
+    </div>
+  </div>
+
   <!-- ════════════════════════ TAB : CONFLITS ════════════════════════ -->
   <div class="tab-pane fade" id="tab-conflits" role="tabpanel">
     <div class="d-flex align-items-center justify-content-between mb-3">
@@ -1265,6 +1334,66 @@ function getFormData() {
     else data[el.name] = null; // textarea vide = effacer le template custom
   });
   return data;
+}
+
+// ── VFF : sélecteur de bibliothèques Plex ─────────────────────────────────────
+let _vffInitDone = false;
+function initVffTab() {
+  if (_vffInitDone) return;
+  _vffInitDone = true;
+  loadVffSections();
+}
+
+function _vffCurrentConfig() {
+  // Config existante : {nom_lowercase: kind}
+  const map = {};
+  try {
+    const raw = document.getElementById('vff_libraries').value;
+    if (raw) JSON.parse(raw).forEach(e => { if (e.name) map[e.name.toLowerCase()] = e.kind; });
+  } catch(e) {}
+  return map;
+}
+
+function _vffRebuildJson() {
+  const libs = [];
+  document.querySelectorAll('#vff-sections-list select').forEach(sel => {
+    const kind = sel.value;
+    if (kind) libs.push({ name: sel.dataset.name, kind });
+  });
+  document.getElementById('vff_libraries').value = libs.length ? JSON.stringify(libs) : '';
+  markDirty();
+}
+
+async function loadVffSections() {
+  const container = document.getElementById('vff-sections-list');
+  container.innerHTML = '<div class="text-muted small">Chargement des bibliothèques…</div>';
+  const saved = _vffCurrentConfig();
+  let sections = [];
+  try {
+    sections = await fetch('/api/plex/sections').then(r => r.json());
+  } catch(e) {}
+  if (!sections || !sections.length) {
+    container.innerHTML = '<div class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>'
+      + 'Aucune bibliothèque récupérée. Vérifiez la connexion Plex (onglet Connexions).</div>';
+    return;
+  }
+  container.innerHTML = '';
+  sections.forEach(sec => {
+    const isMovie = sec.type === 'movie';
+    const current = saved[sec.name.toLowerCase()] || '';
+    const opts = isMovie
+      ? `<option value="">Ignorer</option><option value="movie">Film</option>`
+      : `<option value="">Ignorer</option><option value="series">Série</option><option value="anime">Anime</option>`;
+    const row = document.createElement('div');
+    row.className = 'd-flex align-items-center gap-3';
+    row.innerHTML = `
+      <span class="flex-grow-1"><i class="bi ${isMovie ? 'bi-film' : 'bi-tv'} me-2 text-muted"></i>${sec.name}
+        <span class="text-muted small">(${sec.type})</span></span>
+      <select class="form-select form-select-sm" style="width:auto" data-name="${sec.name}" onchange="_vffRebuildJson()">${opts}</select>`;
+    const sel = row.querySelector('select');
+    sel.value = current;
+    container.appendChild(row);
+  });
 }
 
 async function saveSettings() {

@@ -22,6 +22,8 @@ from .services.email_service import (
     send_available_notification,
     send_failure_notification,
     send_request_notification,
+    send_vf_available_notification,
+    send_vo_only_notification,
 )
 from .services.notifications import (
     send_discord,
@@ -61,6 +63,10 @@ async def _send_with_retry(
                 await send_request_notification(settings, req, recipient, display_name)
             elif event == "available":
                 await send_available_notification(settings, req, recipient, display_name)
+            elif event == "vo_only":
+                await send_vo_only_notification(settings, req, recipient, display_name)
+            elif event == "vf_available":
+                await send_vf_available_notification(settings, req, recipient, display_name)
             elif event == "failed":
                 await send_failure_notification(settings, req, recipient, reason, display_name)
             logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
@@ -122,6 +128,10 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 req.request_mail_sent = True
             elif event == "available":
                 req.available_mail_sent = True
+            elif event == "vo_only":
+                req.vo_only_mail_sent = True
+            elif event == "vf_available":
+                req.vf_available_mail_sent = True
         db.commit()
 
         # Push global (Discord + Telegram + ntfy + Gotify configurés dans Settings)

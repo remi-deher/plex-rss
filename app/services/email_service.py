@@ -100,6 +100,57 @@ DEFAULT_FAILURE_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
+DEFAULT_VO_ONLY_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#0d6efd;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible en VO</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      {{ media_type_label_cap }} est disponible sur Plex, mais <strong>uniquement en version originale</strong> pour le moment.
+    </p>
+    <p style="margin:16px 0 0;color:#ccc;font-size:14px;line-height:1.6">
+      Vous serez automatiquement prévenu dès qu'une piste audio française (VF) sera disponible.
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor — suivi VFF</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_VF_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#1db954;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">La VF est disponible !</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      Bonne nouvelle ! {{ media_type_label_cap }} est maintenant disponible <strong>en version française</strong> sur votre serveur Plex.
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor — suivi VFF</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
 def _build_context(request: MediaRequest, display_name: str | None = None) -> dict:
     """Construit le contexte Jinja2 commun à tous les templates email.
 
@@ -162,6 +213,26 @@ async def send_available_notification(
     subject = render_template(subject_tmpl, ctx)
     if subject.startswith("<p>Erreur de template"):
         subject = f"[Plex] Disponible : {request.title}"
+    await _send(settings, recipient, subject, html)
+
+
+async def send_vo_only_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
+    """Envoie l'email « disponible mais en VO uniquement » (suivi VFF)."""
+    ctx = _build_context(request, display_name)
+    html = render_template(DEFAULT_VO_ONLY_TEMPLATE, ctx)
+    subject = f"[Plex] Disponible en VO : {request.title}"
+    await _send(settings, recipient, subject, html)
+
+
+async def send_vf_available_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
+    """Envoie l'email « la VF est maintenant disponible » (suivi VFF)."""
+    ctx = _build_context(request, display_name)
+    html = render_template(DEFAULT_VF_AVAILABLE_TEMPLATE, ctx)
+    subject = f"[Plex] VF disponible : {request.title}"
     await _send(settings, recipient, subject, html)
 
 

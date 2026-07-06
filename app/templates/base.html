@@ -183,10 +183,19 @@
       <a href="/" class="nav-link {% if page=='dashboard' %}active{% endif %}">
         <i class="bi bi-speedometer2 me-2"></i>Dashboard
       </a>
-      <a href="/requests" class="nav-link d-flex align-items-center {% if page=='requests' %}active{% endif %}">
-        <i class="bi bi-film me-2"></i>Demandes
-        <span id="sidebar-badge-progress" class="badge bg-secondary ms-auto" style="display:none" title="Demandes en cours (reçues + transmises)"></span>
-        <span id="sidebar-badge" class="badge bg-danger ms-1" style="display:none" title="Demandes échouées"></span>
+      <a href="/requests?type=movie" class="nav-link d-flex align-items-center {% if page=='requests' and request.query_params.get('type')=='movie' %}active{% endif %}">
+        <i class="bi bi-film me-2"></i>Films
+        <span id="sidebar-badge-movie-progress" class="badge bg-secondary ms-auto" style="display:none" title="Films en cours (reçus + transmis)"></span>
+        <span id="sidebar-badge-movie-failed" class="badge bg-danger ms-1" style="display:none" title="Films échoués"></span>
+      </a>
+      <a href="/requests?type=show" class="nav-link d-flex align-items-center {% if page=='requests' and request.query_params.get('type')=='show' %}active{% endif %}">
+        <i class="bi bi-tv me-2"></i>Séries
+        <span id="sidebar-badge-show-progress" class="badge bg-secondary ms-auto" style="display:none" title="Séries en cours (reçues + transmises)"></span>
+        <span id="sidebar-badge-show-failed" class="badge bg-danger ms-1" style="display:none" title="Séries échouées"></span>
+      </a>
+      <a href="/vff" class="nav-link d-flex align-items-center {% if page=='vff' %}active{% endif %}">
+        <i class="bi bi-translate me-2"></i>VFF
+        <span id="sidebar-badge-vo" class="badge bg-primary ms-auto" style="display:none" title="Médias en VO en attente de VF"></span>
       </a>
       <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}">
         <i class="bi bi-people me-2"></i>Utilisateurs
@@ -222,11 +231,14 @@
   <a href="/" class="{% if page=='dashboard' %}active{% endif %}">
     <i class="bi bi-speedometer2"></i>Dashboard
   </a>
-  <a href="/requests" class="{% if page=='requests' %}active{% endif %}">
-    <i class="bi bi-film"></i>Demandes
+  <a href="/requests?type=movie" class="{% if page=='requests' and request.query_params.get('type')=='movie' %}active{% endif %}">
+    <i class="bi bi-film"></i>Films
   </a>
-  <a href="/users" class="{% if page=='users' %}active{% endif %}">
-    <i class="bi bi-people"></i>Utilisateurs
+  <a href="/requests?type=show" class="{% if page=='requests' and request.query_params.get('type')=='show' %}active{% endif %}">
+    <i class="bi bi-tv"></i>Séries
+  </a>
+  <a href="/vff" class="{% if page=='vff' %}active{% endif %}">
+    <i class="bi bi-translate"></i>VFF
   </a>
   <a href="/settings" class="{% if page=='settings' or page=='email-templates' %}active{% endif %}">
     <i class="bi bi-gear"></i>Paramètres
@@ -328,17 +340,27 @@ function showToast(msg, type = 'success') {
 (async function loadGlobalStats() {
   try {
     const d = await fetch('/api/stats/counts').then(r => r.json());
-    const badge = document.getElementById('sidebar-badge');
-    if (badge && d.failed > 0) {
-      badge.textContent = d.failed;
-      badge.style.display = '';
-      document.title = `(${d.failed}) Plex RSS Monitor`;
+    // Badges ventilés par type (Films / Séries)
+    const setBadge = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (val > 0) { el.textContent = val; el.style.display = ''; }
+      else { el.style.display = 'none'; }
+    };
+    const bt = d.by_type || { movie: {}, show: {} };
+    for (const [type, c] of Object.entries(bt)) {
+      const progress = (c.pending || 0) + (c.sent_to_arr || 0);
+      setBadge(`sidebar-badge-${type}-progress`, progress);
+      setBadge(`sidebar-badge-${type}-failed`, c.failed || 0);
     }
-    const progress = (d.pending || 0) + (d.sent_to_arr || 0);
-    const pBadge = document.getElementById('sidebar-badge-progress');
-    if (pBadge && progress > 0) {
-      pBadge.textContent = progress;
-      pBadge.style.display = '';
+    if (d.failed > 0) document.title = `(${d.failed}) Plex RSS Monitor`;
+  } catch(e) {}
+  try {
+    const v = await fetch('/api/vff/counts').then(r => r.json());
+    const voBadge = document.getElementById('sidebar-badge-vo');
+    if (voBadge && v.vo_only > 0) {
+      voBadge.textContent = v.vo_only;
+      voBadge.style.display = '';
     }
   } catch(e) {}
 })();

@@ -1,0 +1,249 @@
+from unittest.mock import MagicMock, patch
+import pytest
+from app.services.vff import get_audio_info, show_has_full_french_audio
+
+def test_get_audio_info_filename_fallback():
+    # Mock a Plex movie with no audio streams tagged as French, but file path containing VFF
+    mock_stream = MagicMock()
+    mock_stream.languageCode = "en"
+    mock_stream.language = "english"
+    mock_stream.title = "Stereo"
+    mock_stream.displayTitle = "English Stereo"
+    
+    mock_part = MagicMock()
+    mock_part.file = "/data/downloads/Inception.2010.MULTI.VFF.1080p.mkv"
+    mock_part.audioStreams.return_value = [mock_stream]
+    
+    mock_media = MagicMock()
+    mock_media.parts = [mock_part]
+    
+    mock_movie = MagicMock()
+    mock_movie.media = [mock_media]
+    
+    has_fr, tracks = get_audio_info(mock_movie)
+    assert has_fr is True
+    assert any(t["is_fr"] for t in tracks)
+    assert any("nom de fichier" in t["label"].lower() for t in tracks)
+
+def test_show_has_full_french_audio_rules():
+    # Mock Plex episodes and seasons
+    # Season 1: 2 episodes, all VF
+    # Season 2: 2 episodes, all VO
+    
+    mock_ep_s1_e1 = MagicMock()
+    mock_ep_s1_e1.title = "S01E01"
+    
+    mock_ep_s1_e2 = MagicMock()
+    mock_ep_s1_e2.title = "S01E02"
+    
+    mock_ep_s2_e1 = MagicMock()
+    mock_ep_s2_e1.title = "S02E01"
+    
+    mock_ep_s2_e2 = MagicMock()
+    mock_ep_s2_e2.title = "S02E02"
+    
+    with patch("app.services.vff._reload"):
+        # Case 1: 1 Season (VF) and 1 Season (VO)
+        # Season 1 has VF, Season 2 has VO (0 VF)
+        # N_vf_seasons = 1.
+        # Season 2 has VO episodes, but since N_vf_seasons == 1, we do NOT track Season 2.
+        # So should_track should be False!
+        
+        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+            def side_effect(ep):
+                if ep == mock_ep_s1_e1 or ep == mock_ep_s1_e2:
+                    return True
+                return False
+            mock_item_has_vf.side_effect = side_effect
+            
+            mock_s1 = MagicMock()
+            mock_s1.seasonNumber = 1
+            mock_s1.episodes.return_value = [mock_ep_s1_e1, mock_ep_s1_e2]
+            
+            mock_s2 = MagicMock()
+            mock_s2.seasonNumber = 2
+            mock_s2.episodes.return_value = [mock_ep_s2_e1, mock_ep_s2_e2]
+            
+            mock_show = MagicMock()
+            mock_show.seasons.return_value = [mock_s1, mock_s2]
+            
+            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            assert complete is False
+            assert should_track is False  # Rule 3: Only 1 season has VF, so we don't track other seasons
+            assert with_vf == 2
+            assert total == 4
+
+        # Case 2: 2 Seasons with VF, and 1 Season with VO (0 VF)
+        # Season 1 has VF, Season 2 has VF, Season 3 has VO.
+        # N_vf_seasons = 2.
+        # Season 3 has VO episodes. Since N_vf_seasons >= 2, we track Season 3!
+        # So should_track should be True!
+        
+        mock_ep_s3_e1 = MagicMock()
+        
+        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+            def side_effect(ep):
+                if ep in (mock_ep_s1_e1, mock_ep_s1_e2, mock_ep_s2_e1):
+                    return True
+                return False
+            mock_item_has_vf.side_effect = side_effect
+            
+            mock_s1 = MagicMock()
+            mock_s1.seasonNumber = 1
+            mock_s1.episodes.return_value = [mock_ep_s1_e1, mock_ep_s1_e2]
+            
+            mock_s2 = MagicMock()
+            mock_s2.seasonNumber = 2
+            mock_s2.episodes.return_value = [mock_ep_s2_e1, mock_ep_s2_e2]
+            
+            mock_s3 = MagicMock()
+            mock_s3.seasonNumber = 3
+            mock_s3.episodes.return_value = [mock_ep_s3_e1]
+            
+            mock_show = MagicMock()
+            mock_show.seasons.return_value = [mock_s1, mock_s2, mock_s3]
+            
+            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            assert complete is False
+            assert should_track is True  # Rule 2: At least 2 seasons have VF, so we track Season 3
+            assert with_vf == 3
+            assert total == 5
+
+        # Case 3: Season 1 has 1 episode in VF, and 1 episode in VO
+        # N_vf_seasons = 1.
+        # Season 1 has VO episodes, and info["vf"] > 0.
+        # So should_track should be True (Rule 1).
+        
+        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+            def side_effect(ep):
+                if ep == mock_ep_s1_e1:
+                    return True
+                return False
+            mock_item_has_vf.side_effect = side_effect
+            
+            mock_s1 = MagicMock()
+            mock_s1.seasonNumber = 1
+            mock_s1.episodes.return_value = [mock_ep_s1_e1, mock_ep_s1_e2]
+            
+            mock_show = MagicMock()
+            mock_show.seasons.return_value = [mock_s1]
+            
+            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            assert complete is False
+            assert should_track is True  # Rule 1: Season partially in VF, so we track it
+            assert with_vf == 1
+            assert total == 2
+
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.models import Base, Settings, MediaRequest, ArrInstance
+from app.services.vff import sync_plex_library_blocking
+
+def test_sync_plex_library_blocking():
+    # Mocking Plex library sections and items
+    mock_item = MagicMock()
+    mock_item.title = "Inception"
+    mock_item.year = 2010
+    mock_item.guid = "plex://movie/12345"
+    mock_item.thumb = "/photo/123"
+    mock_item.summary = "A dream within a dream"
+    mock_item.addedAt = None
+    
+    mock_guid = MagicMock()
+    mock_guid.id = "tmdb://27205"
+    mock_item.guids = [mock_guid]
+
+    mock_section = MagicMock()
+    mock_section.all.return_value = [mock_item]
+
+    mock_plex = MagicMock()
+    mock_plex.library.section.return_value = mock_section
+
+    with patch("app.services.vff.connect", return_value=mock_plex):
+        results = sync_plex_library_blocking(
+            "http://localhost:32400", "token", [{"name": "Films", "kind": "movie"}]
+        )
+        
+        assert len(results) == 1
+        assert results[0]["title"] == "Inception"
+        assert results[0]["tmdb_id"] == "27205"
+        assert results[0]["plex_guid"] == "plex://movie/12345"
+        assert "X-Plex-Token=token" in results[0]["poster_url"]
+
+
+@pytest.mark.asyncio
+async def test_sync_plex_media():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    # Initialisation de settings
+    settings = Settings(
+        plex_url="http://localhost",
+        plex_token="token",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]'
+    )
+    db.add(settings)
+
+    # Ajouter une instance Arr de test
+    arr_inst = ArrInstance(
+        id=1,
+        name="Radarr Test",
+        arr_type="radarr",
+        url="http://radarr",
+        api_key="key",
+        enabled=True
+    )
+    db.add(arr_inst)
+    db.commit()
+
+    mock_item = {
+        "title": "New Movie From Plex",
+        "year": 2024,
+        "media_type": "movie",
+        "plex_guid": "plex://movie/999",
+        "tmdb_id": "9999",
+        "tvdb_id": None,
+        "imdb_id": None,
+        "poster_url": "http://poster",
+        "overview": "Overview",
+        "added_at": None,
+    }
+
+    mock_arr_movie = {
+        "id": 42,
+        "tmdbId": 9999,
+        "imdbId": "tt9999",
+        "titleSlug": "new-movie-from-plex"
+    }
+
+    from app.scheduler import sync_plex_media, plex_sync_state
+
+    with patch("app.services.vff.sync_plex_library_blocking", return_value=[mock_item]), \
+         patch("app.scheduler.SessionLocal", return_value=db), \
+         patch("app.scheduler.get_all_movies", return_value=[mock_arr_movie]), \
+         patch("app.scheduler.get_all_series", return_value=[]), \
+         patch("app.scheduler.check_vf_statuses") as mock_check_vf:
+        
+        plex_sync_state["status"] = "idle"
+        
+        await sync_plex_media()
+        
+        # Verify the movie was added to db and associated with Radarr
+        req = db.query(MediaRequest).filter(MediaRequest.plex_guid == "plex://movie/999").first()
+        assert req is not None
+        assert req.title == "New Movie From Plex"
+        assert req.source == "plex_sync"
+        assert req.available_mail_sent is True
+        assert req.arr_instance_id == 1
+        assert req.arr_id == 42
+        assert req.arr_slug == "new-movie-from-plex"
+
