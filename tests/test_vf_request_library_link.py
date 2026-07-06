@@ -159,3 +159,41 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     assert req.has_vf is True
     mock_enqueue.assert_called_once()
     assert mock_enqueue.call_args[0][0] == "vf_available"
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
+    """Une demande bloquée en sent_to_arr (arr ne détecte jamais le fichier) doit être
+    promue 'available' dès qu'un LibraryItem correspondant existe dans Plex, et suivre
+    ensuite le même traitement VF que les demandes déjà disponibles."""
+    db = _make_db()
+    settings = Settings(
+        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+    )
+    db.add(settings)
+
+    li = LibraryItem(title="Dune", year=2021, media_type="movie", plex_guid="plex://movie/abc", has_vf=True)
+    db.add(li)
+    db.commit()
+    li_id = li.id
+
+    req = MediaRequest(
+        plex_user_id="u1", title="Dune", year=2021, media_type="movie",
+        plex_guid="plex://movie/abc", status=RequestStatus.sent_to_arr,
+    )
+    db.add(req)
+    db.commit()
+
+    with (
+        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.scheduler.enqueue_notification"),
+        patch("app.scheduler._scan_vf_blocking") as mock_scan,
+    ):
+        await check_vf_statuses()
+
+    assert req.status == RequestStatus.available
+    assert req.available_at is not None
+    assert req.library_item_id == li_id
+    assert req.has_vf is True
+    mock_scan.assert_not_called()

@@ -1549,6 +1549,44 @@ async def check_vf_statuses():
             vff_scan_state["status"] = "idle"
             return
 
+        # --- Réconciliation : demandes jamais passées "available" mais déjà présentes
+        # dans Plex. Sonarr/Radarr peut ne jamais détecter le fichier (import manuel,
+        # retard d'indexation, média ajouté directement dans Plex sans passer par *arr...),
+        # laissant la demande bloquée en pending/sent_to_arr indéfiniment alors que la
+        # bibliothèque Plex prouve déjà sa présence réelle. La présence dans LibraryItem
+        # devient donc un déclencheur de disponibilité à part entière, indépendant de ce
+        # que rapporte *arr.
+        pending_q = (
+            db.query(MediaRequest)
+            .filter(
+                MediaRequest.status.notin_([RequestStatus.available, RequestStatus.failed]),
+                MediaRequest.library_item_id.is_(None),
+            )
+            .all()
+        )
+        promoted = 0
+        now_reconcile = datetime.now(timezone.utc).replace(tzinfo=None)
+        for req in pending_q:
+            li = _link_request_to_library_item(db, req)
+            if not li:
+                continue
+            req.status = RequestStatus.available
+            req.available_at = now_reconcile
+            req.next_release_at = None
+            req.next_release_label = None
+            db.commit()
+            promoted += 1
+            logger.info(
+                f"VFF : '{req.title}' détecté disponible via la bibliothèque Plex (arr en retard/inconnu)"
+            )
+            # Pas de notification "available" ici : cette fonction ne tourne que si VFF est
+            # actif (garde en tête de fonction), donc has_vf est encore None juste après la
+            # promotion -> la demande retombe naturellement dans candidates_q ci-dessous et
+            # reçoit "available" (VF présente) ou "vo_only" (VO) selon le résultat du scan,
+            # sans jamais doubler la notification.
+        if promoted:
+            logger.info(f"VFF : {promoted} demande(s) promue(s) 'disponible' via la bibliothèque Plex")
+
         candidates_q = (
             db.query(MediaRequest)
             .filter(
