@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
@@ -28,6 +29,7 @@ from .database import SessionLocal
 from .models import (
     ArrInstance,
     DownloadClient,
+    LibraryItem,
     MediaRequest,
     NotificationLog,
     PlexUser,
@@ -1349,32 +1351,12 @@ def _scan_vf_blocking(plex_url: str, plex_token: str, candidates: list[dict], li
     results: list[dict] = []
     for c in candidates:
         try:
-            if c["media_type"] == "movie":
-                item = vff.find_item_in_libraries(
-                    plex, movie_libs, c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"], plex_guid=c.get("plex_guid")
-                )
-                if not item:
-                    results.append({"id": c["id"], "found": False})
-                    continue
-                results.append(
-                    {"id": c["id"], "found": True, "has_vf": vff.movie_has_french_audio(item), "category": "movie"}
-                )
-            else:
-                item = None
-                category = "series"
-                for name, kind in show_libs:
-                    item = vff.find_item_in_libraries(
-                        plex, [name], c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"], plex_guid=c.get("plex_guid")
-                    )
-                    if item:
-                        category = "anime" if kind == "anime" else "series"
-                        break
-                if not item:
-                    results.append({"id": c["id"], "found": False})
-                    continue
-                complete, should_track, _, _ = vff.show_has_full_french_audio(item)
-                has_vf = complete or (not should_track)
-                results.append({"id": c["id"], "found": True, "has_vf": has_vf, "category": category})
+            res = vff.scan_media_vf(
+                plex, c["media_type"], movie_libs, show_libs,
+                c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"],
+                plex_guid=c.get("plex_guid"),
+            )
+            results.append({"id": c["id"], **res})
         except Exception as exc:
             logger.warning(f"VFF : erreur analyse '{c.get('title')}' : {exc}")
             results.append({"id": c["id"], "found": False})
@@ -1469,13 +1451,18 @@ async def check_vf_statuses():
             )
             .all()
         )
-        if not candidates_q:
+        lib_q = (
+            db.query(LibraryItem)
+            .filter((LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False)))
+            .all()
+        )
+        if not candidates_q and not lib_q:
             vff_scan_state["status"] = "idle"
             vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
             return
 
-        candidates = [
-            {
+        def _to_candidate(r):
+            return {
                 "id": r.id,
                 "title": r.title,
                 "year": r.year,
@@ -1485,15 +1472,20 @@ async def check_vf_statuses():
                 "imdb_id": r.imdb_id,
                 "plex_guid": r.plex_guid,
             }
-            for r in candidates_q
-        ]
-        vff_scan_state["total_items"] = len(candidates)
-        logger.info(f"VFF : analyse de {len(candidates)} média(s) disponible(s)")
 
-        results = await asyncio.to_thread(
-            _scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs
+        candidates = [_to_candidate(r) for r in candidates_q]
+        lib_candidates = [_to_candidate(r) for r in lib_q]
+        vff_scan_state["total_items"] = len(candidates) + len(lib_candidates)
+        logger.info(
+            f"VFF : analyse de {len(candidates)} demande(s) + {len(lib_candidates)} média(s) de bibliothèque"
         )
-        results_by_id = {r["id"]: r for r in results}
+
+        results_by_id = {}
+        if candidates:
+            results = await asyncio.to_thread(
+                _scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs
+            )
+            results_by_id = {r["id"]: r for r in results}
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         newly_vo = 0
@@ -1553,9 +1545,29 @@ async def check_vf_statuses():
                 else:
                     db.commit()
 
+        # --- Médias de bibliothèque : état VF pour affichage (pas de notification) ---
+        lib_updated = 0
+        if lib_candidates:
+            lib_results = await asyncio.to_thread(
+                _scan_vf_blocking, settings.plex_url, settings.plex_token, lib_candidates, libs
+            )
+            lib_by_id = {r["id"]: r for r in lib_results}
+            for li in lib_q:
+                res = lib_by_id.get(li.id)
+                if not res or not res.get("found"):
+                    continue
+                prev = li.has_vf
+                li.vf_category = res.get("category") or li.vf_category
+                li.vf_checked_at = now
+                li.has_vf = bool(res["has_vf"])
+                if li.has_vf and prev is False:
+                    li.vf_available_at = now
+                lib_updated += 1
+            db.commit()
+
         logger.info(
             f"VFF : analyse terminée ({newly_vo} nouveau(x) VO, {newly_vf} VF détectée(s), "
-            f"{newly_fallback} dispo notifiée(s) en filet)"
+            f"{newly_fallback} dispo notifiée(s) en filet, {lib_updated} média(s) de bibliothèque mis à jour)"
         )
         vff_scan_state["status"] = "idle"
         vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
@@ -1565,6 +1577,40 @@ async def check_vf_statuses():
         vff_scan_state["error"] = str(e)
     finally:
         db.close()
+
+
+def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
+    """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé.
+
+    Ordre de correspondance : GUID Plex, puis identifiants externes (TMDB/TVDB/IMDB),
+    puis titre + année + type de média.
+    """
+    if item["plex_guid"]:
+        found = db.query(LibraryItem).filter(LibraryItem.plex_guid == item["plex_guid"]).first()
+        if found:
+            return found
+
+    conditions = []
+    if item["tmdb_id"]:
+        conditions.append(LibraryItem.tmdb_id == item["tmdb_id"])
+    if item["tvdb_id"]:
+        conditions.append(LibraryItem.tvdb_id == item["tvdb_id"])
+    if item["imdb_id"]:
+        conditions.append(LibraryItem.imdb_id == item["imdb_id"])
+    if conditions:
+        found = db.query(LibraryItem).filter(or_(*conditions)).first()
+        if found:
+            return found
+
+    return (
+        db.query(LibraryItem)
+        .filter(
+            LibraryItem.title.ilike(item["title"]),
+            LibraryItem.year == item["year"],
+            LibraryItem.media_type == item["media_type"],
+        )
+        .first()
+    )
 
 
 async def sync_plex_media():
@@ -1642,41 +1688,10 @@ async def sync_plex_media():
             except Exception as inst_exc:
                 logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
 
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         added_count = 0
         for item in plex_items:
-            # Recherche si le média existe déjà dans la base
-            # 1. Par GUID Plex
-            exists = False
-            if item["plex_guid"]:
-                exists = db.query(MediaRequest).filter(MediaRequest.plex_guid == item["plex_guid"]).first() is not None
-
-            # 2. Par identifiants externes (si non trouvé)
-            if not exists:
-                q = db.query(MediaRequest)
-                conditions = []
-                if item["tmdb_id"]:
-                    conditions.append(MediaRequest.tmdb_id == item["tmdb_id"])
-                if item["tvdb_id"]:
-                    conditions.append(MediaRequest.tvdb_id == item["tvdb_id"])
-                if item["imdb_id"]:
-                    conditions.append(MediaRequest.imdb_id == item["imdb_id"])
-                
-                if conditions:
-                    from sqlalchemy import or_
-                    exists = q.filter(or_(*conditions)).first() is not None
-
-            # 3. Par titre + année (si non trouvé)
-            if not exists:
-                exists = (
-                    db.query(MediaRequest)
-                    .filter(
-                        MediaRequest.title.ilike(item["title"]),
-                        MediaRequest.year == item["year"],
-                        MediaRequest.media_type == item["media_type"],
-                    )
-                    .first()
-                    is not None
-                )
+            lib_item = _find_library_item(db, item)
 
             # Tenter de trouver une correspondance Arr
             arr_match = None
@@ -1697,80 +1712,50 @@ async def sync_plex_media():
             arr_id = arr_match[1] if arr_match else None
             arr_slug = arr_match[2] if arr_match else None
 
-            if not exists:
-                # Création d'une nouvelle demande automatique
-                # Résolution de la date de création
-                req_date = item["added_at"]
-                if req_date and req_date.tzinfo:
-                    req_date = req_date.replace(tzinfo=None)
-                
-                new_req = MediaRequest(
-                    plex_user_id="admin",
-                    plex_user="Plex Library",
-                    title=item["title"],
-                    year=item["year"],
-                    media_type=item["media_type"],
-                    status=RequestStatus.available,
-                    source="plex_sync",
-                    plex_guid=item["plex_guid"],
-                    tmdb_id=item["tmdb_id"],
-                    tvdb_id=item["tvdb_id"],
-                    imdb_id=item["imdb_id"],
-                    poster_url=item["poster_url"],
-                    overview=item["overview"],
-                    requested_at=req_date or datetime.now(),
-                    available_at=req_date or datetime.now(),
-                    available_mail_sent=True,
-                    request_mail_sent=True,
-                    has_vf=None,
-                    arr_instance_id=arr_instance_id,
-                    arr_id=arr_id,
-                    arr_slug=arr_slug,
+            added_date = item["added_at"]
+            if added_date and added_date.tzinfo:
+                added_date = added_date.replace(tzinfo=None)
+
+            if lib_item is None:
+                # Nouvel élément de bibliothèque
+                db.add(
+                    LibraryItem(
+                        title=item["title"],
+                        year=item["year"],
+                        media_type=item["media_type"],
+                        tmdb_id=item["tmdb_id"],
+                        tvdb_id=item["tvdb_id"],
+                        imdb_id=item["imdb_id"],
+                        plex_guid=item["plex_guid"],
+                        poster_url=item["poster_url"],
+                        overview=item["overview"],
+                        added_at=added_date,
+                        arr_instance_id=arr_instance_id,
+                        arr_id=arr_id,
+                        arr_slug=arr_slug,
+                        has_vf=None,
+                        created_at=now,
+                        updated_at=now,
+                    )
                 )
-                db.add(new_req)
                 added_count += 1
             else:
-                # Si le média existe déjà, on met à jour ses identifiants Arr si absents
-                req_item = None
-                if item["plex_guid"]:
-                    req_item = db.query(MediaRequest).filter(MediaRequest.plex_guid == item["plex_guid"]).first()
-                if not req_item:
-                    conditions = []
-                    if item["tmdb_id"]:
-                        conditions.append(MediaRequest.tmdb_id == item["tmdb_id"])
-                    if item["tvdb_id"]:
-                        conditions.append(MediaRequest.tvdb_id == item["tvdb_id"])
-                    if item["imdb_id"]:
-                        conditions.append(MediaRequest.imdb_id == item["imdb_id"])
-                    if conditions:
-                        from sqlalchemy import or_
-                        req_item = db.query(MediaRequest).filter(or_(*conditions)).first()
-                if not req_item:
-                    req_item = (
-                        db.query(MediaRequest)
-                        .filter(
-                            MediaRequest.title.ilike(item["title"]),
-                            MediaRequest.year == item["year"],
-                            MediaRequest.media_type == item["media_type"],
-                        )
-                        .first()
-                    )
-                if req_item:
-                    # Associer le GUID Plex s'il n'est pas encore présent (crucial pour l'analyse VFF)
-                    if not req_item.plex_guid and item["plex_guid"]:
-                        req_item.plex_guid = item["plex_guid"]
-                    # Mettre à jour les informations Arr
-                    if not req_item.arr_instance_id and arr_match:
-                        req_item.arr_instance_id = arr_instance_id
-                        req_item.arr_id = arr_id
-                        req_item.arr_slug = arr_slug
-                    db.commit()
+                # Élément déjà connu : compléter les infos manquantes
+                if not lib_item.plex_guid and item["plex_guid"]:
+                    lib_item.plex_guid = item["plex_guid"]
+                if not lib_item.poster_url and item["poster_url"]:
+                    lib_item.poster_url = item["poster_url"]
+                if not lib_item.arr_instance_id and arr_match:
+                    lib_item.arr_instance_id = arr_instance_id
+                    lib_item.arr_id = arr_id
+                    lib_item.arr_slug = arr_slug
+                lib_item.updated_at = now
+            db.commit()
 
             plex_sync_state["items_synced"] += 1
 
         if added_count > 0:
-            db.commit()
-            logger.info(f"VFF Sync : {added_count} nouveau(x) média(s) Plex synchronisé(s) dans la DB")
+            logger.info(f"VFF Sync : {added_count} nouveau(x) média(s) Plex ajouté(s) à la bibliothèque")
             # Déclencher immédiatement une analyse VFF pour les nouveaux médias ajoutés
             asyncio.create_task(check_vf_statuses())
         else:
@@ -1963,11 +1948,10 @@ async def check_arr_statuses():
 
         # Analyse VF immédiate des nouvelles disponibilités (évite le délai jusqu'au
         # prochain passage planifié pour l'envoi de la notification différée).
+        # Lancée en tâche de fond (pas de await) : un scan VFF sur un gros catalogue
+        # ne doit pas retarder la fin de ce job planifié.
         if settings.vff_enabled and newly_available > 0:
-            try:
-                await check_vf_statuses()
-            except Exception as e:
-                logger.warning(f"VFF : analyse immédiate post-disponibilité échouée : {e}")
+            asyncio.create_task(check_vf_statuses())
 
         logger.info("Arr status check complete")
 

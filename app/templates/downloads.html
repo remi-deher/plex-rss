@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set page = "downloads" %}
+{% block content %}
+
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-download me-2 text-warning"></i>Téléchargements</h2>
+    <div class="text-muted small mt-1">File d'attente unifiée de toutes les instances Sonarr / Radarr</div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span id="dl-updated" class="text-muted small"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadQueue()"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+</div>
+
+<div id="dl-container">
+  <div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+function fmtBytes(b){ if(!b) return '—'; const k=1024, s=['B','Ko','Mo','Go','To']; const i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; }
+
+function statusMeta(rec){
+  const st = (rec.status || '').toLowerCase();
+  if (rec.error || rec.tracked_status === 'warning' || st === 'failed' || st === 'warning')
+    return { cls: 'bg-danger', bar: 'bg-danger', label: rec.error ? 'Erreur' : 'Attention' };
+  if (st === 'completed') return { cls: 'badge-available', bar: 'bg-success', label: 'Terminé' };
+  if (st === 'paused') return { cls: 'bg-secondary', bar: 'bg-secondary', label: 'En pause' };
+  if (st === 'queued' || st === 'delay') return { cls: 'badge-pending', bar: 'bg-warning', label: 'En file' };
+  return { cls: 'badge-sent', bar: 'bg-warning progress-bar-striped progress-bar-animated', label: 'En cours' };
+}
+
+function render(items){
+  if (!items.length) {
+    return `<div class="text-center text-muted py-5"><i class="bi bi-check2-circle fs-1 d-block mb-2 opacity-25"></i><p class="small">Aucun téléchargement en cours.</p></div>`;
+  }
+  const rows = items.map(rec => {
+    const m = statusMeta(rec);
+    const badgeMap = {
+      sonarr: ['bg-info text-dark', 'Sonarr'],
+      radarr: ['bg-primary', 'Radarr'],
+      direct: ['bg-secondary', 'Direct (hors *arr)'],
+    };
+    const [bCls, bLabel] = badgeMap[rec.arr_type] || ['bg-primary', 'Radarr'];
+    const arrBadge = `<span class="badge ${bCls}" style="font-size:9px">${bLabel}</span>`;
+    const err = rec.error ? `<div class="text-danger" style="font-size:11px"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(rec.error)}</div>` : '';
+    return `<tr>
+      <td style="min-width:240px">
+        <div class="small">${arrBadge} ${escHtml(rec.title)}</div>
+        <div class="text-muted" style="font-size:11px">${escHtml(rec.download_client||'')}${rec.indexer ? ' · ' + escHtml(rec.indexer) : ''}${rec.instance ? ' · ' + escHtml(rec.instance) : ''}</div>
+        ${err}
+      </td>
+      <td style="min-width:160px">
+        <div class="progress" style="height:14px">
+          <div class="progress-bar ${m.bar}" style="width:${rec.progress}%">${rec.progress}%</div>
+        </div>
+      </td>
+      <td class="text-nowrap small">${fmtBytes(rec.size)}</td>
+      <td class="text-nowrap small">${rec.timeleft || '—'}</td>
+      <td><span class="badge ${m.cls}">${m.label}</span></td>
+    </tr>`;
+  }).join('');
+  return `<div class="card"><div class="table-responsive"><table class="table table-dark table-hover align-middle mb-0">
+    <thead><tr><th>Titre</th><th>Progression</th><th>Taille</th><th>Restant</th><th>Statut</th></tr></thead>
+    <tbody>${rows}</tbody></table></div></div>`;
+}
+
+async function loadQueue(){
+  try {
+    const [arrq, direct] = await Promise.all([
+      fetch('/api/arr/queue').then(r => r.ok ? r.json() : []),
+      fetch('/api/downloads/direct').then(r => r.ok ? r.json() : []),
+    ]);
+    const items = [...arrq, ...direct].sort((a,b) => (a.progress||0) - (b.progress||0));
+    document.getElementById('dl-container').innerHTML = render(items);
+    document.getElementById('dl-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
+  } catch (e) {
+    document.getElementById('dl-container').innerHTML = `<div class="alert alert-danger">Erreur de chargement : ${escHtml(e.message)}</div>`;
+  }
+}
+
+loadQueue();
+setInterval(loadQueue, 5000);
+</script>
+{% endblock %}

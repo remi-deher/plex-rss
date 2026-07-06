@@ -537,6 +537,14 @@
       <div class="modal-body">
         <p class="text-muted small mb-4" id="add-action-overview"></p>
 
+        <!-- Recherche interactive Sonarr/Radarr (média déjà dans *arr) -->
+        <div id="add-arr-interactive" class="mb-3 d-none">
+          <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-2" onclick="addModalArrSearch(this)">
+            <i class="bi bi-search"></i> Recherche interactive Sonarr/Radarr (VF en tête)
+          </button>
+          <div id="add-arr-releases" class="mt-2" style="max-height:300px;overflow-y:auto"></div>
+        </div>
+
         <!-- Sélecteur de service / instance (pills visuelles ; le select reste la source de vérité) -->
         <div class="mb-3" id="add-service-field">
           <label class="form-label fw-semibold">Service</label>
@@ -576,6 +584,9 @@
 
         <!-- Champs Prowlarr -->
         <div id="add-prowlarr-fields" class="d-none">
+          <div class="alert alert-warning py-2 small mb-3">
+            <i class="bi bi-exclamation-triangle me-1"></i>Téléchargement direct : contourne Sonarr/Radarr (pas d'import, de renommage ni d'upgrade automatique). Préférez la médiathèque *arr sauf besoin ponctuel.
+          </div>
           <div class="mb-3">
             <button type="button" class="btn btn-outline-warning btn-sm d-flex align-items-center gap-2" onclick="addModalProwlarrSearch()">
               <i class="bi bi-arrow-clockwise"></i> Relancer la recherche
@@ -709,6 +720,154 @@
 {% block scripts %}
 <script>
 const VFF_ENABLED = {{ 'true' if vff_enabled else 'false' }};
+
+// ── Actions VFF globales (analyse / synchronisation Plex) ───────────────────
+let vffPollInterval = null;
+async function checkScanStatus() {
+  try {
+    const r = await fetch('/api/vff/scan-status');
+    const d = await r.json();
+    const progressCard = document.getElementById('vff-progress-card');
+    const scanBtn = document.getElementById('vff-scan-btn');
+    if (!progressCard || !scanBtn) return;
+
+    if (d.status === 'running') {
+      progressCard.classList.remove('d-none');
+      scanBtn.disabled = true;
+      scanBtn.querySelector('i')?.classList.add('spin');
+      document.getElementById('vff-progress-text').textContent = `${d.items_scanned} / ${d.total_items || '?'}`;
+      const pct = d.total_items ? (d.items_scanned / d.total_items) * 100 : 0;
+      document.getElementById('vff-progress-bar').style.width = pct + '%';
+      if (!vffPollInterval) vffPollInterval = setInterval(checkScanStatus, 1500);
+    } else {
+      if (vffPollInterval) {
+        clearInterval(vffPollInterval);
+        vffPollInterval = null;
+        showToast('Analyse VFF terminée !', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      }
+      progressCard.classList.add('d-none');
+      scanBtn.disabled = false;
+      scanBtn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) { console.error('Error fetching VFF status:', e); }
+}
+
+let plexSyncPollInterval = null;
+async function checkSyncStatus() {
+  try {
+    const r = await fetch('/api/vff/sync-status');
+    const d = await r.json();
+    const progressCard = document.getElementById('plex-sync-progress-card');
+    const syncBtn = document.getElementById('vff-sync-btn');
+    if (!progressCard || !syncBtn) return;
+
+    if (d.status === 'running') {
+      progressCard.classList.remove('d-none');
+      syncBtn.disabled = true;
+      syncBtn.querySelector('i')?.classList.add('spin');
+      document.getElementById('plex-sync-progress-text').textContent = `${d.items_synced} / ${d.total_items || '?'}`;
+      const pct = d.total_items ? (d.items_synced / d.total_items) * 100 : 0;
+      document.getElementById('plex-sync-progress-bar').style.width = pct + '%';
+      if (!plexSyncPollInterval) plexSyncPollInterval = setInterval(checkSyncStatus, 1500);
+    } else {
+      if (plexSyncPollInterval) {
+        clearInterval(plexSyncPollInterval);
+        plexSyncPollInterval = null;
+        showToast('Synchronisation Plex terminée !', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+      }
+      progressCard.classList.add('d-none');
+      syncBtn.disabled = false;
+      syncBtn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) { console.error('Error fetching Plex sync status:', e); }
+}
+
+async function vffScan(btn) {
+  btn.disabled = true;
+  btn.querySelector('i')?.classList.add('spin');
+  try {
+    const r = await fetch('/api/vff/scan', { method: 'POST' });
+    const res = await r.json();
+    if (r.ok && (res.status === 'started' || res.status === 'already_running')) {
+      showToast('Analyse VFF lancée en arrière-plan', 'info');
+      checkScanStatus();
+    } else {
+      showToast('Échec de l\'analyse VFF', 'danger');
+      btn.disabled = false;
+      btn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+    btn.querySelector('i')?.classList.remove('spin');
+  }
+}
+
+async function vffSync(btn) {
+  btn.disabled = true;
+  btn.querySelector('i')?.classList.add('spin');
+  try {
+    const r = await fetch('/api/vff/sync-plex', { method: 'POST' });
+    const res = await r.json();
+    if (r.ok && (res.status === 'started' || res.status === 'already_running')) {
+      showToast('Synchronisation Plex lancée en arrière-plan', 'info');
+      checkSyncStatus();
+    } else {
+      showToast('Échec de la synchronisation', 'danger');
+      btn.disabled = false;
+      btn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false;
+    btn.querySelector('i')?.classList.remove('spin');
+  }
+}
+
+if (VFF_ENABLED) {
+  document.addEventListener('DOMContentLoaded', () => {
+    checkScanStatus();
+    checkSyncStatus();
+  });
+}
+
+// Actions VFF sur un média spécifique (depuis l'onglet « Pistes audio »/« Episodes »)
+async function scanSingle(id) {
+  try {
+    const r = await fetch(`/api/requests/${id}/vff-scan`, { method: 'POST' });
+    const res = await r.json();
+    if (r.ok) {
+      showToast('Scan VFF réussi !', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } else {
+      showToast('Échec : ' + (res.detail || 'Erreur inconnue'), 'danger');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+  }
+}
+
+async function ignoreSingle(id) {
+  if (!await confirmAction({
+    title: 'Arrêter le suivi VFF',
+    body: 'Voulez-vous vraiment arrêter le suivi VFF pour ce média ? Cela le marquera comme traité.',
+    okLabel: 'Arrêter le suivi',
+  })) return;
+  try {
+    const r = await fetch(`/api/requests/${id}/vff-ignore`, { method: 'POST' });
+    if (r.ok) {
+      showToast('Suivi VFF arrêté avec succès !', 'success');
+      setTimeout(() => window.location.reload(), 800);
+    } else {
+      showToast('Échec de la désactivation du suivi', 'danger');
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+  }
+}
+
 // ── Vue ──────────────────────────────────────────────────────────────────────
 const PREF_KEY = 'requests_view';
 let currentView = localStorage.getItem(PREF_KEY) || 'list';
@@ -723,6 +882,31 @@ function setView(v) {
   // Afficher les checkboxes grille si des items sont sélectionnés
   syncGridCheckVisibility();
 }
+
+// ── Onglets Films / Séries ───────────────────────────────────────────────────
+function setTypeTab(type, btn) {
+  document.getElementById('filterType').value = type;
+  document.querySelectorAll('#type-tabs .nav-link').forEach(el => el.classList.remove('active'));
+  btn.classList.add('active');
+  filterItems();
+}
+
+(async function loadTypeTabBadges() {
+  try {
+    const d = await fetch('/api/stats/counts').then(r => r.json());
+    const bt = d.by_type || { movie: {}, show: {} };
+    const setBadge = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (val > 0) { el.textContent = val; el.style.display = ''; }
+      else { el.style.display = 'none'; }
+    };
+    for (const [type, c] of Object.entries(bt)) {
+      setBadge(`tab-badge-${type}-progress`, (c.pending || 0) + (c.sent_to_arr || 0));
+      setBadge(`tab-badge-${type}-failed`, c.failed || 0);
+    }
+  } catch (e) {}
+})();
 
 // ── Filtres AJAX (B) ──────────────────────────────────────────────────────────
 const _domParser = new DOMParser();
@@ -1241,24 +1425,36 @@ const VF_STATUS_META = {
 };
 
 // Charge le contenu de l'onglet « Episodes » / « Pistes audio » (une seule fois).
-async function loadVfDetailInto(id, mediaType) {
+async function loadVfDetailInto(id, mediaType, hasVf) {
   const body = document.getElementById(`vf-detail-body-${id}`);
   if (!body || body.dataset.loaded) return;
   body.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Analyse Plex / Sonarr…</span></div>';
   try {
     const d = await fetch(`/api/requests/${id}/vf-detail`).then(r => r.json());
-    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d);
+    const actions = VFF_ENABLED ? vfDetailActionsBar(id, hasVf) : '';
+    body.innerHTML = actions + (mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d));
     body.dataset.loaded = '1';
   } catch (e) {
-    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${e.message}</div>`;
+    body.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
   }
+}
+
+// Barre d'actions VFF affichée au-dessus de l'onglet « Pistes audio »/« Episodes ».
+function vfDetailActionsBar(id, hasVf) {
+  const ignoreBtn = hasVf === false
+    ? `<button class="btn btn-sm btn-outline-success" onclick="ignoreSingle(${id})"><i class="bi bi-bell-slash me-1"></i>Arrêter le suivi VFF</button>`
+    : '';
+  return `<div class="d-flex justify-content-end gap-2 mb-2">
+    <button class="btn btn-sm btn-outline-warning" onclick="scanSingle(${id})"><i class="bi bi-arrow-clockwise me-1"></i>Vérifier VFF</button>
+    ${ignoreBtn}
+  </div>`;
 }
 
 const VFF_HINT = '<div class="alert alert-secondary py-2 mb-2" style="font-size:12px"><i class="bi bi-info-circle me-1"></i>'
   + 'Activez le suivi VFF (<a href="/settings#vff" class="alert-link">Paramètres → VFF</a>) pour voir le statut VF par épisode.</div>';
 
 function renderVfTracks(d) {
-  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
   if (d.vf_available === false) return VFF_HINT;
   if (!d.found) return '<div class="text-muted small py-2">Film introuvable dans les bibliothèques Plex configurées.</div>';
   if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio détectée.</div>';
@@ -1267,13 +1463,13 @@ function renderVfTracks(d) {
       <span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px">
         <i class="bi bi-translate me-1"></i>${t.is_fr ? 'VF' : 'VO'}
       </span>
-      <span class="small">${t.label || t.lang || '?'}</span>
+      <span class="small">${escHtml(t.label || t.lang || '?')}</span>
     </li>`).join('');
   return `<ul class="list-unstyled mb-0">${rows}</ul>`;
 }
 
 function renderVfSeasons(d) {
-  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${d.error}</div>`;
+  if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
   if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable dans Plex / Sonarr, ou aucun épisode suivi.</div>';
   const hint = d.vf_available === false ? VFF_HINT : '';
   const srcNote = d.sonarr_available
@@ -1294,7 +1490,7 @@ function renderVfSeasons(d) {
       return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
         <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
         <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
-        <span class="text-truncate">${e.title || ''}</span>
+        <span class="text-truncate">${escHtml(e.title || '')}</span>
       </li>`;
     }).join('');
     const headId = `${accId}-h${i}`, colId = `${accId}-c${i}`;
@@ -1432,7 +1628,7 @@ function renderDetail(d) {
       </div>`;
     // Chargement paresseux au premier affichage de l'onglet
     document.getElementById('modal-tab-eps-btn')
-      .addEventListener('shown.bs.tab', () => loadVfDetailInto(d.id, d.media_type), { once: true });
+      .addEventListener('shown.bs.tab', () => loadVfDetailInto(d.id, d.media_type, d.has_vf), { once: true });
   } else {
     document.getElementById('modalBody').innerHTML = detailPane;
   }
@@ -1639,6 +1835,12 @@ async function addPanelSelect(idx) {
     _addPanelItem.media_type === 'show' ? 'Série TV' : 'Film';
   document.getElementById('add-action-overview').textContent = (_addPanelItem.overview || '').slice(0, 200);
 
+  // Recherche interactive *arr : disponible uniquement si le média est déjà dans Sonarr/Radarr.
+  const arrBlock = document.getElementById('add-arr-interactive');
+  const canInteractive = _addPanelItem.already_added && _addPanelItem.arr_id;
+  arrBlock.classList.toggle('d-none', !canInteractive);
+  document.getElementById('add-arr-releases').innerHTML = '';
+
   const poster = document.getElementById('add-action-poster');
   poster.src = _addPanelItem.poster || '';
   poster.style.display = _addPanelItem.poster ? '' : 'none';
@@ -1677,9 +1879,10 @@ async function addPanelSelect(idx) {
 
   if (grpMedia.children.length) serviceSel.appendChild(grpMedia);
 
-  // Groupe "Téléchargement manuel"
+  // Groupe "Téléchargement direct" — override manuel qui contourne *arr
+  // (pas d'import, de renommage, de suivi ni d'upgrade géré par Sonarr/Radarr).
   const grpDl = document.createElement('optgroup');
-  grpDl.label = 'Téléchargement manuel';
+  grpDl.label = 'Téléchargement direct (hors *arr)';
 
   const prowlarrInstances = _allInstances.filter(i => i.arr_type === 'prowlarr' && i.enabled);
   prowlarrInstances.forEach(i => {
@@ -1925,6 +2128,67 @@ async function addModalProwlarrSearch() {
   } catch(e) {
     document.getElementById('add-prowlarr-loading').classList.add('d-none');
     showToast('Erreur Prowlarr : ' + e.message, 'danger');
+  }
+}
+
+// ── Recherche interactive Sonarr/Radarr depuis le panneau d'ajout ─────────────
+async function addModalArrSearch(btn) {
+  if (!_addPanelItem || !_addPanelItem.arr_id) return;
+  const container = document.getElementById('add-arr-releases');
+  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Recherche interactive…</span></div>';
+  const mt = _addPanelItem.media_type;
+  const inst = _addPanelItem.arr_instance_id == null ? null : _addPanelItem.arr_instance_id;
+  let url = `/api/arr/releases?media_type=${mt}&arr_id=${_addPanelItem.arr_id}`;
+  if (inst != null) url += `&instance_id=${inst}`;
+  try {
+    const rels = await fetch(url).then(r => r.json());
+    container.innerHTML = renderArrReleases(rels, mt, inst, null);
+  } catch (e) {
+    container.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderArrReleases(rels, mediaType, instanceId, requestId) {
+  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvée.</div>';
+  const inst = instanceId == null ? 'null' : instanceId;
+  const req = requestId == null ? 'null' : requestId;
+  const rows = rels.map(r => {
+    const vf = r.is_french ? '<span class="badge badge-available me-1"><i class="bi bi-translate"></i> VF</span>' : '';
+    const rej = r.rejected ? `<i class="bi bi-exclamation-triangle text-warning ms-1" title="${escHtml((r.rejections||[]).join('; '))}"></i>` : '';
+    const langs = (r.languages||[]).join(', ');
+    const hl = r.is_french ? 'style="background:rgba(229,160,13,.08)"' : '';
+    return `<tr ${hl}>
+      <td><div class="small">${vf}${escHtml(r.title)}${rej}</div>
+        <div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}${langs ? ' · ' + escHtml(langs) : ''}</div></td>
+      <td class="text-nowrap small">${formatBytes(r.size)}</td>
+      <td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td>
+      <td class="text-nowrap small" title="Score custom format">${r.custom_format_score}</td>
+      <td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td>
+    </tr>`;
+  }).join('');
+  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0" style="font-size:12px">
+    <thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, btn) {
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch('/api/arr/grab', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ media_type: mediaType, guid, indexer_id: indexerId, instance_id: instanceId, request_id: requestId }),
+    });
+    if (r.ok) {
+      showToast('Release envoyée à ' + (mediaType === 'movie' ? 'Radarr' : 'Sonarr') + ' — téléchargement + import en cours', 'success');
+      btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+    } else {
+      const d = await r.json().catch(() => ({}));
+      showToast('Échec : ' + (d.detail || 'erreur'), 'danger');
+      btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
+    }
+  } catch (e) {
+    showToast('Erreur réseau', 'danger');
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
   }
 }
 

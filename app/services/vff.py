@@ -413,6 +413,45 @@ def find_item_in_libraries(
     return None
 
 
+def scan_media_vf(
+    plex: PlexServer,
+    media_type: str,
+    movie_libs: list[str],
+    show_libs: list[tuple[str, str]],
+    title: str,
+    year: Optional[int],
+    tmdb_id: Optional[str],
+    tvdb_id: Optional[str],
+    imdb_id: Optional[str],
+    plex_guid: Optional[str] = None,
+) -> dict:
+    """Localise un média dans Plex et détermine son statut VF (bloquant, plexapi).
+
+    `show_libs` est une liste de tuples (nom_bibliothèque, kind) où kind vaut
+    "series" ou "anime", utilisée pour catégoriser le résultat.
+
+    Retourne {"found": False} si le média n'est pas trouvé, sinon
+    {"found": True, "has_vf": bool, "category": "movie"|"series"|"anime"}.
+    """
+    if media_type == "movie":
+        item = find_item_in_libraries(plex, movie_libs, title, year, tmdb_id, tvdb_id, imdb_id, plex_guid=plex_guid)
+        if not item:
+            return {"found": False}
+        return {"found": True, "has_vf": movie_has_french_audio(item), "category": "movie"}
+
+    item = None
+    category = "series"
+    for name, kind in show_libs:
+        item = find_item_in_libraries(plex, [name], title, year, tmdb_id, tvdb_id, imdb_id, plex_guid=plex_guid)
+        if item:
+            category = "anime" if kind == "anime" else "series"
+            break
+    if not item:
+        return {"found": False}
+    complete, should_track, _, _ = show_has_full_french_audio(item)
+    return {"found": True, "has_vf": complete or (not should_track), "category": category}
+
+
 def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict]) -> list[dict]:
     """Récupère l'intégralité des médias présents dans les bibliothèques Plex spécifiées.
 

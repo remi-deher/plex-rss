@@ -35,6 +35,7 @@ from ..database import get_db
 from ..models import (
     ArrInstance,
     DownloadClient,
+    LibraryItem,
     MediaRequest,
     NotificationLog,
     PlexUser,
@@ -512,6 +513,142 @@ async def download_torrent_file(
     return {"success": True, "message": msg, "info_hash": info_hash}
 
 
+_FRENCH_LANG_NAMES = {"french", "français", "francais"}
+_FRENCH_TITLE_WORDS = {"french", "truefrench", "vff", "vf", "vfi", "vfq", "multi"}
+
+
+def _release_is_french(rel: dict) -> bool:
+    """Heuristique VF pour une release : langue « French » déclarée ou marqueur dans le titre."""
+    if any((lang or "").lower() in _FRENCH_LANG_NAMES for lang in rel.get("languages", [])):
+        return True
+    title = (rel.get("title") or "").lower()
+    words = set(title.replace(".", " ").replace("-", " ").replace("_", " ").split())
+    return bool(words & _FRENCH_TITLE_WORDS)
+
+
+class ArrGrabRequest(BaseModel):
+    media_type: str  # "movie" | "show"
+    guid: str
+    indexer_id: int
+    instance_id: Optional[int] = None
+    request_id: Optional[int] = None
+
+
+@router.get("/arr/releases")
+async def arr_interactive_releases(
+    media_type: str,
+    arr_id: int,
+    instance_id: Optional[int] = None,
+    episode_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Recherche interactive Sonarr/Radarr : releases déjà scorées (qualité + custom
+    format + langue), avec marquage VF. Prioritaire sur Prowlarr (fallback)."""
+    arr_type = "radarr" if media_type == "movie" else "sonarr"
+    inst = _resolve_arr_instance(db, instance_id, arr_type)
+    if media_type == "movie":
+        releases = await radarr.get_releases(inst.url, inst.api_key, arr_id)
+    else:
+        releases = await sonarr.get_releases(inst.url, inst.api_key, series_id=arr_id, episode_id=episode_id)
+
+    for rel in releases:
+        rel["is_french"] = _release_is_french(rel)
+
+    # Tri : VF d'abord, puis score custom format, puis seeders.
+    releases.sort(key=lambda r: (r["is_french"], r.get("custom_format_score", 0), r.get("seeders", 0)), reverse=True)
+    return releases
+
+
+@router.post("/arr/grab")
+async def arr_grab_release(body: ArrGrabRequest, db: Session = Depends(get_db)):
+    """Grab d'une release via Sonarr/Radarr : *arr télécharge ET importe (renommage,
+    suivi, upgrade ultérieur gérés par *arr)."""
+    arr_type = "radarr" if body.media_type == "movie" else "sonarr"
+    inst = _resolve_arr_instance(db, body.instance_id, arr_type)
+    svc = radarr if body.media_type == "movie" else sonarr
+    ok, msg = await svc.grab_release(inst.url, inst.api_key, body.guid, body.indexer_id)
+    if not ok:
+        raise HTTPException(500, msg)
+    if body.request_id:
+        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        if req and req.status not in (RequestStatus.available,):
+            req.status = RequestStatus.sent_to_arr
+            db.commit()
+    return {"success": True, "message": msg}
+
+
+@router.get("/arr/queue")
+async def arr_download_queue(db: Session = Depends(get_db)):
+    """File d'attente de téléchargement unifiée : agrège les queues de toutes les
+    instances Sonarr/Radarr actives (téléchargements gérés par *arr)."""
+    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    items = []
+    for inst in instances:
+        if inst.arr_type == "radarr":
+            records = await radarr.get_queue(inst.url, inst.api_key)
+        elif inst.arr_type == "sonarr":
+            records = await sonarr.get_queue(inst.url, inst.api_key)
+        else:
+            continue
+        for rec in records:
+            rec["instance"] = inst.name
+            rec["arr_type"] = inst.arr_type
+            items.append(rec)
+    # Tri : en cours d'abord (progression croissante), terminés/en attente ensuite.
+    items.sort(key=lambda x: (x.get("progress") or 0))
+    return items
+
+
+@router.get("/downloads/direct")
+async def direct_downloads(db: Session = Depends(get_db)):
+    """Torrents poussés en direct-client (hors *arr), suivis via download_client_id +
+    torrent_hash sur les demandes. Complète /arr/queue pour un suivi unifié."""
+    from ..services.download_clients import get_torrent_status
+
+    reqs = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.torrent_hash.isnot(None), MediaRequest.download_client_id.isnot(None))
+        .all()
+    )
+    clients = {c.id: c for c in db.query(DownloadClient).all()}
+    out = []
+    for req in reqs:
+        client = clients.get(req.download_client_id)
+        if not client or not client.enabled:
+            continue
+        try:
+            st = await get_torrent_status(
+                client.client_type, client.url, client.username, client.password, req.torrent_hash
+            )
+        except Exception:
+            st = None
+        if not st:
+            continue
+        progress = round(st.get("progress") or 0, 1)
+        eta = st.get("eta") or 0
+        if progress >= 100 or eta <= 0:
+            timeleft = "—"
+        else:
+            h, m = eta // 3600, (eta % 3600) // 60
+            timeleft = f"{h}h {m}m" if h else f"{m}m"
+        out.append(
+            {
+                "title": req.title + (f" ({req.year})" if req.year else ""),
+                "status": "completed" if progress >= 100 else "downloading",
+                "progress": progress,
+                "size": None,
+                "sizeleft": None,
+                "timeleft": timeleft,
+                "download_client": client.name,
+                "indexer": None,
+                "instance": client.name,
+                "arr_type": "direct",
+                "error": None,
+            }
+        )
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Authentification Plex SSO (OAuth)
 # ---------------------------------------------------------------------------
@@ -801,6 +938,27 @@ class UserCreate(BaseModel):
 @router.get("/users")
 def list_users(db: Session = Depends(get_db)):
     return db.query(PlexUser).all()
+
+
+@router.get("/users/{user_id}")
+def get_user(user_id: int, db: Session = Depends(get_db)):
+    """Détail complet d'un utilisateur + ses stats de demandes (pour la modale hub)."""
+    user = get_or_404(db, PlexUser, user_id, "User not found")
+    rows = db.query(MediaRequest.status, MediaRequest.requested_at).filter(
+        MediaRequest.plex_user_id == user.plex_user_id
+    ).all()
+    stats = {"total": 0, "available": 0, "failed": 0, "sent": 0, "pending": 0, "last_requested_at": None}
+    for status, req_at in rows:
+        stats["total"] += 1
+        s = status.value if hasattr(status, "value") else str(status)
+        if s in stats:
+            stats[s] += 1
+        if req_at and (stats["last_requested_at"] is None or req_at > stats["last_requested_at"]):
+            stats["last_requested_at"] = req_at
+    data = {c.name: getattr(user, c.name) for c in user.__table__.columns}
+    data["last_requested_at"] = _format_datetime(stats.pop("last_requested_at"))
+    data["stats"] = stats
+    return data
 
 
 @router.post("/users")
@@ -1283,11 +1441,11 @@ def stats_counts(db: Session = Depends(get_db)):
 
 @router.get("/vff/counts")
 def vff_counts(db: Session = Depends(get_db)):
-    """Compteurs VFF : médias en VO en attente de VF, VF déjà obtenues, non analysés."""
-    available = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.available)
-    vo_only = available.filter(MediaRequest.has_vf.is_(False)).count()
-    vf_ok = available.filter(MediaRequest.has_vf.is_(True)).count()
-    unchecked = available.filter(MediaRequest.has_vf.is_(None)).count()
+    """Compteurs VFF sur la bibliothèque : VO en attente de VF, VF obtenues, non analysés."""
+    base = db.query(LibraryItem)
+    vo_only = base.filter(LibraryItem.has_vf.is_(False)).count()
+    vf_ok = base.filter(LibraryItem.has_vf.is_(True)).count()
+    unchecked = base.filter(LibraryItem.has_vf.is_(None)).count()
     return {"vo_only": vo_only, "vf_available": vf_ok, "unchecked": unchecked}
 
 
@@ -1380,35 +1538,11 @@ async def vff_scan_single_request(request_id: int, db: Session = Depends(get_db)
             return {"found": False, "error": f"Plex connection error: {exc}"}
 
         try:
-            if req.media_type == "movie":
-                item = vff_svc.find_item_in_libraries(
-                    plex, movie_libs, req.title, req.year, req.tmdb_id, req.tvdb_id, req.imdb_id, plex_guid=req.plex_guid
-                )
-                if not item:
-                    return {"found": False}
-                return {
-                    "found": True,
-                    "has_vf": vff_svc.movie_has_french_audio(item),
-                    "category": "movie",
-                }
-            else:
-                item = None
-                category = "series"
-                for name, kind in show_libs:
-                    item = vff_svc.find_item_in_libraries(
-                        plex, [name], req.title, req.year, req.tmdb_id, req.tvdb_id, req.imdb_id, plex_guid=req.plex_guid
-                    )
-                    if item:
-                        category = "anime" if kind == "anime" else "series"
-                        break
-                if not item:
-                    return {"found": False}
-                complete, should_track, _, _ = vff_svc.show_has_full_french_audio(item)
-                return {
-                    "found": True,
-                    "has_vf": complete or (not should_track),
-                    "category": category,
-                }
+            return vff_svc.scan_media_vf(
+                plex, req.media_type, movie_libs, show_libs,
+                req.title, req.year, req.tmdb_id, req.tvdb_id, req.imdb_id,
+                plex_guid=req.plex_guid,
+            )
         except Exception as exc:
             return {"found": False, "error": str(exc)}
 
@@ -1464,10 +1598,24 @@ async def vff_ignore_request(request_id: int, db: Session = Depends(get_db)):
 
 @router.get("/requests/{request_id}/vf-detail")
 async def request_vf_detail(request_id: int, db: Session = Depends(get_db)):
-    """Détail VF à la demande (modale) : pistes audio (film) ou statut par saison/épisode (série).
+    """Détail VF d'une demande (voir _vf_detail_payload)."""
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    return await _vf_detail_payload(db, req)
 
-    Séries : croise la liste attendue de Sonarr (épisodes monitored, présence fichier)
-    avec la VF réelle détectée dans Plex → statut par épisode (vf / vo / absent / unknown).
+
+@router.get("/library/{item_id}/vf-detail")
+async def library_vf_detail(item_id: int, db: Session = Depends(get_db)):
+    """Détail VF d'un élément de bibliothèque."""
+    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return await _vf_detail_payload(db, item)
+
+
+async def _vf_detail_payload(db: Session, req):
+    """Détail VF (modale) : pistes audio (film) ou statut par saison/épisode (série).
+
+    `req` est une demande (MediaRequest) ou un élément de bibliothèque (LibraryItem) —
+    seuls les attributs média communs sont utilisés. Pour les séries, croise la liste
+    attendue de Sonarr avec la VF réelle détectée dans Plex.
     """
     import asyncio
 
@@ -1475,7 +1623,6 @@ async def request_vf_detail(request_id: int, db: Session = Depends(get_db)):
     from ..services import vff as vff_svc
     from ..services.sonarr import get_episodes, lookup_series
 
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
     settings = db.query(Settings).first()
     if not settings:
         return {"enabled": False}
@@ -1531,7 +1678,7 @@ async def request_vf_detail(request_id: int, db: Session = Depends(get_db)):
         if req.tvdb_id:
             data = await lookup_series(inst.url, inst.api_key, tvdb_id=req.tvdb_id)
             series_id = data.get("id") if data else None
-        if not series_id and req.source != "seer" and req.arr_id:
+        if not series_id and getattr(req, "source", None) != "seer" and req.arr_id:
             series_id = req.arr_id
         if series_id:
             sonarr_episodes = await get_episodes(inst.url, inst.api_key, series_id)
@@ -1593,6 +1740,82 @@ async def request_vf_detail(request_id: int, db: Session = Depends(get_db)):
         "sonarr_available": sonarr_episodes is not None,
         "seasons": out_seasons,
     }
+
+
+@router.get("/library/{item_id}")
+def get_library_item(item_id: int, db: Session = Depends(get_db)):
+    """Détail d'un élément de bibliothèque (pour la modale : identité + lien *arr)."""
+    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return {
+        "id": item.id,
+        "title": item.title,
+        "year": item.year,
+        "media_type": item.media_type,
+        "has_vf": item.has_vf,
+        "arr_id": item.arr_id,
+        "arr_instance_id": item.arr_instance_id,
+        "arr_slug": item.arr_slug,
+    }
+
+
+@router.post("/library/{item_id}/vff-scan")
+async def library_vff_scan(item_id: int, db: Session = Depends(get_db)):
+    """Analyse VFF immédiate d'un élément de bibliothèque (met à jour son état VF)."""
+    import asyncio
+
+    from ..scheduler import _parse_vff_libraries
+    from ..services import vff as vff_svc
+
+    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    settings = db.query(Settings).first()
+    if not settings or not settings.vff_enabled:
+        raise HTTPException(400, "VFF tracking is disabled")
+    if not settings.plex_url or not settings.plex_token:
+        raise HTTPException(400, "Plex is not configured")
+    libs = _parse_vff_libraries(settings)
+    if not libs:
+        raise HTTPException(400, "No Plex libraries configured for VFF")
+    movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
+    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+
+    def _blocking():
+        try:
+            plex = vff_svc.connect(settings.plex_url, settings.plex_token)
+        except Exception as exc:
+            return {"found": False, "error": f"Plex connection error: {exc}"}
+        try:
+            return vff_svc.scan_media_vf(
+                plex, item.media_type, movie_libs, show_libs,
+                item.title, item.year, item.tmdb_id, item.tvdb_id, item.imdb_id,
+                plex_guid=item.plex_guid,
+            )
+        except Exception as exc:
+            return {"found": False, "error": str(exc)}
+
+    res = await asyncio.to_thread(_blocking)
+    if not res.get("found"):
+        raise HTTPException(404, res.get("error", "Media not found in Plex libraries"))
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    prev = item.has_vf
+    item.vf_category = res.get("category") or item.vf_category
+    item.vf_checked_at = now
+    item.has_vf = bool(res["has_vf"])
+    if item.has_vf and prev is False:
+        item.vf_available_at = now
+    item.updated_at = now
+    db.commit()
+    return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
+
+
+@router.post("/library/{item_id}/vff-ignore")
+async def library_vff_ignore(item_id: int, db: Session = Depends(get_db)):
+    """Arrête le suivi VFF d'un élément de bibliothèque (force has_vf = True)."""
+    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    item.has_vf = True
+    item.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+    return {"status": "ok", "has_vf": item.has_vf}
 
 
 @router.get("/stats/top-requested")
@@ -2607,6 +2830,8 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
                     "tmdb_id": None,
                     "media_type": "show",
                     "already_added": item.get("id") is not None,
+                    "arr_id": item.get("id"),
+                    "arr_instance_id": inst.id,
                     "status": item.get("status", ""),
                 }
             )
@@ -2621,6 +2846,8 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
                     "tvdb_id": None,
                     "media_type": "movie",
                     "already_added": item.get("id") is not None,
+                    "arr_id": item.get("id"),
+                    "arr_instance_id": inst.id,
                     "status": item.get("status", ""),
                 }
             )

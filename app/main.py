@@ -74,7 +74,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-app = FastAPI(title="Plex RSS Monitor", lifespan=lifespan)
+app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(SecurityHeadersMiddleware)
 # Middleware de session (doit être ajouté avant les routers)

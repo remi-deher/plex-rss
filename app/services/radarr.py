@@ -218,6 +218,112 @@ async def search_movie(radarr_url: str, api_key: str, movie_id: int) -> bool:
         return False
 
 
+def _normalize_release(r: dict) -> dict:
+    """Réduit une release Radarr/Sonarr à un format compact pour l'UI.
+
+    Conserve les infos clés pour la sélection (qualité, langues, score custom
+    format) — les langues permettent de repérer les versions françaises (VF).
+    """
+    langs = [lang.get("name") for lang in (r.get("languages") or []) if lang.get("name")]
+    quality = ((r.get("quality") or {}).get("quality") or {}).get("name")
+    return {
+        "guid": r.get("guid"),
+        "title": r.get("title"),
+        "indexer": r.get("indexer"),
+        "indexer_id": r.get("indexerId"),
+        "size": r.get("size"),
+        "seeders": r.get("seeders", 0),
+        "leechers": r.get("leechers", 0),
+        "protocol": r.get("protocol"),
+        "quality": quality,
+        "languages": langs,
+        "custom_format_score": r.get("customFormatScore", 0),
+        "custom_formats": [cf.get("name") for cf in (r.get("customFormats") or []) if cf.get("name")],
+        "rejected": r.get("rejected", False),
+        "rejections": r.get("rejections") or [],
+    }
+
+
+async def get_releases(radarr_url: str, api_key: str, movie_id: int) -> list[dict]:
+    """Recherche interactive Radarr : releases scorées pour un film (GET /release)."""
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.get(
+                f"{base}/api/v3/release",
+                params={"movieId": movie_id},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return [_normalize_release(r) for r in resp.json()]
+    except Exception as e:
+        logger.warning(f"Radarr get_releases échec (movie {movie_id}): {e}")
+        return []
+
+
+async def grab_release(radarr_url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool, str]:
+    """Grab d'une release choisie manuellement : Radarr télécharge ET importe.
+
+    Returns (ok, message).
+    """
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{base}/api/v3/release",
+                json={"guid": guid, "indexerId": indexer_id},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Release envoyée à Radarr"
+    except Exception as e:
+        logger.warning(f"Radarr grab_release échec (guid {guid}): {e}")
+        return False, str(e)
+
+
+def _normalize_queue_record(r: dict, title: str) -> dict:
+    """Réduit un enregistrement de file d'attente *arr à un format compact pour l'UI."""
+    size = r.get("size") or 0
+    sizeleft = r.get("sizeleft") or 0
+    progress = round((size - sizeleft) / size * 100, 1) if size else 0
+    return {
+        "title": title,
+        "status": r.get("status"),  # queued / downloading / completed / paused / failed / warning
+        "tracked_state": r.get("trackedDownloadState"),
+        "tracked_status": r.get("trackedDownloadStatus"),
+        "size": size,
+        "sizeleft": sizeleft,
+        "progress": progress,
+        "timeleft": r.get("timeleft"),
+        "download_client": r.get("downloadClient"),
+        "indexer": r.get("indexer"),
+        "protocol": r.get("protocol"),
+        "error": r.get("errorMessage"),
+    }
+
+
+async def get_queue(radarr_url: str, api_key: str) -> list[dict]:
+    """File d'attente de téléchargement Radarr (GET /queue), format compact."""
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/queue",
+                params={"pageSize": 100, "includeMovie": "true"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+    except Exception as e:
+        logger.warning(f"Radarr get_queue échec: {e}")
+        return []
+    out = []
+    for r in records:
+        title = (r.get("movie") or {}).get("title") or r.get("title") or "?"
+        out.append(_normalize_queue_record(r, title))
+    return out
+
+
 async def check_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Radarr.
 

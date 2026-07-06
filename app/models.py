@@ -255,6 +255,46 @@ class MediaRequest(Base):
     vo_only_mail_sent: Mapped[bool] = mapped_column(default=False)
 
 
+class LibraryItem(Base):
+    """Média réellement présent dans la bibliothèque Plex (issu de la synchronisation).
+
+    Séparé de `MediaRequest` : un élément de bibliothèque n'a pas de demandeur ni de
+    flux de demande — il est simplement *présent*. Porte l'état VF/VFF du média.
+    Le rapprochement avec les demandes se fait à l'affichage (vue Bibliothèque = union).
+    """
+
+    __tablename__ = "library_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str]
+    year: Mapped[Optional[int]]
+    media_type: Mapped[str]
+
+    tmdb_id: Mapped[Optional[str]]
+    tvdb_id: Mapped[Optional[str]]
+    imdb_id: Mapped[Optional[str]]
+    plex_guid: Mapped[Optional[str]]
+
+    poster_url: Mapped[Optional[str]]
+    overview: Mapped[Optional[str]] = mapped_column(Text)
+    added_at: Mapped[Optional[datetime]]
+
+    # Rapprochement Sonarr / Radarr (badges de suivi)
+    arr_instance_id: Mapped[Optional[int]]
+    arr_id: Mapped[Optional[int]]
+    arr_slug: Mapped[Optional[str]]
+
+    # --- État VF / VFF ---
+    # None = pas encore analysé ; True = VF présente ; False = VO uniquement
+    has_vf: Mapped[Optional[bool]] = mapped_column(default=None)
+    vf_category: Mapped[Optional[str]] = mapped_column(default=None)
+    vf_checked_at: Mapped[Optional[datetime]]
+    vf_available_at: Mapped[Optional[datetime]]
+
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+
+
 class VfCategory(str, enum.Enum):
     """Type de média du point de vue VFF, pour cibler les notifications.
 

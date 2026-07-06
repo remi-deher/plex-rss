@@ -16,7 +16,7 @@ from sqlalchemy import desc as sqldesc
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings
+from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_FAILURE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE
 
 router = APIRouter(tags=["pages"])
@@ -135,8 +135,6 @@ def requests_page(
 
     # Extraire les sources uniques pour le filtre
     distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
-    if "plex_sync" not in distinct_sources:
-        distinct_sources.append("plex_sync")
 
     settings = db.query(Settings).first()
     return templates.TemplateResponse(
@@ -165,6 +163,134 @@ def requests_page(
             "sort": sort,
             "order": order,
             "status_counts": status_counts,
+        },
+    )
+
+
+def _identity_keys(rec) -> list:
+    """Clés d'identité d'un média (pour rapprocher demande ↔ élément de bibliothèque)."""
+    keys = []
+    if getattr(rec, "plex_guid", None):
+        keys.append(("guid", rec.plex_guid))
+    if getattr(rec, "tmdb_id", None):
+        keys.append(("tmdb", rec.tmdb_id))
+    if getattr(rec, "tvdb_id", None):
+        keys.append(("tvdb", rec.tvdb_id))
+    if getattr(rec, "imdb_id", None):
+        keys.append(("imdb", rec.imdb_id))
+    keys.append(("title", (rec.title or "").lower().strip(), rec.year, rec.media_type))
+    return keys
+
+
+@router.get("/library", response_class=HTMLResponse)
+def library_page(
+    request: Request,
+    type: str = None,
+    vf: str = None,
+    _: None = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """Bibliothèque : union des médias présents dans Plex (library_items) et des
+    demandes non encore en bibliothèque, avec état VF/VFF. Onglets Films / Séries."""
+    settings = db.query(Settings).first()
+
+    lib_q = db.query(LibraryItem)
+    req_q = db.query(MediaRequest)
+    if type in ("movie", "show"):
+        lib_q = lib_q.filter(LibraryItem.media_type == type)
+        req_q = req_q.filter(MediaRequest.media_type == type)
+
+    users_map = build_users_map(db)
+    index: dict = {}
+    items: list = []
+
+    # 1. Éléments de bibliothèque (base : présents dans Plex)
+    for li in lib_q.all():
+        vm = {
+            "kind": "library",
+            "ref_id": li.id,
+            "in_library": True,
+            "title": li.title,
+            "year": li.year,
+            "media_type": li.media_type,
+            "poster_url": li.poster_url,
+            "has_vf": li.has_vf,
+            "arr_slug": li.arr_slug,
+            "arr_id": li.arr_id,
+            "plex_guid": li.plex_guid,
+            "request_status": None,
+            "requested_by": None,
+            "sort_at": li.added_at,
+        }
+        items.append(vm)
+        for k in _identity_keys(li):
+            index.setdefault(k, vm)
+
+    # 2. Demandes : rattachées à un élément existant, sinon ajoutées comme « demandé »
+    for r in req_q.all():
+        matched = None
+        for k in _identity_keys(r):
+            if k in index:
+                matched = index[k]
+                break
+        if matched:
+            matched["request_status"] = r.status.value if hasattr(r.status, "value") else str(r.status)
+            matched["requested_by"] = users_map.get(r.plex_user_id, r.plex_user or r.plex_user_id)
+        else:
+            vm = {
+                "kind": "request",
+                "ref_id": r.id,
+                "in_library": False,
+                "title": r.title,
+                "year": r.year,
+                "media_type": r.media_type,
+                "poster_url": r.poster_url,
+                "has_vf": r.has_vf,
+                "arr_slug": r.arr_slug,
+                "arr_id": r.arr_id,
+                "plex_guid": r.plex_guid,
+                "request_status": r.status.value if hasattr(r.status, "value") else str(r.status),
+                "requested_by": users_map.get(r.plex_user_id, r.plex_user or r.plex_user_id),
+                "sort_at": r.requested_at,
+            }
+            items.append(vm)
+            for k in _identity_keys(r):
+                index.setdefault(k, vm)
+
+    from datetime import datetime as _dt
+
+    items.sort(key=lambda v: v["sort_at"] or _dt.min, reverse=True)
+
+    counts = {
+        "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
+        "vo": sum(1 for v in items if v["in_library"] and v["has_vf"] is False),
+        "unchecked": sum(1 for v in items if v["in_library"] and v["has_vf"] is None),
+        "requested": sum(1 for v in items if not v["in_library"]),
+    }
+
+    # Filtre VF/VO/non analysé/demandé (counts calculés avant filtrage → totaux)
+    if vf == "vf":
+        items = [v for v in items if v["in_library"] and v["has_vf"] is True]
+    elif vf == "vo":
+        items = [v for v in items if v["in_library"] and v["has_vf"] is False]
+    elif vf == "unchecked":
+        items = [v for v in items if v["in_library"] and v["has_vf"] is None]
+    elif vf == "requested":
+        items = [v for v in items if not v["in_library"]]
+
+    return templates.TemplateResponse(
+        request,
+        "library.html",
+        {
+            "page": "library",
+            "settings": settings,
+            "items": items,
+            "active_type": type or "movie",
+            "active_vf": vf or "",
+            "counts": counts,
+            "vff_enabled": bool(settings and settings.vff_enabled),
+            "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
+            "radarr_url": (settings.radarr_url or "").rstrip("/") if settings else "",
         },
     )
 
@@ -243,38 +369,10 @@ def user_detail_page(user_id: int, request: Request, _: None = Depends(require_a
     )
 
 
-@router.get("/vff", response_class=HTMLResponse)
-def vff_page(
-    request: Request,
-    filter: str = "all",
-    _: None = Depends(require_auth),
-    db: Session = Depends(get_db),
-):
-    """Page VFF : suivi des pistes françaises sur les médias disponibles.
-
-    Trois états : VO uniquement (suivi actif), VF disponible, non encore analysé.
-    """
-    settings = db.query(Settings).first()
-    base_q = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.available)
-
-    vo_only = base_q.filter(MediaRequest.has_vf.is_(False)).order_by(MediaRequest.available_at.desc()).all()
-    vf_ok = base_q.filter(MediaRequest.has_vf.is_(True)).order_by(MediaRequest.vf_available_at.desc()).all()
-    unchecked = base_q.filter(MediaRequest.has_vf.is_(None)).order_by(MediaRequest.available_at.desc()).all()
-
-    return templates.TemplateResponse(
-        request,
-        "vff.html",
-        {
-            "page": "vff",
-            "settings": settings,
-            "vff_enabled": bool(settings and settings.vff_enabled),
-            "vo_only": vo_only,
-            "vf_ok": vf_ok,
-            "unchecked": unchecked,
-            "active_filter": filter,
-            "users_map": build_users_map(db),
-        },
-    )
+@router.get("/downloads", response_class=HTMLResponse)
+def downloads_page(request: Request, _: None = Depends(require_auth)):
+    """Page Téléchargements : file d'attente *arr unifiée (auto-rafraîchie)."""
+    return templates.TemplateResponse(request, "downloads.html", {"page": "downloads"})
 
 
 @router.get("/logs", response_class=HTMLResponse)

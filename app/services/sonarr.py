@@ -182,6 +182,69 @@ async def search_series(sonarr_url: str, api_key: str, series_id: int) -> bool:
         return False
 
 
+def _normalize_release(r: dict) -> dict:
+    """Réduit une release Sonarr à un format compact pour l'UI (qualité, langues, score CF)."""
+    langs = [lang.get("name") for lang in (r.get("languages") or []) if lang.get("name")]
+    quality = ((r.get("quality") or {}).get("quality") or {}).get("name")
+    return {
+        "guid": r.get("guid"),
+        "title": r.get("title"),
+        "indexer": r.get("indexer"),
+        "indexer_id": r.get("indexerId"),
+        "size": r.get("size"),
+        "seeders": r.get("seeders", 0),
+        "leechers": r.get("leechers", 0),
+        "protocol": r.get("protocol"),
+        "quality": quality,
+        "languages": langs,
+        "custom_format_score": r.get("customFormatScore", 0),
+        "custom_formats": [cf.get("name") for cf in (r.get("customFormats") or []) if cf.get("name")],
+        "rejected": r.get("rejected", False),
+        "rejections": r.get("rejections") or [],
+    }
+
+
+async def get_releases(
+    sonarr_url: str, api_key: str, series_id: int = None, episode_id: int = None
+) -> list[dict]:
+    """Recherche interactive Sonarr : releases scorées pour une série ou un épisode."""
+    base = sonarr_url.rstrip("/")
+    params = {}
+    if episode_id:
+        params["episodeId"] = episode_id
+    elif series_id:
+        params["seriesId"] = series_id
+    else:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.get(
+                f"{base}/api/v3/release", params=params, headers={"X-Api-Key": api_key}
+            )
+            resp.raise_for_status()
+            return [_normalize_release(r) for r in resp.json()]
+    except Exception as e:
+        logger.warning(f"Sonarr get_releases échec (series {series_id}, ep {episode_id}): {e}")
+        return []
+
+
+async def grab_release(sonarr_url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool, str]:
+    """Grab d'une release choisie manuellement : Sonarr télécharge ET importe."""
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{base}/api/v3/release",
+                json={"guid": guid, "indexerId": indexer_id},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Release envoyée à Sonarr"
+    except Exception as e:
+        logger.warning(f"Sonarr grab_release échec (guid {guid}): {e}")
+        return False, str(e)
+
+
 async def get_episodes(sonarr_url: str, api_key: str, series_id: int) -> list[dict]:
     """Retourne tous les épisodes d'une série Sonarr (saison, numéro, titre, présence fichier).
 
@@ -197,6 +260,55 @@ async def get_episodes(sonarr_url: str, api_key: str, series_id: int) -> list[di
         )
         resp.raise_for_status()
         return resp.json()
+
+
+def _normalize_queue_record(r: dict, title: str) -> dict:
+    """Réduit un enregistrement de file d'attente Sonarr à un format compact pour l'UI."""
+    size = r.get("size") or 0
+    sizeleft = r.get("sizeleft") or 0
+    progress = round((size - sizeleft) / size * 100, 1) if size else 0
+    return {
+        "title": title,
+        "status": r.get("status"),
+        "tracked_state": r.get("trackedDownloadState"),
+        "tracked_status": r.get("trackedDownloadStatus"),
+        "size": size,
+        "sizeleft": sizeleft,
+        "progress": progress,
+        "timeleft": r.get("timeleft"),
+        "download_client": r.get("downloadClient"),
+        "indexer": r.get("indexer"),
+        "protocol": r.get("protocol"),
+        "error": r.get("errorMessage"),
+    }
+
+
+async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
+    """File d'attente de téléchargement Sonarr (GET /queue), format compact."""
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/queue",
+                params={"pageSize": 100, "includeSeries": "true", "includeEpisode": "true"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+    except Exception as e:
+        logger.warning(f"Sonarr get_queue échec: {e}")
+        return []
+    out = []
+    for r in records:
+        series = (r.get("series") or {}).get("title")
+        ep = r.get("episode") or {}
+        sn, en = ep.get("seasonNumber"), ep.get("episodeNumber")
+        if series and sn is not None and en is not None:
+            title = f"{series} — S{sn:02d}E{en:02d}"
+        else:
+            title = series or r.get("title") or "?"
+        out.append(_normalize_queue_record(r, title))
+    return out
 
 
 async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
