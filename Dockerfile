@@ -14,7 +14,7 @@ FROM python:3.12-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache libffi
+RUN apk add --no-cache libffi su-exec
 
 COPY --from=builder /install /usr/local
 
@@ -22,10 +22,15 @@ COPY alembic/ alembic/
 COPY alembic.ini .
 COPY app/ app/
 COPY scripts/ scripts/
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-RUN mkdir -p /app/data && \
+RUN addgroup -S app && adduser -S -G app app && \
+    mkdir -p /app/data && \
+    chown -R app:app /app && \
+    chmod +x /docker-entrypoint.sh && \
     pip uninstall -y pip setuptools
 
 EXPOSE 8000
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

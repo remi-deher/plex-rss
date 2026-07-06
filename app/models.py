@@ -11,7 +11,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Text
+from sqlalchemy import Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -106,6 +106,10 @@ class Settings(Base):
     auth_username: Mapped[Optional[str]]
     auth_password_hash: Mapped[Optional[str]]
     api_token: Mapped[Optional[str]]
+    webhook_secret: Mapped[Optional[str]]
+
+    # --- Sécurité réseau ---
+    plex_verify_ssl: Mapped[bool] = mapped_column(default=True)
 
     # --- Torrent settings ---
     torrent_required_keywords: Mapped[Optional[str]]
@@ -293,6 +297,36 @@ class LibraryItem(Base):
 
     created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+
+
+class VfEpisodeStatus(Base):
+    """Cache du statut VF par épisode, pour éviter de re-scanner Plex à chaque cycle.
+
+    Une série suivie (MediaRequest ou LibraryItem) peut avoir des saisons entières en VO,
+    d'autres complètes en VF, et une saison en cours de doublage (VF qui sort épisode par
+    épisode, en retard sur la sortie VO). Sans ce cache, chaque re-scan (scheduler ou
+    modale "détail VF") interroge Plex pour TOUS les épisodes, y compris ceux déjà
+    confirmés VF lors d'un scan précédent — une fois qu'un épisode a une VF, elle ne
+    disparaît pas, donc il n'y a jamais besoin de le re-vérifier.
+
+    `source_type` + `source_id` référencent soit une MediaRequest ("request"), soit un
+    LibraryItem ("library_item") — pas de vraie FK car un même épisode ne peut être
+    rattaché qu'à une seule des deux tables à un instant donné, et la relation se fait
+    par titre/identifiants externes plutôt que par clé étrangère stricte.
+    """
+
+    __tablename__ = "vf_episode_status"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", "season_number", "episode_number", name="uq_vf_episode"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source_type: Mapped[str]
+    source_id: Mapped[int]
+    season_number: Mapped[int]
+    episode_number: Mapped[int]
+    has_vf: Mapped[bool] = mapped_column(default=False)
+    checked_at: Mapped[Optional[datetime]]
 
 
 class VfCategory(str, enum.Enum):

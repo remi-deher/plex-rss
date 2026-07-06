@@ -162,17 +162,27 @@ def movie_has_french_audio(item) -> bool:
     return item_has_french_audio(item)
 
 
-def show_has_full_french_audio(show) -> tuple[bool, bool, int, int]:
+def show_has_full_french_audio(
+    show, known_vf: Optional[dict[int, set[int]]] = None
+) -> tuple[bool, bool, int, int, dict[int, dict[int, bool]]]:
     """Analyse tous les épisodes d'une série.
 
+    `known_vf` : {season_number: {episode_number déjà confirmés VF lors d'un scan
+    précédent}}. Ces épisodes ne sont PAS re-scannés (aucun appel Plex) — une fois
+    qu'un épisode a une piste VF, elle ne disparaît pas, donc c'est un cache sûr.
+    Passer None ou {} pour un scan complet sans cache.
+
     Returns:
-        (complet, should_track, episodes_avec_vf, total_episodes)
+        (complet, should_track, episodes_avec_vf, total_episodes, episode_status)
         `complet` est True uniquement si TOUS les épisodes ont une piste VF.
         `should_track` détermine si on doit continuer à surveiller cette série en VO.
+        `episode_status` : {season_number: {episode_number: has_vf}} pour persistance.
     """
+    known_vf = known_vf or {}
     total = 0
     with_vf = 0
     seasons_info = {}
+    episode_status: dict[int, dict[int, bool]] = {}
 
     try:
         for season in show.seasons():
@@ -180,11 +190,22 @@ def show_has_full_french_audio(show) -> tuple[bool, bool, int, int]:
             if sn is None or sn == 0:  # ignore les spéciaux (saison 0)
                 continue
             seasons_info[sn] = {"total": 0, "vf": 0}
+            episode_status[sn] = {}
+            known_season = known_vf.get(sn, set())
             for ep in season.episodes():
+                en = getattr(ep, "index", None)
+                if en is None:
+                    continue
                 total += 1
                 seasons_info[sn]["total"] += 1
-                _reload(ep, "episode")
-                if item_has_french_audio(ep):
+                if en in known_season:
+                    # Déjà confirmé VF lors d'un scan précédent : pas de re-scan Plex.
+                    has_fr = True
+                else:
+                    _reload(ep, "episode")
+                    has_fr = item_has_french_audio(ep)
+                episode_status[sn][en] = has_fr
+                if has_fr:
                     with_vf += 1
                     seasons_info[sn]["vf"] += 1
     except Exception as exc:
@@ -193,7 +214,7 @@ def show_has_full_french_audio(show) -> tuple[bool, bool, int, int]:
     complete = total > 0 and with_vf == total
 
     if complete:
-        return True, False, with_vf, total
+        return True, False, with_vf, total, episode_status
 
     # Calcul du nombre de saisons qui ont au moins 1 VF
     vf_seasons = {sn for sn, info in seasons_info.items() if info["vf"] > 0}
@@ -218,7 +239,7 @@ def show_has_full_french_audio(show) -> tuple[bool, bool, int, int]:
                 should_track = True
                 break
 
-    return complete, should_track, with_vf, total
+    return complete, should_track, with_vf, total, episode_status
 
 
 def connect(plex_url: str, plex_token: str, timeout: int = 30) -> PlexServer:
@@ -285,13 +306,18 @@ def get_show_episode_vf_blocking(
     tmdb_id: Optional[str],
     tvdb_id: Optional[str],
     imdb_id: Optional[str],
+    known_vf: Optional[dict[int, set[int]]] = None,
 ) -> dict:
     """Carte VF par épisode d'une série présente dans Plex (bloquant, plexapi).
+
+    `known_vf` : cache des épisodes déjà confirmés VF lors d'un scan précédent
+    (voir `show_has_full_french_audio`) — ils ne sont pas re-scannés dans Plex.
 
     Retourne {"found": bool, "episodes": {season_number: {episode_number: has_vf}}}.
     Seuls les épisodes réellement présents dans Plex apparaissent ici ; le croisement
     avec la liste attendue de Sonarr (épisodes absents) se fait côté appelant.
     """
+    known_vf = known_vf or {}
     try:
         plex = connect(plex_url, plex_token)
     except Exception as exc:
@@ -310,9 +336,13 @@ def get_show_episode_vf_blocking(
             sn = getattr(season, "seasonNumber", None)
             if sn is None:
                 continue
+            known_season = known_vf.get(sn, set())
             for ep in season.episodes():
                 en = getattr(ep, "index", None)
                 if en is None:
+                    continue
+                if en in known_season:
+                    ep_map.setdefault(sn, {})[en] = True
                     continue
                 _reload(ep, "episode")
                 ep_map.setdefault(sn, {})[en] = item_has_french_audio(ep)
@@ -424,14 +454,19 @@ def scan_media_vf(
     tvdb_id: Optional[str],
     imdb_id: Optional[str],
     plex_guid: Optional[str] = None,
+    known_vf: Optional[dict[int, set[int]]] = None,
 ) -> dict:
     """Localise un média dans Plex et détermine son statut VF (bloquant, plexapi).
 
     `show_libs` est une liste de tuples (nom_bibliothèque, kind) où kind vaut
     "series" ou "anime", utilisée pour catégoriser le résultat.
 
+    `known_vf` (séries uniquement) : cache des épisodes déjà confirmés VF, voir
+    `show_has_full_french_audio`. Ignoré pour les films.
+
     Retourne {"found": False} si le média n'est pas trouvé, sinon
-    {"found": True, "has_vf": bool, "category": "movie"|"series"|"anime"}.
+    {"found": True, "has_vf": bool, "category": "movie"|"series"|"anime"}
+    (+ "episode_status" pour les séries, à persister dans le cache par l'appelant).
     """
     if media_type == "movie":
         item = find_item_in_libraries(plex, movie_libs, title, year, tmdb_id, tvdb_id, imdb_id, plex_guid=plex_guid)
@@ -448,8 +483,13 @@ def scan_media_vf(
             break
     if not item:
         return {"found": False}
-    complete, should_track, _, _ = show_has_full_french_audio(item)
-    return {"found": True, "has_vf": complete or (not should_track), "category": category}
+    complete, should_track, _, _, episode_status = show_has_full_french_audio(item, known_vf=known_vf)
+    return {
+        "found": True,
+        "has_vf": complete or (not should_track),
+        "category": category,
+        "episode_status": episode_status,
+    }
 
 
 def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict]) -> list[dict]:

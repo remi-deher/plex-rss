@@ -18,6 +18,15 @@ router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(
 
 EXPORT_VERSION = 1
 
+# Champs d'authentification/secrets : jamais exportés ni importables via ce mécanisme.
+# Un import malveillant ne doit pas pouvoir écraser le compte admin ou les jetons actifs.
+_SETTINGS_CREDENTIAL_FIELDS = {
+    "auth_username",
+    "auth_password_hash",
+    "api_token",
+    "webhook_secret",
+}
+
 
 @router.get("/export")
 def export_data(db: Session = Depends(get_db)):
@@ -32,7 +41,7 @@ def export_data(db: Session = Depends(get_db)):
     payload = {
         "version": EXPORT_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
-        "settings": row(s, exclude=["id"]) if s else {},
+        "settings": row(s, exclude=["id", *_SETTINGS_CREDENTIAL_FIELDS]) if s else {},
         "users": [row(u) for u in users],
         "requests": [row(r) for r in requests],
     }
@@ -69,6 +78,8 @@ async def import_data(
             s = Settings(id=1)
             db.add(s)
         for k, v in payload["settings"].items():
+            if k in _SETTINGS_CREDENTIAL_FIELDS:
+                continue
             if hasattr(s, k):
                 if k == "smtp_password" and not v:
                     continue

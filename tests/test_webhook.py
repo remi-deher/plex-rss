@@ -22,6 +22,7 @@ def _settings(smtp_from="noreply@app.com", admin_email=None):
     s.smtp_from = smtp_from
     s.admin_notification_email = admin_email
     s.email_on_available = True
+    s.webhook_secret = None
     return s
 
 
@@ -155,7 +156,10 @@ def _db_patch(db):
 
 
 def test_sonarr_webhook_ignored_event():
-    r = client.post("/webhook/sonarr", json={"eventType": "Test"})
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
+    with _db_patch(db):
+        r = client.post("/webhook/sonarr", json={"eventType": "Test"})
     assert r.status_code == 200
     assert r.json()["status"] == "ignored"
 
@@ -202,7 +206,10 @@ def test_sonarr_webhook_import_event():
 
 
 def test_radarr_webhook_ignored_event():
-    r = client.post("/webhook/radarr", json={"eventType": "Grab"})
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
+    with _db_patch(db):
+        r = client.post("/webhook/radarr", json={"eventType": "Grab"})
     assert r.status_code == 200
     assert r.json()["status"] == "ignored"
 
@@ -246,15 +253,21 @@ def test_radarr_webhook_movie_added():
 
 
 def test_plex_webhook_empty_payload_ignored():
-    r = client.post("/webhook/plex", data={})
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
+    with _db_patch(db):
+        r = client.post("/webhook/plex", data={})
     assert r.status_code == 200
     data = r.json()
     assert data["status"] in ("ignored", "error")
 
 
 def test_plex_webhook_ignored_event():
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
     payload = json.dumps({"event": "media.play", "Metadata": {"type": "movie"}})
-    r = client.post("/webhook/plex", data={"payload": payload})
+    with _db_patch(db):
+        r = client.post("/webhook/plex", data={"payload": payload})
     assert r.status_code == 200
     assert r.json()["status"] == "ignored"
 
@@ -305,13 +318,16 @@ def test_plex_webhook_episode_uses_show_title():
 
 
 def test_plex_webhook_unsupported_media_type():
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
     payload = json.dumps(
         {
             "event": "library.new",
             "Metadata": {"type": "track", "title": "A song"},
         }
     )
-    r = client.post("/webhook/plex", data={"payload": payload})
+    with _db_patch(db):
+        r = client.post("/webhook/plex", data={"payload": payload})
     assert r.status_code == 200
     assert r.json()["status"] == "ignored"
 

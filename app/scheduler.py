@@ -18,6 +18,7 @@ import re
 import time
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -36,9 +37,10 @@ from .models import (
     PollHistory,
     RequestStatus,
     Settings,
+    VfEpisodeStatus,
 )
 from .notification_queue import enqueue as enqueue_notification
-from .services import prowlarr
+from .services import prowlarr, vff
 from .services.download_clients import add_torrent_to_client, delete_torrent, get_torrent_status
 from .services.radarr import add_movie, get_all_movies, is_movie_available, lookup_movie, resolve_tmdb_id, search_movie
 from .services.seer import _headers as _seer_headers
@@ -47,7 +49,6 @@ from .services.seer import get_user_requests as seer_get_user_requests
 from .services.seer import get_users as seer_get_users
 from .services.seer import is_request_available as seer_available
 from .services.seer import request_media as seer_request
-from .services import vff
 from .services.sonarr import add_series, get_all_series, is_series_available, lookup_series, search_series
 from .services.watchlist import fetch_watchlist
 from .utils import db_session, parse_email_list
@@ -1333,12 +1334,116 @@ def _parse_vff_libraries(settings: Settings) -> list[dict]:
     return out
 
 
-def _scan_vf_blocking(plex_url: str, plex_token: str, candidates: list[dict], libs: list[dict]) -> list[dict]:
+def _load_known_vf_episodes(
+    db: Session, source_type: str, source_ids: list[int]
+) -> dict[int, dict[int, set[int]]]:
+    """Charge le cache des épisodes déjà confirmés VF pour une liste de médias.
+
+    Retourne {source_id: {season_number: {episode_number, ...}}}. Ne contient que les
+    épisodes has_vf=True : un épisode confirmé VF ne redevient jamais VO, donc ce cache
+    permet d'éviter tout appel Plex superflu pour les épisodes déjà connus.
+    """
+    if not source_ids:
+        return {}
+    rows = (
+        db.query(VfEpisodeStatus)
+        .filter(
+            VfEpisodeStatus.source_type == source_type,
+            VfEpisodeStatus.source_id.in_(source_ids),
+            VfEpisodeStatus.has_vf.is_(True),
+        )
+        .all()
+    )
+    out: dict[int, dict[int, set[int]]] = {}
+    for r in rows:
+        out.setdefault(r.source_id, {}).setdefault(r.season_number, set()).add(r.episode_number)
+    return out
+
+
+def _persist_episode_status(
+    db: Session,
+    source_type: str,
+    source_id: int,
+    episode_status: dict[int, dict[int, bool]],
+    now: datetime,
+) -> None:
+    """Upsert le statut VF par épisode dans le cache (`vf_episode_status`)."""
+    if not episode_status:
+        return
+    existing = {
+        (r.season_number, r.episode_number): r
+        for r in db.query(VfEpisodeStatus).filter(
+            VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id == source_id
+        )
+    }
+    for sn, eps in episode_status.items():
+        for en, has_vf in eps.items():
+            row = existing.get((sn, en))
+            if row:
+                if row.has_vf != has_vf:
+                    row.has_vf = has_vf
+                row.checked_at = now
+            else:
+                db.add(
+                    VfEpisodeStatus(
+                        source_type=source_type,
+                        source_id=source_id,
+                        season_number=sn,
+                        episode_number=en,
+                        has_vf=has_vf,
+                        checked_at=now,
+                    )
+                )
+
+
+def _invalidate_vf_cache(
+    db: Session,
+    source_type: Optional[str] = None,
+    source_id: Optional[int] = None,
+    season_number: Optional[int] = None,
+    episode_number: Optional[int] = None,
+) -> int:
+    """Invalide (supprime) des entrées du cache VF par épisode pour forcer un re-scan Plex.
+
+    Le cache par épisode suppose qu'un épisode confirmé VF le reste (ce qui est vrai en
+    fonctionnement normal), mais un faux positif de détection ou un remplacement de
+    fichier côté Plex peut rendre une entrée obsolète. Ce helper permet de la purger à
+    la granularité voulue, avec une portée croissante selon les paramètres fournis :
+    - aucun paramètre                        : tout le cache (force globale)
+    - source_type + source_id                : une série/un film entier (force série)
+    - + season_number                        : une seule saison (force saison)
+    - + season_number + episode_number       : un seul épisode (force épisode)
+
+    Ne fait pas de commit : à la charge de l'appelant.
+    Retourne le nombre de lignes supprimées.
+    """
+    q = db.query(VfEpisodeStatus)
+    if source_type is not None:
+        q = q.filter(VfEpisodeStatus.source_type == source_type)
+    if source_id is not None:
+        q = q.filter(VfEpisodeStatus.source_id == source_id)
+    if season_number is not None:
+        q = q.filter(VfEpisodeStatus.season_number == season_number)
+    if episode_number is not None:
+        q = q.filter(VfEpisodeStatus.episode_number == episode_number)
+    return q.delete()
+
+
+def _scan_vf_blocking(
+    plex_url: str,
+    plex_token: str,
+    candidates: list[dict],
+    libs: list[dict],
+    known_vf_by_id: Optional[dict[int, dict[int, set[int]]]] = None,
+) -> list[dict]:
     """Analyse (bloquante, plexapi) la présence de VF pour chaque candidat.
 
     Exécutée dans un thread via asyncio.to_thread pour ne pas bloquer la boucle async.
-    Retourne une liste de dicts : {"id", "found", "has_vf", "category"}.
+    `known_vf_by_id` (séries) : cache par candidat, voir `_load_known_vf_episodes` —
+    les épisodes déjà confirmés VF ne sont pas re-interrogés dans Plex.
+    Retourne une liste de dicts : {"id", "found", "has_vf", "category", "episode_status"?}.
     """
+    known_vf_by_id = known_vf_by_id or {}
     try:
         plex = vff.connect(plex_url, plex_token)
     except Exception as exc:
@@ -1355,6 +1460,7 @@ def _scan_vf_blocking(plex_url: str, plex_token: str, candidates: list[dict], li
                 plex, c["media_type"], movie_libs, show_libs,
                 c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"],
                 plex_guid=c.get("plex_guid"),
+                known_vf=known_vf_by_id.get(c["id"]),
             )
             results.append({"id": c["id"], **res})
         except Exception as exc:
@@ -1480,14 +1586,22 @@ async def check_vf_statuses():
             f"VFF : analyse de {len(candidates)} demande(s) + {len(lib_candidates)} média(s) de bibliothèque"
         )
 
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
         results_by_id = {}
         if candidates:
+            known_vf_requests = _load_known_vf_episodes(db, "request", [c["id"] for c in candidates])
             results = await asyncio.to_thread(
-                _scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs
+                _scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs, known_vf_requests
             )
             results_by_id = {r["id"]: r for r in results}
+            for r in results:
+                episode_status = r.get("episode_status")
+                if episode_status:
+                    _persist_episode_status(db, "request", r["id"], episode_status, now)
+            if any(r.get("episode_status") for r in results):
+                db.commit()
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
         newly_vo = 0
         newly_vf = 0
         newly_fallback = 0
@@ -1548,8 +1662,9 @@ async def check_vf_statuses():
         # --- Médias de bibliothèque : état VF pour affichage (pas de notification) ---
         lib_updated = 0
         if lib_candidates:
+            known_vf_lib = _load_known_vf_episodes(db, "library_item", [c["id"] for c in lib_candidates])
             lib_results = await asyncio.to_thread(
-                _scan_vf_blocking, settings.plex_url, settings.plex_token, lib_candidates, libs
+                _scan_vf_blocking, settings.plex_url, settings.plex_token, lib_candidates, libs, known_vf_lib
             )
             lib_by_id = {r["id"]: r for r in lib_results}
             for li in lib_q:
@@ -1563,6 +1678,9 @@ async def check_vf_statuses():
                 if li.has_vf and prev is False:
                     li.vf_available_at = now
                 lib_updated += 1
+                episode_status = res.get("episode_status")
+                if episode_status:
+                    _persist_episode_status(db, "library_item", li.id, episode_status, now)
             db.commit()
 
         logger.info(
@@ -1651,7 +1769,7 @@ async def sync_plex_media():
         plex_items = await asyncio.to_thread(
             vff.sync_plex_library_blocking, settings.plex_url, settings.plex_token, libs
         )
-        
+
         plex_sync_state["total_items"] = len(plex_items)
         logger.info(f"VFF Sync : {len(plex_items)} média(s) récupéré(s) de Plex, intégration en base...")
 

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Scripts exécutés dans le conteneur Linux : toujours LF, même si le checkout
+# (ex: Windows avec core.autocrlf=true) réintroduirait des CRLF sinon.
+*.sh text eol=lf

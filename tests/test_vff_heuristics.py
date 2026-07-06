@@ -67,7 +67,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1, mock_s2]
             
-            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is False  # Rule 3: Only 1 season has VF, so we don't track other seasons
             assert with_vf == 2
@@ -103,7 +103,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1, mock_s2, mock_s3]
             
-            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is True  # Rule 2: At least 2 seasons have VF, so we track Season 3
             assert with_vf == 3
@@ -128,7 +128,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1]
             
-            complete, should_track, with_vf, total = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is True  # Rule 1: Season partially in VF, so we track it
             assert with_vf == 1

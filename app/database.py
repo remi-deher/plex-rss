@@ -43,12 +43,24 @@ def run_migrations():
 
 
 def seed_defaults():
-    """Insère la ligne Settings par défaut (id=1) si la table est vide."""
+    """Insère la ligne Settings par défaut (id=1) si la table est vide.
+
+    Génère aussi un webhook_secret au premier démarrage (ou après une mise à jour
+    qui l'a laissé vide) pour que les endpoints /webhook/* soient authentifiés
+    dès le départ, sans étape manuelle.
+    """
+    import secrets
+
     db = SessionLocal()
     try:
-        if not db.query(Settings).first():
-            db.add(Settings(id=1))
-            db.commit()
+        s = db.query(Settings).first()
+        if not s:
+            s = Settings(id=1)
+            db.add(s)
+            db.flush()
+        if not s.webhook_secret:
+            s.webhook_secret = secrets.token_urlsafe(32)
+        db.commit()
     finally:
         db.close()
 

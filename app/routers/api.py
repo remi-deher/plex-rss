@@ -16,6 +16,7 @@ Endpoints regroupés par domaine :
 """
 
 import asyncio
+import hmac
 import json as _json
 import logging
 import os as _os
@@ -42,6 +43,7 @@ from ..models import (
     PollHistory,
     RequestStatus,
     Settings,
+    VfEpisodeStatus,
 )
 from ..notification_queue import enqueue as enqueue_notification
 from ..scheduler import _send_digest, check_arr_statuses, poll_watchlists, update_poll_interval
@@ -76,6 +78,13 @@ def _format_datetime(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat()
 
 
+def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
+    db.query(VfEpisodeStatus).filter(
+        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
+    ).delete()
+
+
 def require_auth(request: Request, db: Session = Depends(get_db)):
     """Dépendance API : session cookie OU header X-Api-Key."""
     if request.session.get("authenticated"):
@@ -83,7 +92,7 @@ def require_auth(request: Request, db: Session = Depends(get_db)):
     token = request.headers.get("X-Api-Key")
     if token:
         s = db.query(Settings).first()
-        if s and s.api_token and s.api_token == token:
+        if s and s.api_token and hmac.compare_digest(s.api_token, token):
             return
     raise HTTPException(status_code=401, detail="Non authentifié")
 
@@ -99,6 +108,7 @@ router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_au
 class SettingsUpdate(BaseModel):
     plex_url: Optional[str] = None
     plex_token: Optional[str] = None
+    plex_verify_ssl: Optional[bool] = None
     plex_rss_url: Optional[str] = None
     watchlist_source_priority: Optional[str] = None
     watchlist_fallback_enabled: Optional[bool] = None
@@ -308,6 +318,40 @@ async def get_prowlarr_indexers(
     return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
 
 
+@router.get("/prowlarr/{instance_id}/download-client-status")
+async def get_prowlarr_download_client_status(instance_id: int, db: Session = Depends(get_db)):
+    """Indique si Prowlarr a lui-même un client de téléchargement actif.
+
+    Si oui, on peut lui déléguer le grab (`/prowlarr/grab`) au lieu d'exiger un client
+    de téléchargement configuré séparément dans l'app.
+    """
+    inst = get_or_404(db, ArrInstance, instance_id, "Instance Prowlarr introuvable")
+    clients = await prowlarr.get_download_clients(inst.url, inst.api_key)
+    return {"has_client": any(c.get("enable") for c in clients)}
+
+
+class ProwlarrGrabRequest(BaseModel):
+    guid: str
+    indexer_id: int
+    instance_id: int
+    request_id: Optional[int] = None
+
+
+@router.post("/prowlarr/grab")
+async def prowlarr_grab_release(body: ProwlarrGrabRequest, db: Session = Depends(get_db)):
+    """Grab d'une release via le client de téléchargement configuré dans Prowlarr lui-même."""
+    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance Prowlarr introuvable")
+    ok, msg = await prowlarr.grab(inst.url, inst.api_key, body.guid, body.indexer_id)
+    if not ok:
+        raise HTTPException(500, msg)
+    if body.request_id:
+        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        if req and req.status not in (RequestStatus.available,):
+            req.status = RequestStatus.sent_to_arr
+            db.commit()
+    return {"success": True, "message": msg}
+
+
 # ---------------------------------------------------------------------------
 # Clients de téléchargement & Moteur de recherche Prowlarr
 # ---------------------------------------------------------------------------
@@ -435,6 +479,7 @@ async def search_prowlarr(
                 "seeders": r.get("seeders", 0),
                 "leechers": r.get("leechers", 0),
                 "guid": r.get("guid"),
+                "indexerId": r.get("indexerId"),
                 "downloadUrl": r.get("downloadUrl") or r.get("magnetUrl"),
                 "indexer": r.get("indexer"),
                 "protocol": r.get("protocol"),
@@ -1456,7 +1501,7 @@ async def plex_sections(db: Session = Depends(get_db)):
     if not s or not s.plex_url or not s.plex_token:
         return []
     try:
-        async with httpx.AsyncClient(timeout=10, verify=False) as client:
+        async with httpx.AsyncClient(timeout=10, verify=s.plex_verify_ssl) as client:
             r = await client.get(
                 f"{s.plex_url.rstrip('/')}/library/sections",
                 params={"X-Plex-Token": s.plex_token},
@@ -1471,12 +1516,23 @@ async def plex_sections(db: Session = Depends(get_db)):
 
 
 @router.post("/vff/scan")
-async def vff_scan_now():
-    """Déclenche immédiatement une analyse VFF en arrière-plan."""
-    from ..scheduler import check_vf_statuses, vff_scan_state
+async def vff_scan_now(force: bool = False, db: Session = Depends(get_db)):
+    """Déclenche immédiatement une analyse VFF en arrière-plan.
+
+    `force=true` : purge tout le cache par épisode ET réinitialise has_vf sur tous les
+    médias déjà marqués complets (sinon ils resteraient exclus de l'analyse), pour un
+    re-scan intégral depuis zéro — utile si le cache est suspecté d'être obsolète.
+    """
+    from ..scheduler import _invalidate_vf_cache, check_vf_statuses, vff_scan_state
 
     if vff_scan_state["status"] == "running":
         return {"status": "already_running"}
+
+    if force:
+        _invalidate_vf_cache(db)
+        db.query(MediaRequest).filter(MediaRequest.has_vf.is_(True)).update({"has_vf": None})
+        db.query(LibraryItem).filter(LibraryItem.has_vf.is_(True)).update({"has_vf": None})
+        db.commit()
 
     asyncio.create_task(check_vf_statuses())
     return {"status": "started"}
@@ -1492,7 +1548,7 @@ def get_vff_scan_status():
 @router.post("/vff/sync-plex")
 async def vff_sync_plex():
     """Déclenche immédiatement la synchronisation de la bibliothèque Plex en arrière-plan."""
-    from ..scheduler import sync_plex_media, plex_sync_state
+    from ..scheduler import plex_sync_state, sync_plex_media
 
     if plex_sync_state["status"] == "running":
         return {"status": "already_running"}
@@ -1509,10 +1565,32 @@ def get_vff_sync_status():
 
 
 @router.post("/requests/{request_id}/vff-scan")
-async def vff_scan_single_request(request_id: int, db: Session = Depends(get_db)):
-    """Déclenche immédiatement une analyse VFF pour une demande spécifique."""
+async def vff_scan_single_request(
+    request_id: int,
+    force: bool = False,
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Déclenche immédiatement une analyse VFF pour une demande spécifique.
+
+    `force=true` purge le cache par épisode avant de scanner, pour re-vérifier des
+    épisodes déjà marqués VF (utile si le cache est suspecté d'être obsolète) :
+    - sans `season`/`episode`  : toute la série
+    - avec `season` seul      : uniquement cette saison
+    - avec `season`+`episode` : uniquement cet épisode
+    """
     import asyncio
-    from ..scheduler import _parse_vff_libraries, _notify, _notify_vf, _trigger_vf_search
+
+    from ..scheduler import (
+        _invalidate_vf_cache,
+        _load_known_vf_episodes,
+        _notify,
+        _notify_vf,
+        _parse_vff_libraries,
+        _persist_episode_status,
+        _trigger_vf_search,
+    )
     from ..services import vff as vff_svc
 
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -1524,12 +1602,17 @@ async def vff_scan_single_request(request_id: int, db: Session = Depends(get_db)
     if not settings.plex_url or not settings.plex_token:
         raise HTTPException(400, "Plex is not configured")
 
+    if force:
+        _invalidate_vf_cache(db, "request", req.id, season_number=season, episode_number=episode)
+        db.commit()
+
     libs = _parse_vff_libraries(settings)
     if not libs:
         raise HTTPException(400, "No Plex libraries configured for VFF")
 
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+    known_vf = _load_known_vf_episodes(db, "request", [req.id]).get(req.id, {})
 
     def _scan_single_blocking():
         try:
@@ -1542,6 +1625,7 @@ async def vff_scan_single_request(request_id: int, db: Session = Depends(get_db)
                 plex, req.media_type, movie_libs, show_libs,
                 req.title, req.year, req.tmdb_id, req.tvdb_id, req.imdb_id,
                 plex_guid=req.plex_guid,
+                known_vf=known_vf,
             )
         except Exception as exc:
             return {"found": False, "error": str(exc)}
@@ -1554,6 +1638,9 @@ async def vff_scan_single_request(request_id: int, db: Session = Depends(get_db)
     was_tracking = req.has_vf is False
     req.vf_category = res.get("category") or req.vf_category
     req.vf_checked_at = now
+    episode_status = res.get("episode_status")
+    if episode_status:
+        _persist_episode_status(db, "request", req.id, episode_status, now)
 
     has_vf_new = res["has_vf"]
     if has_vf_new:
@@ -1619,13 +1706,15 @@ async def _vf_detail_payload(db: Session, req):
     """
     import asyncio
 
-    from ..scheduler import _parse_vff_libraries
+    from ..scheduler import _load_known_vf_episodes, _parse_vff_libraries, _persist_episode_status
     from ..services import vff as vff_svc
     from ..services.sonarr import get_episodes, lookup_series
 
     settings = db.query(Settings).first()
     if not settings:
         return {"enabled": False}
+
+    source_type = "request" if isinstance(req, MediaRequest) else "library_item"
 
     # La détection VF (Plex) n'est active que si VFF est configuré. La liste
     # saisons/épisodes (Sonarr) reste disponible indépendamment.
@@ -1652,6 +1741,9 @@ async def _vf_detail_payload(db: Session, req):
         return {"enabled": True, "media_type": "movie", "vf_available": True, **res}
 
     # ── Série : Sonarr (liste attendue) + Plex (VF réelle, si VFF actif) ────────
+    # known_vf : épisodes déjà confirmés VF lors d'un scan précédent (scheduler ou
+    # ouverture de modale antérieure) — ils ne sont pas re-scannés dans Plex ici.
+    known_vf = _load_known_vf_episodes(db, source_type, [req.id]).get(req.id, {})
     plex_task = (
         asyncio.to_thread(
             vff_svc.get_show_episode_vf_blocking,
@@ -1663,6 +1755,7 @@ async def _vf_detail_payload(db: Session, req):
             req.tmdb_id,
             req.tvdb_id,
             req.imdb_id,
+            known_vf,
         )
         if vf_detected
         else None
@@ -1687,6 +1780,9 @@ async def _vf_detail_payload(db: Session, req):
 
     plex_res = await plex_task if plex_task else {}
     plex_eps = plex_res.get("episodes", {}) if plex_res.get("found") else {}
+    if plex_eps:
+        _persist_episode_status(db, source_type, req.id, plex_eps, datetime.now(timezone.utc).replace(tzinfo=None))
+        db.commit()
 
     def _status(in_plex, has_file):
         if vf_detected:
@@ -1759,11 +1855,26 @@ def get_library_item(item_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/library/{item_id}/vff-scan")
-async def library_vff_scan(item_id: int, db: Session = Depends(get_db)):
-    """Analyse VFF immédiate d'un élément de bibliothèque (met à jour son état VF)."""
+async def library_vff_scan(
+    item_id: int,
+    force: bool = False,
+    season: Optional[int] = None,
+    episode: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Analyse VFF immédiate d'un élément de bibliothèque (met à jour son état VF).
+
+    `force=true` purge le cache par épisode avant de scanner (voir `vff_scan_single_request`
+    pour la portée `season`/`episode`).
+    """
     import asyncio
 
-    from ..scheduler import _parse_vff_libraries
+    from ..scheduler import (
+        _invalidate_vf_cache,
+        _load_known_vf_episodes,
+        _parse_vff_libraries,
+        _persist_episode_status,
+    )
     from ..services import vff as vff_svc
 
     item = get_or_404(db, LibraryItem, item_id, "Library item not found")
@@ -1772,11 +1883,17 @@ async def library_vff_scan(item_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "VFF tracking is disabled")
     if not settings.plex_url or not settings.plex_token:
         raise HTTPException(400, "Plex is not configured")
+
+    if force:
+        _invalidate_vf_cache(db, "library_item", item.id, season_number=season, episode_number=episode)
+        db.commit()
+
     libs = _parse_vff_libraries(settings)
     if not libs:
         raise HTTPException(400, "No Plex libraries configured for VFF")
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+    known_vf = _load_known_vf_episodes(db, "library_item", [item.id]).get(item.id, {})
 
     def _blocking():
         try:
@@ -1788,6 +1905,7 @@ async def library_vff_scan(item_id: int, db: Session = Depends(get_db)):
                 plex, item.media_type, movie_libs, show_libs,
                 item.title, item.year, item.tmdb_id, item.tvdb_id, item.imdb_id,
                 plex_guid=item.plex_guid,
+                known_vf=known_vf,
             )
         except Exception as exc:
             return {"found": False, "error": str(exc)}
@@ -1804,6 +1922,9 @@ async def library_vff_scan(item_id: int, db: Session = Depends(get_db)):
     if item.has_vf and prev is False:
         item.vf_available_at = now
     item.updated_at = now
+    episode_status = res.get("episode_status")
+    if episode_status:
+        _persist_episode_status(db, "library_item", item.id, episode_status, now)
     db.commit()
     return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
 
@@ -1986,7 +2107,7 @@ async def plex_library_search(query: str, db: Session = Depends(get_db)):
     if not s or not s.plex_url or not s.plex_token:
         return []
     try:
-        async with httpx.AsyncClient(timeout=10, verify=False) as client:
+        async with httpx.AsyncClient(timeout=10, verify=s.plex_verify_ssl) as client:
             r = await client.get(
                 f"{s.plex_url.rstrip('/')}/search",
                 params={"query": query, "X-Plex-Token": s.plex_token, "limit": 10},
@@ -2251,6 +2372,7 @@ def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
     reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
     count = len(reqs)
     for req in reqs:
+        _delete_vf_episode_cache(db, req.id)
         db.delete(req)
     db.commit()
     return {"status": "success", "count": count}
@@ -2309,6 +2431,7 @@ async def trigger_poll():
 @router.delete("/requests/{request_id}")
 def delete_request(request_id: int, db: Session = Depends(get_db)):
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    _delete_vf_episode_cache(db, req.id)
     db.delete(req)
     db.commit()
     return {"status": "deleted"}
@@ -2494,6 +2617,43 @@ def get_api_token_status(db: Session = Depends(get_db)):
     """Indique si un token d'API est actif (sans révéler sa valeur)."""
     s = db.query(Settings).first()
     return {"active": bool(s and s.api_token)}
+
+
+# ---------------------------------------------------------------------------
+# Webhook secret
+# ---------------------------------------------------------------------------
+
+
+@router.post("/settings/webhook-secret")
+def generate_webhook_secret(db: Session = Depends(get_db)):
+    """Génère un nouveau secret de webhook et le stocke dans les paramètres."""
+    import secrets
+
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Paramètres non initialisés")
+    secret = secrets.token_urlsafe(32)
+    s.webhook_secret = secret
+    db.commit()
+    return {"webhook_secret": secret}
+
+
+@router.delete("/settings/webhook-secret")
+def revoke_webhook_secret(db: Session = Depends(get_db)):
+    """Révoque le secret de webhook courant (désactive l'authentification des webhooks)."""
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Paramètres non initialisés")
+    s.webhook_secret = None
+    db.commit()
+    return {"status": "revoked"}
+
+
+@router.get("/settings/webhook-secret")
+def get_webhook_secret_status(db: Session = Depends(get_db)):
+    """Indique si un secret de webhook est actif (sans révéler sa valeur)."""
+    s = db.query(Settings).first()
+    return {"active": bool(s and s.webhook_secret)}
 
 
 # ---------------------------------------------------------------------------
@@ -2751,6 +2911,7 @@ def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Dep
         raise HTTPException(404, "Entrée introuvable")
     if req.tmdb_id:
         raise HTTPException(400, "Cette entrée a un tmdb_id — utilisez /conflicts/resolve")
+    _delete_vf_episode_cache(db, req.id)
     db.delete(req)
     db.commit()
     return {"ok": True}
@@ -2761,6 +2922,7 @@ def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depe
     req = db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")
+    _delete_vf_episode_cache(db, req.id)
     db.delete(req)
     db.commit()
     return {"ok": True}

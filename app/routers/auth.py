@@ -9,6 +9,7 @@ Trois routes :
 - GET  /logout : destruction de la session
 """
 
+import hmac
 import time
 from collections import defaultdict
 
@@ -120,7 +121,7 @@ async def login_post(
     if not s or not s.auth_username or not s.auth_password_hash:
         return RedirectResponse("/setup", status_code=302)
 
-    if username != s.auth_username or not verify_password(password, s.auth_password_hash):
+    if not hmac.compare_digest(username, s.auth_username) or not verify_password(password, s.auth_password_hash):
         _record_failed_attempt(ip)
         return error("Identifiants incorrects.")
 

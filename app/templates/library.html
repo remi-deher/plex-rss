@@ -25,7 +25,11 @@
 <div class="card p-3 mb-3" style="background:var(--pr-surface-2);">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
     <div class="text-muted small"><i class="bi bi-translate me-1 text-warning"></i>Suivi VFF : détection des pistes audio françaises sur les médias disponibles</div>
-    <div class="d-flex gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <div class="form-check form-check-inline m-0" title="Ignore le cache par épisode et re-vérifie tout depuis zéro">
+        <input class="form-check-input" type="checkbox" id="vff-force-check">
+        <label class="form-check-label small text-muted" for="vff-force-check">Forcer (ignorer le cache)</label>
+      </div>
       <button class="btn btn-sm btn-outline-warning d-flex align-items-center gap-1" id="vff-sync-btn" onclick="vffSync(this)">
         <i class="bi bi-cloud-arrow-down"></i> Synchroniser avec Plex
       </button>
@@ -189,6 +193,7 @@ async function openLibDetail(kind, id, mediaType, hasVf, inLibrary) {
 
   if (VFF_ENABLED) {
     footer.insertAdjacentHTML('beforeend', `<button class="btn btn-warning btn-sm" onclick="libScan(${id})"><i class="bi bi-arrow-clockwise me-1"></i>Vérifier VFF</button>`);
+    if (mediaType === 'show') footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-warning btn-sm" onclick="libScan(${id}, {force: true})" title="Ignore le cache et re-vérifie toute la série"><i class="bi bi-exclamation-triangle me-1"></i>Forcer</button>`);
     if (hasVf === false) footer.insertAdjacentHTML('beforeend', `<button class="btn btn-outline-success btn-sm" onclick="libIgnore(${id})"><i class="bi bi-bell-slash me-1"></i>Arrêter le suivi</button>`);
   }
   if (info.arr_id) {
@@ -200,7 +205,7 @@ async function openLibDetail(kind, id, mediaType, hasVf, inLibrary) {
 
   try {
     const d = await fetch(`/api/library/${id}/vf-detail`).then(r => r.json());
-    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d);
+    body.innerHTML = mediaType === 'show' ? renderVfSeasons(d, id) : renderVfTracks(d);
   } catch (e) {
     body.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
   }
@@ -277,7 +282,7 @@ function renderVfTracks(d) {
   return `<ul class="list-unstyled mb-0">${rows}</ul>`;
 }
 
-function renderVfSeasons(d) {
+function renderVfSeasons(d, id) {
   if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
   if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable dans Plex / Sonarr, ou aucun épisode suivi.</div>';
   const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
@@ -294,21 +299,45 @@ function renderVfSeasons(d) {
       return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
         <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
         <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
-        <span class="text-truncate">${escHtml(e.title || '')}</span>
+        <span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span>
+        <button class="btn btn-link btn-sm p-0 text-muted" title="Forcer la vérification de cet épisode"
+                onclick="libScan(${id}, {force: true, season: ${s.season_number}, episode: ${e.episode}})">
+          <i class="bi bi-arrow-repeat"></i>
+        </button>
       </li>`;
     }).join('');
     return `<div class="accordion-item" style="background:transparent;border-color:var(--pr-border)">
-      <h2 class="accordion-header"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px">
-        <span class="me-2"><strong>Saison ${s.season_number}</strong></span><span class="small">${summary}</span></button></h2>
+      <h2 class="accordion-header d-flex align-items-center" style="gap:4px">
+        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1">
+          <span class="me-2"><strong>Saison ${s.season_number}</strong></span><span class="small">${summary}</span>
+        </button>
+        <button class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:11px" title="Forcer la vérification de cette saison"
+                onclick="libScan(${id}, {force: true, season: ${s.season_number}})">
+          <i class="bi bi-arrow-repeat"></i>
+        </button>
+      </h2>
       <div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div>
     </div>`;
   }).join('');
   return `<div class="accordion mt-2" id="${accId}">${items}</div>`;
 }
 
-async function libScan(id) {
+async function libScan(id, { force = false, season = null, episode = null } = {}) {
+  if (force) {
+    const scope = episode != null ? `l'épisode S${season}E${episode}` : season != null ? `la saison ${season}` : 'toute la série';
+    if (!await confirmAction({
+      title: 'Forcer la vérification',
+      body: `Purge le cache VF pour ${scope} et re-vérifie dans Plex. Continuer ?`,
+      okLabel: 'Forcer',
+    })) return;
+  }
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  if (season != null) params.set('season', season);
+  if (episode != null) params.set('episode', episode);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   try {
-    const r = await fetch(`/api/library/${id}/vff-scan`, { method: 'POST' });
+    const r = await fetch(`/api/library/${id}/vff-scan${qs}`, { method: 'POST' });
     const res = await r.json();
     if (r.ok) { showToast('Scan VFF réussi !', 'success'); setTimeout(() => window.location.reload(), 800); }
     else showToast('Échec : ' + (res.detail || 'Erreur inconnue'), 'danger');
@@ -360,9 +389,15 @@ async function checkSyncStatus() {
   } catch (e) {}
 }
 async function vffScan(btn) {
+  const force = document.getElementById('vff-force-check')?.checked;
+  if (force && !await confirmAction({
+    title: 'Forcer l\'analyse complète',
+    body: 'Purge tout le cache VF par épisode et re-vérifie tous les médias depuis zéro. Peut générer beaucoup d\'appels Plex sur une grosse bibliothèque. Continuer ?',
+    okLabel: 'Forcer',
+  })) return;
   btn.disabled = true; btn.querySelector('i')?.classList.add('spin');
   try {
-    const res = await fetch('/api/vff/scan', { method: 'POST' }).then(r => r.json());
+    const res = await fetch(`/api/vff/scan${force ? '?force=true' : ''}`, { method: 'POST' }).then(r => r.json());
     if (res.status === 'started' || res.status === 'already_running') { showToast('Analyse lancée', 'info'); checkScanStatus(); }
     else { showToast('Échec', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }
   } catch (e) { showToast('Erreur réseau', 'danger'); btn.disabled = false; btn.querySelector('i')?.classList.remove('spin'); }

@@ -16,11 +16,16 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import aiosmtplib
-from jinja2 import Template, TemplateError
+from jinja2 import TemplateError
+from jinja2.sandbox import SandboxedEnvironment
 
 from ..models import MediaRequest, Settings
 
 logger = logging.getLogger(__name__)
+
+# Environnement Jinja restreint : les templates email sont éditables via l'UI admin,
+# le sandbox limite l'accès aux attributs/méthodes dangereux (ex: __class__.__mro__).
+_jinja_env = SandboxedEnvironment()
 
 DEFAULT_REQUEST_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
@@ -178,7 +183,7 @@ def render_template(template_str: str, context: dict) -> str:
     de silencieusement envoyer un email vide.
     """
     try:
-        return Template(template_str).render(**context)
+        return _jinja_env.from_string(template_str).render(**context)
     except TemplateError as e:
         logger.error(f"Template render error: {e}")
         return f"<p>Erreur de template : {e}</p>"

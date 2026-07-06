@@ -557,6 +557,12 @@
             <i class="bi bi-download me-1"></i>Télécharger manuellement…
           </a>
         </div>
+        <!-- Prowlarr masqué par défaut quand Sonarr/Radarr est disponible (laisser *arr gérer) -->
+        <div id="add-prowlarr-toggle" class="mb-3 d-none">
+          <a href="#" class="small text-muted text-decoration-none" onclick="revealProwlarrOption(event)">
+            <i class="bi bi-search me-1"></i>Rechercher via Prowlarr à la place…
+          </a>
+        </div>
 
         <!-- Champs Sonarr / Radarr -->
         <div id="add-arr-fields" class="d-none">
@@ -834,9 +840,22 @@ if (VFF_ENABLED) {
 }
 
 // Actions VFF sur un média spécifique (depuis l'onglet « Pistes audio »/« Episodes »)
-async function scanSingle(id) {
+async function scanSingle(id, { force = false, season = null, episode = null } = {}) {
+  if (force) {
+    const scope = episode != null ? `l'épisode S${season}E${episode}` : season != null ? `la saison ${season}` : 'toute la série';
+    if (!await confirmAction({
+      title: 'Forcer la vérification',
+      body: `Purge le cache VF pour ${scope} et re-vérifie dans Plex. Continuer ?`,
+      okLabel: 'Forcer',
+    })) return;
+  }
+  const params = new URLSearchParams();
+  if (force) params.set('force', 'true');
+  if (season != null) params.set('season', season);
+  if (episode != null) params.set('episode', episode);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   try {
-    const r = await fetch(`/api/requests/${id}/vff-scan`, { method: 'POST' });
+    const r = await fetch(`/api/requests/${id}/vff-scan${qs}`, { method: 'POST' });
     const res = await r.json();
     if (r.ok) {
       showToast('Scan VFF réussi !', 'success');
@@ -1431,8 +1450,8 @@ async function loadVfDetailInto(id, mediaType, hasVf) {
   body.innerHTML = '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Analyse Plex / Sonarr…</span></div>';
   try {
     const d = await fetch(`/api/requests/${id}/vf-detail`).then(r => r.json());
-    const actions = VFF_ENABLED ? vfDetailActionsBar(id, hasVf) : '';
-    body.innerHTML = actions + (mediaType === 'show' ? renderVfSeasons(d) : renderVfTracks(d));
+    const actions = VFF_ENABLED ? vfDetailActionsBar(id, hasVf, mediaType) : '';
+    body.innerHTML = actions + (mediaType === 'show' ? renderVfSeasons(d, id) : renderVfTracks(d));
     body.dataset.loaded = '1';
   } catch (e) {
     body.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
@@ -1440,12 +1459,16 @@ async function loadVfDetailInto(id, mediaType, hasVf) {
 }
 
 // Barre d'actions VFF affichée au-dessus de l'onglet « Pistes audio »/« Episodes ».
-function vfDetailActionsBar(id, hasVf) {
+function vfDetailActionsBar(id, hasVf, mediaType) {
   const ignoreBtn = hasVf === false
     ? `<button class="btn btn-sm btn-outline-success" onclick="ignoreSingle(${id})"><i class="bi bi-bell-slash me-1"></i>Arrêter le suivi VFF</button>`
     : '';
+  const forceBtn = mediaType === 'show'
+    ? `<button class="btn btn-sm btn-outline-warning" onclick="scanSingle(${id}, {force: true})" title="Ignore le cache et re-vérifie toute la série"><i class="bi bi-exclamation-triangle me-1"></i>Forcer</button>`
+    : '';
   return `<div class="d-flex justify-content-end gap-2 mb-2">
     <button class="btn btn-sm btn-outline-warning" onclick="scanSingle(${id})"><i class="bi bi-arrow-clockwise me-1"></i>Vérifier VFF</button>
+    ${forceBtn}
     ${ignoreBtn}
   </div>`;
 }
@@ -1468,7 +1491,7 @@ function renderVfTracks(d) {
   return `<ul class="list-unstyled mb-0">${rows}</ul>`;
 }
 
-function renderVfSeasons(d) {
+function renderVfSeasons(d, id) {
   if (d.error) return `<div class="text-warning small py-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(d.error)}</div>`;
   if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Série introuvable dans Plex / Sonarr, ou aucun épisode suivi.</div>';
   const hint = d.vf_available === false ? VFF_HINT : '';
@@ -1490,17 +1513,25 @@ function renderVfSeasons(d) {
       return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px">
         <span class="badge ${m.badge}" style="min-width:58px"><i class="bi ${m.icon} me-1"></i>${m.label}</span>
         <span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span>
-        <span class="text-truncate">${escHtml(e.title || '')}</span>
+        <span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span>
+        <button class="btn btn-link btn-sm p-0 text-muted" title="Forcer la vérification de cet épisode"
+                onclick="scanSingle(${id}, {force: true, season: ${s.season_number}, episode: ${e.episode}})">
+          <i class="bi bi-arrow-repeat"></i>
+        </button>
       </li>`;
     }).join('');
     const headId = `${accId}-h${i}`, colId = `${accId}-c${i}`;
     return `
       <div class="accordion-item" style="background:transparent;border-color:var(--pr-border)">
-        <h2 class="accordion-header" id="${headId}">
+        <h2 class="accordion-header d-flex align-items-center" id="${headId}" style="gap:4px">
           <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
-                  data-bs-target="#${colId}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px">
+                  data-bs-target="#${colId}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1">
             <span class="me-2"><strong>Saison ${s.season_number}</strong></span>
             <span class="small">${summary}</span>
+          </button>
+          <button class="btn btn-sm btn-outline-warning py-0 px-2" style="font-size:11px" title="Forcer la vérification de cette saison"
+                  onclick="scanSingle(${id}, {force: true, season: ${s.season_number}})">
+            <i class="bi bi-arrow-repeat"></i>
           </button>
         </h2>
         <div id="${colId}" class="accordion-collapse collapse" data-bs-parent="#${accId}">
@@ -1740,6 +1771,7 @@ document.addEventListener('DOMContentLoaded', () => {
 let _addPanelItem = null;
 let _addCaps = {};
 let _addUsers = [];
+let _hiddenProwlarrInstances = [];
 
 async function _initAddPanel() {
   const [capsR, usersR] = await Promise.all([
@@ -1885,18 +1917,25 @@ async function addPanelSelect(idx) {
   grpDl.label = 'Téléchargement direct (hors *arr)';
 
   const prowlarrInstances = _allInstances.filter(i => i.arr_type === 'prowlarr' && i.enabled);
-  prowlarrInstances.forEach(i => {
-    const o = document.createElement('option');
-    o.value = `prowlarr:${i.id}`;
-    o.textContent = `Prowlarr — ${i.name}`;
-    grpDl.appendChild(o);
-  });
+  // Masqué par défaut si Sonarr/Radarr est disponible pour ce type de média : laisser
+  // *arr chercher/télécharger/importer. Révélable via le lien "Rechercher via Prowlarr".
+  _hiddenProwlarrInstances = arrInstances.length ? prowlarrInstances : [];
+  if (!_hiddenProwlarrInstances.length) {
+    prowlarrInstances.forEach(i => {
+      const o = document.createElement('option');
+      o.value = `prowlarr:${i.id}`;
+      o.textContent = `Prowlarr — ${i.name}`;
+      grpDl.appendChild(o);
+    });
+  }
 
   const oDirect = document.createElement('option');
   oDirect.value = 'direct';
   oDirect.textContent = 'Direct (magnet / .torrent)';
   grpDl.appendChild(oDirect);
   serviceSel.appendChild(grpDl);
+
+  document.getElementById('add-prowlarr-toggle').classList.toggle('d-none', !_hiddenProwlarrInstances.length);
 
   if (!serviceSel.options.length) {
     const o = document.createElement('option');
@@ -1937,6 +1976,9 @@ async function addPanelSelect(idx) {
 }
 
 let _prowlarrSelectedUrl = null;
+let _prowlarrSelectedGuid = null;
+let _prowlarrSelectedIndexerId = null;
+let _prowlarrUseNativeClient = false;
 
 // Le raccourci "Télécharger manuellement" révèle le sélecteur (pour pouvoir revenir
 // à la médiathèque) et bascule directement sur le mode direct.
@@ -1945,6 +1987,26 @@ function revealManualDownload(e) {
   document.getElementById('add-manual-toggle').classList.add('d-none');
   document.getElementById('add-service-field').classList.remove('d-none');
   setService('direct');
+}
+
+// Révèle les instances Prowlarr masquées par défaut (Sonarr/Radarr disponible) : les
+// ajoute au sélecteur, dans le groupe "Téléchargement direct", puis sélectionne la première.
+function revealProwlarrOption(e) {
+  e.preventDefault();
+  const sel = document.getElementById('add-service-select');
+  const grpDl = Array.from(sel.children).find(n => n.tagName === 'OPTGROUP' && n.label.includes('direct'));
+  const target = grpDl || sel;
+  _hiddenProwlarrInstances.forEach(i => {
+    const o = document.createElement('option');
+    o.value = `prowlarr:${i.id}`;
+    o.textContent = `Prowlarr — ${i.name}`;
+    target.insertBefore(o, target.firstChild);
+  });
+  const firstId = _hiddenProwlarrInstances[0]?.id;
+  _hiddenProwlarrInstances = [];
+  document.getElementById('add-prowlarr-toggle').classList.add('d-none');
+  renderServicePills();
+  if (firstId != null) setService(`prowlarr:${firstId}`);
 }
 
 // ── Pills de sélection du service (couche visuelle au-dessus du <select> caché) ──
@@ -2016,6 +2078,9 @@ async function onServiceChange() {
   const btn = document.getElementById('add-action-btn');
   _selectedTagIds = new Set();
   _prowlarrSelectedUrl = null;
+  _prowlarrSelectedGuid = null;
+  _prowlarrSelectedIndexerId = null;
+  _prowlarrUseNativeClient = false;
   updatePillActive();
 
   // Cacher toutes les sections
@@ -2047,8 +2112,21 @@ async function onServiceChange() {
 
   } else if (val.startsWith('prowlarr:')) {
     document.getElementById('add-prowlarr-fields').classList.remove('d-none');
-    document.getElementById('add-dl-client-fields').classList.remove('d-none');
-    await loadDlClients();
+    // Si Prowlarr a lui-même un client de téléchargement actif, on lui délègue le grab
+    // directement (pas besoin de choisir un client configuré dans l'app).
+    const instanceId = val.replace('prowlarr:', '');
+    try {
+      const status = await fetch(`/api/prowlarr/${instanceId}/download-client-status`).then(r => r.json());
+      _prowlarrUseNativeClient = !!status.has_client;
+    } catch (e) {
+      _prowlarrUseNativeClient = false;
+    }
+    if (_prowlarrUseNativeClient) {
+      document.getElementById('add-dl-client-fields').classList.add('d-none');
+    } else {
+      document.getElementById('add-dl-client-fields').classList.remove('d-none');
+      await loadDlClients();
+    }
     document.getElementById('add-action-label').textContent = 'Télécharger';
     btn.className = 'btn btn-warning d-flex align-items-center gap-2';
     btn.disabled = true; // activé après sélection d'une release
@@ -2117,7 +2195,7 @@ async function addModalProwlarrSearch() {
       tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Aucune release</td></tr>';
     } else {
       tbody.innerHTML = data.map(item => `
-        <tr style="cursor:pointer" onclick="selectProwlarrRelease('${escHtml(item.downloadUrl)}', '${escHtml(item.title)}', this)">
+        <tr style="cursor:pointer" onclick="selectProwlarrRelease('${escHtml(item.downloadUrl)}', '${escHtml(item.title)}', this, '${escHtml(item.guid)}', ${item.indexerId})">
           <td><span class="text-white">${escHtml(item.title)}</span><br><small class="text-muted">${escHtml(item.indexer||'')}</small></td>
           <td class="text-nowrap">${formatBytes(item.size)}</td>
           <td class="text-nowrap"><span class="text-success">${item.seeders}</span>/<span class="text-muted">${item.leechers}</span></td>
@@ -2192,8 +2270,10 @@ async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, bt
   }
 }
 
-function selectProwlarrRelease(url, title, row) {
+function selectProwlarrRelease(url, title, row, guid, indexerId) {
   _prowlarrSelectedUrl = url;
+  _prowlarrSelectedGuid = guid;
+  _prowlarrSelectedIndexerId = indexerId;
   document.querySelectorAll('#add-prowlarr-tbody tr').forEach(r => r.classList.remove('table-warning'));
   row.classList.add('table-warning');
   const badge = document.getElementById('add-selected-release');
@@ -2277,7 +2357,9 @@ async function addPanelConfirm() {
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>En cours…';
   fb.classList.add('d-none');
   try {
-    if (svcVal.startsWith('prowlarr:') || svcVal === 'direct') {
+    if (svcVal.startsWith('prowlarr:') && _prowlarrUseNativeClient) {
+      await _confirmProwlarrGrab(svcVal);
+    } else if (svcVal.startsWith('prowlarr:') || svcVal === 'direct') {
       await _confirmDownload();
     } else {
       await _confirmMediaAdd(svcVal);
@@ -2374,6 +2456,36 @@ async function _confirmDownload() {
        <i class="bi bi-check-circle mt-1"></i>
        <div>${what} envoyé à <strong>${escHtml(clientName)}</strong>.<br>
        <span class="small text-muted">Suivez la progression dans votre client de téléchargement.</span></div>
+     </div>`;
+  fb.classList.remove('d-none');
+  document.getElementById('add-action-footer').classList.add('d-none');
+  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
+}
+
+// Grab via le client de téléchargement natif de Prowlarr (pas de client configuré côté app).
+async function _confirmProwlarrGrab(svcVal) {
+  if (!_prowlarrSelectedGuid || _prowlarrSelectedIndexerId == null) {
+    throw new Error('Sélectionner une release Prowlarr');
+  }
+  const instanceId = parseInt(svcVal.replace('prowlarr:', ''));
+  const r = await fetch('/api/prowlarr/grab', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      guid: _prowlarrSelectedGuid,
+      indexer_id: _prowlarrSelectedIndexerId,
+      instance_id: instanceId,
+    }),
+  });
+  const ct = r.headers.get('content-type') || '';
+  const d = ct.includes('json') ? await r.json() : { detail: await r.text() };
+  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
+
+  const fb = document.getElementById('add-action-feedback');
+  fb.innerHTML = `<div class="alert alert-success d-flex align-items-start gap-2 mb-0">
+       <i class="bi bi-check-circle mt-1"></i>
+       <div>Release envoyée au client de téléchargement configuré dans Prowlarr.<br>
+       <span class="small text-muted">Suivez la progression côté Prowlarr / votre client torrent.</span></div>
      </div>`;
   fb.classList.remove('d-none');
   document.getElementById('add-action-footer').classList.add('d-none');
