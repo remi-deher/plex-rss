@@ -103,3 +103,64 @@ async def test_calendar_ignores_disabled_instances():
 
     mock_cal.assert_not_called()
     assert events == []
+
+
+@pytest.mark.asyncio
+async def test_calendar_advanced_filtering():
+    db = _make_db()
+    db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=True))
+    db.add(ArrInstance(id=2, name="Radarr", arr_type="radarr", url="http://radarr", api_key="key", enabled=True))
+    db.add(LibraryItem(id=10, title="Breaking Bad", media_type="show", tvdb_id="81189", has_vf=True, poster_url="http://poster/bb.jpg"))
+    db.add(
+        MediaRequest(
+            id=50, plex_user_id="alice", title="Dune", media_type="movie", tmdb_id="438631",
+            status=RequestStatus.sent_to_arr, has_vf=False, poster_url="http://poster/dune.jpg"
+        )
+    )
+    db.commit()
+
+    episodes = [{
+        "seasonNumber": 1, "episodeNumber": 1, "airDateUtc": "2026-07-10T00:00:00Z",
+        "title": "Pilot", "hasFile": False,
+        "series": {"title": "Breaking Bad", "tvdbId": 81189},
+    }]
+    movies = [{"title": "Dune", "tmdbId": 438631, "hasFile": False, "inCinemas": "2026-07-20T00:00:00Z"}]
+
+    with patch("app.routers.api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)), \
+         patch("app.routers.api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
+
+        # 1. Filtre par type=movie
+        evs = await unified_calendar(type="movie", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Dune"
+
+        # 2. Filtre par type=show
+        evs = await unified_calendar(type="show", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Breaking Bad"
+
+        # 3. Filtre par search=bad
+        evs = await unified_calendar(search="bad", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Breaking Bad"
+
+        # 4. Filtre par user=alice
+        evs = await unified_calendar(user="alice", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Dune"
+
+        # 5. Filtre par status=sent_to_arr
+        evs = await unified_calendar(status="sent_to_arr", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Dune"
+
+        # 6. Filtre par vf=vf (devrait renvoyer Breaking Bad car has_vf=True et in_library=True)
+        evs = await unified_calendar(vf="vf", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Breaking Bad"
+
+        # 7. Filtre par vf=requested (devrait renvoyer Dune car in_library=False)
+        evs = await unified_calendar(vf="requested", db=db)
+        assert len(evs) == 1
+        assert evs[0]["title"] == "Dune"
+

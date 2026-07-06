@@ -6,11 +6,11 @@
 {% if status == 'available' %}
 <span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>
 {% elif status == 'sent_to_arr' %}
-<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis</span>
+<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Demande en cours</span>
 {% elif status == 'failed' %}
 <span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>
 {% elif status == 'pending' %}
-<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Recue</span>
+<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Demande en cours</span>
 {% else %}
 <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Aucune demande</span>
 {% endif %}
@@ -19,7 +19,7 @@
 {% macro vf_badge(has_vf, in_library) %}
 {% if in_library %}
   {% if has_vf == true %}<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>
-  {% elif has_vf == false %}<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO</span>
+  {% elif has_vf == false %}<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO en attente</span>
   {% else %}<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>?</span>
   {% endif %}
 {% endif %}
@@ -50,11 +50,9 @@
 </div>
 
 <ul class="nav nav-pills mb-3" id="library-tabs">
-  <li class="nav-item"><a href="/library" class="nav-link {% if active_view == 'all' and not active_type and not active_vf %}active{% endif %}"><i class="bi bi-collection me-1"></i>Tout</a></li>
+  <li class="nav-item"><a href="/library" class="nav-link {% if active_view != 'calendar' and not active_type %}active{% endif %}"><i class="bi bi-collection me-1"></i>Tout</a></li>
   <li class="nav-item"><a href="/library?type=movie" class="nav-link {% if active_type == 'movie' %}active{% endif %}"><i class="bi bi-film me-1"></i>Films</a></li>
   <li class="nav-item"><a href="/library?type=show" class="nav-link {% if active_type == 'show' %}active{% endif %}"><i class="bi bi-tv me-1"></i>Series</a></li>
-  <li class="nav-item"><a href="/library?view=requests" class="nav-link {% if active_view == 'requests' %}active{% endif %}"><i class="bi bi-inbox me-1"></i>Demandes <span class="badge bg-secondary ms-1">{{ counts.requests }}</span></a></li>
-  <li class="nav-item"><a href="/library?vf=vo" class="nav-link {% if active_vf == 'vo' %}active{% endif %}"><i class="bi bi-translate me-1"></i>VO en attente <span class="badge bg-primary ms-1">{{ counts.vo }}</span></a></li>
   <li class="nav-item"><a href="/library?view=calendar" class="nav-link {% if active_view == 'calendar' %}active{% endif %}"><i class="bi bi-calendar3 me-1"></i>Calendrier</a></li>
 </ul>
 
@@ -92,15 +90,16 @@
 </div>
 {% endif %}
 
+{% set type_qs = 'type=' ~ active_type ~ '&' if active_type else '' %}
 <div class="d-flex flex-wrap gap-2 mb-3" id="library-counts-bar">
-  <a href="/library" class="badge {{ 'bg-warning text-dark' if not active_vf and active_view == 'all' else 'bg-secondary' }} text-decoration-none py-1 px-2"><i class="bi bi-collection me-1"></i>{{ counts.total }} total</a>
-  <a href="/library?vf=vf" class="badge badge-available text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vf }} VF</a>
-  <a href="/library?vf=vo" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vo }} VO</a>
-  <a href="/library?vf=unchecked" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-question-circle me-1"></i>{{ counts.unchecked }} non analyses</a>
-  <a href="/library?vf=requested" class="badge bg-secondary text-decoration-none py-1 px-2"><i class="bi bi-inbox me-1"></i>{{ counts.requested }} demandes hors Plex</a>
-  {% if status_counts.failed %}<a href="/library?view=requests&status=failed" class="badge badge-failed text-decoration-none py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} echecs</a>{% endif %}
-  {% if status_counts.pending %}<a href="/library?view=requests&status=pending" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} recues</a>{% endif %}
-  {% if status_counts.sent_to_arr %}<a href="/library?view=requests&status=sent_to_arr" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmises</a>{% endif %}
+  <a href="/library{% if active_type %}?type={{ active_type }}{% endif %}" class="badge {{ 'bg-warning text-dark' if not active_vf and active_view == 'all' else 'bg-secondary' }} text-decoration-none py-1 px-2"><i class="bi bi-collection me-1"></i>{{ counts.total }} total</a>
+  <a href="/library?{{ type_qs }}vf=vf" class="badge badge-available text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vf }} VF</a>
+  <a href="/library?{{ type_qs }}vf=vo" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-translate me-1"></i>{{ counts.vo }} VO</a>
+  <a href="/library?{{ type_qs }}vf=unchecked" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-question-circle me-1"></i>{{ counts.unchecked }} non analyses</a>
+  <a href="/library?{{ type_qs }}vf=requested" class="badge bg-secondary text-decoration-none py-1 px-2"><i class="bi bi-inbox me-1"></i>{{ counts.requested }} demandes hors Plex</a>
+  {% if status_counts.failed %}<a href="/library?{{ type_qs }}view=requests&status=failed" class="badge badge-failed text-decoration-none py-1 px-2"><i class="bi bi-x-circle-fill me-1"></i>{{ status_counts.failed }} echecs</a>{% endif %}
+  {% if status_counts.pending %}<a href="/library?{{ type_qs }}view=requests&status=pending" class="badge badge-pending text-decoration-none py-1 px-2"><i class="bi bi-hourglass-split me-1"></i>{{ status_counts.pending }} recues</a>{% endif %}
+  {% if status_counts.sent_to_arr %}<a href="/library?{{ type_qs }}view=requests&status=sent_to_arr" class="badge badge-sent text-decoration-none py-1 px-2"><i class="bi bi-send-fill me-1"></i>{{ status_counts.sent_to_arr }} transmises</a>{% endif %}
 </div>
 
 <form id="library-filter-form" method="get" action="/library" class="row g-2 mb-3">
@@ -238,9 +237,16 @@
         {% if it.request_count %}<span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>{{ it.request_count }}</span>{% endif %}
       </div>
       <div class="position-absolute top-0 end-0 m-2 z-3 d-flex flex-column gap-1 align-items-end">
-        {% if it.in_library %}<span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
-        {% else %}<span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>Demande</span>{% endif %}
-        {% if it.request_status %}{{ status_badge(it.request_status, it.media_type) }}{% endif %}
+        {% if it.in_library %}
+          <span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
+        {% else %}
+          {% if not it.request_status %}
+            <span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>Demande</span>
+          {% endif %}
+        {% endif %}
+        {% if it.request_status %}
+          {{ status_badge(it.request_status, it.media_type) }}
+        {% endif %}
       </div>
       <div class="position-absolute bottom-0 start-0 end-0 p-2 z-3">
         <div class="text-white fw-semibold text-truncate" style="font-size:13px" title="{{ it.title }}">{{ it.title }}</div>
@@ -488,16 +494,16 @@ if (ACTIVE_VIEW !== 'calendar') document.addEventListener('DOMContentLoaded', ()
 function statusBadge(status) {
   const map = {
     available: '<span class="badge badge-available"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>',
-    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Transmis</span>',
+    sent_to_arr: '<span class="badge badge-sent"><i class="bi bi-send-fill me-1"></i>Demande en cours</span>',
     failed: '<span class="badge badge-failed"><i class="bi bi-x-circle-fill me-1"></i>Echec</span>',
-    pending: '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Recue</span>',
+    pending: '<span class="badge badge-pending"><i class="bi bi-hourglass-split me-1"></i>Demande en cours</span>',
   };
   return map[status] || `<span class="badge bg-secondary">${escHtml(status || 'Aucune demande')}</span>`;
 }
 function vfBadge(hasVf, inLibrary = true) {
   if (!inLibrary) return '<span class="badge bg-secondary"><i class="bi bi-inbox me-1"></i>Hors Plex</span>';
   if (hasVf === true) return '<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>';
-  if (hasVf === false) return '<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO</span>';
+  if (hasVf === false) return '<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VO en attente</span>';
   return '<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>Non analyse</span>';
 }
 
@@ -1323,7 +1329,15 @@ async function loadGlobalCalendar() {
   const container = document.getElementById('global-calendar-container');
   if (!container) return;
   try {
-    const events = await fetch('/api/calendar?tracked_only=true').then(r => r.json());
+    const params = new URLSearchParams();
+    params.set('tracked_only', 'true');
+    {% if active_type %}params.set('type', '{{ active_type }}');{% endif %}
+    {% if active_search %}params.set('search', '{{ active_search }}');{% endif %}
+    {% if active_user %}params.set('user', '{{ active_user }}');{% endif %}
+    {% if active_status %}params.set('status', '{{ active_status }}');{% endif %}
+    {% if active_vf %}params.set('vf', '{{ active_vf }}');{% endif %}
+    {% if active_source %}params.set('source', '{{ active_source }}');{% endif %}
+    const events = await fetch(`/api/calendar?${params.toString()}`).then(r => r.json());
     container.innerHTML = renderGlobalCalendar(events);
   } catch (e) {
     container.innerHTML = `<div class="alert alert-danger">Erreur calendrier : ${escHtml(e.message)}</div>`;

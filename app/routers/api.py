@@ -2287,6 +2287,12 @@ async def unified_calendar(
     start: Optional[str] = None,
     end: Optional[str] = None,
     tracked_only: bool = False,
+    type: Optional[str] = None,
+    search: Optional[str] = None,
+    user: Optional[str] = None,
+    status: Optional[str] = None,
+    vf: Optional[str] = None,
+    source: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """Calendrier unifié : épisodes Sonarr + sorties Radarr sur une plage de dates.
@@ -2305,17 +2311,64 @@ async def unified_calendar(
     # Index des médias suivis par identifiant externe, pour marquer/enrichir les entrées.
     shows_by_tvdb: dict[str, dict] = {}
     movies_by_tmdb: dict[str, dict] = {}
+    library_items_by_id = {}
+
     for li in db.query(LibraryItem).all():
-        entry = {"poster_url": li.poster_url, "library_item_id": li.id, "request_id": None}
+        entry = {
+            "in_library": True,
+            "library_item_id": li.id,
+            "request_id": None,
+            "request_status": None,
+            "requested_by_ids": [],
+            "request_sources": [],
+            "has_vf": li.has_vf,
+            "poster_url": li.poster_url,
+        }
+        library_items_by_id[li.id] = entry
         if li.media_type == "show" and li.tvdb_id:
             shows_by_tvdb[li.tvdb_id] = entry
         elif li.media_type == "movie" and li.tmdb_id:
             movies_by_tmdb[li.tmdb_id] = entry
+
     for r in db.query(MediaRequest).all():
-        if r.media_type == "show" and r.tvdb_id and r.tvdb_id not in shows_by_tvdb:
-            shows_by_tvdb[r.tvdb_id] = {"poster_url": r.poster_url, "library_item_id": r.library_item_id, "request_id": r.id}
-        elif r.media_type == "movie" and r.tmdb_id and r.tmdb_id not in movies_by_tmdb:
-            movies_by_tmdb[r.tmdb_id] = {"poster_url": r.poster_url, "library_item_id": r.library_item_id, "request_id": r.id}
+        matched = library_items_by_id.get(r.library_item_id) if r.library_item_id else None
+        if not matched:
+            if r.media_type == "show" and r.tvdb_id:
+                matched = shows_by_tvdb.get(r.tvdb_id)
+            elif r.media_type == "movie" and r.tmdb_id:
+                matched = movies_by_tmdb.get(r.tmdb_id)
+
+        status_val = r.status.value if hasattr(r.status, "value") else str(r.status)
+        requester_ids = [r.plex_user_id] if r.plex_user_id else []
+        try:
+            for extra in _json.loads(r.extra_requesters or "[]"):
+                uid = extra.get("plex_user_id")
+                if uid and uid not in requester_ids:
+                    requester_ids.append(uid)
+        except Exception:
+            pass
+
+        if matched:
+            matched["request_id"] = r.id
+            matched["request_status"] = status_val
+            matched["requested_by_ids"] = list(set(matched["requested_by_ids"] + requester_ids))
+            if r.source and r.source not in matched["request_sources"]:
+                matched["request_sources"].append(r.source)
+        else:
+            entry = {
+                "in_library": False,
+                "library_item_id": None,
+                "request_id": r.id,
+                "request_status": status_val,
+                "requested_by_ids": requester_ids,
+                "request_sources": [r.source] if r.source else [],
+                "has_vf": r.has_vf,
+                "poster_url": r.poster_url,
+            }
+            if r.media_type == "show" and r.tvdb_id:
+                shows_by_tvdb[r.tvdb_id] = entry
+            elif r.media_type == "movie" and r.tmdb_id:
+                movies_by_tmdb[r.tmdb_id] = entry
 
     instances = db.query(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])).all()
     events = []
@@ -2332,6 +2385,30 @@ async def unified_calendar(
                     tracked = shows_by_tvdb.get(tvdb_id) if tvdb_id else None
                     if tracked_only and not tracked:
                         continue
+
+                    # Filtres
+                    if type == "movie":
+                        continue
+                    if search and search.lower() not in (series.get("title") or "").lower():
+                        continue
+                    if user and (not tracked or user not in tracked.get("requested_by_ids", [])):
+                        continue
+                    if status and (not tracked or tracked.get("request_status") != status):
+                        continue
+                    if source and (not tracked or source not in tracked.get("request_sources", [])):
+                        continue
+                    if vf:
+                        if not tracked:
+                            continue
+                        if vf == "vf" and not (tracked.get("in_library") and tracked.get("has_vf") is True):
+                            continue
+                        elif vf == "vo" and not (tracked.get("in_library") and tracked.get("has_vf") is False):
+                            continue
+                        elif vf == "unchecked" and not (tracked.get("in_library") and tracked.get("has_vf") is None):
+                            continue
+                        elif vf == "requested" and tracked.get("in_library"):
+                            continue
+
                     events.append({
                         "type": "episode",
                         "date": date,
@@ -2355,10 +2432,35 @@ async def unified_calendar(
                     tracked = movies_by_tmdb.get(tmdb_id) if tmdb_id else None
                     if tracked_only and not tracked:
                         continue
+
+                    # Filtres
+                    if type == "show":
+                        continue
+                    title = m.get("title") or ""
+                    if search and search.lower() not in title.lower():
+                        continue
+                    if user and (not tracked or user not in tracked.get("requested_by_ids", [])):
+                        continue
+                    if status and (not tracked or tracked.get("request_status") != status):
+                        continue
+                    if source and (not tracked or source not in tracked.get("request_sources", [])):
+                        continue
+                    if vf:
+                        if not tracked:
+                            continue
+                        if vf == "vf" and not (tracked.get("in_library") and tracked.get("has_vf") is True):
+                            continue
+                        elif vf == "vo" and not (tracked.get("in_library") and tracked.get("has_vf") is False):
+                            continue
+                        elif vf == "unchecked" and not (tracked.get("in_library") and tracked.get("has_vf") is None):
+                            continue
+                        elif vf == "requested" and tracked.get("in_library"):
+                            continue
+
                     events.append({
                         "type": "movie",
                         "date": date,
-                        "title": m.get("title") or "",
+                        "title": title,
                         "subtitle": "Sortie",
                         "poster_url": (tracked or {}).get("poster_url"),
                         "has_file": bool(m.get("hasFile")),
