@@ -258,6 +258,12 @@ class MediaRequest(Base):
     vf_available_mail_sent: Mapped[bool] = mapped_column(default=False)
     vo_only_mail_sent: Mapped[bool] = mapped_column(default=False)
 
+    # Lien vers le LibraryItem correspondant, une fois synchronisé depuis Plex (pas de
+    # contrainte FK, convention du reste du modèle). Une fois lié, has_vf n'est plus
+    # scanné indépendamment : il est propagé depuis le LibraryItem (source de vérité
+    # unique), pour éviter deux scans Plex divergents du même média.
+    library_item_id: Mapped[Optional[int]]
+
 
 class LibraryItem(Base):
     """Média réellement présent dans la bibliothèque Plex (issu de la synchronisation).

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_FAILURE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE
+from ..utils import identity_keys as _identity_keys
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
@@ -165,21 +166,6 @@ def requests_page(
             "status_counts": status_counts,
         },
     )
-
-
-def _identity_keys(rec) -> list:
-    """Clés d'identité d'un média (pour rapprocher demande ↔ élément de bibliothèque)."""
-    keys = []
-    if getattr(rec, "plex_guid", None):
-        keys.append(("guid", rec.plex_guid))
-    if getattr(rec, "tmdb_id", None):
-        keys.append(("tmdb", rec.tmdb_id))
-    if getattr(rec, "tvdb_id", None):
-        keys.append(("tvdb", rec.tvdb_id))
-    if getattr(rec, "imdb_id", None):
-        keys.append(("imdb", rec.imdb_id))
-    keys.append(("title", (rec.title or "").lower().strip(), rec.year, rec.media_type))
-    return keys
 
 
 @router.get("/library", response_class=HTMLResponse)

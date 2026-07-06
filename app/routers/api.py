@@ -1666,6 +1666,19 @@ async def vff_scan_single_request(
         else:
             db.commit()
 
+    # Si la demande est liée à un LibraryItem, on synchronise aussi son has_vf pour
+    # éviter de réintroduire un décalage Bibliothèque/Demandes après un scan manuel.
+    if req.library_item_id:
+        li = db.query(LibraryItem).filter(LibraryItem.id == req.library_item_id).first()
+        if li:
+            prev_li_vf = li.has_vf
+            li.vf_category = req.vf_category or li.vf_category
+            li.vf_checked_at = now
+            li.has_vf = req.has_vf
+            if li.has_vf and prev_li_vf is False:
+                li.vf_available_at = now
+            db.commit()
+
     return {
         "status": "ok",
         "has_vf": req.has_vf,

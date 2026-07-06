@@ -40,3 +40,24 @@ def parse_email_list(raw: str | None) -> list[str]:
     if not raw:
         return []
     return [e.strip() for e in raw.split(",") if e.strip()]
+
+
+def identity_keys(rec) -> list:
+    """Clés d'identité d'un média (pour rapprocher demande ↔ élément de bibliothèque).
+
+    Ordre de priorité au moment du rapprochement : GUID Plex, puis IDs externes
+    (TMDB/TVDB/IMDB), puis titre+année+type en dernier recours. Partagé entre la vue
+    Bibliothèque (rapprochement à l'affichage) et le scheduler (lien persistant
+    MediaRequest.library_item_id) pour ne pas dupliquer cette logique à deux endroits.
+    """
+    keys = []
+    if getattr(rec, "plex_guid", None):
+        keys.append(("guid", rec.plex_guid))
+    if getattr(rec, "tmdb_id", None):
+        keys.append(("tmdb", rec.tmdb_id))
+    if getattr(rec, "tvdb_id", None):
+        keys.append(("tvdb", rec.tvdb_id))
+    if getattr(rec, "imdb_id", None):
+        keys.append(("imdb", rec.imdb_id))
+    keys.append(("title", (rec.title or "").lower().strip(), rec.year, rec.media_type))
+    return keys

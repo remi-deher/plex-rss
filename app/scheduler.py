@@ -1567,6 +1567,21 @@ async def check_vf_statuses():
             vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
             return
 
+        # Rapprochement demande <-> LibraryItem : une fois liée, une demande n'est plus
+        # scannée indépendamment dans Plex — son has_vf est propagé depuis le LibraryItem
+        # (source de vérité unique), pour éviter deux scans divergents du même média
+        # (ex: Bibliothèque affiche VF alors que Demandes affiche encore VO en attente).
+        linked_pairs: list[tuple[MediaRequest, LibraryItem]] = []
+        unlinked_candidates_q: list[MediaRequest] = []
+        for req in candidates_q:
+            li = _link_request_to_library_item(db, req)
+            if li:
+                linked_pairs.append((req, li))
+            else:
+                unlinked_candidates_q.append(req)
+        if linked_pairs:
+            db.commit()  # persiste les nouveaux library_item_id
+
         def _to_candidate(r):
             return {
                 "id": r.id,
@@ -1579,11 +1594,12 @@ async def check_vf_statuses():
                 "plex_guid": r.plex_guid,
             }
 
-        candidates = [_to_candidate(r) for r in candidates_q]
+        candidates = [_to_candidate(r) for r in unlinked_candidates_q]
         lib_candidates = [_to_candidate(r) for r in lib_q]
         vff_scan_state["total_items"] = len(candidates) + len(lib_candidates)
         logger.info(
-            f"VFF : analyse de {len(candidates)} demande(s) + {len(lib_candidates)} média(s) de bibliothèque"
+            f"VFF : analyse de {len(candidates)} demande(s) non liée(s) + {len(lib_candidates)} média(s) "
+            f"de bibliothèque ({len(linked_pairs)} demande(s) liée(s), pas de re-scan)"
         )
 
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -1605,26 +1621,20 @@ async def check_vf_statuses():
         newly_vo = 0
         newly_vf = 0
         newly_fallback = 0
-        for req in candidates_q:
-            res = results_by_id.get(req.id)
 
+        def _apply_vf_result(req: MediaRequest, has_vf: bool, category: str | None) -> bool:
+            """Applique une transition VO/VF à une demande (notifications incluses).
+
+            Renvoie True si une recherche VFF auto (Sonarr/Radarr) doit être déclenchée
+            par l'appelant (await nécessaire, donc hors de cette fonction synchrone).
+            """
+            nonlocal newly_vo, newly_vf
             was_tracking = req.has_vf is False  # déjà identifié VO au passage précédent
-
-            if not res or not res.get("found"):
-                # Média disponible mais pas (encore) indexé dans Plex.
-                # Filet de sécurité : si l'« available » a été différé (VFF actif) et
-                # jamais envoyé, notifier la disponibilité générique maintenant pour
-                # ne pas laisser l'utilisateur sans information. has_vf reste None :
-                # un passage ultérieur détectera la VF/VO (suivi silencieux, pas de doublon).
-                if req.has_vf is None and not req.available_mail_sent:
-                    _notify("available", settings, req, db)
-                    newly_fallback += 1
-                continue
-
-            req.vf_category = res.get("category") or req.vf_category
+            req.vf_category = category or req.vf_category
             req.vf_checked_at = now
+            trigger_search = False
 
-            if res["has_vf"]:
+            if has_vf:
                 req.has_vf = True
                 if was_tracking:
                     # Transition VO → VF : on prévient
@@ -1654,10 +1664,27 @@ async def check_vf_statuses():
                     else:
                         # Dispo déjà notifiée (fallback scan-lag) → suivi silencieux
                         db.commit()
-                    if settings.vff_auto_search:
-                        await _trigger_vf_search(db, settings, req)
+                    trigger_search = bool(settings.vff_auto_search)
                 else:
                     db.commit()
+            return trigger_search
+
+        for req in unlinked_candidates_q:
+            res = results_by_id.get(req.id)
+
+            if not res or not res.get("found"):
+                # Média disponible mais pas (encore) indexé dans Plex.
+                # Filet de sécurité : si l'« available » a été différé (VFF actif) et
+                # jamais envoyé, notifier la disponibilité générique maintenant pour
+                # ne pas laisser l'utilisateur sans information. has_vf reste None :
+                # un passage ultérieur détectera la VF/VO (suivi silencieux, pas de doublon).
+                if req.has_vf is None and not req.available_mail_sent:
+                    _notify("available", settings, req, db)
+                    newly_fallback += 1
+                continue
+
+            if _apply_vf_result(req, res["has_vf"], res.get("category")):
+                await _trigger_vf_search(db, settings, req)
 
         # --- Médias de bibliothèque : état VF pour affichage (pas de notification) ---
         lib_updated = 0
@@ -1683,9 +1710,19 @@ async def check_vf_statuses():
                     _persist_episode_status(db, "library_item", li.id, episode_status, now)
             db.commit()
 
+        # --- Demandes liées à un LibraryItem : propager son has_vf, pas de re-scan Plex ---
+        linked_updated = 0
+        for req, li in linked_pairs:
+            if li.has_vf is None:
+                continue  # LibraryItem pas encore résolu ; réessaiera au prochain cycle
+            if _apply_vf_result(req, li.has_vf, li.vf_category):
+                await _trigger_vf_search(db, settings, req)
+            linked_updated += 1
+
         logger.info(
             f"VFF : analyse terminée ({newly_vo} nouveau(x) VO, {newly_vf} VF détectée(s), "
-            f"{newly_fallback} dispo notifiée(s) en filet, {lib_updated} média(s) de bibliothèque mis à jour)"
+            f"{newly_fallback} dispo notifiée(s) en filet, {lib_updated} média(s) de bibliothèque mis à jour, "
+            f"{linked_updated} demande(s) liée(s) synchronisée(s))"
         )
         vff_scan_state["status"] = "idle"
         vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
@@ -1697,24 +1734,33 @@ async def check_vf_statuses():
         db.close()
 
 
-def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
-    """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé.
+def _find_library_item_by_ids(
+    db: Session,
+    plex_guid: str | None,
+    tmdb_id: str | None,
+    tvdb_id: str | None,
+    imdb_id: str | None,
+    title: str,
+    year: int | None,
+    media_type: str,
+) -> "LibraryItem | None":
+    """Cherche un LibraryItem par identité : GUID Plex > IDs externes > titre+année+type.
 
-    Ordre de correspondance : GUID Plex, puis identifiants externes (TMDB/TVDB/IMDB),
-    puis titre + année + type de média.
+    Cœur de rapprochement partagé par `_find_library_item` (sync Plex) et
+    `_link_request_to_library_item` (lien MediaRequest -> LibraryItem).
     """
-    if item["plex_guid"]:
-        found = db.query(LibraryItem).filter(LibraryItem.plex_guid == item["plex_guid"]).first()
+    if plex_guid:
+        found = db.query(LibraryItem).filter(LibraryItem.plex_guid == plex_guid).first()
         if found:
             return found
 
     conditions = []
-    if item["tmdb_id"]:
-        conditions.append(LibraryItem.tmdb_id == item["tmdb_id"])
-    if item["tvdb_id"]:
-        conditions.append(LibraryItem.tvdb_id == item["tvdb_id"])
-    if item["imdb_id"]:
-        conditions.append(LibraryItem.imdb_id == item["imdb_id"])
+    if tmdb_id:
+        conditions.append(LibraryItem.tmdb_id == tmdb_id)
+    if tvdb_id:
+        conditions.append(LibraryItem.tvdb_id == tvdb_id)
+    if imdb_id:
+        conditions.append(LibraryItem.imdb_id == imdb_id)
     if conditions:
         found = db.query(LibraryItem).filter(or_(*conditions)).first()
         if found:
@@ -1723,12 +1769,41 @@ def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
     return (
         db.query(LibraryItem)
         .filter(
-            LibraryItem.title.ilike(item["title"]),
-            LibraryItem.year == item["year"],
-            LibraryItem.media_type == item["media_type"],
+            LibraryItem.title.ilike(title),
+            LibraryItem.year == year,
+            LibraryItem.media_type == media_type,
         )
         .first()
     )
+
+
+def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
+    """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé."""
+    return _find_library_item_by_ids(
+        db, item["plex_guid"], item["tmdb_id"], item["tvdb_id"], item["imdb_id"], item["title"], item["year"], item["media_type"]
+    )
+
+
+def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryItem | None":
+    """Lie une demande à son LibraryItem correspondant (source de vérité VF unique).
+
+    Si déjà liée, renvoie directement le LibraryItem (retente un rapprochement si le lien
+    est devenu orphelin). Sinon, tente un rapprochement par identité et persiste le lien
+    s'il est trouvé (sans commit — à la charge de l'appelant). Renvoie None si aucun
+    LibraryItem ne correspond (le média n'est pas encore synchronisé depuis Plex : la
+    demande reste scannée indépendamment jusqu'au prochain rapprochement).
+    """
+    if req.library_item_id:
+        li = db.query(LibraryItem).filter(LibraryItem.id == req.library_item_id).first()
+        if li:
+            return li
+        req.library_item_id = None  # lien orphelin, on retente un rapprochement ci-dessous
+    li = _find_library_item_by_ids(
+        db, req.plex_guid, req.tmdb_id, req.tvdb_id, req.imdb_id, req.title, req.year, req.media_type
+    )
+    if li:
+        req.library_item_id = li.id
+    return li
 
 
 async def sync_plex_media():
