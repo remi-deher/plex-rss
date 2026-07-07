@@ -498,6 +498,7 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
                 ("{{ media_type_label_cap }}", "Le film / La série"),
                 ("{{ overview }}", "Synopsis"),
                 ("{{ genres }}", "Genres (ex: Action, Drame)"),
+                ("{{ language_reason }}", "Jalon VO/VF (ex: VF saison 1 complete)"),
                 ("{{ reason }}", "Raison de l'échec (email d'échec uniquement)"),
             ],
         },

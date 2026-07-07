@@ -161,12 +161,12 @@ async def _send_digest():
     </table>
   </td></tr>
   <tr><td style="background:#111;padding:12px 24px">
-    <p style="color:#555;font-size:11px;margin:0">Plex RSS Monitor — récapitulatif automatique quotidien</p>
+    <p style="color:#555;font-size:11px;margin:0">Plexarr — récapitulatif automatique quotidien</p>
   </td></tr>
 </table>
 </body></html>"""
 
-            subject = f"[Plex] Récap du {datetime.now().strftime('%d/%m/%Y')} — {count} demande{plural}"
+            subject = f"[Plexarr] Récap du {datetime.now().strftime('%d/%m/%Y')} — {count} demande{plural}"
             for user in users:
                 recipient = user.notification_email or user.plex_email
                 if not recipient:
@@ -1017,6 +1017,8 @@ def _queue_vf_milestone(
     email_flag = settings.email_on_vf_available if direction == "vf" else True
     recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
     event = "vf_available" if direction == "vf" else "vo_only"
+    if req.media_type == "movie" and direction == "vo" and milestone_type == "movie" and req.available_mail_sent:
+        event = "available_vo_tracking"
     enqueue_notification(event, req.id, recipients, _milestone_reason(direction, milestone_type, season, episode))
     return True
 
@@ -1056,7 +1058,10 @@ def _notify_vf(event: str, settings: Settings, req: MediaRequest, db: Session):
     email_flag = settings.email_on_vf_available if event == "vf_available" else True
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
-    enqueue_notification(event, req.id, recipients, "")
+    queued_event = event
+    if event == "vo_only" and req.media_type == "movie" and req.available_mail_sent:
+        queued_event = "available_vo_tracking"
+    enqueue_notification(queued_event, req.id, recipients, "")
 
 
 def _resolve_partial_notify_frequency(settings: Settings, user_obj: PlexUser | None) -> str:
@@ -1131,10 +1136,13 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
             return
         if event == "available" and req.available_mail_sent:
             return
+    queued_event = event
+    if event == "available" and req.has_vf is True:
+        queued_event = "available_vf"
     email_flag = settings.email_on_available if event == "available" else settings.email_on_request
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_recipients(user_obj, settings, event) if email_flag else []
-    enqueue_notification(event, req.id, recipients, reason)
+    enqueue_notification(queued_event, req.id, recipients, reason)
 
 
 # ---------------------------------------------------------------------------

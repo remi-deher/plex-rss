@@ -148,6 +148,56 @@ async def test_process_available_all_ok_sets_flag():
 
 
 @pytest.mark.asyncio
+async def test_process_available_vf_uses_merged_notification_and_sets_available_flag():
+    """event=available_vf â†’ template fusionnÃ© + available_mail_sent=True."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.send_available_vf_notification", new_callable=AsyncMock) as mock_send,
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_ntfy_notif", new_callable=AsyncMock),
+        patch("app.notification_queue.send_gotify_notif", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await _process("available_vf", 1, ["a@b.com"], "")
+
+    mock_send.assert_called_once()
+    assert req.available_mail_sent is True
+    db.commit.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_process_available_vo_tracking_sets_available_and_vo_flags():
+    """event=available_vo_tracking â†’ un seul mail, mais les deux flags sont marquÃ©s."""
+    settings = _make_settings()
+    req = _make_req()
+    req.vo_only_mail_sent = False
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.send_available_vo_tracking_notification", new_callable=AsyncMock) as mock_send,
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_ntfy_notif", new_callable=AsyncMock),
+        patch("app.notification_queue.send_gotify_notif", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await _process("available_vo_tracking", 1, ["a@b.com"], "")
+
+    mock_send.assert_called_once()
+    assert req.available_mail_sent is True
+    assert req.vo_only_mail_sent is True
+    db.commit.assert_called()
+
+
+@pytest.mark.asyncio
 async def test_process_empty_recipients_still_commits():
     """Aucun destinataire → pas d'email envoyé mais commit pour les logs."""
     settings = _make_settings()

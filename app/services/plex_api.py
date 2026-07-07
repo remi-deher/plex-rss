@@ -155,7 +155,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
     """
     headers = {
         "Accept": "application/json",
-        "X-Plex-Product": "Plex RSS Monitor",
+        "X-Plex-Product": "Plexarr",
         "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id",
     }
     async with httpx.AsyncClient(timeout=10) as client:

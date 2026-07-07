@@ -68,11 +68,11 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     rendered_subject = render_template(body.subject, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):
         if body.type == "request":
-            rendered_subject = f"[Plex] Nouvelle demande : {ctx['title']}"
+            rendered_subject = f"[Plexarr] Nouvelle demande : {ctx['title']}"
         elif body.type == "available":
-            rendered_subject = f"[Plex] Disponible : {ctx['title']}"
+            rendered_subject = f"[Plexarr] Disponible : {ctx['title']}"
         else:
-            rendered_subject = f"[Plex] Échec de transmission : {ctx['title']}"
+            rendered_subject = f"[Plexarr] Échec de transmission : {ctx['title']}"
 
     html = render_template(body.template, ctx)
 

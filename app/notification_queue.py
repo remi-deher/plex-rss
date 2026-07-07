@@ -19,6 +19,8 @@ from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.email_service import (
+    send_available_vf_notification,
+    send_available_vo_tracking_notification,
     send_available_notification,
     send_failure_notification,
     send_partially_available_notification,
@@ -64,10 +66,14 @@ async def _send_with_retry(
                 await send_request_notification(settings, req, recipient, display_name)
             elif event == "available":
                 await send_available_notification(settings, req, recipient, display_name)
+            elif event == "available_vf":
+                await send_available_vf_notification(settings, req, recipient, display_name)
+            elif event == "available_vo_tracking":
+                await send_available_vo_tracking_notification(settings, req, recipient, display_name)
             elif event == "vo_only":
-                await send_vo_only_notification(settings, req, recipient, display_name)
+                await send_vo_only_notification(settings, req, recipient, display_name, reason)
             elif event == "vf_available":
-                await send_vf_available_notification(settings, req, recipient, display_name)
+                await send_vf_available_notification(settings, req, recipient, display_name, reason)
             elif event == "partially_available":
                 await send_partially_available_notification(settings, req, recipient, reason, display_name)
             elif event == "failed":
@@ -129,8 +135,11 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         if all_ok:
             if event == "request":
                 req.request_mail_sent = True
-            elif event == "available":
+            elif event in ("available", "available_vf"):
                 req.available_mail_sent = True
+            elif event == "available_vo_tracking":
+                req.available_mail_sent = True
+                req.vo_only_mail_sent = True
             elif event == "vo_only":
                 req.vo_only_mail_sent = True
             elif event == "vf_available":

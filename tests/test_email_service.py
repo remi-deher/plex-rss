@@ -8,6 +8,8 @@ from app.models import MediaRequest, Settings
 from app.services.email_service import (
     _build_context,
     render_template,
+    send_available_vf_notification,
+    send_available_vo_tracking_notification,
     send_available_notification,
     send_failure_notification,
     send_partially_available_notification,
@@ -123,7 +125,7 @@ async def test_send_request_uses_default_template_when_none():
     mock_send.assert_called_once()
     msg = mock_send.call_args[0][0]
     assert "Inception" in msg.as_string()
-    assert msg["Subject"] == "[Plex] Nouvelle demande : Inception"
+    assert msg["Subject"] == "[Plexarr] Nouvelle demande : Inception"
 
 
 @pytest.mark.asyncio
@@ -170,7 +172,7 @@ async def test_send_available_subject_and_body():
         await send_available_notification(_settings(), _req(), "dest@example.com")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plex] Disponible : Inception"
+    assert msg["Subject"] == "[Plexarr] Disponible : Inception"
     assert "Inception" in msg.as_string()
 
 
@@ -183,6 +185,30 @@ async def test_send_available_uses_custom_template():
         await send_available_notification(s, _req(), "dest@example.com")
 
     assert "Disponible: Inception" in mock_send.call_args[0][0].as_string()
+
+
+@pytest.mark.asyncio
+async def test_send_available_vf_uses_merged_template():
+    """DisponibilitÃ© initiale VF : un template fusionnÃ© est envoyÃ©."""
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_available_vf_notification(_settings(), _req(), "dest@example.com")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "[Plexarr] Disponible en VF : Inception"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Disponible directement en VF" in body
+
+
+@pytest.mark.asyncio
+async def test_send_available_vo_tracking_uses_merged_template():
+    """DisponibilitÃ© initiale VO : un template unique annonce le suivi VF."""
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_available_vo_tracking_notification(_settings(), _req(), "dest@example.com")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "[Plexarr] Disponible en VO : Inception"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Le suivi VF reste actif" in body
 
 
 # ---------------------------------------------------------------------------

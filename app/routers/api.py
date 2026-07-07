@@ -868,7 +868,7 @@ async def test_discord(db: Session = Depends(get_db)):
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(s.discord_webhook_url, json={"content": "Test Plex RSS Monitor — Discord OK !"})
+            r = await client.post(s.discord_webhook_url, json={"content": "Test Plexarr — Discord OK !"})
             r.raise_for_status()
         return {"success": True, "message": "Message Discord envoyé !"}
     except Exception as e:
@@ -886,7 +886,7 @@ async def test_telegram(db: Session = Depends(get_db)):
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(
                 f"https://api.telegram.org/bot{s.telegram_bot_token}/sendMessage",
-                json={"chat_id": s.telegram_chat_id, "text": "Test Plex RSS Monitor — Telegram OK !"},
+                json={"chat_id": s.telegram_chat_id, "text": "Test Plexarr — Telegram OK !"},
             )
             r.raise_for_status()
         return {"success": True, "message": "Message Telegram envoyé !"}
@@ -902,7 +902,7 @@ async def test_ntfy(db: Session = Depends(get_db)):
     from ..services.notifications import send_ntfy
 
     try:
-        await send_ntfy(s.ntfy_url, s.ntfy_token, "Test Plex RSS Monitor", "Test de notification ntfy OK !")
+        await send_ntfy(s.ntfy_url, s.ntfy_token, "Test Plexarr", "Test de notification ntfy OK !")
         return {"success": True, "message": "Notification ntfy envoyée !"}
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -916,7 +916,7 @@ async def test_gotify(db: Session = Depends(get_db)):
     from ..services.notifications import send_gotify
 
     try:
-        await send_gotify(s.gotify_url, s.gotify_token, "Test Plex RSS Monitor", "Test de notification Gotify OK !")
+        await send_gotify(s.gotify_url, s.gotify_token, "Test Plexarr", "Test de notification Gotify OK !")
         return {"success": True, "message": "Notification Gotify envoyée !"}
     except Exception as e:
         return {"success": False, "message": str(e)}
@@ -2712,19 +2712,19 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
             settings.email_available_subject
             if (settings and isinstance(settings.email_available_subject, str))
             else None
-        ) or "[Plex] Disponible : {{ title }}"
+        ) or "[Plexarr] Disponible : {{ title }}"
     else:
         tpl = (
             settings.email_request_template if (settings and isinstance(settings.email_request_template, str)) else None
         ) or DEFAULT_REQUEST_TEMPLATE
         subject_tmpl = (
             settings.email_request_subject if (settings and isinstance(settings.email_request_subject, str)) else None
-        ) or "[Plex] Nouvelle demande : {{ title }}"
+        ) or "[Plexarr] Nouvelle demande : {{ title }}"
 
     rendered_subject = render_template(subject_tmpl, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):
         rendered_subject = (
-            f"[Plex] Nouvelle demande : {fake.title}" if event == "request" else f"[Plex] Disponible : {fake.title}"
+            f"[Plexarr] Nouvelle demande : {fake.title}" if event == "request" else f"[Plexarr] Disponible : {fake.title}"
         )
 
     html = render_template(tpl, ctx)
@@ -2805,12 +2805,12 @@ async def send_test_email(user_id: int, db: Session = Depends(get_db)):
 <div style="max-width:480px;margin:auto;background:#1f1f1f;border-radius:10px;padding:28px;color:#fff">
   <h2 style="color:#e5a00d;margin:0 0 16px">Test de notification</h2>
   <p style="color:#ccc">Bonjour <strong>{name}</strong>,</p>
-  <p style="color:#ccc">Cet email confirme que les notifications fonctionnent correctement pour ton compte Plex RSS Monitor.</p>
-  <p style="color:#888;font-size:12px;margin-top:24px">Plex RSS Monitor — email de test</p>
+  <p style="color:#ccc">Cet email confirme que les notifications fonctionnent correctement pour ton compte Plexarr.</p>
+  <p style="color:#888;font-size:12px;margin-top:24px">Plexarr — email de test</p>
 </div>
 </body></html>"""
     try:
-        await smtp_send(settings, recipient, "[Plex RSS] Test de notification", html)
+        await smtp_send(settings, recipient, "[Plexarr] Test de notification", html)
     except Exception as e:
         raise HTTPException(500, f"Échec SMTP : {e}")
     return {"status": "sent", "recipient": recipient}

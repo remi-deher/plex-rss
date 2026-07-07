@@ -35,6 +35,12 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
     elif event == "available":
         title = f"Disponible — {request.title}{year}"
         body = f"{type_label} maintenant disponible sur Plex !"
+    elif event == "available_vf":
+        title = f"Disponible en VF â€” {request.title}{year}"
+        body = f"{type_label} disponible sur Plex avec une piste audio franÃ§aise."
+    elif event == "available_vo_tracking":
+        title = f"Disponible en VO â€” {request.title}{year}"
+        body = f"{type_label} disponible sur Plex en VO. Le suivi VF reste actif."
     elif event == "vo_only":
         title = f"Disponible en VO — {request.title}{year}"
         body = f"{type_label} disponible en VO uniquement. Vous serez prévenu dès que la VF arrive."
@@ -54,6 +60,8 @@ def _build_discord_embed(event: str, request: MediaRequest, include_synopsis: bo
     color = {
         "request": 0xE5A00D,
         "available": 0x1DB954,
+        "available_vf": 0x1DB954,
+        "available_vo_tracking": 0x0D6EFD,
         "vo_only": 0x0D6EFD,
         "vf_available": 0x1DB954,
         "failed": 0xDC3545,

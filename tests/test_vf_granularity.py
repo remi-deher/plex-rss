@@ -315,3 +315,41 @@ async def test_check_vf_statuses_notifies_vo_every_episode_on_first_detection():
     assert [call.args[3] for call in mock_enqueue.call_args_list] == ["VO S01E01", "VO S01E02"]
     milestones = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vo").all()
     assert len(milestones) == 2
+
+
+@pytest.mark.asyncio
+async def test_movie_first_vo_detection_uses_single_available_vo_tracking_event():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=None,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": False, "category": "movie"}
+    with (
+        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.scheduler.enqueue_notification") as mock_enqueue,
+        patch("app.scheduler._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available_vo_tracking", req_id, ["alice@example.com"])

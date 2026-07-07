@@ -20,7 +20,7 @@ class RequestOut(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: int = Field(description="Unique identifier of the user in Plex RSS Monitor")
+    id: int = Field(description="Unique identifier of the user in Plexarr")
     plex_user_id: str = Field(description="Plex User ID")
     display_name: Optional[str] = Field(description="Display name of the Plex user")
     plex_email: Optional[str] = Field(description="Plex account email address")

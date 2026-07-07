@@ -73,7 +73,7 @@ DEFAULT_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
       {{ media_type_label_cap }} est maintenant disponible sur votre serveur Plex. Bonne séance !
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
-    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor</p>
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr</p>
   </td></tr>
 </table>
 </body></html>"""
@@ -126,7 +126,7 @@ DEFAULT_VO_ONLY_TEMPLATE = """<!DOCTYPE html>
       Vous serez automatiquement prévenu dès qu'une piste audio française (VF) sera disponible.
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
-    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor — suivi VFF</p>
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
   </td></tr>
 </table>
 </body></html>"""
@@ -149,8 +149,67 @@ DEFAULT_VF_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
     <p style="margin:20px 0 0;font-size:16px">
       Bonne nouvelle ! {{ media_type_label_cap }} est maintenant disponible <strong>en version française</strong> sur votre serveur Plex.
     </p>
+    {% if language_reason %}
+    <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
+      {{ language_reason }}
+    </p>
+    {% endif %}
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
-    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor — suivi VFF</p>
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_AVAILABLE_VF_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#1db954;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible directement en VF</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      {{ media_type_label_cap }} est disponible sur Plex <strong>avec une piste audio française</strong>.
+    </p>
+    <p style="margin:14px 0 0;color:#ccc;font-size:14px;line-height:1.6">
+      Un seul email regroupe la disponibilité Plex et le statut VF.
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#0d6efd;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible en VO</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      {{ media_type_label_cap }} est disponible sur Plex, mais <strong>uniquement en version originale</strong> pour le moment.
+    </p>
+    <p style="margin:16px 0 0;color:#ccc;font-size:14px;line-height:1.6">
+      Le suivi VF reste actif : vous recevrez un nouvel email seulement si une vraie upgrade VF arrive plus tard.
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
   </td></tr>
 </table>
 </body></html>"""
@@ -178,7 +237,7 @@ DEFAULT_PARTIALLY_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
       Vous serez prévenu à nouveau dès que la série sera intégralement disponible.
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
-    <p style="color:#888;font-size:12px;margin:0">Géré par Plex RSS Monitor</p>
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr</p>
   </td></tr>
 </table>
 </body></html>"""
@@ -226,10 +285,10 @@ async def send_request_notification(
     template = template or DEFAULT_REQUEST_TEMPLATE
     html = render_template(template, ctx)
     subject_tmpl = settings.email_request_subject if isinstance(settings.email_request_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plex] Nouvelle demande : {{ title }}"
+    subject_tmpl = subject_tmpl or "[Plexarr] Nouvelle demande : {{ title }}"
     subject = render_template(subject_tmpl, ctx)
     if subject.startswith("<p>Erreur de template"):
-        subject = f"[Plex] Nouvelle demande : {request.title}"
+        subject = f"[Plexarr] Nouvelle demande : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
@@ -242,30 +301,54 @@ async def send_available_notification(
     template = template or DEFAULT_AVAILABLE_TEMPLATE
     html = render_template(template, ctx)
     subject_tmpl = settings.email_available_subject if isinstance(settings.email_available_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plex] Disponible : {{ title }}"
+    subject_tmpl = subject_tmpl or "[Plexarr] Disponible : {{ title }}"
     subject = render_template(subject_tmpl, ctx)
     if subject.startswith("<p>Erreur de template"):
-        subject = f"[Plex] Disponible : {request.title}"
+        subject = f"[Plexarr] Disponible : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
 async def send_vo_only_notification(
-    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None, reason: str = ""
 ):
     """Envoie l'email « disponible mais en VO uniquement » (suivi VFF)."""
     ctx = _build_context(request, display_name)
+    ctx["language_reason"] = reason or "Suivi VF actif"
     html = render_template(DEFAULT_VO_ONLY_TEMPLATE, ctx)
-    subject = f"[Plex] Disponible en VO : {request.title}"
+    subject = f"[Plexarr] Disponible en VO : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
 async def send_vf_available_notification(
-    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None, reason: str = ""
 ):
     """Envoie l'email « la VF est maintenant disponible » (suivi VFF)."""
     ctx = _build_context(request, display_name)
+    ctx["language_reason"] = reason
     html = render_template(DEFAULT_VF_AVAILABLE_TEMPLATE, ctx)
-    subject = f"[Plex] VF disponible : {request.title}"
+    subject = f"[Plexarr] VF disponible : {request.title}"
+    if reason:
+        subject = f"[Plexarr] {reason} : {request.title}"
+    await _send(settings, recipient, subject, html)
+
+
+async def send_available_vf_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
+    """Envoie un seul email quand la disponibilitÃ© initiale est dÃ©jÃ  en VF."""
+    ctx = _build_context(request, display_name)
+    html = render_template(DEFAULT_AVAILABLE_VF_TEMPLATE, ctx)
+    subject = f"[Plexarr] Disponible en VF : {request.title}"
+    await _send(settings, recipient, subject, html)
+
+
+async def send_available_vo_tracking_notification(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
+):
+    """Envoie un seul email quand la disponibilitÃ© initiale est VO avec suivi VF."""
+    ctx = _build_context(request, display_name)
+    html = render_template(DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE, ctx)
+    subject = f"[Plexarr] Disponible en VO : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
@@ -278,7 +361,7 @@ async def send_partially_available_notification(
     ctx["episodes_aired"] = request.episodes_aired_count or 0
     ctx["episodes_total"] = request.episodes_total_count or 0
     html = render_template(DEFAULT_PARTIALLY_AVAILABLE_TEMPLATE, ctx)
-    subject = f"[Plex] Partiellement disponible : {request.title} ({reason})" if reason else f"[Plex] Partiellement disponible : {request.title}"
+    subject = f"[Plexarr] Partiellement disponible : {request.title} ({reason})" if reason else f"[Plexarr] Partiellement disponible : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
@@ -325,10 +408,10 @@ async def send_failure_notification(
     template = template or DEFAULT_FAILURE_TEMPLATE
     html = render_template(template, ctx)
     subject_tmpl = settings.email_failure_subject if isinstance(settings.email_failure_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plex] Échec de transmission : {{ title }}"
+    subject_tmpl = subject_tmpl or "[Plexarr] Échec de transmission : {{ title }}"
     subject = render_template(subject_tmpl, ctx)
     if subject.startswith("<p>Erreur de template"):
-        subject = f"[Plex] Échec de transmission : {request.title}"
+        subject = f"[Plexarr] Échec de transmission : {request.title}"
     await _send(settings, recipient, subject, html)
 
 
@@ -340,7 +423,7 @@ async def test_smtp(settings: Settings, test_recipient: str) -> tuple[bool, str]
     """
     try:
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = "[Plex RSS] Test SMTP"
+        msg["Subject"] = "[Plexarr] Test SMTP"
         msg["From"] = settings.smtp_from
         msg["To"] = test_recipient
         msg.attach(MIMEText("<p>Configuration SMTP opérationnelle.</p>", "html"))
