@@ -276,6 +276,29 @@ def render_template(template_str: str, context: dict) -> str:
         return f"<p>Erreur de template : {e}</p>"
 
 
+EMAIL_FOOTER_HTML = """
+<div style="max-width:600px;margin:18px auto 0;padding:14px 18px;border-top:1px solid #333;color:#888;font-family:Arial,sans-serif;font-size:12px;text-align:center">
+  Plexarr — Logiciel crée par
+  <a href="https://github.com/remi-deher/plex-rss" style="color:#e5a00d;text-decoration:none">DEHER Rémi</a>
+</div>
+"""
+
+
+def add_email_footer(html: str) -> str:
+    """Ajoute le footer Plexarr/crédit à tous les emails, y compris les templates custom."""
+    if "DEHER Rémi" in html:
+        return html
+    footer = EMAIL_FOOTER_HTML
+    lower = html.lower()
+    body_idx = lower.rfind("</body>")
+    if body_idx != -1:
+        return html[:body_idx] + footer + html[body_idx:]
+    html_idx = lower.rfind("</html>")
+    if html_idx != -1:
+        return html[:html_idx] + footer + html[html_idx:]
+    return html + footer
+
+
 async def send_request_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
@@ -380,7 +403,7 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
     msg["Subject"] = subject
     msg["From"] = settings.smtp_from
     msg["To"] = recipient
-    msg.attach(MIMEText(html, "html"))
+    msg.attach(MIMEText(add_email_footer(html), "html"))
 
     try:
         await aiosmtplib.send(

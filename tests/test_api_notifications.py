@@ -372,6 +372,8 @@ def test_preview_request_returns_html():
         assert "text/html" in r.headers["content-type"]
         # Le HTML doit contenir le titre fictif
         assert "Dune" in r.text
+        assert "Logiciel crée par" in r.text
+        assert "DEHER Rémi" in r.text
     finally:
         _cleanup()
 
@@ -430,6 +432,7 @@ def test_preview_uses_custom_template():
         r = client.get("/api/email/preview?event=request")
         assert r.status_code == 200
         assert "CUSTOM_TEMPLATE_" in r.text
+        assert "DEHER Rémi" in r.text
     finally:
         _cleanup()
 

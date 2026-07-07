@@ -7,6 +7,7 @@ import pytest
 from app.models import MediaRequest, Settings
 from app.services.email_service import (
     _build_context,
+    add_email_footer,
     render_template,
     send_available_vf_notification,
     send_available_vo_tracking_notification,
@@ -111,6 +112,15 @@ def test_render_template_conditional_block():
     assert "<img" not in render_template(tpl, {"poster_url": ""})
 
 
+def test_add_email_footer_injects_credit_once():
+    html = "<html><body><p>Hello</p></body></html>"
+    result = add_email_footer(html)
+    assert "Logiciel crée par" in result
+    assert "DEHER Rémi" in result
+    assert result.count("DEHER Rémi") == 1
+    assert add_email_footer(result).count("DEHER Rémi") == 1
+
+
 # ---------------------------------------------------------------------------
 # send_request_notification
 # ---------------------------------------------------------------------------
@@ -136,8 +146,22 @@ async def test_send_request_uses_custom_template():
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_request_notification(s, _req(), "dest@example.com")
 
-    body = mock_send.call_args[0][0].as_string()
+    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
     assert "Film: Inception" in body
+
+
+@pytest.mark.asyncio
+async def test_send_custom_template_gets_global_footer():
+    """Même un template custom reçoit le footer Plexarr/crédit à l'envoi."""
+    s = _settings(email_request_template="<html><body>CUSTOM {{ title }}</body></html>")
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_request_notification(s, _req(), "dest@example.com")
+
+    msg = mock_send.call_args[0][0]
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "CUSTOM Inception" in body
+    assert "Logiciel crée par" in body
+    assert "DEHER Rémi" in body
 
 
 @pytest.mark.asyncio
@@ -184,7 +208,8 @@ async def test_send_available_uses_custom_template():
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_available_notification(s, _req(), "dest@example.com")
 
-    assert "Disponible: Inception" in mock_send.call_args[0][0].as_string()
+    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
+    assert "Disponible: Inception" in body
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    add_email_footer,
     render_template,
 )
 from ..services.email_service import _send as smtp_send
@@ -38,7 +39,8 @@ SAMPLE_CONTEXT = {
     "media_type_label": "Série",
     "media_type_label_cap": "La série",
     "overview": "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille.",
-    "genres": "Crime, Drame, Thriller",
+   "genres": "Crime, Drame, Thriller",
+   "language_reason": "VF saison 1 complete",
 }
 
 
@@ -96,7 +98,7 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     else:
         html = header_html + html
 
-    return Response(content=html, media_type="text/html")
+    return Response(content=add_email_footer(html), media_type="text/html")
 
 
 class SaveTemplates(BaseModel):

@@ -51,7 +51,7 @@ from ..scheduler import scheduler as _scheduler
 from ..services import email_service, prowlarr, radarr, sonarr
 from ..services import seer as seer_service
 from ..services.download_clients import add_torrent_file_to_client, add_torrent_to_client, check_client_connection
-from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
+from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, add_email_footer, render_template
 from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
@@ -2700,6 +2700,7 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
         "media_type_label_cap": "Le film",
         "overview": fake.overview,
         "genres": "Science-Fiction, Aventure",
+        "language_reason": "VF film complet",
     }
 
     if event == "available":
@@ -2748,7 +2749,7 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
     else:
         html = header_html + html
 
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=add_email_footer(html))
 
 
 @router.get("/notifications/log")
