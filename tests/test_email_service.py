@@ -236,7 +236,7 @@ async def test_send_available_vo_tracking_uses_merged_template():
     assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VO !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
     assert "Disponible sur Plex en VO !" in body
-    assert "Le suivi VF reste actif" in body
+    assert "Plexarr continue de surveiller l'arrivée de la VF" in body
 
 
 @pytest.mark.asyncio
@@ -248,8 +248,20 @@ async def test_send_vf_available_uses_episode_milestone_template():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception : nouvel épisode en VF sur Plex !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Nouvel episode en VF !" in body
+    assert "Nouvel épisode en VF !" in body
     assert "VF S01E02" in body
+
+
+@pytest.mark.asyncio
+async def test_send_vf_available_upgrade_uses_update_badge():
+    """Upgrade VF générique : le mail affiche le badge demandé."""
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_vf_available_notification(_settings(), _req(), "dest@example.com")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "[Plexarr] Inception est désormais disponible sur Plex en VF !"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Mise à jour en VF" in body
 
 
 @pytest.mark.asyncio

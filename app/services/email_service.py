@@ -33,6 +33,7 @@ DEFAULT_REQUEST_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#e5a00d;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Nouvelle demande Plex</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Nouvelle demande</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -49,7 +50,7 @@ DEFAULT_REQUEST_TEMPLATE = """<!DOCTYPE html>
     {% endif %}
     <hr style="border:none;border-top:1px solid #333;margin:20px 0">
     <p style="color:#888;font-size:12px;margin:0">
-      Vous recevrez un autre email dès que le contenu sera disponible sur votre serveur Plex.
+      Plexarr vous préviendra automatiquement dès que le contenu sera disponible sur votre serveur Plex.
     </p>
   </td></tr>
 </table>
@@ -60,6 +61,7 @@ DEFAULT_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Disponible</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -85,6 +87,7 @@ DEFAULT_FAILURE_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#dc3545;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Demande non transmise</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Action requise</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -99,7 +102,7 @@ DEFAULT_FAILURE_TEMPLATE = """<!DOCTYPE html>
       {{ reason }}
     </p>
     <p style="color:#aaa;font-size:13px">
-      La demande a bien été enregistrée. Elle sera retransmise lors du prochain polling si le problème est résolu.
+      La demande reste enregistrée. Plexarr réessaiera automatiquement lors du prochain passage si le problème est résolu.
     </p>
   </td></tr>
 </table>
@@ -111,6 +114,7 @@ DEFAULT_VO_ONLY_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VO !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Disponible en VO</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -121,10 +125,10 @@ DEFAULT_VO_ONLY_TEMPLATE = """<!DOCTYPE html>
       <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
     </p>
     <p style="margin:20px 0 0;font-size:16px">
-      {{ media_type_label_cap }} est disponible sur Plex, mais <strong>uniquement en version originale</strong> pour le moment.
+      {{ media_type_label_cap }} est disponible sur Plex, actuellement <strong>en version originale</strong>.
     </p>
     <p style="margin:16px 0 0;color:#ccc;font-size:14px;line-height:1.6">
-      Vous serez automatiquement prévenu dès qu'une piste audio française (VF) sera disponible.
+      Plexarr continue de surveiller l'arrivée de la VF et vous préviendra automatiquement.
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
     <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
@@ -137,7 +141,8 @@ DEFAULT_VF_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VF !</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Mise à jour en VF !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Mise à jour en VF</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -148,7 +153,7 @@ DEFAULT_VF_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
       <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
     </p>
     <p style="margin:20px 0 0;font-size:16px">
-      Bonne nouvelle ! {{ media_type_label_cap }} est maintenant disponible <strong>en version française</strong> sur votre serveur Plex.
+      Bonne nouvelle : {{ media_type_label_cap }} vient d'être mis à jour <strong>en version française</strong> sur Plex.
     </p>
     {% if language_reason %}
     <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
@@ -167,6 +172,7 @@ DEFAULT_AVAILABLE_VF_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VF !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Disponible en VF</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -180,7 +186,7 @@ DEFAULT_AVAILABLE_VF_TEMPLATE = """<!DOCTYPE html>
       {{ media_type_label_cap }} est disponible sur Plex <strong>avec une piste audio française</strong>.
     </p>
     <p style="margin:14px 0 0;color:#ccc;font-size:14px;line-height:1.6">
-      Un seul email regroupe la disponibilité Plex et le statut VF.
+      Ce mail regroupe la disponibilité Plex et le statut VF pour éviter les doublons.
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
     <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr</p>
@@ -194,6 +200,7 @@ DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VO !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Disponible en VO</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -204,10 +211,10 @@ DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE = """<!DOCTYPE html>
       <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
     </p>
     <p style="margin:20px 0 0;font-size:16px">
-      {{ media_type_label_cap }} est disponible sur Plex, mais <strong>uniquement en version originale</strong> pour le moment.
+      {{ media_type_label_cap }} est disponible sur Plex, actuellement <strong>en version originale</strong>.
     </p>
     <p style="margin:16px 0 0;color:#ccc;font-size:14px;line-height:1.6">
-      Le suivi VF reste actif : vous recevrez un nouvel email seulement si une vraie upgrade VF arrive plus tard.
+      Plexarr continue de surveiller l'arrivée de la VF et vous préviendra uniquement si une vraie mise à jour arrive.
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
     <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
@@ -220,7 +227,8 @@ DEFAULT_LANGUAGE_EPISODE_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Nouvel episode en {{ language }} !</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Nouvel épisode en {{ language }} !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Nouvel épisode {{ language }}</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -248,6 +256,7 @@ DEFAULT_LANGUAGE_SEASON_START_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Saison démarrée en {{ language }} !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Saison démarrée en {{ language }}</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -274,7 +283,8 @@ DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Saison complete en {{ language }} !</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Saison complète en {{ language }} !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Saison complète en {{ language }}</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -285,7 +295,7 @@ DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE = """<!DOCTYPE html>
       <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
     </p>
     <p style="margin:20px 0 0;font-size:16px">
-      Une saison complete est maintenant disponible en <strong>{{ language }}</strong> sur Plex.
+      Une saison complète est maintenant disponible en <strong>{{ language }}</strong> sur Plex.
     </p>
     <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
       {{ language_reason }}
@@ -301,7 +311,8 @@ DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Série complete en {{ language }} !</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Série complète en {{ language }} !</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Série complète en {{ language }}</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -312,7 +323,7 @@ DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE = """<!DOCTYPE html>
       <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
     </p>
     <p style="margin:20px 0 0;font-size:16px">
-      La série est maintenant complete en <strong>{{ language }}</strong> sur Plex.
+      La série est maintenant complète en <strong>{{ language }}</strong> sur Plex.
     </p>
     <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
       {{ language_reason }}
@@ -329,6 +340,7 @@ DEFAULT_PARTIALLY_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#e5a00d;padding:24px;text-align:center">
     <h1 style="color:#fff;margin:0;font-size:22px">Partiellement disponible</h1>
+    <div style="display:inline-block;margin-top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,20,20,.22);color:#fff;font-size:12px;font-weight:bold;letter-spacing:.2px">Disponibilité partielle</div>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
