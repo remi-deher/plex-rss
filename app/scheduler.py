@@ -33,6 +33,7 @@ from .models import (
     LibraryItem,
     MediaRequest,
     NotificationLog,
+    NotificationMilestone,
     PlexUser,
     PollHistory,
     RequestStatus,
@@ -884,6 +885,164 @@ def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_categor
     return recipients
 
 
+SERIES_NOTIFY_MODES = {
+    "every_episode",
+    "season_complete",
+    "series_complete",
+    "season_start_and_complete",
+}
+
+
+def _valid_series_notify_mode(value: str | None, default: str = "season_start_and_complete") -> str:
+    return value if value in SERIES_NOTIFY_MODES else default
+
+
+def _resolve_movie_notify(direction: str, settings: Settings, user_obj: PlexUser | None) -> bool:
+    attr = "movie_vf_notify" if direction == "vf" else "movie_vo_notify"
+    user_value = getattr(user_obj, attr, None) if user_obj else None
+    if user_value is not None:
+        return bool(user_value)
+    return getattr(settings, attr, True) is not False
+
+
+def _resolve_series_notify_mode(direction: str, settings: Settings, user_obj: PlexUser | None) -> str:
+    attr = "series_vf_notify_mode" if direction == "vf" else "series_vo_notify_mode"
+    user_value = getattr(user_obj, attr, None) if user_obj else None
+    return _valid_series_notify_mode(user_value or getattr(settings, attr, None))
+
+
+def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[int, bool]]:
+    normalized: dict[int, dict[int, bool]] = {}
+    for season, eps in (episode_status or {}).items():
+        try:
+            season_number = int(season)
+        except Exception:
+            continue
+        normalized[season_number] = {}
+        for episode, has_vf in (eps or {}).items():
+            try:
+                episode_number = int(episode)
+            except Exception:
+                continue
+            normalized[season_number][episode_number] = bool(has_vf)
+    return normalized
+
+
+def _series_language_milestones(direction: str, mode: str, episode_status: dict | None, has_vf_full: bool):
+    status = _normalized_episode_status(episode_status)
+
+    def matches(has_vf: bool) -> bool:
+        return has_vf if direction == "vf" else not has_vf
+
+    milestones = []
+    mode = _valid_series_notify_mode(mode)
+
+    if mode == "series_complete":
+        if (direction == "vf" and has_vf_full) or (status and direction == "vo" and all(
+            matches(v) for eps in status.values() for v in eps.values()
+        )):
+            milestones.append(("series_complete", None, None))
+        return milestones
+    if not status:
+        return []
+
+    for season, eps in sorted(status.items()):
+        matching_eps = sorted(ep for ep, has_vf in eps.items() if matches(has_vf))
+        if not matching_eps:
+            continue
+        if mode == "every_episode":
+            milestones.extend(("episode", season, ep) for ep in matching_eps)
+            continue
+        if mode == "season_start_and_complete":
+            milestones.append(("season_start", season, matching_eps[0]))
+        if mode in ("season_complete", "season_start_and_complete") and all(matches(v) for v in eps.values()):
+            milestones.append(("season_complete", season, None))
+    return milestones
+
+
+def _milestone_reason(direction: str, milestone_type: str, season: int | None, episode: int | None) -> str:
+    lang = "VF" if direction == "vf" else "VO"
+    if milestone_type == "episode" and season is not None and episode is not None:
+        return f"{lang} S{season:02d}E{episode:02d}"
+    if milestone_type == "season_start" and season is not None:
+        return f"{lang} saison {season} demarree"
+    if milestone_type == "season_complete" and season is not None:
+        return f"{lang} saison {season} complete"
+    if milestone_type == "series_complete":
+        return f"{lang} serie complete"
+    return lang
+
+
+def _milestone_exists(db: Session, req: MediaRequest, direction: str, milestone_type: str, season, episode) -> bool:
+    q = db.query(NotificationMilestone).filter(
+        NotificationMilestone.req_id == req.id,
+        NotificationMilestone.plex_user_id == req.plex_user_id,
+        NotificationMilestone.direction == direction,
+        NotificationMilestone.milestone_type == milestone_type,
+    )
+    q = q.filter(NotificationMilestone.season_number.is_(None) if season is None else NotificationMilestone.season_number == season)
+    q = q.filter(NotificationMilestone.episode_number.is_(None) if episode is None else NotificationMilestone.episode_number == episode)
+    return q.first() is not None
+
+
+def _queue_vf_milestone(
+    direction: str,
+    settings: Settings,
+    req: MediaRequest,
+    db: Session,
+    milestone_type: str,
+    season: int | None = None,
+    episode: int | None = None,
+) -> bool:
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    if not _user_wants_vf(user_obj, req.vf_category):
+        return False
+    if req.media_type == "movie" and not _resolve_movie_notify(direction, settings, user_obj):
+        return False
+    if _milestone_exists(db, req, direction, milestone_type, season, episode):
+        return False
+
+    db.add(
+        NotificationMilestone(
+            req_id=req.id,
+            plex_user_id=req.plex_user_id,
+            direction=direction,
+            milestone_type=milestone_type,
+            season_number=season,
+            episode_number=episode,
+        )
+    )
+    db.commit()
+
+    email_flag = settings.email_on_vf_available if direction == "vf" else True
+    recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
+    event = "vf_available" if direction == "vf" else "vo_only"
+    enqueue_notification(event, req.id, recipients, _milestone_reason(direction, milestone_type, season, episode))
+    return True
+
+
+def _queue_language_progress_notifications(
+    direction: str,
+    settings: Settings,
+    req: MediaRequest,
+    db: Session,
+    episode_status: dict | None = None,
+    has_vf_full: bool = False,
+) -> int:
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    if not _user_wants_vf(user_obj, req.vf_category):
+        return 0
+    if req.media_type != "show":
+        return int(_queue_vf_milestone(direction, settings, req, db, "movie"))
+
+    mode = _resolve_series_notify_mode(direction, settings, user_obj)
+    count = 0
+    for milestone_type, season, episode in _series_language_milestones(direction, mode, episode_status, has_vf_full):
+        if _queue_vf_milestone(direction, settings, req, db, milestone_type, season, episode):
+            count += 1
+    return count
+
+
 def _notify_vf(event: str, settings: Settings, req: MediaRequest, db: Session):
     """Empile une notification VF ("vo_only" ou "vf_available") dans la queue.
 
@@ -1429,6 +1588,22 @@ def _load_known_vf_episodes(
     return out
 
 
+def _load_episode_status_map(
+    db: Session, source_type: str, source_ids: list[int]
+) -> dict[int, dict[int, dict[int, bool]]]:
+    if not source_ids:
+        return {}
+    rows = (
+        db.query(VfEpisodeStatus)
+        .filter(VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id.in_(source_ids))
+        .all()
+    )
+    out: dict[int, dict[int, dict[int, bool]]] = {}
+    for row in rows:
+        out.setdefault(row.source_id, {}).setdefault(row.season_number, {})[row.episode_number] = bool(row.has_vf)
+    return out
+
+
 def _persist_episode_status(
     db: Session,
     source_type: str,
@@ -1729,9 +1904,17 @@ async def check_vf_statuses():
         newly_vf = 0
         newly_fallback = 0
 
-        def _apply_vf_result(req: MediaRequest, has_vf: bool, category: str | None) -> bool:
+        def _apply_vf_result(
+            req: MediaRequest,
+            has_vf: bool,
+            category: str | None,
+            episode_status: dict | None = None,
+            granularity: str | None = None,
+        ) -> bool:
             """Applique une transition VO/VF à une demande (notifications incluses).
 
+            `granularity` : si déjà connue (ex: propagée depuis un LibraryItem lié), on
+            l'utilise directement — sinon elle est calculée depuis `episode_status`.
             Renvoie True si une recherche VFF auto (Sonarr/Radarr) doit être déclenchée
             par l'appelant (await nécessaire, donc hors de cette fonction synchrone).
             """
@@ -1743,12 +1926,14 @@ async def check_vf_statuses():
 
             if has_vf:
                 req.has_vf = True
+                req.vf_granularity = "full"
                 if was_tracking:
                     # Transition VO → VF : on prévient
                     req.vf_available_at = now
                     db.commit()
-                    _notify_vf("vf_available", settings, req, db)
-                    newly_vf += 1
+                    newly_vf += _queue_language_progress_notifications(
+                        "vf", settings, req, db, episode_status=episode_status, has_vf_full=True
+                    )
                     logger.info(f"VFF : '{req.title}' est désormais disponible en VF")
                 else:
                     # Première analyse, VF présente : envoie l'« available » différé
@@ -1758,6 +1943,7 @@ async def check_vf_statuses():
             else:
                 # VO uniquement
                 req.has_vf = False
+                req.vf_granularity = granularity if granularity is not None else vff.compute_vf_granularity(episode_status)
                 if not was_tracking:
                     if not req.available_mail_sent:
                         # Première détection VO : la notification « VO » tient lieu
@@ -1765,8 +1951,9 @@ async def check_vf_statuses():
                         # pour éviter tout doublon « available » ultérieur.
                         req.available_mail_sent = True
                         db.commit()
-                        _notify_vf("vo_only", settings, req, db)
-                        newly_vo += 1
+                        newly_vo += _queue_language_progress_notifications(
+                            "vo", settings, req, db, episode_status=episode_status, has_vf_full=False
+                        )
                         logger.info(f"VFF : '{req.title}' disponible en VO uniquement — suivi VF activé")
                     else:
                         # Dispo déjà notifiée (fallback scan-lag) → suivi silencieux
@@ -1774,6 +1961,9 @@ async def check_vf_statuses():
                     trigger_search = bool(settings.vff_auto_search)
                 else:
                     db.commit()
+                    newly_vf += _queue_language_progress_notifications(
+                        "vf", settings, req, db, episode_status=episode_status, has_vf_full=False
+                    )
             return trigger_search
 
         for req in unlinked_candidates_q:
@@ -1790,7 +1980,7 @@ async def check_vf_statuses():
                     newly_fallback += 1
                 continue
 
-            if _apply_vf_result(req, res["has_vf"], res.get("category")):
+            if _apply_vf_result(req, res["has_vf"], res.get("category"), episode_status=res.get("episode_status")):
                 await _trigger_vf_search(db, settings, req)
 
         # --- Médias de bibliothèque : état VF pour affichage (pas de notification) ---
@@ -1809,6 +1999,7 @@ async def check_vf_statuses():
                 li.vf_category = res.get("category") or li.vf_category
                 li.vf_checked_at = now
                 li.has_vf = bool(res["has_vf"])
+                li.vf_granularity = "full" if li.has_vf else vff.compute_vf_granularity(res.get("episode_status"))
                 if li.has_vf and prev is False:
                     li.vf_available_at = now
                 lib_updated += 1
@@ -1819,10 +2010,19 @@ async def check_vf_statuses():
 
         # --- Demandes liées à un LibraryItem : propager son has_vf, pas de re-scan Plex ---
         linked_updated = 0
+        linked_episode_status = _load_episode_status_map(
+            db, "library_item", list({li.id for _, li in linked_pairs})
+        )
         for req, li in linked_pairs:
             if li.has_vf is None:
                 continue  # LibraryItem pas encore résolu ; réessaiera au prochain cycle
-            if _apply_vf_result(req, li.has_vf, li.vf_category):
+            if _apply_vf_result(
+                req,
+                li.has_vf,
+                li.vf_category,
+                episode_status=linked_episode_status.get(li.id),
+                granularity=li.vf_granularity,
+            ):
                 await _trigger_vf_search(db, settings, req)
             linked_updated += 1
 

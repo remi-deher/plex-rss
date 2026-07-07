@@ -25,8 +25,8 @@ def _resp(status_code: int, json_data=None) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_check_connection_success():
-    """Token valide → success=True avec le nom d'utilisateur."""
-    resp = _resp(200, {"username": "AdminPlex", "email": "admin@plex.tv"})
+    """Serveur Plex local joignable + token valide → success=True."""
+    resp = _resp(200, {"MediaContainer": {"machineIdentifier": "abc123"}})
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
@@ -36,22 +36,33 @@ async def test_check_connection_success():
         success, msg = await check_connection(URL, TOKEN)
 
     assert success is True
-    assert "AdminPlex" in msg
+    assert "abc123" in msg
+    # Doit interroger le serveur Plex local (plex_url), pas plex.tv.
+    called_url = client.get.call_args[0][0]
+    assert called_url.startswith(URL)
 
 
 @pytest.mark.asyncio
 async def test_check_connection_failure():
-    """Erreur réseau → success=False."""
+    """Erreur réseau (ex: mauvaise IP) → success=False, message explicite."""
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
-    client.get = AsyncMock(side_effect=Exception("Connection refused"))
+    client.get = AsyncMock(side_effect=Exception("All connection attempts failed"))
 
     with patch("app.services.plex_api.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, TOKEN)
 
     assert success is False
-    assert "Connection refused" in msg
+    assert "All connection attempts failed" in msg
+
+
+@pytest.mark.asyncio
+async def test_check_connection_no_url_configured():
+    """URL Plex vide → échec immédiat, sans appel réseau."""
+    success, msg = await check_connection("", TOKEN)
+    assert success is False
+    assert "non configurée" in msg
 
 
 # ---------------------------------------------------------------------------

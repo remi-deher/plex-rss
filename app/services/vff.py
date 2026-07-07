@@ -242,6 +242,36 @@ def show_has_full_french_audio(
     return complete, should_track, with_vf, total, episode_status
 
 
+def compute_vf_granularity(episode_status: dict[int, dict[int, bool]] | None) -> str:
+    """Niveau de granularité VF d'une série non-complète, à partir de son statut par épisode.
+
+    - "season_partial"  : au moins une saison entièrement en VF (mais pas toute la série)
+    - "episode_partial" : au moins un épisode en VF, mais aucune saison complète
+    - "none"             : aucun épisode en VF (ou pas encore de données)
+
+    Une saison est considérée « entièrement en VF » par rapport aux épisodes connus de
+    Plex (mêmes données que `has_vf` au niveau série) — si Sonarr n'a pas encore
+    tout téléchargé, seuls les épisodes présents comptent.
+    """
+    if not episode_status:
+        return "none"
+    any_vf = False
+    any_full_season = False
+    for season_eps in episode_status.values():
+        if not season_eps:
+            continue
+        vals = list(season_eps.values())
+        if any(vals):
+            any_vf = True
+        if all(vals):
+            any_full_season = True
+    if any_full_season:
+        return "season_partial"
+    if any_vf:
+        return "episode_partial"
+    return "none"
+
+
 def connect(plex_url: str, plex_token: str, timeout: int = 30) -> PlexServer:
     """Ouvre une connexion au serveur Plex local (lève une exception si échec)."""
     return PlexServer(plex_url, plex_token, timeout=timeout)

@@ -194,6 +194,7 @@ def library_page(
             "media_type": li.media_type,
             "poster_url": li.poster_url,
             "has_vf": li.has_vf,
+            "vf_granularity": li.vf_granularity,
             "arr_slug": li.arr_slug,
             "arr_id": li.arr_id,
             "arr_instance_id": li.arr_instance_id,
@@ -234,6 +235,7 @@ def library_page(
                 "media_type": r.media_type,
                 "poster_url": r.poster_url,
                 "has_vf": r.has_vf,
+                "vf_granularity": r.vf_granularity,
                 "arr_slug": r.arr_slug,
                 "arr_id": r.arr_id,
                 "arr_instance_id": r.arr_instance_id,
@@ -275,6 +277,8 @@ def library_page(
     counts = {
         "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
         "vo": sum(1 for v in items if v["in_library"] and v["has_vf"] is False),
+        "season_partial": sum(1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"),
+        "episode_partial": sum(1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"),
         "unchecked": sum(1 for v in items if v["in_library"] and v["has_vf"] is None),
         "requested": sum(1 for v in items if not v["in_library"]),
         "requests": sum(1 for v in items if v["request_ids"]),
@@ -304,6 +308,10 @@ def library_page(
     # Filtre VF/VO/non analysé/demandé (counts calculés avant filtrage → totaux)
     if vf == "vf":
         items = [v for v in items if v["in_library"] and v["has_vf"] is True]
+    elif vf == "season_partial":
+        items = [v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"]
+    elif vf == "episode_partial":
+        items = [v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"]
     elif vf == "vo":
         items = [v for v in items if v["in_library"] and v["has_vf"] is False]
     elif vf == "unchecked":

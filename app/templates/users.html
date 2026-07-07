@@ -139,10 +139,21 @@
 
           <!-- Notifications -->
           <div class="tab-pane fade" id="hub-tab-notif">
+            <div class="rounded p-3 mb-3" style="background:var(--pr-bg);border:1px solid var(--pr-border)">
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="bi bi-bell text-warning"></i>
+                <strong>Preferences de notification</strong>
+              </div>
+              <div class="text-muted small">Ces options personnalisent ce que cet utilisateur recoit. Les reglages techniques restent dans Parametres.</div>
+            </div>
+
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-broadcast me-1"></i>Canaux</label>
             <div class="form-check form-switch mb-2">
               <input class="form-check-input" type="checkbox" id="fNotifyAdmin" checked>
               <label class="form-check-label" for="fNotifyAdmin">Notifier l'admin pour cet utilisateur</label>
             </div>
+            <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-lightning-charge me-1"></i>Evenements</label>
             <div class="form-check form-switch mb-2">
               <input class="form-check-input" type="checkbox" id="fNotifyOnRequest" checked>
               <label class="form-check-label" for="fNotifyOnRequest">Notifier à la demande</label>
@@ -173,6 +184,44 @@
 
             <hr class="border-secondary">
             <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <label class="form-label small mb-1">Films VO</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVoNotify">
+                  <option value="">Reglage global</option>
+                  <option value="true">Notifier</option>
+                  <option value="false">Ne pas notifier</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">Films upgrade VF</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVfNotify">
+                  <option value="">Reglage global</option>
+                  <option value="true">Notifier</option>
+                  <option value="false">Ne pas notifier</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">Series VO</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVoNotifyMode">
+                  <option value="">Reglage global</option>
+                  <option value="every_episode">Chaque episode</option>
+                  <option value="season_complete">Saison complete</option>
+                  <option value="series_complete">Serie complete</option>
+                  <option value="season_start_and_complete">Premier episode + saison complete</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label small mb-1">Series VF</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVfNotifyMode">
+                  <option value="">Reglage global</option>
+                  <option value="every_episode">Chaque episode</option>
+                  <option value="season_complete">Saison complete</option>
+                  <option value="series_complete">Serie complete</option>
+                  <option value="season_start_and_complete">Premier episode + saison complete</option>
+                </select>
+              </div>
+            </div>
             <div class="mb-3">
               <select class="form-select bg-dark text-light border-secondary" id="fPartialNotifyFrequency">
                 <option value="">Réglage global par défaut</option>
@@ -182,6 +231,7 @@
             </div>
 
             <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-signpost-split me-1"></i>Routage Arr</label>
             <div class="row g-3 mb-3">
               <div class="col-md-6">
                 <label class="form-label">Instance Sonarr</label>
@@ -198,6 +248,8 @@
                 </select>
               </div>
             </div>
+            <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-send me-1"></i>Canaux personnels</label>
             <p class="text-muted small mb-2">Push personnel <span class="text-muted">(optionnel, en plus du global)</span></p>
             <div class="mb-2">
               <label class="form-label small mb-1">Webhook Discord personnel</label>
@@ -311,6 +363,16 @@ async function loadSeerUsers() {
 function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 
 // ── Ouverture de la modale hub ────────────────────────────────────────────────
+function setNullableBoolSelect(id, value) {
+  document.getElementById(id).value = value == null ? '' : String(!!value);
+}
+
+function nullableBoolSelect(id) {
+  const value = document.getElementById(id).value;
+  if (value === '') return null;
+  return value === 'true';
+}
+
 function _setFields(u) {
   document.getElementById('fUserId').value = u.plex_user_id || '';
   document.getElementById('fDisplayName').value = u.display_name || '';
@@ -325,6 +387,10 @@ function _setFields(u) {
   document.getElementById('fNotifyVfMovie').checked = u.notify_vf_movie !== false;
   document.getElementById('fNotifyVfSeries').checked = u.notify_vf_series !== false;
   document.getElementById('fNotifyVfAnime').checked = !!u.notify_vf_anime;
+  setNullableBoolSelect('fMovieVoNotify', u.movie_vo_notify);
+  setNullableBoolSelect('fMovieVfNotify', u.movie_vf_notify);
+  document.getElementById('fSeriesVoNotifyMode').value = u.series_vo_notify_mode || '';
+  document.getElementById('fSeriesVfNotifyMode').value = u.series_vf_notify_mode || '';
   document.getElementById('fPartialNotifyFrequency').value = u.partial_notify_frequency || '';
   document.getElementById('fSonarrInstance').value = u.sonarr_instance_id || '';
   document.getElementById('fRadarrInstance').value = u.radarr_instance_id || '';
@@ -574,6 +640,10 @@ async function saveUser() {
     notify_vf_movie: document.getElementById('fNotifyVfMovie').checked,
     notify_vf_series: document.getElementById('fNotifyVfSeries').checked,
     notify_vf_anime: document.getElementById('fNotifyVfAnime').checked,
+    movie_vo_notify: nullableBoolSelect('fMovieVoNotify'),
+    movie_vf_notify: nullableBoolSelect('fMovieVfNotify'),
+    series_vo_notify_mode: document.getElementById('fSeriesVoNotifyMode').value || null,
+    series_vf_notify_mode: document.getElementById('fSeriesVfNotifyMode').value || null,
     partial_notify_frequency: document.getElementById('fPartialNotifyFrequency').value || null,
     discord_webhook_url: document.getElementById('fDiscordWebhook').value.trim() || null,
     telegram_chat_id: document.getElementById('fTelegramChatId').value.trim() || null,

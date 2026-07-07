@@ -176,6 +176,20 @@ router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_au
 # Configuration
 # ---------------------------------------------------------------------------
 
+SERIES_NOTIFY_MODES = {
+    "every_episode",
+    "season_complete",
+    "series_complete",
+    "season_start_and_complete",
+}
+
+
+def _validate_series_notify_modes(payload: dict):
+    for key in ("series_vo_notify_mode", "series_vf_notify_mode"):
+        value = payload.get(key)
+        if value is not None and value not in SERIES_NOTIFY_MODES:
+            raise HTTPException(status_code=400, detail=f"Mode de notification invalide: {value}")
+
 
 class SettingsUpdate(BaseModel):
     plex_url: Optional[str] = None
@@ -234,6 +248,10 @@ class SettingsUpdate(BaseModel):
     vff_auto_search: Optional[bool] = None
     email_on_vf_available: Optional[bool] = None
     partial_notify_frequency: Optional[str] = None
+    movie_vo_notify: Optional[bool] = None
+    movie_vf_notify: Optional[bool] = None
+    series_vo_notify_mode: Optional[str] = None
+    series_vf_notify_mode: Optional[str] = None
 
 
 @router.get("/settings")
@@ -268,6 +286,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
         "torrent_seed_time_limit_hours",
     }
     payload = data.model_dump()
+    _validate_series_notify_modes(payload)
     for key, val in payload.items():
         if val is None and key not in _nullable_fields:
             continue
@@ -809,7 +828,7 @@ async def test_plex_api(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
     if not s:
         return {"success": False, "message": "Paramètres non initialisés"}
-    ok, msg = await plex_test(s.plex_url or "", s.plex_token or "")
+    ok, msg = await plex_test(s.plex_url or "", s.plex_token or "", verify_ssl=s.plex_verify_ssl)
     return {"success": ok, "message": msg}
 
 
@@ -1047,6 +1066,10 @@ class UserCreate(BaseModel):
     notify_vf_series: Optional[bool] = True
     notify_vf_anime: Optional[bool] = False
     partial_notify_frequency: Optional[str] = None
+    movie_vo_notify: Optional[bool] = None
+    movie_vf_notify: Optional[bool] = None
+    series_vo_notify_mode: Optional[str] = None
+    series_vf_notify_mode: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
@@ -1082,10 +1105,12 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 @router.post("/users")
 def create_user(data: UserCreate, db: Session = Depends(get_db)):
+    payload = data.model_dump()
+    _validate_series_notify_modes(payload)
     existing = db.query(PlexUser).filter(PlexUser.plex_user_id == data.plex_user_id).first()
     if existing:
         raise HTTPException(409, "User already exists")
-    user = PlexUser(**data.model_dump())
+    user = PlexUser(**payload)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -1095,7 +1120,9 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
 @router.put("/users/{user_id}")
 def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
     user = get_or_404(db, PlexUser, user_id, "User not found")
-    for k, v in data.model_dump().items():
+    payload = data.model_dump()
+    _validate_series_notify_modes(payload)
+    for k, v in payload.items():
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
     resolved = data.display_name or user.plex_user_id
@@ -1432,7 +1459,7 @@ async def health_check(db: Session = Depends(get_db)):
     if s and s.seer_url and s.seer_api_key:
         checks["seer"] = ("degraded", _timed_check(seer_test(s.seer_url, s.seer_api_key)))
     if s and s.plex_url and s.plex_token:
-        checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token)))
+        checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token, verify_ssl=s.plex_verify_ssl)))
 
     results = dict(zip(checks.keys(), await asyncio.gather(*(coro for _, coro in checks.values()))))
 
@@ -1719,6 +1746,7 @@ async def vff_scan_single_request(
     has_vf_new = res["has_vf"]
     if has_vf_new:
         req.has_vf = True
+        req.vf_granularity = "full"
         if was_tracking:
             req.vf_available_at = now
             db.commit()
@@ -1728,6 +1756,7 @@ async def vff_scan_single_request(
             _notify("available", settings, req, db)
     else:
         req.has_vf = False
+        req.vf_granularity = vff_svc.compute_vf_granularity(episode_status)
         if not was_tracking:
             if not req.available_mail_sent:
                 req.available_mail_sent = True
@@ -1749,6 +1778,7 @@ async def vff_scan_single_request(
             li.vf_category = req.vf_category or li.vf_category
             li.vf_checked_at = now
             li.has_vf = req.has_vf
+            li.vf_granularity = req.vf_granularity
             if li.has_vf and prev_li_vf is False:
                 li.vf_available_at = now
             db.commit()
@@ -2096,6 +2126,7 @@ async def media_detail(
             "poster_url": media_obj.poster_url,
             "overview": media_obj.overview,
             "has_vf": media_obj.has_vf,
+            "vf_granularity": media_obj.vf_granularity,
             "arr_id": media_obj.arr_id,
             "arr_slug": media_obj.arr_slug,
             "arr_instance_id": media_obj.arr_instance_id,
@@ -2177,6 +2208,7 @@ async def library_vff_scan(
     item.vf_category = res.get("category") or item.vf_category
     item.vf_checked_at = now
     item.has_vf = bool(res["has_vf"])
+    item.vf_granularity = "full" if item.has_vf else vff_svc.compute_vf_granularity(res.get("episode_status"))
     if item.has_vf and prev is False:
         item.vf_available_at = now
     item.updated_at = now

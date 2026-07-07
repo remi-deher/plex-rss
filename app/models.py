@@ -137,6 +137,10 @@ class Settings(Base):
     # 2 notifs max) ou "every_episode" (une notif à chaque nouvel épisode téléchargé).
     # Écrasable par utilisateur via PlexUser.partial_notify_frequency.
     partial_notify_frequency: Mapped[str] = mapped_column(default="milestones")
+    movie_vo_notify: Mapped[bool] = mapped_column(default=True)
+    movie_vf_notify: Mapped[bool] = mapped_column(default=True)
+    series_vo_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
+    series_vf_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
 
 
 class ArrInstance(Base):
@@ -186,6 +190,10 @@ class PlexUser(Base):
     notify_vf_movie: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_series: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_anime: Mapped[Optional[bool]] = mapped_column(default=False)
+    movie_vo_notify: Mapped[Optional[bool]] = mapped_column(default=None)
+    movie_vf_notify: Mapped[Optional[bool]] = mapped_column(default=None)
+    series_vo_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
+    series_vf_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Fréquence de notification pour une série suivie en disponibilité partielle
     # (épisodes en cours de diffusion). None = hérite du réglage global
@@ -206,6 +214,30 @@ class NotificationLog(Base):
     success: Mapped[bool] = mapped_column(default=True)
     error_msg: Mapped[Optional[str]]
     req_id: Mapped[Optional[int]]
+
+
+class NotificationMilestone(Base):
+    __tablename__ = "notification_milestones"
+    __table_args__ = (
+        UniqueConstraint(
+            "req_id",
+            "plex_user_id",
+            "direction",
+            "milestone_type",
+            "season_number",
+            "episode_number",
+            name="uq_notification_milestone",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    req_id: Mapped[int]
+    plex_user_id: Mapped[str]
+    direction: Mapped[str]
+    milestone_type: Mapped[str]
+    season_number: Mapped[Optional[int]] = mapped_column(default=None)
+    episode_number: Mapped[Optional[int]] = mapped_column(default=None)
 
 
 class PollHistory(Base):
@@ -270,6 +302,13 @@ class MediaRequest(Base):
     vf_available_mail_sent: Mapped[bool] = mapped_column(default=False)
     vo_only_mail_sent: Mapped[bool] = mapped_column(default=False)
 
+    # Granularité VF pour les séries (non pertinent pour les films) : distingue une
+    # série sans aucun épisode VF d'une série avec quelques épisodes VF épars, ou avec
+    # au moins une saison entière en VF (sans être complète pour autant). Calculé à
+    # partir du cache par épisode (vf_episode_status) à chaque scan.
+    # Valeurs : None (film/pas encore analysé) | "none" | "episode_partial" | "season_partial"
+    vf_granularity: Mapped[Optional[str]] = mapped_column(default=None)
+
     # Lien vers le LibraryItem correspondant, une fois synchronisé depuis Plex (pas de
     # contrainte FK, convention du reste du modèle). Une fois lié, has_vf n'est plus
     # scanné indépendamment : il est propagé depuis le LibraryItem (source de vérité
@@ -326,6 +365,8 @@ class LibraryItem(Base):
     vf_category: Mapped[Optional[str]] = mapped_column(default=None)
     vf_checked_at: Mapped[Optional[datetime]]
     vf_available_at: Mapped[Optional[datetime]]
+    # Granularité VF pour les séries — voir MediaRequest.vf_granularity.
+    vf_granularity: Mapped[Optional[str]] = mapped_column(default=None)
 
     created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))

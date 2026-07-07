@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.main import app
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 
@@ -135,6 +135,7 @@ def test_users_page_returns_200_html(client, db):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Alice" in resp.text
+    assert "Preferences de notification" in resp.text
 
 
 def test_logs_page_returns_200_html(client, db):
@@ -150,6 +151,8 @@ def test_settings_page_returns_200_html(client, db):
     resp = client.get("/settings")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
+    assert "Actualiser les librairies Plex" in resp.text
+    assert "Canal email (SMTP)" in resp.text
 
 
 def test_email_templates_page_redirects(client, db):
@@ -453,6 +456,60 @@ def test_requests_page_filter_by_type(client, db):
     assert resp.status_code == 200
     assert "Dune" in resp.text
     assert "Inception" not in resp.text
+
+
+def test_library_counts_bar_shows_partial_vf_counts(client, db):
+    """La barre bibliothèque expose les compteurs VF partiels saison/episode."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.add(
+        LibraryItem(
+            title="Season Partial Show",
+            media_type="show",
+            has_vf=False,
+            vf_granularity="season_partial",
+        )
+    )
+    db.add(
+        LibraryItem(
+            title="Episode Partial Show",
+            media_type="show",
+            has_vf=False,
+            vf_granularity="episode_partial",
+        )
+    )
+    db.commit()
+
+    resp = client.get("/library")
+    assert resp.status_code == 200
+    assert "1 VF Saison Partiel" in resp.text
+    assert "1 VF Episode Partiel" in resp.text
+
+
+def test_library_filter_by_partial_vf_granularity(client, db):
+    """Les badges partiels de la barre filtrent sur la granularite VF."""
+    db.add(Settings(auth_username="admin", auth_password_hash="hash"))
+    db.add(
+        LibraryItem(
+            title="Season Partial Show",
+            media_type="show",
+            has_vf=False,
+            vf_granularity="season_partial",
+        )
+    )
+    db.add(
+        LibraryItem(
+            title="Episode Partial Show",
+            media_type="show",
+            has_vf=False,
+            vf_granularity="episode_partial",
+        )
+    )
+    db.commit()
+
+    resp = client.get("/library?vf=season_partial")
+    assert resp.status_code == 200
+    assert "Season Partial Show" in resp.text
+    assert "Episode Partial Show" not in resp.text
 
 
 def test_requests_page_sort_asc(client, db):

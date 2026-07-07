@@ -10,6 +10,10 @@
 .conn-badge { font-size: 11px; }
 .arr-card { transition: opacity .25s; }
 .tab-warn-dot { font-size: 8px; vertical-align: middle; }
+.settings-section-title { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--pr-text-muted); margin-bottom:.75rem; }
+.notification-summary { border:1px solid var(--pr-border); border-radius:8px; background:var(--pr-surface-2); padding:14px; height:100%; }
+.notification-summary .summary-icon { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:rgba(229,160,13,.12); color:var(--pr-accent); }
+.notification-card-title { display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem; }
 </style>
 
 <form id="settings-form">
@@ -372,19 +376,62 @@
   <!-- ════════════════════════ TAB : NOTIFICATIONS ════════════════════════ -->
   <div class="tab-pane fade" id="tab-notifications" role="tabpanel">
     <div class="row g-4">
+      <div class="col-12">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+          <div>
+            <h5 class="mb-1"><i class="bi bi-bell me-2 text-warning"></i>Notifications</h5>
+            <p class="text-muted small mb-0">Configurez les canaux globaux, les evenements envoyes par defaut et les regles communes.</p>
+          </div>
+          <a href="/users" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-gear me-1"></i>Preferences utilisateurs</a>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-broadcast"></i></div>
+            <div>
+              <div class="fw-semibold">Canaux</div>
+              <div class="text-muted small">Email, Discord, Telegram, ntfy et Gotify. Chaque canal se teste depuis sa carte.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-lightning-charge"></i></div>
+            <div>
+              <div class="fw-semibold">Evenements</div>
+              <div class="text-muted small">Nouvelles demandes, disponibilites, digest, disponibilite partielle et suivi VF.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-sliders"></i></div>
+            <div>
+              <div class="fw-semibold">Regles par defaut</div>
+              <div class="text-muted small">Les utilisateurs peuvent affiner certains choix depuis leur fiche.</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Email SMTP -->
       <div class="col-12">
         <div class="card p-4">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">
-              <i class="bi bi-envelope text-success me-2"></i>Email (SMTP)
+              <i class="bi bi-envelope text-success me-2"></i>Canal email (SMTP)
               <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="smtp" style="font-size:8px" title="Serveur SMTP manquant"></i>
             </h5>
             <span id="conn-badge-smtp" class="conn-badge"></span>
           </div>
           <!-- Serveur d'envoi -->
-          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Serveur d'envoi (SMTP)</h6>
+          <div class="settings-section-title">Connexion SMTP</div>
           <div class="row g-3 mb-4">
             <div class="col-md-5">
               <label class="form-label">Serveur SMTP</label>
@@ -451,7 +498,7 @@
       <!-- Digest quotidien -->
       <div class="col-12">
         <div class="card p-4">
-          <h5 class="mb-3"><i class="bi bi-newspaper text-warning me-2"></i>Digest quotidien</h5>
+          <h5 class="mb-3"><i class="bi bi-newspaper text-warning me-2"></i>Regle par defaut : digest quotidien</h5>
           <p class="text-muted small mb-3">Envoie chaque jour un récapitulatif des demandes des 24h aux utilisateurs ayant activé l'option « Inclure dans le digest ».</p>
           <div class="row g-3 align-items-end">
             <div class="col-auto d-flex align-items-center gap-3 mt-1">
@@ -500,7 +547,49 @@
       <!-- Push -->
       <div class="col-12">
         <div class="card p-4">
-          <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Notifications Push</h5>
+          <h5 class="mb-2"><i class="bi bi-translate text-warning me-2"></i>Regles VO / VF par defaut</h5>
+          <p class="text-muted small mb-3">Controle les jalons de notification linguistique. Les utilisateurs peuvent personnaliser ces modes depuis leur fiche.</p>
+          <div class="row g-3">
+            <div class="col-md-3">
+              <div class="form-check form-switch mt-4">
+                <input class="form-check-input" type="checkbox" name="movie_vo_notify" id="movie_vo_notify" {% if s.movie_vo_notify is not false %}checked{% endif %}>
+                <label class="form-check-label" for="movie_vo_notify">Film disponible en VO</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="form-check form-switch mt-4">
+                <input class="form-check-input" type="checkbox" name="movie_vf_notify" id="movie_vf_notify" {% if s.movie_vf_notify is not false %}checked{% endif %}>
+                <label class="form-check-label" for="movie_vf_notify">Film upgrade VF</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Series VO</label>
+              <select class="form-select" name="series_vo_notify_mode">
+                {% set vo_mode = s.series_vo_notify_mode or 'season_start_and_complete' %}
+                <option value="every_episode" {% if vo_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                <option value="season_complete" {% if vo_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                <option value="series_complete" {% if vo_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                <option value="season_start_and_complete" {% if vo_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Series VF</label>
+              <select class="form-select" name="series_vf_notify_mode">
+                {% set vf_mode = s.series_vf_notify_mode or 'season_start_and_complete' %}
+                <option value="every_episode" {% if vf_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                <option value="season_complete" {% if vf_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                <option value="series_complete" {% if vf_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                <option value="season_start_and_complete" {% if vf_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Push -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Canaux push globaux</h5>
           <div class="row g-3">
             <div class="col-12">
               <h6 class="text-muted mb-2"><i class="bi bi-discord me-1"></i>Discord</h6>
@@ -763,6 +852,48 @@
                 <span class="text-muted small">(cherche une version française)</span></label>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between" style="background:var(--pr-surface-2)">
+        <span><i class="bi bi-tools me-2"></i>Actions manuelles</span>
+        <span class="badge bg-secondary">Administration</span>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Les librairies Plex sont actualisees automatiquement toutes les 24h. Si de nouveaux medias sont trouves,
+          un scan VF est lance en arriere-plan. Ces actions servent uniquement a relancer un traitement global.
+        </p>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <button type="button" class="btn btn-outline-warning d-flex align-items-center gap-1" id="vff-sync-btn" onclick="vffSyncNow(this)">
+            <i class="bi bi-cloud-arrow-down"></i> Actualiser les librairies Plex
+          </button>
+          <button type="button" class="btn btn-warning d-flex align-items-center gap-1" id="vff-scan-btn" onclick="vffScanNow(this)">
+            <i class="bi bi-arrow-clockwise"></i> Scanner VF
+          </button>
+          <div class="form-check form-check-inline m-0 ms-sm-2" title="Ignore le cache par episode et re-verifie tout depuis zero">
+            <input class="form-check-input" type="checkbox" id="vff-force-check">
+            <label class="form-check-label small text-muted" for="vff-force-check">Forcer l'analyse complete</label>
+          </div>
+        </div>
+        <div class="form-text mt-2">
+          Les scans cibles restent disponibles depuis le detail d'un media, d'une saison ou d'un episode.
+        </div>
+        <div id="vff-progress-card" class="mt-3 d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-warning small"><i class="bi bi-translate me-1 spin"></i>Scan VF en cours...</span>
+            <span id="vff-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+          </div>
+          <div class="progress" style="height: 8px;"><div id="vff-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
+        </div>
+        <div id="plex-sync-progress-card" class="mt-3 d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-warning small"><i class="bi bi-cloud-arrow-down me-1 spin"></i>Actualisation Plex en cours...</span>
+            <span id="plex-sync-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+          </div>
+          <div class="progress" style="height: 8px;"><div id="plex-sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
         </div>
       </div>
     </div>
@@ -1367,6 +1498,8 @@ function initVffTab() {
   if (_vffInitDone) return;
   _vffInitDone = true;
   loadVffSections();
+  checkVffScanStatus();
+  checkVffSyncStatus();
 }
 
 function _vffCurrentConfig() {
@@ -1419,6 +1552,98 @@ async function loadVffSections() {
     sel.value = current;
     container.appendChild(row);
   });
+}
+
+let vffPollInterval = null;
+async function checkVffScanStatus() {
+  try {
+    const d = await fetch('/api/vff/scan-status').then(r => r.json());
+    const card = document.getElementById('vff-progress-card');
+    const btn = document.getElementById('vff-scan-btn');
+    if (!card || !btn) return;
+    if (d.status === 'running') {
+      card.classList.remove('d-none');
+      btn.disabled = true;
+      btn.querySelector('i')?.classList.add('spin');
+      document.getElementById('vff-progress-text').textContent = `${d.items_scanned} / ${d.total_items || '?'}`;
+      document.getElementById('vff-progress-bar').style.width = (d.total_items ? (d.items_scanned / d.total_items) * 100 : 0) + '%';
+      if (!vffPollInterval) vffPollInterval = setInterval(checkVffScanStatus, 1500);
+    } else {
+      if (vffPollInterval) {
+        clearInterval(vffPollInterval);
+        vffPollInterval = null;
+        showToast('Scan VF termine', 'success');
+      }
+      card.classList.add('d-none');
+      btn.disabled = false;
+      btn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) {}
+}
+
+let plexSyncPollInterval = null;
+async function checkVffSyncStatus() {
+  try {
+    const d = await fetch('/api/vff/sync-status').then(r => r.json());
+    const card = document.getElementById('plex-sync-progress-card');
+    const btn = document.getElementById('vff-sync-btn');
+    if (!card || !btn) return;
+    if (d.status === 'running') {
+      card.classList.remove('d-none');
+      btn.disabled = true;
+      btn.querySelector('i')?.classList.add('spin');
+      document.getElementById('plex-sync-progress-text').textContent = `${d.items_synced} / ${d.total_items || '?'}`;
+      document.getElementById('plex-sync-progress-bar').style.width = (d.total_items ? (d.items_synced / d.total_items) * 100 : 0) + '%';
+      if (!plexSyncPollInterval) plexSyncPollInterval = setInterval(checkVffSyncStatus, 1500);
+    } else {
+      if (plexSyncPollInterval) {
+        clearInterval(plexSyncPollInterval);
+        plexSyncPollInterval = null;
+        showToast('Actualisation Plex terminee', 'success');
+      }
+      card.classList.add('d-none');
+      btn.disabled = false;
+      btn.querySelector('i')?.classList.remove('spin');
+    }
+  } catch (e) {}
+}
+
+async function vffScanNow(btn) {
+  const force = document.getElementById('vff-force-check')?.checked;
+  if (force && !await confirmAction({ title:'Forcer le scan VF', body:'Purger le cache VF et re-verifier tous les medias ?', okLabel:'Forcer' })) return;
+  btn.disabled = true;
+  btn.querySelector('i')?.classList.add('spin');
+  try {
+    const res = await fetch(`/api/vff/scan${force ? '?force=true' : ''}`, { method:'POST' }).then(r => r.json());
+    if (res.status === 'started' || res.status === 'already_running') {
+      showToast('Scan VF lance', 'info');
+      checkVffScanStatus();
+    } else {
+      throw new Error('Echec');
+    }
+  } catch (e) {
+    showToast('Erreur reseau', 'danger');
+    btn.disabled = false;
+    btn.querySelector('i')?.classList.remove('spin');
+  }
+}
+
+async function vffSyncNow(btn) {
+  btn.disabled = true;
+  btn.querySelector('i')?.classList.add('spin');
+  try {
+    const res = await fetch('/api/vff/sync-plex', { method:'POST' }).then(r => r.json());
+    if (res.status === 'started' || res.status === 'already_running') {
+      showToast('Actualisation Plex lancee', 'info');
+      checkVffSyncStatus();
+    } else {
+      throw new Error('Echec');
+    }
+  } catch (e) {
+    showToast('Erreur reseau', 'danger');
+    btn.disabled = false;
+    btn.querySelector('i')?.classList.remove('spin');
+  }
 }
 
 async function saveSettings() {

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 import pytest
-from app.services.vff import get_audio_info, show_has_full_french_audio
+from app.services.vff import compute_vf_granularity, get_audio_info, show_has_full_french_audio
 
 def test_get_audio_info_filename_fallback():
     # Mock a Plex movie with no audio streams tagged as French, but file path containing VFF
@@ -245,3 +245,36 @@ async def test_sync_plex_media():
         assert item.arr_id == 42
         assert item.arr_slug == "new-movie-from-plex"
 
+
+
+# ---------------------------------------------------------------------------
+# compute_vf_granularity
+# ---------------------------------------------------------------------------
+
+
+def test_granularity_none_episode_status():
+    assert compute_vf_granularity(None) == "none"
+    assert compute_vf_granularity({}) == "none"
+
+
+def test_granularity_none_all_vo():
+    episode_status = {1: {1: False, 2: False}, 2: {1: False}}
+    assert compute_vf_granularity(episode_status) == "none"
+
+
+def test_granularity_episode_partial_scattered_episodes():
+    """Quelques episodes VF epars, aucune saison entiere -> episode_partial."""
+    episode_status = {1: {1: True, 2: False}, 2: {1: False, 2: False}}
+    assert compute_vf_granularity(episode_status) == "episode_partial"
+
+
+def test_granularity_season_partial_one_full_season():
+    """Une saison entiere en VF (saison 1), le reste en VO -> season_partial."""
+    episode_status = {1: {1: True, 2: True}, 2: {1: False, 2: False}}
+    assert compute_vf_granularity(episode_status) == "season_partial"
+
+
+def test_granularity_season_partial_takes_priority_over_episode_partial():
+    """Une saison complete en VF + des episodes epars ailleurs -> season_partial prime."""
+    episode_status = {1: {1: True, 2: True}, 2: {1: True, 2: False}}
+    assert compute_vf_granularity(episode_status) == "season_partial"

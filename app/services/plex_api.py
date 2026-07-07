@@ -120,23 +120,31 @@ def _parse_api_item(item: dict, username: str) -> dict:
     }
 
 
-async def check_connection(plex_url: str, plex_token: str) -> tuple[bool, str]:
-    """Vérifie la validité du token Plex en interrogeant le profil utilisateur.
+async def check_connection(plex_url: str, plex_token: str, verify_ssl: bool = True) -> tuple[bool, str]:
+    """Vérifie que le serveur Plex local (plex_url) est joignable et que le token est valide.
+
+    Interroge directement plex_url (pas plex.tv) : valider uniquement le token contre
+    plex.tv donnait un faux positif si plex_url était mal configuré/injoignable (ex:
+    mauvaise IP) alors que le token restait valide par ailleurs — l'app ne peut
+    pourtant rien faire (bibliothèques, VF...) sans accès réel au serveur local.
 
     Returns:
         (success, message)
     """
+    if not plex_url:
+        return False, "URL Plex non configurée"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=10, verify=verify_ssl) as client:
             resp = await client.get(
-                f"{PLEX_TV_BASE}/api/v2/user",
+                f"{plex_url.rstrip('/')}/identity",
                 headers={"X-Plex-Token": plex_token, "Accept": "application/json"},
             )
             resp.raise_for_status()
-            user = resp.json()
-            return True, f"Connecté en tant que {user.get('username', 'inconnu')}"
+            data = resp.json()
+        machine_id = (data.get("MediaContainer") or {}).get("machineIdentifier")
+        return True, "Serveur Plex joignable" + (f" ({machine_id})" if machine_id else "")
     except Exception as e:
-        return False, str(e)
+        return False, f"Connexion au serveur Plex impossible : {e}"
 
 
 async def get_auth_pin(forward_url: str = "") -> dict:
