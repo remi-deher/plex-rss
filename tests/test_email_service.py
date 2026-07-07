@@ -15,6 +15,8 @@ from app.services.email_service import (
     send_failure_notification,
     send_partially_available_notification,
     send_request_notification,
+    send_vf_available_notification,
+    send_vo_only_notification,
 )
 
 
@@ -196,7 +198,7 @@ async def test_send_available_subject_and_body():
         await send_available_notification(_settings(), _req(), "dest@example.com")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Disponible : Inception"
+    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex !"
     assert "Inception" in msg.as_string()
 
 
@@ -219,9 +221,9 @@ async def test_send_available_vf_uses_merged_template():
         await send_available_vf_notification(_settings(), _req(), "dest@example.com")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Disponible en VF : Inception"
+    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VF !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible directement en VF" in body
+    assert "Disponible sur Plex en VF !" in body
 
 
 @pytest.mark.asyncio
@@ -231,9 +233,36 @@ async def test_send_available_vo_tracking_uses_merged_template():
         await send_available_vo_tracking_notification(_settings(), _req(), "dest@example.com")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Disponible en VO : Inception"
+    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VO !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Disponible sur Plex en VO !" in body
     assert "Le suivi VF reste actif" in body
+
+
+@pytest.mark.asyncio
+async def test_send_vf_available_uses_episode_milestone_template():
+    """Un jalon VF par épisode utilise le template dédié."""
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_vf_available_notification(_settings(), _req(media_type="show"), "dest@example.com", reason="VF S01E02")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "[Plexarr] Inception : nouvel épisode en VF sur Plex !"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Nouvel episode en VF !" in body
+    assert "VF S01E02" in body
+
+
+@pytest.mark.asyncio
+async def test_send_vo_only_uses_season_start_milestone_template():
+    """Un jalon VO début de saison utilise le template dédié."""
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_vo_only_notification(_settings(), _req(media_type="show"), "dest@example.com", reason="VO saison 1 demarree")
+
+    msg = mock_send.call_args[0][0]
+    assert msg["Subject"] == "[Plexarr] Inception : saison démarrée en VO sur Plex !"
+    body = msg.get_payload(0).get_payload(decode=True).decode()
+    assert "Saison démarrée en VO !" in body
+    assert "VO saison 1 demarree" in body
 
 
 # ---------------------------------------------------------------------------

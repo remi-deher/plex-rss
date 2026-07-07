@@ -2713,7 +2713,7 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
             settings.email_available_subject
             if (settings and isinstance(settings.email_available_subject, str))
             else None
-        ) or "[Plexarr] Disponible : {{ title }}"
+        ) or "[Plexarr] {{ title }} est disponible sur Plex !"
     else:
         tpl = (
             settings.email_request_template if (settings and isinstance(settings.email_request_template, str)) else None
@@ -2725,7 +2725,9 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
     rendered_subject = render_template(subject_tmpl, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):
         rendered_subject = (
-            f"[Plexarr] Nouvelle demande : {fake.title}" if event == "request" else f"[Plexarr] Disponible : {fake.title}"
+            f"[Plexarr] Nouvelle demande : {fake.title}"
+            if event == "request"
+            else f"[Plexarr] {fake.title} est disponible sur Plex !"
         )
 
     html = render_template(tpl, ctx)

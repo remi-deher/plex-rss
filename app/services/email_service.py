@@ -12,6 +12,7 @@ Les templates sont rendus avec Jinja2 (variables : title, year, poster_url, plex
 """
 
 import logging
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -109,7 +110,7 @@ DEFAULT_VO_ONLY_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Disponible en VO</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VO !</h1>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -136,7 +137,7 @@ DEFAULT_VF_AVAILABLE_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">La VF est disponible !</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VF !</h1>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -165,7 +166,7 @@ DEFAULT_AVAILABLE_VF_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#1db954;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Disponible directement en VF</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VF !</h1>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -192,7 +193,7 @@ DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE = """<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
   <tr><td style="background:#0d6efd;padding:24px;text-align:center">
-    <h1 style="color:#fff;margin:0;font-size:22px">Disponible en VO</h1>
+    <h1 style="color:#fff;margin:0;font-size:22px">Disponible sur Plex en VO !</h1>
   </td></tr>
   <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
     {% if poster_url %}
@@ -210,6 +211,114 @@ DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE = """<!DOCTYPE html>
     </p>
     <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
     <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi VF</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_LANGUAGE_EPISODE_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#0d6efd;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Nouvel episode en {{ language }} !</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      Un nouvel épisode est maintenant disponible en <strong>{{ language }}</strong> sur Plex.
+    </p>
+    <p style="margin:14px 0 0;padding:10px 12px;background:#182a3d;border-left:4px solid #0d6efd;color:#d7e7ff;font-size:13px">
+      {{ language_reason }}
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi {{ language }}</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_LANGUAGE_SEASON_START_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#0d6efd;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Saison démarrée en {{ language }} !</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#0d6efd">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      Le premier épisode suivi de la saison est maintenant disponible en <strong>{{ language }}</strong> sur Plex.
+    </p>
+    <p style="margin:14px 0 0;padding:10px 12px;background:#182a3d;border-left:4px solid #0d6efd;color:#d7e7ff;font-size:13px">
+      {{ language_reason }}
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi {{ language }}</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#1db954;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Saison complete en {{ language }} !</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      Une saison complete est maintenant disponible en <strong>{{ language }}</strong> sur Plex.
+    </p>
+    <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
+      {{ language_reason }}
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi {{ language }}</p>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE = """<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#141414;font-family:Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:auto">
+  <tr><td style="background:#1db954;padding:24px;text-align:center">
+    <h1 style="color:#fff;margin:0;font-size:22px">Série complete en {{ language }} !</h1>
+  </td></tr>
+  <tr><td style="background:#1f1f1f;padding:28px;color:#fff">
+    {% if poster_url %}
+    <img src="{{ poster_url }}" style="width:110px;float:right;border-radius:8px;margin:0 0 12px 20px" alt="poster">
+    {% endif %}
+    <h2 style="margin:0 0 8px">{{ title }}{% if year %} <span style="color:#aaa;font-weight:normal">({{ year }})</span>{% endif %}</h2>
+    <p style="margin:4px 0;color:#aaa">
+      <strong style="color:#1db954">Demandé par :</strong> {{ plex_user }}
+    </p>
+    <p style="margin:20px 0 0;font-size:16px">
+      La série est maintenant complete en <strong>{{ language }}</strong> sur Plex.
+    </p>
+    <p style="margin:14px 0 0;padding:10px 12px;background:#193a28;border-left:4px solid #1db954;color:#d7f5df;font-size:13px">
+      {{ language_reason }}
+    </p>
+    <hr style="border:none;border-top:1px solid #333;margin:20px 0;clear:both">
+    <p style="color:#888;font-size:12px;margin:0">Géré par Plexarr — suivi {{ language }}</p>
   </td></tr>
 </table>
 </body></html>"""
@@ -261,6 +370,88 @@ def _build_context(request: MediaRequest, display_name: str | None = None) -> di
         "overview": request.overview or "",
         "genres": getattr(request, "genres", "") or "",
     }
+
+
+def _language_milestone_type(reason: str) -> str | None:
+    reason = (reason or "").strip()
+    lower = reason.lower()
+    if re.search(r"\b(vo|vf)\s+s\d{2}e\d{2}\b", lower, flags=re.IGNORECASE):
+        return "episode"
+    if "saison" in lower and ("demarree" in lower or "démarrée" in lower):
+        return "season_start"
+    if "saison" in lower and "complete" in lower:
+        return "season_complete"
+    if "serie complete" in lower or "série complète" in lower:
+        return "series_complete"
+    return None
+
+
+def _language_from_reason(reason: str, fallback: str = "VF") -> str:
+    reason = (reason or "").strip().upper()
+    if reason.startswith("VO"):
+        return "VO"
+    if reason.startswith("VF"):
+        return "VF"
+    return fallback
+
+
+def _language_milestone_defaults(milestone_type: str):
+    defaults = {
+        "episode": (
+            "email_language_episode_template",
+            "email_language_episode_subject",
+            DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
+            "[Plexarr] {{ title }} : nouvel épisode en {{ language }} sur Plex !",
+        ),
+        "season_start": (
+            "email_language_season_start_template",
+            "email_language_season_start_subject",
+            DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
+            "[Plexarr] {{ title }} : saison démarrée en {{ language }} sur Plex !",
+        ),
+        "season_complete": (
+            "email_language_season_complete_template",
+            "email_language_season_complete_subject",
+            DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
+            "[Plexarr] {{ title }} : saison complète en {{ language }} sur Plex !",
+        ),
+        "series_complete": (
+            "email_language_series_complete_template",
+            "email_language_series_complete_subject",
+            DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
+            "[Plexarr] {{ title }} est entièrement disponible en {{ language }} sur Plex !",
+        ),
+    }
+    return defaults[milestone_type]
+
+
+def _render_language_milestone_email(
+    settings: Settings,
+    request: MediaRequest,
+    ctx: dict,
+    reason: str,
+    fallback_language: str = "VF",
+) -> tuple[str, str] | None:
+    milestone_type = _language_milestone_type(reason)
+    if not milestone_type:
+        return None
+    language = _language_from_reason(reason, fallback_language)
+    ctx.update(
+        {
+            "language": language,
+            "language_lower": language.lower(),
+            "language_reason": reason,
+            "language_milestone_type": milestone_type,
+        }
+    )
+    template_attr, subject_attr, default_template, default_subject = _language_milestone_defaults(milestone_type)
+    template = getattr(settings, template_attr, None) if isinstance(getattr(settings, template_attr, None), str) else None
+    subject_tmpl = getattr(settings, subject_attr, None) if isinstance(getattr(settings, subject_attr, None), str) else None
+    html = render_template(template or default_template, ctx)
+    subject = render_template(subject_tmpl or default_subject, ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plexarr] {request.title} : {reason}"
+    return subject, html
 
 
 def render_template(template_str: str, context: dict) -> str:
@@ -324,10 +515,10 @@ async def send_available_notification(
     template = template or DEFAULT_AVAILABLE_TEMPLATE
     html = render_template(template, ctx)
     subject_tmpl = settings.email_available_subject if isinstance(settings.email_available_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plexarr] Disponible : {{ title }}"
+    subject_tmpl = subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex !"
     subject = render_template(subject_tmpl, ctx)
     if subject.startswith("<p>Erreur de template"):
-        subject = f"[Plexarr] Disponible : {request.title}"
+        subject = f"[Plexarr] {request.title} est disponible sur Plex !"
     await _send(settings, recipient, subject, html)
 
 
@@ -337,8 +528,13 @@ async def send_vo_only_notification(
     """Envoie l'email « disponible mais en VO uniquement » (suivi VFF)."""
     ctx = _build_context(request, display_name)
     ctx["language_reason"] = reason or "Suivi VF actif"
+    milestone_email = _render_language_milestone_email(settings, request, ctx, reason, fallback_language="VO")
+    if milestone_email:
+        subject, html = milestone_email
+        await _send(settings, recipient, subject, html)
+        return
     html = render_template(DEFAULT_VO_ONLY_TEMPLATE, ctx)
-    subject = f"[Plexarr] Disponible en VO : {request.title}"
+    subject = f"[Plexarr] {request.title} est disponible sur Plex en VO !"
     await _send(settings, recipient, subject, html)
 
 
@@ -348,10 +544,25 @@ async def send_vf_available_notification(
     """Envoie l'email « la VF est maintenant disponible » (suivi VFF)."""
     ctx = _build_context(request, display_name)
     ctx["language_reason"] = reason
-    html = render_template(DEFAULT_VF_AVAILABLE_TEMPLATE, ctx)
-    subject = f"[Plexarr] VF disponible : {request.title}"
-    if reason:
-        subject = f"[Plexarr] {reason} : {request.title}"
+    milestone_email = _render_language_milestone_email(settings, request, ctx, reason, fallback_language="VF")
+    if milestone_email:
+        subject, html = milestone_email
+        await _send(settings, recipient, subject, html)
+        return
+    template = (
+        settings.email_vf_upgrade_template
+        if isinstance(getattr(settings, "email_vf_upgrade_template", None), str)
+        else None
+    )
+    html = render_template(template or DEFAULT_VF_AVAILABLE_TEMPLATE, ctx)
+    subject_tmpl = (
+        settings.email_vf_upgrade_subject
+        if isinstance(getattr(settings, "email_vf_upgrade_subject", None), str)
+        else None
+    )
+    subject = render_template(subject_tmpl or "[Plexarr] {{ title }} est désormais disponible sur Plex en VF !", ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plexarr] {request.title} est désormais disponible sur Plex en VF !"
     await _send(settings, recipient, subject, html)
 
 
@@ -360,8 +571,20 @@ async def send_available_vf_notification(
 ):
     """Envoie un seul email quand la disponibilitÃ© initiale est dÃ©jÃ  en VF."""
     ctx = _build_context(request, display_name)
-    html = render_template(DEFAULT_AVAILABLE_VF_TEMPLATE, ctx)
-    subject = f"[Plexarr] Disponible en VF : {request.title}"
+    template = (
+        settings.email_available_vf_template
+        if isinstance(getattr(settings, "email_available_vf_template", None), str)
+        else None
+    )
+    html = render_template(template or DEFAULT_AVAILABLE_VF_TEMPLATE, ctx)
+    subject_tmpl = (
+        settings.email_available_vf_subject
+        if isinstance(getattr(settings, "email_available_vf_subject", None), str)
+        else None
+    )
+    subject = render_template(subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex en VF !", ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plexarr] {request.title} est disponible sur Plex en VF !"
     await _send(settings, recipient, subject, html)
 
 
@@ -370,8 +593,20 @@ async def send_available_vo_tracking_notification(
 ):
     """Envoie un seul email quand la disponibilitÃ© initiale est VO avec suivi VF."""
     ctx = _build_context(request, display_name)
-    html = render_template(DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE, ctx)
-    subject = f"[Plexarr] Disponible en VO : {request.title}"
+    template = (
+        settings.email_available_vo_tracking_template
+        if isinstance(getattr(settings, "email_available_vo_tracking_template", None), str)
+        else None
+    )
+    html = render_template(template or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE, ctx)
+    subject_tmpl = (
+        settings.email_available_vo_tracking_subject
+        if isinstance(getattr(settings, "email_available_vo_tracking_subject", None), str)
+        else None
+    )
+    subject = render_template(subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex en VO !", ctx)
+    if subject.startswith("<p>Erreur de template"):
+        subject = f"[Plexarr] {request.title} est disponible sur Plex en VO !"
     await _send(settings, recipient, subject, html)
 
 

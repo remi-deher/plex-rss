@@ -9,8 +9,15 @@ from ..database import get_db
 from ..models import PlexUser, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_AVAILABLE_VF_TEMPLATE,
+    DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
+    DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
+    DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
+    DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_VF_AVAILABLE_TEMPLATE,
     add_email_footer,
     render_template,
 )
@@ -41,6 +48,9 @@ SAMPLE_CONTEXT = {
     "overview": "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille.",
    "genres": "Crime, Drame, Thriller",
    "language_reason": "VF saison 1 complete",
+   "language": "VF",
+   "language_lower": "vf",
+   "language_milestone_type": "season_complete",
 }
 
 
@@ -64,15 +74,100 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     if body.type == "available":
         ctx["media_type_label"] = "Série"
         ctx["media_type_label_cap"] = "La série"
+    elif body.type in ("available_vf", "available_vo_tracking", "vf_upgrade"):
+        ctx["media_type_label"] = "Film"
+        ctx["media_type_label_cap"] = "Le film"
+        ctx["language_reason"] = "VF film complet"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+    elif body.type.startswith("language_"):
+        ctx["media_type_label"] = "Série"
+        ctx["media_type_label_cap"] = "La série"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+        if body.type == "language_episode":
+            ctx["language_reason"] = "VF S01E02"
+            ctx["language_milestone_type"] = "episode"
+        elif body.type == "language_season_start":
+            ctx["language_reason"] = "VF saison 1 demarree"
+            ctx["language_milestone_type"] = "season_start"
+        elif body.type == "language_season_complete":
+            ctx["language_reason"] = "VF saison 1 complete"
+            ctx["language_milestone_type"] = "season_complete"
+        elif body.type == "language_series_complete":
+            ctx["language_reason"] = "VF serie complete"
+            ctx["language_milestone_type"] = "series_complete"
+    elif body.type in ("available_vf", "available_vo_tracking", "vf_upgrade"):
+        ctx["media_type_label"] = "Film"
+        ctx["media_type_label_cap"] = "Le film"
+        ctx["language_reason"] = "VF film complet"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+    elif body.type.startswith("language_"):
+        ctx["media_type_label"] = "Série"
+        ctx["media_type_label_cap"] = "La série"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+        if body.type == "language_episode":
+            ctx["language_reason"] = "VF S01E02"
+            ctx["language_milestone_type"] = "episode"
+        elif body.type == "language_season_start":
+            ctx["language_reason"] = "VF saison 1 demarree"
+            ctx["language_milestone_type"] = "season_start"
+        elif body.type == "language_season_complete":
+            ctx["language_reason"] = "VF saison 1 complete"
+            ctx["language_milestone_type"] = "season_complete"
+        elif body.type == "language_series_complete":
+            ctx["language_reason"] = "VF serie complete"
+            ctx["language_milestone_type"] = "series_complete"
     elif body.type == "failure":
         ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
+
+    if body.type in ("available_vf", "available_vo_tracking", "vf_upgrade") and "language_reason" not in ctx:
+        ctx["media_type_label"] = "Film"
+        ctx["media_type_label_cap"] = "Le film"
+        ctx["language_reason"] = "VF film complet"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+
+    if body.type.startswith("language_"):
+        ctx["media_type_label"] = "Série"
+        ctx["media_type_label_cap"] = "La série"
+        ctx["language"] = "VF"
+        ctx["language_lower"] = "vf"
+        if body.type == "language_episode":
+            ctx["language_reason"] = "VF S01E02"
+            ctx["language_milestone_type"] = "episode"
+        elif body.type == "language_season_start":
+            ctx["language_reason"] = "VF saison 1 demarree"
+            ctx["language_milestone_type"] = "season_start"
+        elif body.type == "language_season_complete":
+            ctx["language_reason"] = "VF saison 1 complete"
+            ctx["language_milestone_type"] = "season_complete"
+        elif body.type == "language_series_complete":
+            ctx["language_reason"] = "VF serie complete"
+            ctx["language_milestone_type"] = "series_complete"
 
     rendered_subject = render_template(body.subject, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):
         if body.type == "request":
             rendered_subject = f"[Plexarr] Nouvelle demande : {ctx['title']}"
         elif body.type == "available":
-            rendered_subject = f"[Plexarr] Disponible : {ctx['title']}"
+            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex !"
+        elif body.type == "available_vf":
+            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex en VF !"
+        elif body.type == "available_vo_tracking":
+            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex en VO !"
+        elif body.type == "vf_upgrade":
+            rendered_subject = f"[Plexarr] {ctx['title']} est désormais disponible sur Plex en VF !"
+        elif body.type == "language_episode":
+            rendered_subject = f"[Plexarr] {ctx['title']} : nouvel épisode en {ctx['language']} sur Plex !"
+        elif body.type == "language_season_start":
+            rendered_subject = f"[Plexarr] {ctx['title']} : saison démarrée en {ctx['language']} sur Plex !"
+        elif body.type == "language_season_complete":
+            rendered_subject = f"[Plexarr] {ctx['title']} : saison complète en {ctx['language']} sur Plex !"
+        elif body.type == "language_series_complete":
+            rendered_subject = f"[Plexarr] {ctx['title']} est entièrement disponible en {ctx['language']} sur Plex !"
         else:
             rendered_subject = f"[Plexarr] Échec de transmission : {ctx['title']}"
 
@@ -105,9 +200,23 @@ class SaveTemplates(BaseModel):
     email_request_template: str
     email_available_template: str
     email_failure_template: str
+    email_available_vf_template: str
+    email_available_vo_tracking_template: str
+    email_vf_upgrade_template: str
+    email_language_episode_template: str
+    email_language_season_start_template: str
+    email_language_season_complete_template: str
+    email_language_series_complete_template: str
     email_request_subject: Optional[str] = None
     email_available_subject: Optional[str] = None
     email_failure_subject: Optional[str] = None
+    email_available_vf_subject: Optional[str] = None
+    email_available_vo_tracking_subject: Optional[str] = None
+    email_vf_upgrade_subject: Optional[str] = None
+    email_language_episode_subject: Optional[str] = None
+    email_language_season_start_subject: Optional[str] = None
+    email_language_season_complete_subject: Optional[str] = None
+    email_language_series_complete_subject: Optional[str] = None
 
 
 @router.put("/api/email-templates")
@@ -116,9 +225,23 @@ def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
     s.email_request_template = body.email_request_template
     s.email_available_template = body.email_available_template
     s.email_failure_template = body.email_failure_template
+    s.email_available_vf_template = body.email_available_vf_template
+    s.email_available_vo_tracking_template = body.email_available_vo_tracking_template
+    s.email_vf_upgrade_template = body.email_vf_upgrade_template
+    s.email_language_episode_template = body.email_language_episode_template
+    s.email_language_season_start_template = body.email_language_season_start_template
+    s.email_language_season_complete_template = body.email_language_season_complete_template
+    s.email_language_series_complete_template = body.email_language_series_complete_template
     s.email_request_subject = body.email_request_subject
     s.email_available_subject = body.email_available_subject
     s.email_failure_subject = body.email_failure_subject
+    s.email_available_vf_subject = body.email_available_vf_subject
+    s.email_available_vo_tracking_subject = body.email_available_vo_tracking_subject
+    s.email_vf_upgrade_subject = body.email_vf_upgrade_subject
+    s.email_language_episode_subject = body.email_language_episode_subject
+    s.email_language_season_start_subject = body.email_language_season_start_subject
+    s.email_language_season_complete_subject = body.email_language_season_complete_subject
+    s.email_language_series_complete_subject = body.email_language_series_complete_subject
     db.commit()
     return {"status": "ok"}
 
@@ -129,9 +252,23 @@ def reset_templates(db: Session = Depends(get_db)):
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
     s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
+    s.email_available_vf_template = DEFAULT_AVAILABLE_VF_TEMPLATE
+    s.email_available_vo_tracking_template = DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE
+    s.email_vf_upgrade_template = DEFAULT_VF_AVAILABLE_TEMPLATE
+    s.email_language_episode_template = DEFAULT_LANGUAGE_EPISODE_TEMPLATE
+    s.email_language_season_start_template = DEFAULT_LANGUAGE_SEASON_START_TEMPLATE
+    s.email_language_season_complete_template = DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE
+    s.email_language_series_complete_template = DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE
     s.email_request_subject = None
     s.email_available_subject = None
     s.email_failure_subject = None
+    s.email_available_vf_subject = None
+    s.email_available_vo_tracking_subject = None
+    s.email_vf_upgrade_subject = None
+    s.email_language_episode_subject = None
+    s.email_language_season_start_subject = None
+    s.email_language_season_complete_subject = None
+    s.email_language_series_complete_subject = None
     db.commit()
     return {"status": "ok"}
 
@@ -176,6 +313,11 @@ async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db)):
         ctx["media_type_label_cap"] = "La série"
     elif body.type == "failure":
         ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
+
+    if body.type in ("available_vf", "available_vo_tracking", "vf_upgrade") and "language_reason" not in ctx:
+        ctx["media_type_label"] = "Film"
+        ctx["media_type_label_cap"] = "Le film"
+        ctx["language_reason"] = "VF film complet"
 
     rendered_subject = render_template(body.subject, ctx)
     if rendered_subject.startswith("<p>Erreur de template"):

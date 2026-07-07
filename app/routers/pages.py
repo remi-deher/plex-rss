@@ -15,7 +15,18 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
-from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_FAILURE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE
+from ..services.email_service import (
+    DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_AVAILABLE_VF_TEMPLATE,
+    DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
+    DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
+    DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
+    DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
+    DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
+    DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_VF_AVAILABLE_TEMPLATE,
+)
 from ..utils import identity_keys as _identity_keys
 
 router = APIRouter(tags=["pages"])
@@ -486,9 +497,33 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
             "request_template": (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE,
             "available_template": (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
             "failure_template": (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE,
+            "available_vf_template": (s.email_available_vf_template if s else None) or DEFAULT_AVAILABLE_VF_TEMPLATE,
+            "available_vo_tracking_template": (
+                s.email_available_vo_tracking_template if s else None
+            ) or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
+            "vf_upgrade_template": (s.email_vf_upgrade_template if s else None) or DEFAULT_VF_AVAILABLE_TEMPLATE,
+            "language_episode_template": (
+                s.email_language_episode_template if s else None
+            ) or DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
+            "language_season_start_template": (
+                s.email_language_season_start_template if s else None
+            ) or DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
+            "language_season_complete_template": (
+                s.email_language_season_complete_template if s else None
+            ) or DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
+            "language_series_complete_template": (
+                s.email_language_series_complete_template if s else None
+            ) or DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
             "request_subject": (s.email_request_subject if s else None) or "",
             "available_subject": (s.email_available_subject if s else None) or "",
             "failure_subject": (s.email_failure_subject if s else None) or "",
+            "available_vf_subject": (s.email_available_vf_subject if s else None) or "",
+            "available_vo_tracking_subject": (s.email_available_vo_tracking_subject if s else None) or "",
+            "vf_upgrade_subject": (s.email_vf_upgrade_subject if s else None) or "",
+            "language_episode_subject": (s.email_language_episode_subject if s else None) or "",
+            "language_season_start_subject": (s.email_language_season_start_subject if s else None) or "",
+            "language_season_complete_subject": (s.email_language_season_complete_subject if s else None) or "",
+            "language_series_complete_subject": (s.email_language_series_complete_subject if s else None) or "",
             "template_variables": [
                 ("{{ title }}", "Titre du film ou de la série"),
                 ("{{ year }}", "Année de sortie"),
@@ -498,7 +533,9 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
                 ("{{ media_type_label_cap }}", "Le film / La série"),
                 ("{{ overview }}", "Synopsis"),
                 ("{{ genres }}", "Genres (ex: Action, Drame)"),
+                ("{{ language }}", "Langue du jalon (VF ou VO)"),
                 ("{{ language_reason }}", "Jalon VO/VF (ex: VF saison 1 complete)"),
+                ("{{ language_milestone_type }}", "Type de jalon : episode, season_start, season_complete, series_complete"),
                 ("{{ reason }}", "Raison de l'échec (email d'échec uniquement)"),
             ],
         },

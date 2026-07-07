@@ -1009,31 +1009,6 @@
   <!-- ════════════════════════ TAB : TEMPLATES ════════════════════════ -->
   <div class="tab-pane fade" id="tab-templates" role="tabpanel">
 
-    <div class="row g-3 mb-3">
-      <div class="col-lg-8">
-        <div class="card p-3 h-100" style="background:var(--pr-surface-2)">
-          <h6 class="mb-2"><i class="bi bi-envelope-check text-warning me-2"></i>Templates Plexarr</h6>
-          <p class="text-muted small mb-2">
-            Les trois templates ci-dessous restent les bases personnalisables. Les notifications VO/VF utilisent des variantes automatiques pour &eacute;viter les doublons :
-            <strong>Disponible en VF</strong>, <strong>Disponible en VO + suivi VF</strong>, puis <strong>Upgrade VF</strong> si la VF arrive plus tard.
-          </p>
-          <p class="text-muted small mb-0">
-            Ces variantes sont choisies par Plexarr au moment de l'envoi. Le footer de cr&eacute;dit est ajout&eacute; automatiquement &agrave; tous les emails, m&ecirc;me si vous utilisez un template custom.
-          </p>
-        </div>
-      </div>
-      <div class="col-lg-4">
-        <div class="card p-3 h-100" style="background:var(--pr-surface-2)">
-          <h6 class="mb-2"><i class="bi bi-info-circle text-info me-2"></i>Footer email</h6>
-          <div class="small text-muted">Tous les mails incluent :</div>
-          <div class="mt-2 p-2 rounded text-center" style="border:1px solid var(--pr-border);background:var(--pr-surface)">
-            Plexarr &mdash; Logiciel cr&eacute;e par
-            <a href="https://github.com/remi-deher/plex-rss" target="_blank" rel="noopener" class="text-warning text-decoration-none">DEHER R&eacute;mi</a>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Variables disponibles -->
     <div class="card p-3 mb-3" style="background:var(--pr-surface-2)">
       <h6 class="mb-2 text-muted">Variables disponibles</h6>
@@ -1055,6 +1030,41 @@
       <li class="nav-item">
         <button class="nav-link" id="tmpl-tab-available" onclick="tmplSwitchTab('available')">
           <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-available_vf" onclick="tmplSwitchTab('available_vf')">
+          <i class="bi bi-translate me-1"></i>Disponible en VF
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-available_vo_tracking" onclick="tmplSwitchTab('available_vo_tracking')">
+          <i class="bi bi-soundwave me-1"></i>VO + suivi VF
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-vf_upgrade" onclick="tmplSwitchTab('vf_upgrade')">
+          <i class="bi bi-arrow-up-circle me-1"></i>Upgrade VF
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-language_episode" onclick="tmplSwitchTab('language_episode')">
+          <i class="bi bi-collection-play me-1"></i>Suivi episode
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-language_season_start" onclick="tmplSwitchTab('language_season_start')">
+          <i class="bi bi-play-circle me-1"></i>Debut saison
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-language_season_complete" onclick="tmplSwitchTab('language_season_complete')">
+          <i class="bi bi-check2-circle me-1"></i>Saison complete
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" id="tmpl-tab-language_series_complete" onclick="tmplSwitchTab('language_series_complete')">
+          <i class="bi bi-check-all me-1"></i>Serie complete
         </button>
       </li>
       <li class="nav-item">
@@ -1083,7 +1093,35 @@
           </div>
           <div id="tmpl-subject-group-available" style="display:none">
             <label class="form-label small text-muted">Objet (Disponible sur Plex)</label>
-            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plexarr] Disponible : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-available_vf" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible en VF)</label>
+            <input type="text" id="tmpl-subject-available_vf" class="form-control form-control-sm" value="{{ available_vf_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VF !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-available_vo_tracking" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible en VO + suivi VF)</label>
+            <input type="text" id="tmpl-subject-available_vo_tracking" class="form-control form-control-sm" value="{{ available_vo_tracking_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VO !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-vf_upgrade" style="display:none">
+            <label class="form-label small text-muted">Objet (Upgrade VF)</label>
+            <input type="text" id="tmpl-subject-vf_upgrade" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-language_episode" style="display:none">
+            <label class="form-label small text-muted">Objet (Suivi par episode)</label>
+            <input type="text" id="tmpl-subject-language_episode" class="form-control form-control-sm" value="{{ language_episode_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : nouvel episode en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-language_season_start" style="display:none">
+            <label class="form-label small text-muted">Objet (Premier episode de saison)</label>
+            <input type="text" id="tmpl-subject-language_season_start" class="form-control form-control-sm" value="{{ language_season_start_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison demarree en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-language_season_complete" style="display:none">
+            <label class="form-label small text-muted">Objet (Saison complete)</label>
+            <input type="text" id="tmpl-subject-language_season_complete" class="form-control form-control-sm" value="{{ language_season_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison complete en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+          </div>
+          <div id="tmpl-subject-group-language_series_complete" style="display:none">
+            <label class="form-label small text-muted">Objet (Serie complete)</label>
+            <input type="text" id="tmpl-subject-language_series_complete" class="form-control form-control-sm" value="{{ language_series_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est entierement disponible en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
           </div>
           <div id="tmpl-subject-group-failure" style="display:none">
             <label class="form-label small text-muted">Objet (Échec de transmission)</label>
@@ -1097,6 +1135,27 @@
           <div id="tmpl-container-available" style="position:absolute;inset:0;display:none">
             <textarea id="tmpl-editor-available" style="display:none">{{ available_template }}</textarea>
           </div>
+          <div id="tmpl-container-available_vf" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available_vf" style="display:none">{{ available_vf_template }}</textarea>
+          </div>
+          <div id="tmpl-container-available_vo_tracking" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available_vo_tracking" style="display:none">{{ available_vo_tracking_template }}</textarea>
+          </div>
+          <div id="tmpl-container-vf_upgrade" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-vf_upgrade" style="display:none">{{ vf_upgrade_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_episode" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_episode" style="display:none">{{ language_episode_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_season_start" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_season_start" style="display:none">{{ language_season_start_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_season_complete" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_season_complete" style="display:none">{{ language_season_complete_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_series_complete" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_series_complete" style="display:none">{{ language_series_complete_template }}</textarea>
+          </div>
           <div id="tmpl-container-failure" style="position:absolute;inset:0;display:none">
             <textarea id="tmpl-editor-failure" style="display:none">{{ failure_template }}</textarea>
           </div>
@@ -1105,8 +1164,8 @@
 
       <!-- Prévisualisation -->
       <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;display:flex;flex-direction:column">
-        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
-          <div class="d-flex align-items-center gap-2">
+        <div class="px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
+          <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
             <span class="text-muted small">Prévisualisation en tant que</span>
             <select id="tmpl-preview-user" class="form-select form-select-sm py-0 px-2" style="width:160px;font-size:11px;height:24px;background:var(--pr-surface-2);color:var(--bs-body-color);border-color:var(--pr-border)" onchange="tmplLivePreview()">
               <option value="">(Par défaut)</option>
@@ -2901,6 +2960,18 @@ let tmplCurrentTab = 'request';
 let tmplPreviewTimer = null;
 const tmplEditors = {};
 let tmplEditorsReady = false;
+const tmplTypes = [
+  'request',
+  'available',
+  'available_vf',
+  'available_vo_tracking',
+  'vf_upgrade',
+  'language_episode',
+  'language_season_start',
+  'language_season_complete',
+  'language_series_complete',
+  'failure'
+];
 
 function onTemplatesTabShow() {
   if (tmplEditorsReady) {
@@ -2909,7 +2980,7 @@ function onTemplatesTabShow() {
     return;
   }
   tmplEditorsReady = true;
-  ['request', 'available', 'failure'].forEach(type => {
+  tmplTypes.forEach(type => {
     const el = document.getElementById('tmpl-editor-' + type);
     tmplEditors[type] = CodeMirror.fromTextArea(el, {
       mode: 'htmlmixed', theme: 'monokai', lineNumbers: true, lineWrapping: true, tabSize: 2,
@@ -2925,7 +2996,7 @@ function tmplGetValue(type) {
 
 function tmplSwitchTab(tab) {
   tmplCurrentTab = tab;
-  ['request', 'available', 'failure'].forEach(t => {
+  tmplTypes.forEach(t => {
     document.getElementById('tmpl-container-' + t).style.display = t === tab ? '' : 'none';
     document.getElementById('tmpl-subject-group-' + t).style.display = t === tab ? '' : 'none';
     document.getElementById('tmpl-tab-' + t).classList.toggle('active', t === tab);
@@ -2971,9 +3042,23 @@ async function tmplSave() {
       body: JSON.stringify({
         email_request_template: tmplGetValue('request'),
         email_available_template: tmplGetValue('available'),
+        email_available_vf_template: tmplGetValue('available_vf'),
+        email_available_vo_tracking_template: tmplGetValue('available_vo_tracking'),
+        email_vf_upgrade_template: tmplGetValue('vf_upgrade'),
+        email_language_episode_template: tmplGetValue('language_episode'),
+        email_language_season_start_template: tmplGetValue('language_season_start'),
+        email_language_season_complete_template: tmplGetValue('language_season_complete'),
+        email_language_series_complete_template: tmplGetValue('language_series_complete'),
         email_failure_template: tmplGetValue('failure'),
         email_request_subject: document.getElementById('tmpl-subject-request').value,
         email_available_subject: document.getElementById('tmpl-subject-available').value,
+        email_available_vf_subject: document.getElementById('tmpl-subject-available_vf').value,
+        email_available_vo_tracking_subject: document.getElementById('tmpl-subject-available_vo_tracking').value,
+        email_vf_upgrade_subject: document.getElementById('tmpl-subject-vf_upgrade').value,
+        email_language_episode_subject: document.getElementById('tmpl-subject-language_episode').value,
+        email_language_season_start_subject: document.getElementById('tmpl-subject-language_season_start').value,
+        email_language_season_complete_subject: document.getElementById('tmpl-subject-language_season_complete').value,
+        email_language_series_complete_subject: document.getElementById('tmpl-subject-language_series_complete').value,
         email_failure_subject: document.getElementById('tmpl-subject-failure').value,
       }),
     });
