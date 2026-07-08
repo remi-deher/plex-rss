@@ -165,6 +165,16 @@ def test_settings_page_disables_legacy_inline_template_script(client, db):
     assert "<script>\n// ── Templates tab" not in resp.text
 
 
+def test_settings_page_has_closed_tab_panes(client, db):
+    """Les partials settings ne doivent pas casser l'arbre HTML des onglets."""
+    _seed(db)
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert "\n  </div\n" not in resp.text
+    assert "{% include" not in resp.text
+    assert "\n>\n\n</div><!-- /tab-content -->" not in resp.text
+
+
 def test_email_templates_page_redirects(client, db):
     """GET /settings/email-templates → 301 redirect vers /settings#tab-templates."""
     _seed(db)
