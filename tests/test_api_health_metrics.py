@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, MediaRequest, RequestStatus, Settings
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -78,9 +78,9 @@ def test_health_returns_top_level_fields(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -98,9 +98,9 @@ def test_health_all_ok_returns_healthy(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -113,9 +113,9 @@ def test_health_sonarr_down_returns_down(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(False, "refused"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(False, "refused"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -136,10 +136,10 @@ def test_health_seer_down_returns_degraded(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.seer_test", new=AsyncMock(return_value=(False, "refused"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.seer_test", new=AsyncMock(return_value=(False, "refused"))),
     ):
         resp = client.get("/api/health")
 
@@ -163,9 +163,9 @@ def test_health_services_include_response_ms(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 

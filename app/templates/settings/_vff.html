@@ -1,0 +1,104 @@
+<div class="tab-pane fade" id="tab-vff" role="tabpanel">
+    <h5 class="mb-1"><i class="bi bi-translate me-2"></i>Suivi des versions françaises (VFF)</h5>
+    <p class="text-muted small mb-4">
+      Analyse les pistes audio des médias disponibles sur votre serveur Plex. Prévient les utilisateurs
+      quand un média n'est disponible qu'en VO, puis lorsqu'une piste française apparaît.
+    </p>
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" name="vff_enabled" id="vff_enabled"
+                 {% if s.vff_enabled %}checked{% endif %}>
+          <label class="form-check-label" for="vff_enabled"><strong>Activer le suivi VFF</strong></label>
+        </div>
+
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" name="email_on_vf_available" id="email_on_vf_available"
+                 {% if s.email_on_vf_available %}checked{% endif %}>
+          <label class="form-check-label" for="email_on_vf_available">Envoyer un email quand la VF devient disponible</label>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Intervalle de ré-analyse (minutes)</label>
+            <input type="number" min="15" class="form-control" name="vff_recheck_interval_minutes"
+                   value="{{ s.vff_recheck_interval_minutes or 360 }}">
+            <div class="form-text">Fréquence de vérification des médias en VO en attente de VF.</div>
+          </div>
+          <div class="col-md-6 d-flex align-items-end">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" name="vff_auto_search" id="vff_auto_search"
+                     {% if s.vff_auto_search %}checked{% endif %}>
+              <label class="form-check-label" for="vff_auto_search">Relancer une recherche Sonarr/Radarr sur un média VO
+                <span class="text-muted small">(cherche une version française)</span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between" style="background:var(--pr-surface-2)">
+        <span><i class="bi bi-tools me-2"></i>Actions manuelles</span>
+        <span class="badge bg-secondary">Administration</span>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Les librairies Plex sont actualisees automatiquement toutes les 24h. Si de nouveaux medias sont trouves,
+          un scan VF est lance en arriere-plan. Ces actions servent uniquement a relancer un traitement global.
+        </p>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <button type="button" class="btn btn-outline-warning d-flex align-items-center gap-1" id="vff-sync-btn" onclick="vffSyncNow(this)">
+            <i class="bi bi-cloud-arrow-down"></i> Actualiser les librairies Plex
+          </button>
+          <button type="button" class="btn btn-warning d-flex align-items-center gap-1" id="vff-scan-btn" onclick="vffScanNow(this)">
+            <i class="bi bi-arrow-clockwise"></i> Scanner VF
+          </button>
+          <div class="form-check form-check-inline m-0 ms-sm-2" title="Ignore le cache par episode et re-verifie tout depuis zero">
+            <input class="form-check-input" type="checkbox" id="vff-force-check">
+            <label class="form-check-label small text-muted" for="vff-force-check">Forcer l'analyse complete</label>
+          </div>
+        </div>
+        <div class="form-text mt-2">
+          Les scans cibles restent disponibles depuis le detail d'un media, d'une saison ou d'un episode.
+        </div>
+        <div id="vff-progress-card" class="mt-3 d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-warning small"><i class="bi bi-translate me-1 spin"></i>Scan VF en cours...</span>
+            <span id="vff-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+          </div>
+          <div class="progress" style="height: 8px;"><div id="vff-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
+        </div>
+        <div id="plex-sync-progress-card" class="mt-3 d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="text-warning small"><i class="bi bi-cloud-arrow-down me-1 spin"></i>Actualisation Plex en cours...</span>
+            <span id="plex-sync-progress-text" class="badge bg-warning text-dark fw-bold" style="font-size: 11px;">0 / 0</span>
+          </div>
+          <div class="progress" style="height: 8px;"><div id="plex-sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width: 0%;"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between" style="background:var(--pr-surface-2)">
+        <span><i class="bi bi-collection me-2"></i>Bibliothèques Plex à analyser</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadVffSections()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Recharger depuis Plex
+        </button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          Sélectionnez le type de chaque bibliothèque. Marquez vos bibliothèques d'animes comme
+          <strong>Anime</strong> : les notifications VF y sont désactivées par défaut (VO japonaise fréquente),
+          mais restent activables par utilisateur.
+        </p>
+        <div id="vff-sections-list" class="d-flex flex-column gap-2">
+          <div class="text-muted small">Chargement des bibliothèques…</div>
+        </div>
+        <!-- JSON compilé, envoyé au backend -->
+        <input type="hidden" name="vff_libraries" id="vff_libraries"
+               value='{{ s.vff_libraries or "" }}'>
+      </div>
+    </div>
+  </div

@@ -1,0 +1,304 @@
+<div class="tab-pane fade show active" id="tab-connexions" role="tabpanel">
+
+    <!-- ── Sous-navigation pills ── -->
+    <ul class="nav nav-pills mb-4 gap-1" id="connPills" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-plex" type="button" role="tab">
+          <i class="bi bi-collection-play-fill"></i> Plex
+          <span id="conn-badge-plex-rss" class="conn-badge"></span>
+          <span id="conn-badge-plex-api" class="conn-badge"></span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-arr" type="button" role="tab">
+          <i class="bi bi-server"></i> Arr &amp; Seer
+          <span id="conn-badge-seer" class="conn-badge"></span>
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#conn-torrent" type="button" role="tab">
+          <i class="bi bi-magnet"></i> Torrent
+        </button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="connPillContent">
+
+      <!-- ──────────── PILL : PLEX ──────────── -->
+      <div class="tab-pane fade show active" id="conn-plex" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card p-4">
+              <h5 class="mb-4"><i class="bi bi-collection-play-fill text-warning me-2"></i>Plex</h5>
+
+              <!-- Connexion au serveur -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Connexion au serveur</h6>
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">URL Plex (local)</label>
+                  <input type="url" class="form-control" name="plex_url" value="{{ s.plex_url or '' }}" placeholder="http://192.168.1.10:32400">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Token Plex (admin)</label>
+                  <div class="input-group mb-2">
+                    <input type="password" class="form-control" name="plex_token" value="{{ s.plex_token or '' }}" placeholder="xxxxxxxxxxxxxxxxxxxx" id="plex_token">
+                    <button type="button" class="btn btn-outline-secondary" onclick="togglePass('plex_token')"><i class="bi bi-eye"></i></button>
+                  </div>
+                  <div>
+                    <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-2" id="btn-plex-sso" onclick="startPlexSSO()">
+                      <i class="bi bi-shield-lock-fill"></i> Se connecter avec Plex (SSO)
+                    </button>
+                    <span id="sso-status" class="ms-2 small text-muted"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Source de la watchlist -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Source de la watchlist</h6>
+              <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                  <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                    <label class="form-label fw-semibold mb-1"><i class="bi bi-1-circle me-1"></i>API Plex (token)</label>
+                    <div class="form-text mb-2">Utilise le token Plex ci-dessus pour récupérer la watchlist de tous les amis + la vôtre.</div>
+                    <button type="button" class="btn btn-outline-warning btn-sm align-self-start" onclick="testConn('plex-api')">Tester l'API</button>
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="card h-100 p-3" style="background:var(--pr-surface-2)">
+                    <label class="form-label fw-semibold mb-1"><i class="bi bi-2-circle me-1"></i>Flux RSS (admin avec Plex Pass)</label>
+                    <div class="input-group">
+                      <input type="url" class="form-control" name="plex_rss_url" value="{{ s.plex_rss_url or '' }}" placeholder="https://rss.plex.tv/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                      <button type="button" class="btn btn-outline-warning" onclick="testConn('plex-rss')">Tester RSS</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Comportement -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Comportement</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Méthode prioritaire</label>
+                  <select class="form-select" name="watchlist_source_priority">
+                    <option value="api" {% if s.watchlist_source_priority == 'api' %}selected{% endif %}>1. API Plex (token)</option>
+                    <option value="rss" {% if s.watchlist_source_priority == 'rss' %}selected{% endif %}>2. Flux RSS</option>
+                  </select>
+                  <div class="form-text">La méthode utilisée en priorité à chaque sondage de la watchlist.</div>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                  <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" name="watchlist_fallback_enabled" id="fallback" {% if s.watchlist_fallback_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Intervalle de vérification (minutes)</label>
+                  <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ──────────── PILL : ARR & SEER ──────────── -->
+      <div class="tab-pane fade" id="conn-arr" role="tabpanel">
+        <div class="row g-4">
+
+          <!-- Instances *arr -->
+          <div class="col-12" id="card-wrap-arr-instances">
+            <div class="card p-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-server text-warning me-2"></i>Instances Sonarr / Radarr / Prowlarr</h5>
+                <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openArrInstanceModal()">
+                  <i class="bi bi-plus-lg"></i> Ajouter une instance
+                </button>
+              </div>
+              <div class="alert alert-secondary border-0 py-2 mb-3" style="background:var(--pr-surface-2);font-size:13px">
+                <i class="bi bi-info-circle me-1"></i>
+                Configurez plusieurs instances. Par exemple, une instance Sonarr 1080p et une Sonarr 4K. Les demandes seront acheminées vers l'instance appropriée.
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-dark align-middle mb-0" id="arr-instances-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Type</th>
+                      <th>URL</th>
+                      <th>Défaut</th>
+                      <th>Statut</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="arr-instances-body">
+                    <tr>
+                      <td colspan="6" class="text-center text-muted py-3">Chargement des instances...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Seer -->
+          <div class="col-12">
+            <div class="card p-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-send text-warning me-2"></i>Seer <span class="text-muted fw-normal small ms-1">(Overseerr / Jellyseerr)</span></h5>
+              </div>
+
+              <!-- Connexion -->
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">URL Seer</label>
+                  <input type="url" class="form-control" name="seer_url" value="{{ s.seer_url or '' }}" placeholder="http://192.168.1.10:5055">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Clé API</label>
+                  <div class="input-group">
+                    <input type="password" class="form-control" name="seer_api_key" value="{{ s.seer_api_key or '' }}" id="seer_key">
+                    <button type="button" class="btn btn-outline-secondary" onclick="togglePass('seer_key')"><i class="bi bi-eye"></i></button>
+                    <button type="button" class="btn btn-outline-warning" onclick="testConn('seer')">Tester</button>
+                  </div>
+                  <div class="form-text">Seer → Paramètres → Général → Clé API</div>
+                </div>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- Rôles -->
+              <h6 class="text-uppercase text-muted mb-3" style="font-size:11px;letter-spacing:.08em">Rôles</h6>
+              <div class="d-flex flex-column gap-3 mb-4">
+                <div class="d-flex align-items-start gap-3 p-3 rounded" style="background:var(--pr-surface-2)">
+                  <div class="form-check form-switch mt-1 flex-shrink-0">
+                    <input class="form-check-input" type="checkbox" name="seer_send_requests" id="seer_send_requests" {% if s.seer_send_requests %}checked{% endif %}>
+                  </div>
+                  <div>
+                    <label class="form-check-label fw-semibold" for="seer_send_requests">Envoyer les demandes via Seer</label>
+                    <div class="text-muted small mt-1">Les nouvelles demandes sont transmises à Seer plutôt que directement à Sonarr/Radarr. Sonarr/Radarr restent utilisés pour le suivi de statut et les profils qualité.</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-start gap-3 p-3 rounded" style="background:var(--pr-surface-2)">
+                  <div class="form-check form-switch mt-1 flex-shrink-0">
+                    <input class="form-check-input" type="checkbox" name="seer_fallback_arr" id="seer_fallback_arr" {% if s.seer_fallback_arr %}checked{% endif %}>
+                  </div>
+                  <div>
+                    <label class="form-check-label fw-semibold" for="seer_fallback_arr">Fallback sur Sonarr/Radarr si Seer est indisponible</label>
+                    <div class="text-muted small mt-1">Si l'envoi via Seer échoue (timeout, erreur), la demande est automatiquement retentée directement sur l'instance Sonarr/Radarr correspondante.</div>
+                  </div>
+                </div>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- Actions -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Actions</h6>
+              <div class="d-flex gap-2 flex-wrap">
+                <button type="button" id="btn-seer-sync-users" class="btn btn-outline-info btn-sm" onclick="seerSyncUsers()">
+                  <i class="bi bi-people me-1"></i>Synchroniser les utilisateurs
+                </button>
+                <button type="button" id="btn-seer-sync-statuts" class="btn btn-outline-secondary btn-sm" onclick="seerSyncStatuts()">
+                  <i class="bi bi-arrow-repeat me-1"></i>Mettre à jour les statuts (Hybride / Seer)
+                </button>
+              </div>
+              <div class="form-text mt-2">Synchronise les comptes Seer avec les utilisateurs Plex et met à jour les badges Hybride / Seer.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ──────────── PILL : TORRENT ──────────── -->
+      <div class="tab-pane fade" id="conn-torrent" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card p-4">
+              <h5 class="mb-4"><i class="bi bi-magnet text-warning me-2"></i>Torrent</h5>
+
+              <!-- 1. Clients -->
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="text-uppercase text-muted mb-0" style="font-size:11px;letter-spacing:.08em">
+                  <i class="bi bi-hdd-network me-1"></i>Clients de téléchargement
+                </h6>
+                <button type="button" class="btn btn-warning btn-sm d-flex align-items-center gap-1" onclick="openDlClientModal()">
+                  <i class="bi bi-plus-lg"></i> Ajouter
+                </button>
+              </div>
+              <p class="text-muted small mb-3">Configurez qBittorrent, Transmission ou un dossier surveillé. Les clients désactivés ne reçoivent aucun téléchargement.</p>
+              <div class="table-responsive mb-4">
+                <table class="table table-sm table-dark align-middle mb-0" id="dl-clients-table">
+                  <thead>
+                    <tr>
+                      <th>Nom</th>
+                      <th>Type</th>
+                      <th>URL / Chemin</th>
+                      <th>Catégorie</th>
+                      <th>Défaut</th>
+                      <th>Actif</th>
+                      <th class="text-end">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dl-clients-body">
+                    <tr>
+                      <td colspan="7" class="text-center text-muted py-3">Chargement des clients...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- 2. Filtres -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">
+                <i class="bi bi-funnel me-1"></i>Filtres Prowlarr (automatisation Watchlist → Torrent)
+              </h6>
+              <p class="text-muted small mb-3">S'appliquent uniquement quand Sonarr/Radarr sont désactivés et qu'un client actif est configuré.</p>
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <label class="form-label">Mots-clés requis <span class="text-muted small">(séparés par virgules)</span></label>
+                  <input type="text" class="form-control" name="torrent_required_keywords" value="{{ s.torrent_required_keywords or '' }}" placeholder="ex: MULTI, VFF">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Mots-clés interdits <span class="text-muted small">(séparés par virgules)</span></label>
+                  <input type="text" class="form-control" name="torrent_forbidden_keywords" value="{{ s.torrent_forbidden_keywords or '' }}" placeholder="ex: CAM, TS, 3D">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Taille minimale d'une release (Go)</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_min_size_gb" value="{{ s.torrent_min_size_gb or '' }}" placeholder="ex: 1.5">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Taille maximale d'une release (Go)</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_max_size_gb" value="{{ s.torrent_max_size_gb or '' }}" placeholder="ex: 15">
+                </div>
+              </div>
+
+              <hr class="border-secondary my-3">
+
+              <!-- 3. Nettoyage -->
+              <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">
+                <i class="bi bi-trash me-1"></i>Nettoyage après téléchargement
+              </h6>
+              <p class="text-muted small mb-3">Le torrent est supprimé du client dès qu'une des deux conditions est atteinte (ratio <strong>ou</strong> durée). Laissez vide pour désactiver la condition.</p>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label">Ratio limite de partage</label>
+                  <input type="number" step="0.1" class="form-control" name="torrent_ratio_limit" value="{{ s.torrent_ratio_limit or '' }}" placeholder="ex: 2.0">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Durée limite de partage (heures)</label>
+                  <input type="number" class="form-control" name="torrent_seed_time_limit_hours" value="{{ s.torrent_seed_time_limit_hours or '' }}" placeholder="ex: 24">
+                </div>
+                <div class="col-md-4 d-flex align-items-end pb-1">
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" name="torrent_auto_delete_files" id="torrent_auto_delete_files_check" {% if s.torrent_auto_delete_files %}checked{% endif %}>
+                    <label class="form-check-label" for="torrent_auto_delete_files_check">Supprimer aussi les fichiers physiques</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /connPillContent -->
+  </div

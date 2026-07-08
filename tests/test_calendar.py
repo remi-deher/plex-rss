@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import ArrInstance, Base, LibraryItem, MediaRequest, RequestStatus
-from app.routers.api import unified_calendar
+from app.routers.calendar_api import unified_calendar
 
 
 def _make_db():
@@ -31,7 +31,7 @@ async def test_calendar_marks_tracked_show_and_reuses_poster():
         "title": "Pilot", "hasFile": False,
         "series": {"title": "Breaking Bad", "tvdbId": 81189},
     }]
-    with patch("app.routers.api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)):
+    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)):
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
     assert len(events) == 1
@@ -49,7 +49,7 @@ async def test_calendar_untracked_movie_marked_not_tracked():
     db.commit()
 
     movies = [{"title": "Unknown Movie", "tmdbId": 99999, "hasFile": False, "inCinemas": "2026-07-12T00:00:00Z"}]
-    with patch("app.routers.api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
+    with patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
     assert len(events) == 1
@@ -64,7 +64,7 @@ async def test_calendar_tracked_only_filters_out_untracked():
     db.commit()
 
     movies = [{"title": "Untracked Movie", "tmdbId": 12345, "hasFile": False, "inCinemas": "2026-07-12T00:00:00Z"}]
-    with patch("app.routers.api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
+    with patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
         events = await unified_calendar(start=None, end=None, tracked_only=True, db=db)
 
     assert events == []
@@ -83,7 +83,7 @@ async def test_calendar_falls_back_to_request_when_no_library_item():
     db.commit()
 
     movies = [{"title": "Dune", "tmdbId": 438631, "hasFile": False, "inCinemas": "2026-07-20T00:00:00Z"}]
-    with patch("app.routers.api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
+    with patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
     assert len(events) == 1
@@ -98,7 +98,7 @@ async def test_calendar_ignores_disabled_instances():
     db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=False))
     db.commit()
 
-    with patch("app.routers.api.sonarr.get_calendar", new=AsyncMock(return_value=[{"foo": "bar"}])) as mock_cal:
+    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=[{"foo": "bar"}])) as mock_cal:
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
     mock_cal.assert_not_called()
@@ -126,8 +126,8 @@ async def test_calendar_advanced_filtering():
     }]
     movies = [{"title": "Dune", "tmdbId": 438631, "hasFile": False, "inCinemas": "2026-07-20T00:00:00Z"}]
 
-    with patch("app.routers.api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)), \
-         patch("app.routers.api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
+    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)), \
+         patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
 
         # 1. Filtre par type=movie
         evs = await unified_calendar(type="movie", db=db)

@@ -1,0 +1,422 @@
+<div class="tab-pane fade" id="tab-notifications" role="tabpanel">
+    <div class="row g-4">
+      <div class="col-12">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+          <div>
+            <h5 class="mb-1"><i class="bi bi-bell me-2 text-warning"></i>Notifications</h5>
+            <p class="text-muted small mb-0">Configurez les canaux globaux, les evenements envoyes par defaut et les regles communes.</p>
+          </div>
+          <a href="/users" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-gear me-1"></i>Preferences utilisateurs</a>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-broadcast"></i></div>
+            <div>
+              <div class="fw-semibold">Canaux</div>
+              <div class="text-muted small">Email, Discord, Telegram, ntfy et Gotify. Chaque canal se teste depuis sa carte.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-lightning-charge"></i></div>
+            <div>
+              <div class="fw-semibold">Evenements</div>
+              <div class="text-muted small">Nouvelles demandes, disponibilites, digest, disponibilite partielle et suivi VF.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="notification-summary">
+          <div class="d-flex gap-3">
+            <div class="summary-icon"><i class="bi bi-sliders"></i></div>
+            <div>
+              <div class="fw-semibold">Regles par defaut</div>
+              <div class="text-muted small">Les utilisateurs peuvent affiner certains choix depuis leur fiche.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sous-navigation Notifications -->
+      <div class="col-12">
+        <ul class="nav nav-pills mb-1" id="notifSubTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-email" type="button" role="tab">
+              <i class="bi bi-envelope"></i> Email
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-push" type="button" role="tab">
+              <i class="bi bi-bell"></i> Push
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-rules" type="button" role="tab">
+              <i class="bi bi-sliders"></i> Règles VO / VF
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="col-12 tab-content" id="notifSubTabContent">
+      <div class="tab-pane fade show active" id="notif-email" role="tabpanel">
+      <div class="row g-4">
+
+      <!-- Email SMTP -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+              <i class="bi bi-envelope text-success me-2"></i>Canal email (SMTP)
+              <i class="bi bi-circle-fill text-warning ms-1 section-warn d-none" data-section="smtp" style="font-size:8px" title="Serveur SMTP manquant"></i>
+            </h5>
+            <span id="conn-badge-smtp" class="conn-badge"></span>
+          </div>
+          <!-- Serveur d'envoi -->
+          <div class="settings-section-title">Connexion SMTP</div>
+          <div class="row g-3 mb-4">
+            <div class="col-md-5">
+              <label class="form-label">Serveur SMTP</label>
+              <input type="text" class="form-control" name="smtp_host" id="smtp_host" value="{{ s.smtp_host or '' }}" placeholder="smtp.gmail.com">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label">Port</label>
+              <input type="number" class="form-control" name="smtp_port" value="{{ s.smtp_port or 587 }}">
+            </div>
+            <div class="col-md-2 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="smtp_tls" id="smtp_tls" {% if s.smtp_tls %}checked{% endif %}>
+                <label class="form-check-label" for="smtp_tls">STARTTLS</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Email expéditeur</label>
+              <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Utilisateur SMTP</label>
+              <input type="text" class="form-control" name="smtp_user" value="{{ s.smtp_user or '' }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Mot de passe SMTP</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="smtp_password" value="{{ s.smtp_password or '' }}" id="smtp_pass">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('smtp_pass')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Test — envoyer un email à</label>
+              <div class="input-group">
+                <input type="email" class="form-control" id="test_email" placeholder="test@example.com">
+                <button type="button" class="btn btn-outline-success" onclick="testSmtp()">Envoyer test</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quand prévenir -->
+          <h6 class="text-uppercase text-muted mb-2" style="font-size:11px;letter-spacing:.08em">Quand prévenir par email</h6>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="d-flex gap-4 flex-wrap">
+                <div class="form-check form-switch">
+                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
+                  <label class="form-check-label" for="email_req">À chaque nouvelle demande reçue</label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
+                  <label class="form-check-label" for="email_av">Quand le média devient disponible</label>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Email(s) de l'administrateur <span class="text-muted small">(copie des notifications)</span></label>
+              <input type="text" class="form-control" name="admin_notification_email" value="{{ s.admin_notification_email or '' }}" placeholder="admin@example.com, autre@example.com">
+              <div class="form-text">Plusieurs adresses séparées par des virgules. Chaque utilisateur peut activer ou non l'envoi d'une copie à l'admin.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Digest quotidien -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-newspaper text-warning me-2"></i>Regle par defaut : digest quotidien</h5>
+          <p class="text-muted small mb-3">Envoie chaque jour un récapitulatif des demandes des 24h aux utilisateurs ayant activé l'option « Inclure dans le digest ».</p>
+          <div class="row g-3 align-items-end">
+            <div class="col-auto d-flex align-items-center gap-3 mt-1">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" name="digest_enabled" id="digest_enabled" {% if s.digest_enabled %}checked{% endif %}>
+                <label class="form-check-label" for="digest_enabled">Activer le digest</label>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Heure d'envoi</label>
+              <select class="form-select" name="digest_hour">
+                {% for h in range(24) %}
+                <option value="{{ h }}" {% if (s.digest_hour or 8) == h %}selected{% endif %}>{{ '%02d'|format(h) }}:00</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Historique emails -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
+          </div>
+          <div class="row g-3 mb-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Conserver l'historique pendant</label>
+              <select class="form-select" name="notification_log_retention_days">
+                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
+                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
+                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
+                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
+                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
+                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
+                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
+              </select>
+              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
+            </div>
+          </div>
+          <div id="notif-log-wrap">
+            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+      </div><!-- /notif-email -->
+
+      <div class="tab-pane fade" id="notif-rules" role="tabpanel">
+      <div class="row g-4">
+
+      <!-- Disponibilité partielle (séries en cours de diffusion) -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-2"><i class="bi bi-hourglass-split text-warning me-2"></i>Disponibilité partielle</h5>
+          <p class="text-muted small mb-3">
+            Une série en cours de diffusion peut être « partiellement disponible » (certains épisodes
+            téléchargés, d'autres pas encore diffusés). Réglage par défaut pour toutes les demandes —
+            chaque utilisateur peut le remplacer depuis sa fiche (page Utilisateurs).
+          </p>
+          <p class="text-muted small mb-3">
+            <i class="bi bi-info-circle me-1"></i>Sans effet pour les séries en mode de suivi
+            <strong>Simple</strong> (ci-dessous) : ce mode couvre déjà « nouvel épisode » / « saison
+            complète » à partir de la bibliothèque Plex, pour éviter les doublons.
+          </p>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Fréquence des notifications</label>
+              <select class="form-select" name="partial_notify_frequency">
+                <option value="milestones" {% if (s.partial_notify_frequency or 'milestones') == 'milestones' %}selected{% endif %}>
+                  Étapes clés uniquement (1ère dispo partielle + dispo complète)
+                </option>
+                <option value="every_episode" {% if s.partial_notify_frequency == 'every_episode' %}selected{% endif %}>
+                  À chaque nouvel épisode disponible
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Suivi des séries -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-2"><i class="bi bi-translate text-warning me-2"></i>Suivi des séries par défaut</h5>
+          <p class="text-muted small mb-3">
+            Contrôle le suivi épisode par épisode d'une série. Les utilisateurs peuvent personnaliser
+            ce mode depuis leur fiche.
+          </p>
+
+          <div class="settings-section-title">Mode de suivi</div>
+          <div class="row g-3 mb-3">
+            <div class="col-12">
+              <div class="d-flex flex-wrap gap-2" role="group">
+                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-language" value="language"
+                       {% if (s.series_tracking_mode or 'language') == 'language' %}checked{% endif %} onchange="toggleTrackingMode()">
+                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-language">
+                  <i class="bi bi-translate me-1"></i>Par langue (VF / VO)
+                </label>
+                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-simple" value="simple"
+                       {% if s.series_tracking_mode == 'simple' %}checked{% endif %} onchange="toggleTrackingMode()">
+                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-simple">
+                  <i class="bi bi-collection-play me-1"></i>Simple (épisodes, sans distinction de langue)
+                </label>
+              </div>
+              <div class="form-text">
+                Mutuellement exclusifs pour une série donnée : « Par langue » prévient de l'arrivée
+                de la VO puis de la VF ; « Simple » prévient à chaque nouvel épisode/saison, sans
+                se soucier de la langue.
+              </div>
+            </div>
+          </div>
+
+          <div id="tracking-mode-language-fields">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <div class="form-check form-switch mt-4">
+                  <input class="form-check-input" type="checkbox" name="movie_vo_notify" id="movie_vo_notify" {% if s.movie_vo_notify is not false %}checked{% endif %}>
+                  <label class="form-check-label" for="movie_vo_notify">Film disponible en VO</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="form-check form-switch mt-4">
+                  <input class="form-check-input" type="checkbox" name="movie_vf_notify" id="movie_vf_notify" {% if s.movie_vf_notify is not false %}checked{% endif %}>
+                  <label class="form-check-label" for="movie_vf_notify">Film upgrade VF</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Series VO</label>
+                <select class="form-select" name="series_vo_notify_mode">
+                  {% set vo_mode = s.series_vo_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if vo_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if vo_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if vo_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if vo_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Series VF</label>
+                <select class="form-select" name="series_vf_notify_mode">
+                  {% set vf_mode = s.series_vf_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if vf_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if vf_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if vf_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if vf_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div id="tracking-mode-simple-fields" style="display:none">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Fréquence de suivi</label>
+                <select class="form-select" name="series_episode_notify_mode">
+                  {% set ep_mode = s.series_episode_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if ep_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if ep_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if ep_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if ep_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
+                <div class="form-text">Nécessite que la bibliothèque Plex soit configurée dans l'onglet VFF (analyse épisode par épisode).</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+      </div><!-- /notif-rules -->
+
+      <div class="tab-pane fade" id="notif-push" role="tabpanel">
+      <div class="row g-4">
+
+      <!-- Push -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-bell text-warning me-2"></i>Canaux push globaux</h5>
+          <div class="row g-3">
+            <div class="col-12">
+              <h6 class="text-muted mb-2"><i class="bi bi-discord me-1"></i>Discord</h6>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Webhook URL Discord</label>
+              <div class="input-group">
+                <input type="url" class="form-control" name="discord_webhook_url" value="{{ s.discord_webhook_url or '' }}" placeholder="https://discord.com/api/webhooks/...">
+                <button type="button" class="btn btn-outline-secondary" onclick="testConn('discord')">Tester</button>
+              </div>
+              <div class="d-flex align-items-center gap-2 mt-1">
+                <span class="form-text mb-0">Laissez vide pour désactiver.</span>
+                <span id="conn-badge-discord" class="conn-badge"></span>
+              </div>
+            </div>
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-telegram me-1"></i>Telegram</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Bot Token</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="telegram_bot_token" value="{{ s.telegram_bot_token or '' }}" id="tg_token" placeholder="123456:ABC-...">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('tg_token')"><i class="bi bi-eye"></i></button>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Chat ID</label>
+              <input type="text" class="form-control" name="telegram_chat_id" value="{{ s.telegram_chat_id or '' }}" placeholder="-100123456789">
+            </div>
+            <div class="col-md-2 d-flex align-items-end gap-2">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('telegram')">Tester</button>
+              <span id="conn-badge-telegram" class="conn-badge align-self-center"></span>
+            </div>
+            <div class="col-12">
+              <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
+            </div>
+
+            <!-- ntfy -->
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-bell me-1"></i>ntfy</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">URL du Topic ntfy</label>
+              <input type="url" class="form-control" name="ntfy_url" value="{{ s.ntfy_url or '' }}" placeholder="https://ntfy.sh/mon-topic">
+              <div class="form-text">Ex: <code>https://ntfy.sh/mon-topic</code>. Créez un topic sur <a href="https://ntfy.sh" target="_blank" class="text-warning">ntfy.sh</a> ou votre instance auto-hébergée.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Token d'authentification (optionnel)</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="ntfy_token" value="{{ s.ntfy_token or '' }}" id="ntfy_token" placeholder="Bearer token">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('ntfy_token')"><i class="bi bi-eye"></i></button>
+              </div>
+              <div class="form-text">Requis uniquement si le serveur ntfy exige une authentification.</div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end gap-2 pb-md-3">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('ntfy')">Tester</button>
+              <span id="conn-badge-ntfy" class="conn-badge align-self-center"></span>
+            </div>
+
+            <!-- Gotify -->
+            <div class="col-12 mt-2">
+              <h6 class="text-muted mb-2"><i class="bi bi-chat-square-text me-1"></i>Gotify</h6>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">URL du Serveur Gotify</label>
+              <input type="url" class="form-control" name="gotify_url" value="{{ s.gotify_url or '' }}" placeholder="https://gotify.example.com">
+              <div class="form-text">Ex: <code>https://gotify.example.com</code>. L'URL racine de votre serveur Gotify.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Token de l'Application Gotify</label>
+              <div class="input-group">
+                <input type="password" class="form-control" name="gotify_token" value="{{ s.gotify_token or '' }}" id="gotify_token" placeholder="App Token">
+                <button type="button" class="btn btn-outline-secondary" onclick="togglePass('gotify_token')"><i class="bi bi-eye"></i></button>
+              </div>
+              <div class="form-text">Le jeton d'application créé dans votre console Gotify (<a href="https://gotify.net/docs/install" target="_blank" class="text-warning">documentation Gotify</a>).</div>
+            </div>
+            <div class="col-md-3 d-flex align-items-end gap-2 pb-md-3">
+              <button type="button" class="btn btn-outline-secondary" onclick="testConn('gotify')">Tester</button>
+              <span id="conn-badge-gotify" class="conn-badge align-self-center"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+      </div><!-- /notif-push -->
+
+      </div><!-- /notifSubTabContent -->
+
+    </div>
+  </div

@@ -25,7 +25,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.routers import api as api_router
+from app.dependencies import require_auth
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 
@@ -52,7 +52,7 @@ def db():
 def client(db):
     app.dependency_overrides[pages_router.require_auth] = lambda: None
     app.dependency_overrides[email_templates_router.require_auth] = lambda: None
-    app.dependency_overrides[api_router.require_auth] = lambda: None
+    app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
     yield c
@@ -97,7 +97,7 @@ def _req(
 
 # Patch ignore file I/O pour ne pas toucher le disque
 def _no_ignored():
-    return patch("app.routers.api._load_ignored", return_value=set())
+    return patch("app.routers.misc_api._load_ignored", return_value=set())
 
 
 # ---------------------------------------------------------------------------
@@ -341,8 +341,8 @@ def test_ignore_conflict_persisted(client, db):
         saved["keys"] = keys
 
     with (
-        patch("app.routers.api._load_ignored", return_value=set()),
-        patch("app.routers.api._save_ignored", side_effect=fake_save),
+        patch("app.routers.misc_api._load_ignored", return_value=set()),
+        patch("app.routers.misc_api._save_ignored", side_effect=fake_save),
     ):
         r = client.post("/api/conflicts/ignore", json={"key": "tmdb:show:81763"})
 
@@ -363,8 +363,8 @@ def test_unignore_removes_key(client, db):
         saved["keys"] = keys
 
     with (
-        patch("app.routers.api._load_ignored", return_value={"tmdb:show:81763"}),
-        patch("app.routers.api._save_ignored", side_effect=fake_save),
+        patch("app.routers.misc_api._load_ignored", return_value={"tmdb:show:81763"}),
+        patch("app.routers.misc_api._save_ignored", side_effect=fake_save),
     ):
         r = client.delete("/api/conflicts/ignore/tmdb:show:81763")
 
@@ -378,7 +378,7 @@ def test_ignored_conflict_not_returned(client, db):
     _req(db, plex_user_id="alice", tmdb_id="300126", tvdb_id="81763", source="rss")
     _req(db, plex_user_id="alice", tmdb_id="13967", tvdb_id="81763", source="seer")
 
-    with patch("app.routers.api._load_ignored", return_value={"tmdb:show:81763"}):
+    with patch("app.routers.misc_api._load_ignored", return_value={"tmdb:show:81763"}):
         r = client.get("/api/conflicts")
 
     assert r.json()["tmdb_conflicts"] == []

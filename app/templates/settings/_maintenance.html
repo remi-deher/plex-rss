@@ -1,0 +1,25 @@
+<div class="tab-pane fade" id="tab-maintenance" role="tabpanel">
+
+<style>
+.maint-card {
+  background:var(--pr-surface);border:1px solid var(--pr-border);border-radius:8px;
+  transition:border-color .2s,box-shadow .2s;cursor:pointer;
+}
+.maint-card:hover { border-color:var(--pr-text-muted);box-shadow:0 0 0 1px var(--pr-text-muted); }
+.maint-card.running { border-color:#0d6efd55; }
+.maint-card.done    { border-color:#19875455; }
+.maint-card.error   { border-color:#dc354555; }
+.maint-log {
+  font-family:monospace;font-size:12px;line-height:1.6;
+  background:var(--pr-surface-2);border-radius:4px;padding:10px;max-height:260px;
+  overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+}
+.maint-log .log-ok   { color:#4ade80; }
+.maint-log .log-warn { color:#fbbf24; }
+.maint-log .log-err  { color:#f87171; }
+.maint-log .log-info { color:#9ca3af; }
+</style>
+
+<div class="row g-3 p-1" id="maint-grid"></div>
+
+  </div

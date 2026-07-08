@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.database import get_db
 from app.main import app
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -221,7 +221,7 @@ def test_resend_queues_notification():
     mock_enqueue = MagicMock()
     client = _client_with_db(db)
     try:
-        with patch("app.routers.api.enqueue_notification", mock_enqueue):
+        with patch("app.routers.notifications_api.enqueue_notification", mock_enqueue):
             r = client.post("/api/notifications/1/resend")
         assert r.status_code == 200
         data = r.json()
@@ -294,7 +294,7 @@ def test_test_email_sends_and_returns_200():
     mock_smtp = AsyncMock()
     client = _client_with_db(db)
     try:
-        with patch("app.routers.api.smtp_send", mock_smtp):
+        with patch("app.routers.users_api.smtp_send", mock_smtp):
             r = client.post("/api/users/1/test-email")
         assert r.status_code == 200
         data = r.json()
@@ -347,7 +347,7 @@ def test_test_email_uses_plex_email_as_fallback():
     mock_smtp = AsyncMock()
     client = _client_with_db(db)
     try:
-        with patch("app.routers.api.smtp_send", mock_smtp):
+        with patch("app.routers.users_api.smtp_send", mock_smtp):
             r = client.post("/api/users/1/test-email")
         assert r.status_code == 200
         assert r.json()["recipient"] == "plex@example.com"

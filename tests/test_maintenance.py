@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 from app.routers.maintenance import (
     ACTIONS_META,
     MaintenanceRun,

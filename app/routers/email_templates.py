@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import get_settings_or_404
+from ..dependencies import get_settings_or_404, require_auth
 from ..models import PlexUser, Settings
 import json
 
@@ -26,11 +26,6 @@ from ..services.email_service import (
     render_template,
 )
 from ..services.email_service import _send as smtp_send
-
-
-def require_auth(request: Request):
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Non authentifié")
 
 
 router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_auth)])

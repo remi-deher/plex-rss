@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -150,7 +150,7 @@ def test_retry_failed_request_sets_pending(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post(f"/api/requests/{req.id}/retry")
 
     assert resp.status_code == 200
@@ -166,7 +166,7 @@ def test_retry_calls_poll_watchlists(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll:
         client.post(f"/api/requests/{req.id}/retry")
 
     mock_poll.assert_called_once()
@@ -179,7 +179,7 @@ def test_retry_sent_to_arr_returns_400(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post(f"/api/requests/{req.id}/retry")
 
     assert resp.status_code == 400
@@ -187,7 +187,7 @@ def test_retry_sent_to_arr_returns_400(client, db):
 
 def test_retry_not_found_returns_404(client, db):
     """Retry sur id inexistant → 404."""
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post("/api/requests/9999/retry")
     assert resp.status_code == 404
 
@@ -224,8 +224,8 @@ def test_delete_request_not_found(client, db):
 def test_trigger_poll_calls_both_jobs(client, db):
     """POST /requests/poll déclenche poll_watchlists ET check_arr_statuses."""
     with (
-        patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll,
-        patch("app.routers.api.check_arr_statuses", new=AsyncMock()) as mock_check,
+        patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll,
+        patch("app.routers.requests_api.check_arr_statuses", new=AsyncMock()) as mock_check,
     ):
         resp = client.post("/api/requests/poll")
 
@@ -257,7 +257,7 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.scheduler._notify") as mock_notify:
+    with patch("app.routers.requests_api._notify") as mock_notify:
         resp = client.post(f"/api/requests/{req.id}/mark-processed")
 
     assert resp.status_code == 200
@@ -281,7 +281,7 @@ def test_mark_request_processed_event_request_resends_without_closing(client, db
     db.commit()
     db.refresh(req)
 
-    with patch("app.scheduler._notify") as mock_notify:
+    with patch("app.routers.requests_api._notify") as mock_notify:
         resp = client.post(f"/api/requests/{req.id}/mark-processed?event=request")
 
     assert resp.status_code == 200
@@ -305,7 +305,7 @@ def test_bulk_retry_requests(client, db):
     db.refresh(r2)
     db.refresh(r3)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll:
         resp = client.post("/api/requests/bulk/retry", json={"ids": [r1.id, r2.id, r3.id]})
     assert resp.status_code == 200
     assert resp.json()["count"] == 2

@@ -26,7 +26,25 @@ from .database import init_db
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
-from .routers import api, api_v1, auth, email_templates, importexport, maintenance, pages, webhook
+from .routers import (
+    api_v1,
+    arr_api,
+    auth,
+    calendar_api,
+    email_templates,
+    importexport,
+    library_api,
+    maintenance,
+    metrics_api,
+    misc_api,
+    notifications_api,
+    pages,
+    requests_api,
+    settings_api,
+    users_api,
+    vff_api,
+    webhook,
+)
 from .routers.pages import RedirectException
 from .scheduler import scheduler, start_scheduler
 from .services.auth import get_secret_key
@@ -171,11 +189,15 @@ class DynamicSecureSessionMiddleware:
         await self.app(scope, receive, send_wrapper)
 
 
+from fastapi.staticfiles import StaticFiles
+
 app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(SecurityHeadersMiddleware)
 # Middleware de session (doit être ajouté avant les routers)
 app.add_middleware(DynamicSecureSessionMiddleware, secret_key=get_secret_key())
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 @app.exception_handler(RedirectException)
@@ -185,7 +207,16 @@ async def redirect_exception_handler(request, exc: RedirectException):
 
 app.include_router(auth.router)
 app.include_router(pages.router)
-app.include_router(api.router)
+app.include_router(settings_api.router)
+app.include_router(arr_api.router)
+app.include_router(users_api.router)
+app.include_router(requests_api.router)
+app.include_router(calendar_api.router)
+app.include_router(library_api.router)
+app.include_router(vff_api.router)
+app.include_router(metrics_api.router)
+app.include_router(notifications_api.router)
+app.include_router(misc_api.router)
 app.include_router(api_v1.router)
 app.include_router(webhook.router)
 app.include_router(importexport.router)

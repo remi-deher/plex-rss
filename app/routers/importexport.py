@@ -8,12 +8,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..dependencies import require_auth
 from ..models import MediaRequest, PlexUser, Settings
-
-
-def require_auth(request: Request):
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Non authentifié")
 
 
 router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_auth)])

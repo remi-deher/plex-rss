@@ -1,0 +1,108 @@
+<div class="tab-pane fade" id="tab-avance" role="tabpanel">
+    <div class="row g-4">
+
+      <!-- Import / Export -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-arrow-down-up text-info me-2"></i>Import / Export</h5>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <p class="text-muted mb-2">Exporte tous les paramètres, utilisateurs et demandes dans un fichier JSON.</p>
+              <a href="/api/export" class="btn btn-outline-info" download>
+                <i class="bi bi-download me-1"></i>Exporter les données
+              </a>
+            </div>
+            <div class="col-md-6">
+              <p class="text-muted mb-2">Importe un fichier JSON exporté précédemment (fusion, pas d'écrasement).</p>
+              <div class="d-flex gap-2 align-items-center">
+                <input type="file" class="form-control" id="importFile" accept=".json" style="max-width:280px">
+                <button class="btn btn-outline-warning" onclick="importData()">
+                  <i class="bi bi-upload me-1"></i>Importer
+                </button>
+              </div>
+              <div id="importResult" class="mt-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhooks — collapsed by default -->
+      <div class="col-12">
+        <div class="card border-warning">
+          <div class="card-header d-flex justify-content-between align-items-center border-warning py-3"
+               style="background:transparent;cursor:pointer"
+               data-bs-toggle="collapse" data-bs-target="#webhooks-body" aria-expanded="false" aria-controls="webhooks-body">
+            <h5 class="mb-0"><i class="bi bi-broadcast text-warning me-2"></i>Webhooks — Notifications de disponibilité</h5>
+            <i class="bi bi-chevron-down text-muted" id="webhooks-chevron"></i>
+          </div>
+          <div class="collapse" id="webhooks-body">
+            <div class="card-body pt-0">
+              <p class="text-muted mb-3">
+                Configurez ces URLs dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
+                pour être notifié dès qu'un contenu est téléchargé et importé.
+                Sélectionnez l'événement <strong>OnDownload / OnImport</strong>.
+              </p>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/sonarr" readonly id="webhook-sonarr">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">Sonarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/radarr" readonly id="webhook-radarr">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">Radarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                </div>
+                <div class="col-12">
+                  <hr class="border-secondary my-2">
+                  <h6 class="text-muted mb-2">
+                    <i class="bi bi-collection-play-fill text-warning me-1"></i>Plex
+                    <span class="badge bg-warning text-dark ms-1" style="font-size:10px">Plex Pass requis</span>
+                  </h6>
+                </div>
+                <div class="col-md-8">
+                  <label class="form-label">Plex — URL Webhook</label>
+                  <div class="input-group">
+                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/plex" readonly id="webhook-plex">
+                    <button class="btn btn-outline-warning" onclick="copyEl('webhook-plex')"><i class="bi bi-clipboard"></i></button>
+                  </div>
+                  <div class="form-text">
+                    Plex → Paramètres → Webhooks → Ajouter un webhook · Événements traités : <strong>library.new</strong> (nouveau contenu) et <strong>media.scrobble</strong> (regardé en entier).
+                    Permet une détection de disponibilité instantanée sans attendre la vérification périodique.
+                  </div>
+                </div>
+              </div>
+              <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:var(--pr-surface-2);font-size:13px">
+                <i class="bi bi-info-circle me-1"></i>
+                La correspondance se fait en priorité par <strong>TMDB/TVDB/IMDB ID</strong>, puis par titre si les IDs sont absents.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Info Projet -->
+      <div class="col-12">
+        <div class="card p-4" style="background: rgba(255,255,255,.015); border-style: dashed;">
+          <h5 class="mb-3 text-muted"><i class="bi bi-info-circle me-2"></i>Plexarr — Projet</h5>
+          <div class="d-flex flex-wrap gap-4">
+            <a href="https://github.com/remi-deher/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size:.95rem;transition:color .2s" onmouseover="this.classList.add('text-warning')" onmouseout="this.classList.remove('text-warning')">
+              <i class="bi bi-github" style="font-size:1.3rem"></i>
+              <span>Dépôt GitHub du Projet</span>
+            </a>
+            <a href="https://hub.docker.com/r/mrcryllix/plex-rss" target="_blank" class="text-decoration-none text-light d-flex align-items-center gap-2" style="font-size:.95rem;transition:color .2s" onmouseover="this.classList.add('text-info')" onmouseout="this.classList.remove('text-info')">
+              <i class="bi bi-box-seam-fill" style="font-size:1.3rem"></i>
+              <span>Image Docker Hub Officielle</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div

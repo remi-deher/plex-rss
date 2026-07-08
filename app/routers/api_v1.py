@@ -8,7 +8,8 @@ from ..models import MediaRequest, PlexUser, PollHistory, RequestStatus
 from ..scheduler import poll_watchlists
 from ..schemas import HealthOut, MetricsOut, PollHistoryOut, RequestOut, UserOut
 from ..utils import get_or_404
-from .api import get_metrics, get_poll_history, health_check, require_auth
+from ..dependencies import require_auth
+from .metrics_api import get_metrics, get_poll_history, health_check
 
 router = APIRouter(prefix="/api/v1", tags=["v1"], dependencies=[Depends(require_auth)])
 

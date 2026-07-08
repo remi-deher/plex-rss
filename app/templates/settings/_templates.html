@@ -1,0 +1,195 @@
+<div class="tab-pane fade" id="tab-templates" role="tabpanel">
+
+    <!-- Variables disponibles (contextuelles) -->
+    <div class="card mb-3" style="background:var(--pr-surface-2);overflow:hidden">
+      <div class="d-flex align-items-center justify-content-between px-3 py-2" style="cursor:pointer" onclick="tmplToggleVars()">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <i class="bi bi-braces text-warning"></i>
+          <span class="fw-semibold" style="font-size:14px">Variables</span>
+          <span class="text-muted small">— cliquez pour insérer à la position du curseur · syntaxe Jinja2 : <code>{% raw %}{% if poster_url %}…{% endif %}{% endraw %}</code></span>
+        </div>
+        <i class="bi bi-chevron-up" id="tmpl-vars-chevron"></i>
+      </div>
+      <div id="tmpl-vars-body" class="px-3 pb-3">
+        <div id="tmpl-vars-groups"></div>
+        <div class="d-flex align-items-center gap-3 mt-3 pt-2 flex-wrap" style="font-size:11px;border-top:1px solid var(--pr-border)">
+          <span class="text-muted"><span class="tmpl-var-legend used"></span> utilisée dans ce template</span>
+          <span class="text-muted"><span class="tmpl-var-legend na"></span> non utilisée par ce type d'email</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglets template -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <div class="d-flex flex-column gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted text-uppercase" style="font-size:10px;letter-spacing:.08em;min-width:78px">Statut</span>
+          <ul class="nav nav-pills gap-1 mb-0" id="templateTabsStatus">
+            <li class="nav-item">
+              <button class="nav-link active" id="tmpl-tab-request" onclick="tmplSwitchTab('request')">
+                <i class="bi bi-envelope me-1"></i>Nouvelle demande
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available" onclick="tmplSwitchTab('available')">
+                <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available_vf" onclick="tmplSwitchTab('available_vf')">
+                <i class="bi bi-translate me-1"></i>Disponible en VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available_vo_tracking" onclick="tmplSwitchTab('available_vo_tracking')">
+                <i class="bi bi-soundwave me-1"></i>VO + suivi VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-vf_upgrade" onclick="tmplSwitchTab('vf_upgrade')">
+                <i class="bi bi-arrow-up-circle me-1"></i>Mise à jour VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-failure" onclick="tmplSwitchTab('failure')">
+                <i class="bi bi-exclamation-triangle me-1"></i>Échec de transmission
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted text-uppercase" style="font-size:10px;letter-spacing:.08em;min-width:78px">Suivi VF/VO</span>
+          <ul class="nav nav-pills gap-1 mb-0" id="templateTabsLanguage">
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_episode" onclick="tmplSwitchTab('language_episode')">
+                <i class="bi bi-collection-play me-1"></i>Episode
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_season_start" onclick="tmplSwitchTab('language_season_start')">
+                <i class="bi bi-play-circle me-1"></i>Debut saison
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_season_complete" onclick="tmplSwitchTab('language_season_complete')">
+                <i class="bi bi-check2-circle me-1"></i>Saison complete
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_series_complete" onclick="tmplSwitchTab('language_series_complete')">
+                <i class="bi bi-check-all me-1"></i>Serie complete
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 pe-1 flex-shrink-0">
+        <button class="btn btn-sm btn-outline-secondary" onclick="tmplRestorePrevious()" title="Annuler la dernière modification"><i class="bi bi-reply me-1"></i>Annuler</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="tmplReset()"><i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser</button>
+        <button class="btn btn-sm btn-outline-warning" onclick="tmplTestSend()"><i class="bi bi-send me-1"></i>Envoyer un test</button>
+        <button class="btn btn-sm btn-warning" onclick="tmplSave()"><i class="bi bi-save me-1"></i>Enregistrer</button>
+      </div>
+    </div>
+
+    <div class="row g-0" style="height:calc(100vh - 320px);min-height:500px">
+      <!-- Éditeur -->
+      <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;border-right:none;display:flex;flex-direction:column">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
+          <span class="text-muted small">Éditeur HTML / Jinja2</span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="tmplLivePreview()"><i class="bi bi-eye me-1"></i>Prévisualiser</button>
+        </div>
+        <div class="p-3 bg-dark border-bottom border-secondary" style="flex-shrink:0">
+          <div id="tmpl-subject-group-request">
+            <label class="form-label small text-muted">Objet (Nouvelle demande)</label>
+            <input type="text" id="tmpl-subject-request" class="form-control form-control-sm" value="{{ request_subject }}" placeholder="[Plexarr] Nouvelle demande : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-available" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible sur Plex)</label>
+            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-available_vf" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible en VF)</label>
+            <input type="text" id="tmpl-subject-available_vf" class="form-control form-control-sm" value="{{ available_vf_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VF !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-available_vo_tracking" style="display:none">
+            <label class="form-label small text-muted">Objet (Disponible en VO + suivi VF)</label>
+            <input type="text" id="tmpl-subject-available_vo_tracking" class="form-control form-control-sm" value="{{ available_vo_tracking_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VO !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-vf_upgrade" style="display:none">
+            <label class="form-label small text-muted">Objet (Mise à jour VF)</label>
+            <input type="text" id="tmpl-subject-vf_upgrade" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-language_episode" style="display:none">
+            <label class="form-label small text-muted">Objet (Suivi par episode)</label>
+            <input type="text" id="tmpl-subject-language_episode" class="form-control form-control-sm" value="{{ language_episode_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : nouvel episode en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-language_season_start" style="display:none">
+            <label class="form-label small text-muted">Objet (Premier episode de saison)</label>
+            <input type="text" id="tmpl-subject-language_season_start" class="form-control form-control-sm" value="{{ language_season_start_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison demarree en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-language_season_complete" style="display:none">
+            <label class="form-label small text-muted">Objet (Saison complete)</label>
+            <input type="text" id="tmpl-subject-language_season_complete" class="form-control form-control-sm" value="{{ language_season_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison complete en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-language_series_complete" style="display:none">
+            <label class="form-label small text-muted">Objet (Serie complete)</label>
+            <input type="text" id="tmpl-subject-language_series_complete" class="form-control form-control-sm" value="{{ language_series_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est entierement disponible en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
+          </div>
+          <div id="tmpl-subject-group-failure" style="display:none">
+            <label class="form-label small text-muted">Objet (Échec de transmission)</label>
+            <input type="text" id="tmpl-subject-failure" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plexarr] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
+          </div>
+        </div>
+        <div style="flex-grow:1;position:relative">
+          <div id="tmpl-container-request" style="position:absolute;inset:0">
+            <textarea id="tmpl-editor-request" style="display:none">{{ request_template }}</textarea>
+          </div>
+          <div id="tmpl-container-available" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available" style="display:none">{{ available_template }}</textarea>
+          </div>
+          <div id="tmpl-container-available_vf" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available_vf" style="display:none">{{ available_vf_template }}</textarea>
+          </div>
+          <div id="tmpl-container-available_vo_tracking" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-available_vo_tracking" style="display:none">{{ available_vo_tracking_template }}</textarea>
+          </div>
+          <div id="tmpl-container-vf_upgrade" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-vf_upgrade" style="display:none">{{ vf_upgrade_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_episode" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_episode" style="display:none">{{ language_episode_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_season_start" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_season_start" style="display:none">{{ language_season_start_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_season_complete" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_season_complete" style="display:none">{{ language_season_complete_template }}</textarea>
+          </div>
+          <div id="tmpl-container-language_series_complete" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-language_series_complete" style="display:none">{{ language_series_complete_template }}</textarea>
+          </div>
+          <div id="tmpl-container-failure" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-failure" style="display:none">{{ failure_template }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prévisualisation -->
+      <div class="col-md-6" style="border:1px solid var(--pr-border);border-top:none;display:flex;flex-direction:column">
+        <div class="px-3 py-2" style="background:var(--pr-surface-2);border-bottom:1px solid var(--pr-border);flex-shrink:0">
+          <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <span class="text-muted small">Prévisualisation en tant que</span>
+            <select id="tmpl-preview-user" class="form-select form-select-sm py-0 px-2" style="width:160px;font-size:11px;height:24px;background:var(--pr-surface-2);color:var(--bs-body-color);border-color:var(--pr-border)" onchange="tmplLivePreview()">
+              <option value="">(Par défaut)</option>
+              {% for u in users %}
+              <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <span class="badge bg-secondary" id="tmpl-preview-status">En attente</span>
+        </div>
+        <iframe id="tmpl-preview-frame" style="width:100%;flex-grow:1;border:none;background:#fff"></iframe>
+      </div>
+    </div>
+
+  </div

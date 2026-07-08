@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.main import app
 from app.models import ArrInstance
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 
 
 def _client_with_db(db):

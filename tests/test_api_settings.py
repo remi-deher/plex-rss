@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.main import app
 from app.models import Settings
-from app.routers.api import require_auth
+from app.dependencies import require_auth
 
 
 def _mock_db(settings=None):
@@ -109,7 +109,7 @@ def test_update_settings_smtp_mask_not_overwritten():
     db = _mock_db(settings=settings)
     client = _client_with_db(db)
     try:
-        with patch("app.routers.api.update_poll_interval"):
+        with patch("app.routers.settings_api.update_poll_interval"):
             resp = client.put("/api/settings", json={"smtp_password": "••••••••"})
         assert resp.status_code == 200
         assert settings.smtp_password == "real_password"
@@ -123,7 +123,7 @@ def test_update_settings_updates_field():
     db = _mock_db(settings=settings)
     client = _client_with_db(db)
     try:
-        with patch("app.routers.api.update_poll_interval"):
+        with patch("app.routers.settings_api.update_poll_interval"):
             resp = client.put("/api/settings", json={"plex_url": "http://new-plex.local"})
         assert resp.status_code == 200
         assert settings.plex_url == "http://new-plex.local"

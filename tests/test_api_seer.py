@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.routers import api as api_router
+from app.dependencies import require_auth
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 
@@ -48,7 +48,7 @@ def db():
 def client(db):
     app.dependency_overrides[pages_router.require_auth] = lambda: None
     app.dependency_overrides[email_templates_router.require_auth] = lambda: None
-    app.dependency_overrides[api_router.require_auth] = lambda: None
+    app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
     yield c
@@ -121,7 +121,7 @@ def test_seer_complete_fills_missing_fields(client, db):
     _settings(db)
     u = _user(db, seer_user_id=3, plex_email=None, custom_name=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-complete")
 
     assert r.status_code == 200
@@ -154,7 +154,7 @@ def test_seer_complete_preserves_existing_fields(client, db):
     _settings(db)
     u = _user(db, seer_user_id=3, plex_email="deja@existant.fr", custom_name="Nom Existant")
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-complete")
 
     assert r.status_code == 200
@@ -172,7 +172,7 @@ def test_automatch_by_email(client, db):
     _settings(db)
     u = _user(db, plex_email="alice@example.com", seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200
@@ -188,7 +188,7 @@ def test_automatch_by_plex_username(client, db):
     _settings(db)
     u = _user(db, plex_user_id="alice", display_name="alice", plex_email=None, seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200
@@ -202,8 +202,8 @@ def test_automatch_no_match(client, db):
     u = _user(db, plex_email="nobody@example.com", display_name="nobody", seer_user_id=None)
 
     with (
-        patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)),
-        patch("app.services.seer.get_user_requests", new=AsyncMock(return_value=[])),
+        patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)),
+        patch("app.routers.users_api.seer_get_user_requests", new=AsyncMock(return_value=[])),
     ):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
@@ -217,7 +217,7 @@ def test_automatch_already_matched_seer_id_not_reused(client, db):
     _user(db, plex_user_id="bob", seer_user_id=3)
     u = _user(db, plex_user_id="alice", plex_email="alice@example.com", seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200

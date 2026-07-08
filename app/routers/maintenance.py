@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import SessionLocal
 from ..models import Settings
-from .api import require_auth
+from ..dependencies import require_auth
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 
