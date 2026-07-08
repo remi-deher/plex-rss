@@ -98,6 +98,86 @@ def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryIte
     return li
 
 
+def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int:
+    """Intègre les médias Plex en base (insert/mise à jour).
+
+    Exécuté dans un thread (via asyncio.to_thread) pour ne PAS bloquer la boucle
+    asyncio pendant l'intégration de milliers d'éléments — sinon le serveur devient
+    non réactif juste après le démarrage. Commits par lots (200) pour borner la
+    durée de verrou SQLite. Session dédiée (jamais partagée entre threads).
+    Retourne le nombre de nouveaux éléments ajoutés.
+    """
+    db = SessionLocal()
+    now = now_utc_naive()
+    added_count = 0
+    try:
+        for i, item in enumerate(plex_items, 1):
+            lib_item = _find_library_item(db, item)
+
+            arr_match = None
+            if item["media_type"] == "movie":
+                if item["tmdb_id"] and ("movie", "tmdb", item["tmdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("movie", "tmdb", item["tmdb_id"])]
+                elif item["imdb_id"] and ("movie", "imdb", item["imdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("movie", "imdb", item["imdb_id"])]
+            else:
+                if item["tvdb_id"] and ("show", "tvdb", item["tvdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "tvdb", item["tvdb_id"])]
+                elif item["tmdb_id"] and ("show", "tmdb", item["tmdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "tmdb", item["tmdb_id"])]
+                elif item["imdb_id"] and ("show", "imdb", item["imdb_id"]) in arr_lookup:
+                    arr_match = arr_lookup[("show", "imdb", item["imdb_id"])]
+
+            arr_instance_id = arr_match[0] if arr_match else None
+            arr_id = arr_match[1] if arr_match else None
+            arr_slug = arr_match[2] if arr_match else None
+
+            added_date = item["added_at"]
+            if added_date and added_date.tzinfo:
+                added_date = added_date.replace(tzinfo=None)
+
+            if lib_item is None:
+                db.add(
+                    LibraryItem(
+                        title=item["title"],
+                        year=item["year"],
+                        media_type=item["media_type"],
+                        tmdb_id=item["tmdb_id"],
+                        tvdb_id=item["tvdb_id"],
+                        imdb_id=item["imdb_id"],
+                        plex_guid=item["plex_guid"],
+                        poster_url=item["poster_url"],
+                        overview=item["overview"],
+                        added_at=added_date,
+                        arr_instance_id=arr_instance_id,
+                        arr_id=arr_id,
+                        arr_slug=arr_slug,
+                        has_vf=None,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                added_count += 1
+            else:
+                if not lib_item.plex_guid and item["plex_guid"]:
+                    lib_item.plex_guid = item["plex_guid"]
+                if not lib_item.poster_url and item["poster_url"]:
+                    lib_item.poster_url = item["poster_url"]
+                if not lib_item.arr_instance_id and arr_match:
+                    lib_item.arr_instance_id = arr_instance_id
+                    lib_item.arr_id = arr_id
+                    lib_item.arr_slug = arr_slug
+                lib_item.updated_at = now
+
+            plex_sync_state["items_synced"] += 1
+            if i % 200 == 0:
+                db.commit()
+        db.commit()
+    finally:
+        db.close()
+    return added_count
+
+
 async def sync_plex_media():
     """Tâche planifiée : synchronise les médias Plex configurés avec la base de données.
 
@@ -173,71 +253,9 @@ async def sync_plex_media():
             except Exception as inst_exc:
                 logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
 
-        now = now_utc_naive()
-        added_count = 0
-        for item in plex_items:
-            lib_item = _find_library_item(db, item)
-
-            # Tenter de trouver une correspondance Arr
-            arr_match = None
-            if item["media_type"] == "movie":
-                if item["tmdb_id"] and ("movie", "tmdb", item["tmdb_id"]) in arr_lookup:
-                    arr_match = arr_lookup[("movie", "tmdb", item["tmdb_id"])]
-                elif item["imdb_id"] and ("movie", "imdb", item["imdb_id"]) in arr_lookup:
-                    arr_match = arr_lookup[("movie", "imdb", item["imdb_id"])]
-            else:
-                if item["tvdb_id"] and ("show", "tvdb", item["tvdb_id"]) in arr_lookup:
-                    arr_match = arr_lookup[("show", "tvdb", item["tvdb_id"])]
-                elif item["tmdb_id"] and ("show", "tmdb", item["tmdb_id"]) in arr_lookup:
-                    arr_match = arr_lookup[("show", "tmdb", item["tmdb_id"])]
-                elif item["imdb_id"] and ("show", "imdb", item["imdb_id"]) in arr_lookup:
-                    arr_match = arr_lookup[("show", "imdb", item["imdb_id"])]
-
-            arr_instance_id = arr_match[0] if arr_match else None
-            arr_id = arr_match[1] if arr_match else None
-            arr_slug = arr_match[2] if arr_match else None
-
-            added_date = item["added_at"]
-            if added_date and added_date.tzinfo:
-                added_date = added_date.replace(tzinfo=None)
-
-            if lib_item is None:
-                # Nouvel élément de bibliothèque
-                db.add(
-                    LibraryItem(
-                        title=item["title"],
-                        year=item["year"],
-                        media_type=item["media_type"],
-                        tmdb_id=item["tmdb_id"],
-                        tvdb_id=item["tvdb_id"],
-                        imdb_id=item["imdb_id"],
-                        plex_guid=item["plex_guid"],
-                        poster_url=item["poster_url"],
-                        overview=item["overview"],
-                        added_at=added_date,
-                        arr_instance_id=arr_instance_id,
-                        arr_id=arr_id,
-                        arr_slug=arr_slug,
-                        has_vf=None,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
-                added_count += 1
-            else:
-                # Élément déjà connu : compléter les infos manquantes
-                if not lib_item.plex_guid and item["plex_guid"]:
-                    lib_item.plex_guid = item["plex_guid"]
-                if not lib_item.poster_url and item["poster_url"]:
-                    lib_item.poster_url = item["poster_url"]
-                if not lib_item.arr_instance_id and arr_match:
-                    lib_item.arr_instance_id = arr_instance_id
-                    lib_item.arr_id = arr_id
-                    lib_item.arr_slug = arr_slug
-                lib_item.updated_at = now
-            db.commit()
-
-            plex_sync_state["items_synced"] += 1
+        # Intégration hors boucle asyncio (thread + commits par lots) pour garder
+        # le serveur réactif pendant la synchro, notamment au démarrage.
+        added_count = await asyncio.to_thread(_integrate_plex_items, plex_items, arr_lookup)
 
         if added_count > 0:
             logger.info(f"VFF Sync : {added_count} nouveau(x) média(s) Plex ajouté(s) à la bibliothèque")

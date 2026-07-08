@@ -10,7 +10,7 @@ Couche d'accès à la base de données SQLite via SQLAlchemy.
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from .models import Settings
@@ -25,6 +25,24 @@ if DATABASE_URL.startswith("sqlite"):
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+if DATABASE_URL.startswith("sqlite"):
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        """Applique busy_timeout sur chaque connexion SQLite.
+
+        Sous contention (ex. synchro Plex de milliers d'items en tâche de fond),
+        une lecture attend jusqu'à 5 s la libération du verrou au lieu d'échouer
+        immédiatement en "database is locked". On NE force PAS le mode WAL : sa
+        mémoire partagée (-shm, mmap) n'est pas supportée sur les bind-mounts
+        Windows/Docker et provoque "unable to open database file". La réactivité
+        est assurée par l'intégration en thread + commits par lots (voir plex_sync).
+        """
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
 
 
 def run_migrations():
