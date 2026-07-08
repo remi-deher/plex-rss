@@ -2375,6 +2375,30 @@ def _movie_release_events(movie: dict, start_dt: datetime, end_dt: datetime, now
     return [(raw, rtype, label)]
 
 
+def _calendar_entry_excluded(tracked, *, search_text, search_target, user, status, source, vf) -> bool:
+    """True si l'entrée doit être exclue selon les filtres avancés (hors type/tracked_only)."""
+    if search_text and search_text.lower() not in (search_target or "").lower():
+        return True
+    if user and (not tracked or user not in tracked.get("requested_by_ids", [])):
+        return True
+    if status and (not tracked or tracked.get("request_status") != status):
+        return True
+    if source and (not tracked or source not in tracked.get("request_sources", [])):
+        return True
+    if vf:
+        if not tracked:
+            return True
+        if vf == "vf" and not (tracked.get("in_library") and tracked.get("has_vf") is True):
+            return True
+        if vf == "vo" and not (tracked.get("in_library") and tracked.get("has_vf") is False):
+            return True
+        if vf == "unchecked" and not (tracked.get("in_library") and tracked.get("has_vf") is None):
+            return True
+        if vf == "requested" and tracked.get("in_library"):
+            return True
+    return False
+
+
 @router.get("/calendar")
 async def unified_calendar(
     start: Optional[str] = None,
@@ -2488,25 +2512,16 @@ async def unified_calendar(
                     # Filtres
                     if type == "movie":
                         continue
-                    if search and search.lower() not in (series.get("title") or "").lower():
+                    if _calendar_entry_excluded(
+                        tracked,
+                        search_text=search,
+                        search_target=series.get("title"),
+                        user=user,
+                        status=status,
+                        source=source,
+                        vf=vf,
+                    ):
                         continue
-                    if user and (not tracked or user not in tracked.get("requested_by_ids", [])):
-                        continue
-                    if status and (not tracked or tracked.get("request_status") != status):
-                        continue
-                    if source and (not tracked or source not in tracked.get("request_sources", [])):
-                        continue
-                    if vf:
-                        if not tracked:
-                            continue
-                        if vf == "vf" and not (tracked.get("in_library") and tracked.get("has_vf") is True):
-                            continue
-                        elif vf == "vo" and not (tracked.get("in_library") and tracked.get("has_vf") is False):
-                            continue
-                        elif vf == "unchecked" and not (tracked.get("in_library") and tracked.get("has_vf") is None):
-                            continue
-                        elif vf == "requested" and tracked.get("in_library"):
-                            continue
 
                     events.append({
                         "type": "episode",
@@ -2537,25 +2552,16 @@ async def unified_calendar(
                     if type == "show":
                         continue
                     title = m.get("title") or ""
-                    if search and search.lower() not in title.lower():
+                    if _calendar_entry_excluded(
+                        tracked,
+                        search_text=search,
+                        search_target=title,
+                        user=user,
+                        status=status,
+                        source=source,
+                        vf=vf,
+                    ):
                         continue
-                    if user and (not tracked or user not in tracked.get("requested_by_ids", [])):
-                        continue
-                    if status and (not tracked or tracked.get("request_status") != status):
-                        continue
-                    if source and (not tracked or source not in tracked.get("request_sources", [])):
-                        continue
-                    if vf:
-                        if not tracked:
-                            continue
-                        if vf == "vf" and not (tracked.get("in_library") and tracked.get("has_vf") is True):
-                            continue
-                        elif vf == "vo" and not (tracked.get("in_library") and tracked.get("has_vf") is False):
-                            continue
-                        elif vf == "unchecked" and not (tracked.get("in_library") and tracked.get("has_vf") is None):
-                            continue
-                        elif vf == "requested" and tracked.get("in_library"):
-                            continue
 
                     poster = (tracked or {}).get("poster_url") or _arr_poster(m)
                     for rdate, rtype, rlabel in release_events:
