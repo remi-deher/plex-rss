@@ -7,6 +7,7 @@ et états globaux utilisés par les routeurs et les tests.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -97,7 +98,18 @@ def start_scheduler(poll_minutes: int = 5):
     )
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
-    scheduler.add_job(sync_plex_media, "interval", hours=24, id="plex_library_sync", replace_existing=True)
+    # Le trigger "interval" ne se déclenche qu'après un premier cycle (ici 24 h) : sans
+    # first-run au démarrage, un conteneur souvent redémarré ne resynchronise jamais la
+    # bibliothèque Plex (elle reste figée). On force donc un premier passage ~30 s après
+    # le boot, puis toutes les 24 h.
+    scheduler.add_job(
+        sync_plex_media,
+        "interval",
+        hours=24,
+        id="plex_library_sync",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
+    )
     if digest_hour is not None:
         scheduler.add_job(_send_digest, "cron", hour=digest_hour, minute=0, id="digest", replace_existing=True)
     scheduler.start()

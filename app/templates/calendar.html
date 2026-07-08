@@ -17,8 +17,20 @@
   </div>
 </div>
 
+<div class="text-center mb-3">
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="cal-prev-month-btn" onclick="loadCalendar(true)">
+    <i class="bi bi-chevron-up me-1"></i>Voir le mois précédent
+  </button>
+</div>
+
 <div id="cal-container">
   <div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>
+</div>
+
+<div class="text-center mt-3">
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="cal-next-month-btn" onclick="loadCalendar(false, true)">
+    <i class="bi bi-chevron-down me-1"></i>Voir le mois suivant
+  </button>
 </div>
 
 {% endblock %}
@@ -102,16 +114,55 @@ function initTrackedOnlyFromQuery() {
   if (params.get('tracked_only') === 'true') document.getElementById('cal-tracked-only').checked = true;
 }
 
-async function loadCalendar() {
+// Le calendrier démarre au lundi de la semaine en cours et affiche ~3 semaines
+// vers l'avant par défaut. "Voir le mois précédent/suivant" étend la plage d'un
+// mois à chaque clic ; le refresh et la bascule "Suivis uniquement" conservent
+// la plage actuellement affichée.
+let calendarRangeStart = null;
+let calendarRangeEnd = null;
+
+function _currentWeekMonday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();               // 0 = dimanche, 1 = lundi, ...
+  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  return d;
+}
+function _defaultRangeEnd() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 21);          // même fenêtre avant que la valeur par défaut du serveur
+  return d;
+}
+
+async function loadCalendar(prependPreviousMonth = false, appendNextMonth = false) {
+  if (!calendarRangeStart) calendarRangeStart = _currentWeekMonday();
+  if (!calendarRangeEnd) calendarRangeEnd = _defaultRangeEnd();
+  if (prependPreviousMonth) {
+    calendarRangeStart = new Date(calendarRangeStart);
+    calendarRangeStart.setMonth(calendarRangeStart.getMonth() - 1);
+  }
+  if (appendNextMonth) {
+    calendarRangeEnd = new Date(calendarRangeEnd);
+    calendarRangeEnd.setMonth(calendarRangeEnd.getMonth() + 1);
+  }
   const trackedOnly = document.getElementById('cal-tracked-only').checked;
   const container = document.getElementById('cal-container');
   container.innerHTML = '<div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>';
+  const btns = [document.getElementById('cal-prev-month-btn'), document.getElementById('cal-next-month-btn')];
+  btns.forEach(b => { if (b) { b.disabled = true; b.querySelector('i')?.classList.add('spin'); } });
   try {
-    const events = await fetch(`/api/calendar?tracked_only=${trackedOnly}`).then(r => r.json());
+    const params = new URLSearchParams();
+    params.set('tracked_only', trackedOnly);
+    params.set('start', calendarRangeStart.toISOString());
+    params.set('end', calendarRangeEnd.toISOString());
+    const events = await fetch(`/api/calendar?${params.toString()}`).then(r => r.json());
     container.innerHTML = render(events);
     document.getElementById('cal-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
   } catch (e) {
     container.innerHTML = `<div class="alert alert-danger">Erreur de chargement : ${escHtml(e.message)}</div>`;
+  } finally {
+    btns.forEach(b => { if (b) { b.disabled = false; b.querySelector('i')?.classList.remove('spin'); } });
   }
 }
 

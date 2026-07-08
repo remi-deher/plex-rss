@@ -19,8 +19,8 @@
 {% macro vf_badge(has_vf, in_library, vf_granularity=none) %}
 {% if in_library %}
   {% if has_vf == true %}<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>
-  {% elif has_vf == false and vf_granularity == 'season_partial' %}<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entière est disponible en VF"><i class="bi bi-translate me-1"></i>VF Saison Partiel</span>
-  {% elif has_vf == false and vf_granularity == 'episode_partial' %}<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins un épisode est disponible en VF"><i class="bi bi-translate me-1"></i>VF Épisode Partiel</span>
+  {% elif has_vf == false and vf_granularity == 'season_partial' %}<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entière est en VF, mais la série n'est pas totalement en VF"><i class="bi bi-translate me-1"></i>VF partielle · saisons</span>
+  {% elif has_vf == false and vf_granularity == 'episode_partial' %}<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Seulement quelques épisodes sont en VF (aucune saison complète)"><i class="bi bi-translate me-1"></i>VF partielle · épisodes</span>
   {% elif has_vf == false %}<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VF en attente</span>
   {% else %}<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>?</span>
   {% endif %}
@@ -29,10 +29,11 @@
 
 <style>
   .library-shell { display:flex; flex-direction:column; gap:14px; margin-bottom:1rem; }
-  .library-hero { border:1px solid var(--pr-border); border-radius:8px; background:linear-gradient(135deg, rgba(229,160,13,.12), rgba(255,255,255,.025)); padding:16px; }
-  .library-nav { display:inline-flex; gap:4px; padding:4px; border:1px solid var(--pr-border); border-radius:8px; background:var(--pr-surface-2); }
-  .library-nav .nav-link { border-radius:6px; color:var(--bs-secondary-color); padding:.35rem .7rem; font-size:.875rem; }
-  .library-nav .nav-link.active { background:var(--pr-accent); color:#111; font-weight:600; }
+  .library-hero { border:1px solid var(--pr-border); border-radius:10px; background:linear-gradient(135deg, rgba(229,160,13,.12), rgba(255,255,255,.025)); padding:18px 20px; }
+  .library-hero-icon { flex:0 0 auto; width:52px; height:52px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.6rem; color:var(--pr-accent); background:rgba(229,160,13,.15); border:1px solid rgba(229,160,13,.35); }
+  .library-hero h2 { font-size:1.5rem; }
+  .library-hero-desc { display:flex; align-items:flex-start; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--pr-border); font-size:.82rem; color:var(--bs-secondary-color); line-height:1.4; }
+  .library-hero-desc i { color:var(--pr-accent); margin-top:1px; }
   .library-metrics { display:grid; grid-template-columns:repeat(auto-fit, minmax(138px, 1fr)); gap:8px; }
   .metric-pill { border:1px solid var(--pr-border); border-radius:8px; background:var(--pr-surface-2); color:inherit; padding:10px 12px; text-decoration:none; min-height:58px; display:flex; flex-direction:column; justify-content:center; gap:2px; }
   .metric-pill:hover { border-color:rgba(229,160,13,.65); color:inherit; background:rgba(229,160,13,.08); }
@@ -43,14 +44,33 @@
   .filter-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--pr-border); border-radius:999px; padding:4px 9px; background:rgba(255,255,255,.04); color:var(--bs-secondary-color); font-size:.78rem; }
 </style>
 
+{% set lib_title = 'Series' if active_type == 'show' else ('Films' if active_type == 'movie' else 'Bibliotheque') %}
+{% set lib_icon = 'tv' if active_type == 'show' else ('film' if active_type == 'movie' else 'collection-play') %}
+{% set lib_unit = 'serie' if active_type == 'show' else ('film' if active_type == 'movie' else 'media') %}
+{# Texte explicatif du hero, fonction du filtre (metric) actif. #}
+{% set vf_desc = {
+  'vf': "Version française complète disponible dans Plex.",
+  'vo': "Présent dans Plex mais sans VF — la version française est encore attendue.",
+  'season_partial': "Séries partiellement en VF : au moins une saison entière est en VF, mais la série ne l'est pas totalement.",
+  'episode_partial': "Séries dont seuls quelques épisodes sont en VF (aucune saison complète).",
+  'unchecked': "Médias pas encore analysés pour détecter la présence d'une VF.",
+  'requested': "Demandes hors Plex : titres demandés mais pas encore présents dans la bibliothèque.",
+  'plex_anomaly': "Anomalie Plex : traités et disponibles côté Sonarr/Radarr, mais introuvables dans la bibliothèque Plex (probable bug d'indexation Plex). Ouvre un média puis « Revérifier dans Plex » pour relancer une recherche ciblée.",
+} %}
+{% if active_vf %}{% set active_desc = vf_desc.get(active_vf) %}
+{% elif active_view == 'requests' %}{% set active_desc = "Médias liés à au moins une demande." %}
+{% else %}{% set active_desc = "Tous les médias présents dans Plex et les demandes en cours." %}{% endif %}
 <div class="library-shell">
   <div class="library-hero">
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-      <div>
-        <h2 class="mb-1"><i class="bi bi-collection-play me-2 text-warning"></i>Bibliotheque</h2>
-        <div class="text-muted small" id="header-count">
-          {{ total }} media{% if total > 1 %}s{% endif %} affiche{% if total > 1 %}s{% endif %}
-          {% if active_search %} pour "{{ active_search }}"{% endif %}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="library-hero-icon"><i class="bi bi-{{ lib_icon }}"></i></div>
+        <div>
+          <h2 class="mb-1 fw-bold">{{ lib_title }}</h2>
+          <div class="text-muted small" id="header-count">
+            {{ total }} {{ lib_unit }}{% if total > 1 %}s{% endif %}
+            {% if active_search %} pour "{{ active_search }}"{% endif %}
+          </div>
         </div>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
@@ -68,14 +88,11 @@
         </div>
       </div>
     </div>
-    <div class="mt-3">
-      <nav class="library-nav" id="library-tabs" aria-label="Navigation bibliotheque">
-        <a href="/library" class="nav-link {% if active_view != 'calendar' and not active_type %}active{% endif %}"><i class="bi bi-collection me-1"></i>Tout</a>
-        <a href="/library?type=movie" class="nav-link {% if active_type == 'movie' %}active{% endif %}"><i class="bi bi-film me-1"></i>Films</a>
-        <a href="/library?type=show" class="nav-link {% if active_type == 'show' %}active{% endif %}"><i class="bi bi-tv me-1"></i>Series</a>
-        <a href="/library?view=calendar" class="nav-link {% if active_view == 'calendar' %}active{% endif %}"><i class="bi bi-calendar3 me-1"></i>Calendrier</a>
-      </nav>
+    {% if active_desc %}
+    <div class="library-hero-desc">
+      <i class="bi bi-info-circle"></i><span>{{ active_desc }}</span>
     </div>
+    {% endif %}
   </div>
 
 {% set type_qs = 'type=' ~ active_type ~ '&' if active_type else '' %}
@@ -92,21 +109,21 @@
       <span class="metric-value text-warning">{{ counts.vo }}</span>
       <span class="metric-label">VF en attente</span>
     </a>
-    <a href="/library?{{ type_qs }}vf=season_partial" class="metric-pill {% if active_vf == 'season_partial' %}is-active{% endif %}" aria-label="{{ counts.season_partial }} VF Saison Partiel">
+    <a href="/library?{{ type_qs }}vf=season_partial" class="metric-pill {% if active_vf == 'season_partial' %}is-active{% endif %}" title="Au moins une saison entière est en VF, mais la série n'est pas totalement en VF" aria-label="{{ counts.season_partial }} VF partielle saisons">
       <span class="metric-value text-warning">{{ counts.season_partial }}</span>
-      <span class="metric-label">VF saison partiel</span>
+      <span class="metric-label">VF partielle · saisons</span>
     </a>
-    <a href="/library?{{ type_qs }}vf=episode_partial" class="metric-pill {% if active_vf == 'episode_partial' %}is-active{% endif %}" aria-label="{{ counts.episode_partial }} VF Episode Partiel">
+    <a href="/library?{{ type_qs }}vf=episode_partial" class="metric-pill {% if active_vf == 'episode_partial' %}is-active{% endif %}" title="Seulement quelques épisodes sont en VF (aucune saison complète)" aria-label="{{ counts.episode_partial }} VF partielle épisodes">
       <span class="metric-value text-info">{{ counts.episode_partial }}</span>
-      <span class="metric-label">VF episode partiel</span>
+      <span class="metric-label">VF partielle · épisodes</span>
     </a>
     <a href="/library?{{ type_qs }}vf=unchecked" class="metric-pill {% if active_vf == 'unchecked' %}is-active{% endif %}" aria-label="{{ counts.unchecked }} non analyses">
       <span class="metric-value">{{ counts.unchecked }}</span>
       <span class="metric-label">Non analyses</span>
     </a>
-    <a href="/library?{{ type_qs }}vf=requested" class="metric-pill {% if active_vf == 'requested' %}is-active{% endif %}" aria-label="{{ counts.requested }} demandes hors Plex">
-      <span class="metric-value">{{ counts.requested }}</span>
-      <span class="metric-label">Hors Plex</span>
+    <a href="/library?{{ type_qs }}vf=plex_anomaly" class="metric-pill {% if active_vf == 'plex_anomaly' %}is-active{% endif %}" title="Traité par Sonarr/Radarr (disponible) mais introuvable dans la bibliothèque Plex — probable bug d'indexation Plex" aria-label="{{ counts.plex_anomaly }} anomalies Plex">
+      <span class="metric-value {% if counts.plex_anomaly %}text-danger{% endif %}"><i class="bi bi-exclamation-triangle me-1"></i>{{ counts.plex_anomaly }}</span>
+      <span class="metric-label">Anomalie Plex</span>
     </a>
     {% if status_counts.failed %}<a href="/library?{{ type_qs }}view=requests&status=failed" class="metric-pill"><span class="metric-value text-danger">{{ status_counts.failed }}</span><span class="metric-label">Echecs</span></a>{% endif %}
     {% if status_counts.pending %}<a href="/library?{{ type_qs }}view=requests&status=pending" class="metric-pill"><span class="metric-value">{{ status_counts.pending }}</span><span class="metric-label">Recues</span></a>{% endif %}
@@ -157,7 +174,6 @@
           <select class="form-select form-select-sm" name="view" onchange="this.form.submit()">
             <option value="all" {% if active_view == 'all' %}selected{% endif %}>Tous medias</option>
             <option value="requests" {% if active_view == 'requests' %}selected{% endif %}>Avec demandes</option>
-            <option value="calendar" {% if active_view == 'calendar' %}selected{% endif %}>Calendrier</option>
           </select>
         </div>
         <div class="col-12 col-md-4 col-lg-3">
@@ -181,7 +197,7 @@
   {% if active_user %}<span class="filter-chip"><i class="bi bi-person"></i>{{ users_map.get(active_user, active_user) }}</span>{% endif %}
   {% if active_status %}<span class="filter-chip">{{ active_status }}</span>{% endif %}
   {% if active_type %}<span class="filter-chip">{{ 'Serie' if active_type == 'show' else 'Film' }}</span>{% endif %}
-  {% if active_vf %}<span class="filter-chip"><i class="bi bi-translate"></i>{% if active_vf == 'vf' %}VF complete{% elif active_vf == 'vo' %}VF en attente{% elif active_vf == 'season_partial' %}VF saison partiel{% elif active_vf == 'episode_partial' %}VF episode partiel{% elif active_vf == 'unchecked' %}Non analyses{% elif active_vf == 'requested' %}Hors Plex{% else %}{{ active_vf }}{% endif %}</span>{% endif %}
+  {% if active_vf %}<span class="filter-chip"><i class="bi bi-translate"></i>{% if active_vf == 'vf' %}VF complete{% elif active_vf == 'vo' %}VF en attente{% elif active_vf == 'season_partial' %}VF saison partiel{% elif active_vf == 'episode_partial' %}VF episode partiel{% elif active_vf == 'unchecked' %}Non analyses{% elif active_vf == 'requested' %}Hors Plex{% elif active_vf == 'plex_anomaly' %}Anomalie Plex{% else %}{{ active_vf }}{% endif %}</span>{% endif %}
   {% if active_source %}<span class="filter-chip">{{ active_source }}</span>{% endif %}
   <a href="/library" class="text-muted small text-decoration-none"><i class="bi bi-x-circle me-1"></i>Tout effacer</a>
 </div>
@@ -253,6 +269,8 @@
       <div class="position-absolute top-0 end-0 m-2 z-3 d-flex flex-column gap-1 align-items-end" style="max-width:38%">
         {% if it.in_library %}
           <span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
+        {% elif it.plex_anomaly %}
+          <span class="badge bg-danger" style="font-size:9px;white-space:normal;text-align:right;line-height:1.25" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>
         {% else %}
           {% if not it.request_status %}
             <span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>Demande</span>
@@ -294,7 +312,7 @@
             <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
             <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
             <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
-            <td>{{ status_badge(it.request_status, it.media_type) }}</td>
+            <td>{{ status_badge(it.request_status, it.media_type) }}{% if it.plex_anomaly %} <span class="badge bg-danger" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>{% endif %}</td>
             <td>{{ vf_badge(it.has_vf, it.in_library, it.vf_granularity) }}</td>
             <td class="small">{{ it.requested_by or '-' }}</td>
             <td>{% if it.request_status in ('failed','pending') and it.primary_request_id %}<button class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();retryRequest({{ it.primary_request_id }}, this)"><i class="bi bi-arrow-clockwise"></i></button>{% endif %}</td>
@@ -518,8 +536,8 @@ function vfBadge(hasVf, inLibrary = true, vfGranularity = null) {
   if (!inLibrary) return '<span class="badge bg-secondary"><i class="bi bi-inbox me-1"></i>Hors Plex</span>';
   if (hasVf === true) return '<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>';
   if (hasVf === false) {
-    if (vfGranularity === 'season_partial') return '<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entière est disponible en VF"><i class="bi bi-translate me-1"></i>VF Saison Partiel</span>';
-    if (vfGranularity === 'episode_partial') return '<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins un épisode est disponible en VF"><i class="bi bi-translate me-1"></i>VF Épisode Partiel</span>';
+    if (vfGranularity === 'season_partial') return '<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entière est en VF, mais la série n\'est pas totalement en VF"><i class="bi bi-translate me-1"></i>VF partielle · saisons</span>';
+    if (vfGranularity === 'episode_partial') return '<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Seulement quelques épisodes sont en VF (aucune saison complète)"><i class="bi bi-translate me-1"></i>VF partielle · épisodes</span>';
     return '<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VF en attente</span>';
   }
   return '<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>Non analyse</span>';
@@ -564,6 +582,32 @@ function renderMediaModal(d) {
   loadVfDetail(d.media);
 }
 
+async function recheckPlex(btn, requestId, libraryId) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vérification...';
+  try {
+    const params = new URLSearchParams();
+    if (libraryId != null) params.set('library_id', libraryId);
+    else if (requestId != null) params.set('request_id', requestId);
+    const r = await fetch(`/api/media/recheck-plex?${params.toString()}`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    if (d.found) {
+      showToast('Média trouvé dans Plex — bibliothèque mise à jour', 'success');
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      showToast('Toujours introuvable dans Plex', 'warning');
+      btn.disabled = false;
+      btn.innerHTML = orig;
+    }
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
 function renderSummary(d) {
   const m = d.media, t = d.timeline || {};
   const poster = m.poster_url
@@ -571,6 +615,8 @@ function renderSummary(d) {
     : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:120px;height:180px"><i class="bi bi-image fs-2 text-muted"></i></div>`;
   const requestStatus = d.requests.length ? d.requests.map(r => statusBadge(r.status)).join(' ') : '<span class="badge bg-secondary">Aucune demande</span>';
   const requesterNames = [...new Set(d.requests.flatMap(r => r.requesters || []))].join(', ') || '-';
+  // Anomalie Plex : traité/disponible côté *arr mais introuvable dans la bibliothèque Plex.
+  const isAnomaly = !m.in_library && d.requests.some(r => r.status === 'available');
   const scheduleRows = m.media_type === 'show'
     ? `
       <tr><td class="text-muted">Premiere diffusion</td><td>${fmtDate(t.first_aired)}</td></tr>
@@ -585,9 +631,18 @@ function renderSummary(d) {
     <div class="col">
       <div class="mb-2">
         <span class="badge ${m.media_type === 'show' ? 'bg-info text-dark' : 'bg-primary'}">${typeLabel(m.media_type)}</span>
-        ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>'}
+        ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : (isAnomaly ? '<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>')}
         <span class="ms-1">${vfBadge(m.has_vf, m.in_library, m.vf_granularity)}</span>
       </div>
+      ${!m.in_library ? `<div class="mb-2">
+        <button class="btn btn-sm btn-outline-danger d-inline-flex align-items-center gap-1"
+                onclick="recheckPlex(this, ${m.request_id == null ? 'null' : m.request_id}, ${m.library_id == null ? 'null' : m.library_id})">
+          <i class="bi bi-arrow-repeat"></i> Revérifier dans Plex
+        </button>
+        <div class="text-muted small mt-1">${isAnomaly
+          ? 'Traité par Sonarr/Radarr mais introuvable dans Plex. Relance une recherche ciblée dans les bibliothèques Plex configurées.'
+          : "Vérifie si le média est désormais présent dans les bibliothèques Plex configurées."}</div>
+      </div>` : ''}
       <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
         <tr><td class="text-muted" style="width:150px">Demandes</td><td>${requestStatus}</td></tr>
         <tr><td class="text-muted">Demandeurs</td><td>${escHtml(requesterNames)}</td></tr>

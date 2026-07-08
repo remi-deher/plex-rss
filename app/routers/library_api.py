@@ -244,6 +244,117 @@ async def media_detail(
     }
 
 
+@router.post("/media/recheck-plex")
+async def recheck_plex(
+    request_id: Optional[int] = None,
+    library_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Revérifie si un média (souvent une « anomalie Plex ») est désormais indexé par Plex.
+
+    Cas d'usage : Sonarr/Radarr a bien importé le fichier (demande « disponible »)
+    mais Plex ne le trouvait pas. On relance une recherche ciblée (GUID > IDs
+    externes > titre) dans les bibliothèques configurées ; si le média est trouvé,
+    on crée le LibraryItem correspondant et on y rattache les demandes — il cesse
+    alors d'être une anomalie.
+    """
+    import asyncio
+
+    from ..services.plex_sync import _find_library_item_by_ids
+    from ..services.vff import connect, find_item_in_libraries
+    from ..services.vff_scanner import _parse_vff_libraries
+    from ..utils import now_utc_naive
+
+    if not request_id and not library_id:
+        raise HTTPException(400, "request_id or library_id is required")
+
+    if library_id:
+        media = get_or_404(db, LibraryItem, library_id, "Library item not found")
+        return {"found": True, "already_in_library": True, "library_id": library_id}
+    media = get_or_404(db, MediaRequest, request_id, "Request not found")
+
+    settings = db.query(Settings).first()
+    if not settings or not settings.plex_url or not settings.plex_token:
+        raise HTTPException(400, "Plex non configuré")
+    libs = _parse_vff_libraries(settings)
+    if not libs:
+        raise HTTPException(400, "Aucune bibliothèque Plex configurée")
+
+    if media.media_type == "movie":
+        lib_names = [lib["name"] for lib in libs if lib["kind"] == "movie"]
+    else:
+        lib_names = [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
+
+    def _search():
+        plex = connect(settings.plex_url, settings.plex_token)
+        return find_item_in_libraries(
+            plex, lib_names, media.title, media.year,
+            media.tmdb_id, media.tvdb_id, media.imdb_id, plex_guid=media.plex_guid,
+        )
+
+    try:
+        found = await asyncio.to_thread(_search)
+    except Exception as e:
+        logger.warning(f"Recheck Plex échoué pour {media.title!r}: {e}")
+        raise HTTPException(502, f"Erreur de connexion Plex : {e}")
+
+    if not found:
+        return {"found": False}
+
+    # Extraire les identifiants externes du média Plex trouvé
+    tmdb_id = tvdb_id = imdb_id = None
+    for g in getattr(found, "guids", []) or []:
+        gid = g.id or ""
+        if gid.startswith("tmdb://"):
+            tmdb_id = gid.split("tmdb://")[-1]
+        elif gid.startswith("tvdb://"):
+            tvdb_id = gid.split("tvdb://")[-1]
+        elif gid.startswith("imdb://"):
+            imdb_id = gid.split("imdb://")[-1]
+    plex_guid = getattr(found, "guid", None)
+    now = now_utc_naive()
+
+    lib_item = _find_library_item_by_ids(
+        db, plex_guid, tmdb_id, tvdb_id, imdb_id, found.title, getattr(found, "year", None), media.media_type
+    )
+    if not lib_item:
+        thumb = getattr(found, "thumb", None)
+        added = getattr(found, "addedAt", None)
+        if added and added.tzinfo:
+            added = added.replace(tzinfo=None)
+        lib_item = LibraryItem(
+            title=found.title,
+            year=getattr(found, "year", None),
+            media_type=media.media_type,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            plex_guid=plex_guid,
+            poster_url=(
+                f"{settings.plex_url.rstrip('/')}{thumb}?X-Plex-Token={settings.plex_token}" if thumb else media.poster_url
+            ),
+            overview=getattr(found, "summary", None) or media.overview,
+            added_at=added,
+            arr_instance_id=media.arr_instance_id,
+            arr_id=media.arr_id,
+            arr_slug=media.arr_slug,
+            has_vf=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(lib_item)
+        db.flush()
+
+    # Rattacher toutes les demandes qui représentent ce média
+    for req in _media_identity_filter(db, lib_item):
+        req.library_item_id = lib_item.id
+    if media.library_item_id != lib_item.id:
+        media.library_item_id = lib_item.id
+    db.commit()
+
+    return {"found": True, "library_id": lib_item.id}
+
+
 @router.get("/media/capabilities")
 def media_capabilities(db: Session = Depends(get_db)):
     """Retourne les services disponibles pour orienter le flux de recherche côté frontend."""

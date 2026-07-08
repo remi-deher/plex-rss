@@ -180,8 +180,15 @@ def library_page(
     db: Session = Depends(get_db),
 ):
     """Bibliothèque : union des médias présents dans Plex (library_items) et des
-    demandes non encore en bibliothèque, avec état VF/VFF. Onglets Films / Séries."""
+    demandes non encore en bibliothèque, avec état VF/VFF. Films et Séries sont
+    deux entrées distinctes ; par défaut on affiche les Films. Seule la recherche
+    globale de demandes (view=requests) reste transversale aux deux types."""
     settings = db.query(Settings).first()
+
+    # Séparation complète Films / Séries : hors recherche globale, un type est
+    # toujours actif (Films par défaut).
+    if type not in ("movie", "show") and view != "requests":
+        type = "movie"
 
     lib_q = db.query(LibraryItem)
     req_q = db.query(MediaRequest)
@@ -272,6 +279,9 @@ def library_page(
         statuses = sorted({r["status"] for r in reqs}, key=lambda s: status_priority.get(s, 99))
         vm["request_statuses"] = statuses
         vm["request_status"] = statuses[0] if statuses else None
+        # Anomalie Plex : *arr a traité la demande (statut disponible) mais le média
+        # reste introuvable dans la bibliothèque Plex synchronisée (bug d'indexation Plex).
+        vm["plex_anomaly"] = (not vm["in_library"]) and ("available" in statuses)
         vm["request_sources"] = sorted({r["source"] for r in reqs if r["source"]})
         names = []
         for req in reqs:
@@ -292,6 +302,7 @@ def library_page(
         "episode_partial": sum(1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"),
         "unchecked": sum(1 for v in items if v["in_library"] and v["has_vf"] is None),
         "requested": sum(1 for v in items if not v["in_library"]),
+        "plex_anomaly": sum(1 for v in items if v["plex_anomaly"]),
         "requests": sum(1 for v in items if v["request_ids"]),
         "total": len(items),
     }
@@ -329,6 +340,8 @@ def library_page(
         items = [v for v in items if v["in_library"] and v["has_vf"] is None]
     elif vf == "requested":
         items = [v for v in items if not v["in_library"]]
+    elif vf == "plex_anomaly":
+        items = [v for v in items if v["plex_anomaly"]]
 
     reverse = order != "asc"
     if sort == "title":
