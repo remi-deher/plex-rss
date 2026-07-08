@@ -60,7 +60,7 @@ def test_milestones_notifies_once_on_first_partial():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -78,7 +78,7 @@ def test_milestones_does_not_repeat_once_flagged():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -95,7 +95,7 @@ def test_every_episode_notifies_on_each_increase():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -113,7 +113,7 @@ def test_every_episode_skips_when_count_unchanged():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -127,7 +127,7 @@ def test_complete_series_sends_available_notification():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -145,7 +145,7 @@ def test_complete_series_does_not_repeat_once_sent():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -160,7 +160,7 @@ def test_no_episode_data_falls_back_to_classic_available_notification():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -175,7 +175,7 @@ def test_zero_episodes_available_does_not_notify():
     db.add(req)
     db.commit()
 
-    with patch("app.scheduler.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
         _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()

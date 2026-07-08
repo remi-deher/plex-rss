@@ -186,19 +186,19 @@ def test_add_co_requester_multiple(db):
 
 
 def _patch_session(db):
-    return patch("app.scheduler.SessionLocal", return_value=db)
+    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
 
 
 def _patch_watchlist(items):
-    return patch("app.scheduler.fetch_watchlist", new=AsyncMock(return_value=items))
+    return patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=items))
 
 
 def _patch_submit(arr_id=42, existed=False, slug=None):
-    return patch("app.scheduler._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
+    return patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
 
 
 def _patch_enqueue():
-    return patch("app.scheduler.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue_notification")
 
 
 def _movie_item(user="alice", user_id="alice", tmdb_id="27205"):
@@ -309,7 +309,7 @@ async def test_seer_sync_updates_placeholder_title(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -332,7 +332,7 @@ async def test_seer_sync_no_duplicate_when_rss_exists(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -355,7 +355,7 @@ async def test_seer_sync_adds_co_requester_for_other_user(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -380,7 +380,7 @@ async def test_seer_sync_status_updated_to_available(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
     ):
         await sync_seer_requests()
 

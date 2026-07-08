@@ -91,11 +91,11 @@ async def test_watchlist_torrent_automation_fallback(db):
     ]
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
-        patch("app.scheduler.fetch_watchlist", new=AsyncMock(return_value=[watchlist_item])),
+        patch("app.services.watchlist_poller.SessionLocal", return_value=db),
+        patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=[watchlist_item])),
         patch("app.services.prowlarr.search", new=AsyncMock(return_value=mock_search_results)),
-        patch("app.scheduler.add_torrent_to_client", new=AsyncMock(return_value=(True, "Added", "inception_hash"))),
-        patch("app.scheduler._notify") as mock_notify,
+        patch("app.services.watchlist_poller.add_torrent_to_client", new=AsyncMock(return_value=(True, "Added", "inception_hash"))),
+        patch("app.services.notification_orchestrator._notify") as mock_notify,
     ):
         await poll_watchlists()
 
@@ -148,10 +148,10 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
     }
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
-        patch("app.scheduler.get_torrent_status", new=AsyncMock(return_value=mock_status)),
-        patch("app.scheduler.delete_torrent", new=AsyncMock(return_value=True)) as mock_delete,
-        patch("app.scheduler._notify") as mock_notify,
+        patch("app.services.watchlist_poller.SessionLocal", return_value=db),
+        patch("app.services.arr_tracker.get_torrent_status", new=AsyncMock(return_value=mock_status)),
+        patch("app.services.arr_tracker.delete_torrent", new=AsyncMock(return_value=True)) as mock_delete,
+        patch("app.services.notification_orchestrator._notify") as mock_notify,
     ):
         await check_torrent_statuses()
 

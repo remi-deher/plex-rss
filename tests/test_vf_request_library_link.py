@@ -145,9 +145,9 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     db.commit()
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
-        patch("app.scheduler.enqueue_notification") as mock_enqueue,
-        patch("app.scheduler._scan_vf_blocking") as mock_scan,
+        patch("app.services.vff_scanner.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
     ):
         await check_vf_statuses()
 
@@ -186,9 +186,9 @@ async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     db.commit()
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
-        patch("app.scheduler.enqueue_notification"),
-        patch("app.scheduler._scan_vf_blocking") as mock_scan,
+        patch("app.services.vff_scanner.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
     ):
         await check_vf_statuses()
 

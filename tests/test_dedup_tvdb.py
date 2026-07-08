@@ -87,19 +87,19 @@ def _req(
 
 
 def _patch_session(db):
-    return patch("app.scheduler.SessionLocal", return_value=db)
+    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
 
 
 def _patch_watchlist(items):
-    return patch("app.scheduler.fetch_watchlist", new=AsyncMock(return_value=items))
+    return patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=items))
 
 
 def _patch_submit(arr_id=42, existed=False, slug=None):
-    return patch("app.scheduler._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
+    return patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
 
 
 def _patch_enqueue():
-    return patch("app.scheduler.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue_notification")
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ async def test_seer_sync_keeps_older_rss_date(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUEST_WITH_DATE)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUEST_WITH_DATE)),
     ):
         await sync_seer_requests()
 
@@ -254,7 +254,7 @@ async def test_seer_sync_replaces_newer_rss_date_with_seer(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUEST_WITH_DATE)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUEST_WITH_DATE)),
     ):
         await sync_seer_requests()
 
@@ -288,7 +288,7 @@ async def test_seer_sync_date_preserved_if_no_created_at(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=seer_req_no_date)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=seer_req_no_date)),
     ):
         await sync_seer_requests()
 
@@ -340,7 +340,7 @@ async def test_poll_show_with_tvdb_does_not_call_seer_search(db):
         _patch_watchlist([_show_item(tvdb_id="81763", tmdb_id=None)]),
         _patch_submit(),
         _patch_enqueue(),
-        patch("app.scheduler._seer_resolve_tmdb_id", new=AsyncMock()) as mock_resolve,
+        patch("app.services.watchlist_poller._seer_resolve_tmdb_id", new=AsyncMock()) as mock_resolve,
     ):
         await poll_watchlists()
 
@@ -359,7 +359,7 @@ async def test_poll_show_without_tvdb_calls_seer_search(db):
         _patch_watchlist([_show_item(tvdb_id=None, tmdb_id=None)]),
         _patch_submit(),
         _patch_enqueue(),
-        patch("app.scheduler._seer_resolve_tmdb_id", new=AsyncMock(return_value=None)) as mock_resolve,
+        patch("app.services.watchlist_poller._seer_resolve_tmdb_id", new=AsyncMock(return_value=None)) as mock_resolve,
     ):
         await poll_watchlists()
 
@@ -378,7 +378,7 @@ async def test_poll_show_with_tmdb_does_not_call_seer_search(db):
         _patch_watchlist([_show_item(tvdb_id=None, tmdb_id="12345")]),
         _patch_submit(),
         _patch_enqueue(),
-        patch("app.scheduler._seer_resolve_tmdb_id", new=AsyncMock()) as mock_resolve,
+        patch("app.services.watchlist_poller._seer_resolve_tmdb_id", new=AsyncMock()) as mock_resolve,
     ):
         await poll_watchlists()
 

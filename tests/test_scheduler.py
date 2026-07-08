@@ -90,24 +90,34 @@ def _show_item(**kwargs) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _patch_session_poller(db):
+    """Remplace SessionLocal pour watchlist_poller."""
+    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
+
+
+def _patch_session_arr(db):
+    """Remplace SessionLocal pour arr_tracker."""
+    return patch("app.services.arr_tracker.SessionLocal", return_value=db)
+
+
 def _patch_session(db):
-    """Remplace SessionLocal par une factory retournant la session de test."""
-    return patch("app.scheduler.SessionLocal", return_value=db)
+    """Remplace SessionLocal par une factory retournant la session de test (poller par défaut)."""
+    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
 
 
 def _patch_watchlist(items):
-    return patch("app.scheduler.fetch_watchlist", new=AsyncMock(return_value=items))
+    return patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=items))
 
 
 def _patch_submit(arr_id=42, already_existed=False, arr_slug="inception"):
     return patch(
-        "app.scheduler._submit_to_arr",
+        "app.services.watchlist_poller._submit_to_arr",
         new=AsyncMock(return_value=(arr_id, already_existed, arr_slug)),
     )
 
 
 def _patch_enqueue():
-    return patch("app.scheduler.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue_notification")
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +321,8 @@ async def test_check_arr_movie_becomes_available(db):
     db.commit()
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(True, 42, None))),
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(True, 42, None))),
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -332,8 +342,8 @@ async def test_check_arr_movie_not_yet_available(db):
     db.commit()
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(False, None, None))),
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(False, None, None))),
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -355,8 +365,8 @@ async def test_check_arr_show_becomes_available(db):
         "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
     }
     with (
-        _patch_session(db),
-        patch("app.scheduler.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -379,7 +389,7 @@ async def test_check_arr_no_candidates_returns_early(db):
     )
     db.commit()
 
-    with _patch_session(db), patch("app.scheduler.is_movie_available", new=AsyncMock()) as mock_check:
+    with _patch_session_arr(db), patch("app.services.arr_tracker.is_movie_available", new=AsyncMock()) as mock_check:
         await check_arr_statuses()
 
     mock_check.assert_not_called()
@@ -394,9 +404,9 @@ async def test_check_arr_seer_used_when_enabled(db):
     db.commit()
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(True, 42, None))) as mock_seer,
-        patch("app.scheduler.is_movie_available", new=AsyncMock()) as mock_radarr,
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(True, 42, None))) as mock_seer,
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock()) as mock_radarr,
         _patch_enqueue(),
     ):
         await check_arr_statuses()
@@ -414,9 +424,9 @@ async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
     db.commit()
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(True, 99, "inception"))) as mock_radarr,
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(True, 99, "inception"))) as mock_radarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -441,9 +451,9 @@ async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
         "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
     }
     with (
-        _patch_session(db),
-        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.scheduler.get_series_episode_stats", new=AsyncMock(return_value=series_stats)) as mock_sonarr,
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)) as mock_sonarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -463,9 +473,9 @@ async def test_check_arr_seer_unavailable_radarr_also_unavailable(db):
     db.commit()
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.scheduler.is_movie_available", new=AsyncMock(return_value=(False, None, None))) as mock_radarr,
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(False, None, None))) as mock_radarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -494,8 +504,8 @@ async def test_check_arr_exception_does_not_crash_loop(db):
         return (True, 2, None)
 
     with (
-        _patch_session(db),
-        patch("app.scheduler.is_movie_available", new=AsyncMock(side_effect=flaky)),
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(side_effect=flaky)),
         _patch_enqueue(),
     ):
         await check_arr_statuses()

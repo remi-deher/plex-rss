@@ -62,7 +62,7 @@ def test_purge_skips_when_no_settings():
     db = MagicMock()
     db.query.return_value.first.return_value = None
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()
 
     db.query.return_value.filter.return_value.delete.assert_not_called()
@@ -74,7 +74,7 @@ def test_purge_skips_when_retention_is_none():
     db = MagicMock()
     db.query.return_value.first.return_value = _make_settings(notification_log_retention_days=None)
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()
 
     db.commit.assert_not_called()
@@ -85,7 +85,7 @@ def test_purge_skips_when_retention_is_zero():
     db = MagicMock()
     db.query.return_value.first.return_value = _make_settings(notification_log_retention_days=0)
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()
 
     db.commit.assert_not_called()
@@ -97,7 +97,7 @@ def test_purge_deletes_old_logs_and_commits():
     db.query.return_value.first.return_value = _make_settings(notification_log_retention_days=30)
     db.query.return_value.filter.return_value.delete.return_value = 5
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()
 
     db.query.return_value.filter.return_value.delete.assert_called_once()
@@ -110,7 +110,7 @@ def test_purge_no_commit_when_nothing_deleted():
     db.query.return_value.first.return_value = _make_settings(notification_log_retention_days=30)
     db.query.return_value.filter.return_value.delete.return_value = 0
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()
 
     db.commit.assert_not_called()
@@ -121,7 +121,7 @@ def test_purge_always_closes_db():
     db = MagicMock()
     db.query.side_effect = Exception("DB error")
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         _purge_notification_logs()  # ne doit pas lever
 
     db.close.assert_called_once()
@@ -138,7 +138,7 @@ async def test_digest_skips_when_no_settings():
     db = MagicMock()
     db.query.return_value.first.return_value = None
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         await _send_digest()
 
     # aiosmtplib.send ne doit pas être appelé
@@ -153,7 +153,7 @@ async def test_digest_skips_when_digest_disabled():
     db.query.return_value.first.return_value = _make_settings(digest_enabled=False)
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -168,7 +168,7 @@ async def test_digest_skips_when_smtp_incomplete():
     db.query.return_value.first.return_value = _make_settings(smtp_host=None)
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -186,7 +186,7 @@ async def test_digest_skips_when_no_recent_requests():
     db.query.return_value.filter.return_value.order_by.return_value.all.return_value = []
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -219,7 +219,7 @@ async def test_digest_skips_when_no_subscribers():
     db.query.return_value.filter.side_effect = mock_filter
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -252,7 +252,7 @@ async def test_digest_sends_to_subscribers():
     db.query.return_value.filter.side_effect = mock_filter
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -284,7 +284,7 @@ async def test_digest_skips_user_without_email():
     db.query.return_value.filter.side_effect = mock_filter
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -316,7 +316,7 @@ async def test_digest_falls_back_to_plex_email():
     db.query.return_value.filter.side_effect = mock_filter
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", new_callable=AsyncMock) as mock_send,
     ):
         await _send_digest()
@@ -361,7 +361,7 @@ async def test_digest_smtp_failure_continues_other_users():
             raise Exception("SMTP refused")
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.SessionLocal", return_value=db),
         patch("aiosmtplib.send", side_effect=flaky_send),
     ):
         await _send_digest()  # ne doit pas lever
@@ -375,7 +375,7 @@ async def test_digest_always_closes_db():
     db = MagicMock()
     db.query.side_effect = Exception("DB error")
 
-    with patch("app.scheduler.SessionLocal", return_value=db):
+    with patch("app.services.notification_orchestrator.SessionLocal", return_value=db):
         await _send_digest()  # ne doit pas lever
 
     db.close.assert_called_once()

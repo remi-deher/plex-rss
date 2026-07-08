@@ -228,10 +228,10 @@ async def test_sync_plex_media():
     from app.scheduler import sync_plex_media, plex_sync_state
 
     with patch("app.services.vff.sync_plex_library_blocking", return_value=[mock_item]), \
-         patch("app.scheduler.SessionLocal", return_value=db), \
-         patch("app.scheduler.get_all_movies", return_value=[mock_arr_movie]), \
-         patch("app.scheduler.get_all_series", return_value=[]), \
-         patch("app.scheduler.check_vf_statuses") as mock_check_vf:
+         patch("app.services.plex_sync.SessionLocal", return_value=db), \
+         patch("app.services.plex_sync.get_all_movies", return_value=[mock_arr_movie]), \
+         patch("app.services.plex_sync.get_all_series", return_value=[]), \
+         patch("app.services.vff_scanner.check_vf_statuses") as mock_check_vf:
         
         plex_sync_state["status"] = "idle"
         

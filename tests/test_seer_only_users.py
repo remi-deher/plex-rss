@@ -98,9 +98,9 @@ def _run_sync_seer_users(db, seer_resp, seer_requests_resp=None):
     import asyncio
 
     with (
-        patch("app.scheduler.SessionLocal", return_value=db),
-        patch("app.scheduler.seer_get_users", new=AsyncMock(return_value=seer_resp)),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=seer_requests_resp)),
+        patch("app.services.seer_sync.SessionLocal", return_value=db),
+        patch("app.services.seer_sync.seer_get_users", new=AsyncMock(return_value=seer_resp)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=seer_requests_resp)),
     ):
         asyncio.run(sync_seer_users())
 
