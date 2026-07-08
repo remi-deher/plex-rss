@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from . import metrics as app_metrics
 from .database import SessionLocal
+from .utils import now_utc, now_utc_naive
 from .models import (
     ArrInstance,
     DownloadClient,
@@ -525,7 +526,7 @@ async def sync_seer_requests():
                     if is_available and existing.status != RequestStatus.available:
                         existing.status = RequestStatus.available
                         existing.arr_id = existing.arr_id or req["seer_request_id"]
-                        existing.available_at = seer_updated_at or datetime.now(timezone.utc).replace(tzinfo=None)
+                        existing.available_at = seer_updated_at or now_utc_naive()
                         changed = True
                     elif is_available and seer_updated_at and existing.available_at != seer_updated_at:
                         # Déjà disponible mais available_at provient de notre polling — Seer est plus précis
@@ -810,7 +811,7 @@ async def _refresh_next_release(
             )
             if not data:
                 return
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             candidates = [
                 (data.get("digitalRelease"), "Sortie numérique"),
                 (data.get("physicalRelease"), "Sortie physique"),
@@ -1408,7 +1409,7 @@ async def check_torrent_statuses():
             if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
                 if req.status != RequestStatus.available:
                     req.status = RequestStatus.available
-                    req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    req.available_at = now_utc_naive()
                     db.commit()
                     _notify("available", settings, req, db)
                     logger.info(f"Torrent '{req.title}' terminé et marqué comme disponible !")
@@ -1459,7 +1460,7 @@ async def poll_watchlists():
     """
     logger.info("Polling watchlists...")
     _poll_start = time.monotonic()
-    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    started_at = now_utc_naive()
     items_processed = 0
     new_requests = 0
     errors_count = 0
@@ -1875,7 +1876,7 @@ async def check_vf_statuses():
         return
 
     vff_scan_state["status"] = "running"
-    vff_scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    vff_scan_state["started_at"] = now_utc().isoformat()
     vff_scan_state["finished_at"] = None
     vff_scan_state["items_scanned"] = 0
     vff_scan_state["total_items"] = 0
@@ -1914,7 +1915,7 @@ async def check_vf_statuses():
             .all()
         )
         promoted = 0
-        now_reconcile = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_reconcile = now_utc_naive()
         for req in pending_q:
             li = _link_request_to_library_item(db, req)
             if not li:
@@ -1951,7 +1952,7 @@ async def check_vf_statuses():
         )
         if not candidates_q and not lib_q:
             vff_scan_state["status"] = "idle"
-            vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            vff_scan_state["finished_at"] = now_utc().isoformat()
             return
 
         # Rapprochement demande <-> LibraryItem : une fois liée, une demande n'est plus
@@ -1989,7 +1990,7 @@ async def check_vf_statuses():
             f"de bibliothèque ({len(linked_pairs)} demande(s) liée(s), pas de re-scan)"
         )
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = now_utc_naive()
 
         results_by_id = {}
         if candidates:
@@ -2137,7 +2138,7 @@ async def check_vf_statuses():
             f"{linked_updated} demande(s) liée(s) synchronisée(s))"
         )
         vff_scan_state["status"] = "idle"
-        vff_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+        vff_scan_state["finished_at"] = now_utc().isoformat()
     except Exception as e:
         logger.error(f"Erreur check_vf_statuses : {e}")
         vff_scan_state["status"] = "failed"
@@ -2162,7 +2163,7 @@ async def check_episode_tracking():
         return
 
     episode_scan_state["status"] = "running"
-    episode_scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    episode_scan_state["started_at"] = now_utc().isoformat()
     episode_scan_state["finished_at"] = None
     episode_scan_state["items_scanned"] = 0
     episode_scan_state["total_items"] = 0
@@ -2197,7 +2198,7 @@ async def check_episode_tracking():
         candidates_q = [r for r in candidates_q if _wants_simple(r)]
         if not candidates_q:
             episode_scan_state["status"] = "idle"
-            episode_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            episode_scan_state["finished_at"] = now_utc().isoformat()
             return
 
         def _to_candidate(r):
@@ -2216,7 +2217,7 @@ async def check_episode_tracking():
         episode_scan_state["total_items"] = len(candidates)
         logger.info(f"Suivi épisode : analyse de {len(candidates)} série(s) en mode simple")
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = now_utc_naive()
         results = await asyncio.to_thread(_scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs)
         results_by_id = {r["id"]: r for r in results}
 
@@ -2233,7 +2234,7 @@ async def check_episode_tracking():
 
         logger.info(f"Suivi épisode : analyse terminée ({notified} notification(s) déclenchée(s))")
         episode_scan_state["status"] = "idle"
-        episode_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+        episode_scan_state["finished_at"] = now_utc().isoformat()
     except Exception as e:
         logger.error(f"Erreur check_episode_tracking : {e}")
         episode_scan_state["status"] = "failed"
@@ -2325,7 +2326,7 @@ async def sync_plex_media():
         return
 
     plex_sync_state["status"] = "running"
-    plex_sync_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    plex_sync_state["started_at"] = now_utc().isoformat()
     plex_sync_state["finished_at"] = None
     plex_sync_state["items_synced"] = 0
     plex_sync_state["total_items"] = 0
@@ -2389,7 +2390,7 @@ async def sync_plex_media():
             except Exception as inst_exc:
                 logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = now_utc_naive()
         added_count = 0
         for item in plex_items:
             lib_item = _find_library_item(db, item)
@@ -2463,7 +2464,7 @@ async def sync_plex_media():
             logger.info("VFF Sync : aucun nouveau média Plex détecté")
 
         plex_sync_state["status"] = "idle"
-        plex_sync_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+        plex_sync_state["finished_at"] = now_utc().isoformat()
     except Exception as e:
         logger.error(f"VFF Sync : erreur synchronisation : {e}")
         plex_sync_state["status"] = "failed"
@@ -2492,7 +2493,7 @@ async def check_arr_statuses():
     """
     logger.info("Checking arr statuses...")
     _check_start = time.monotonic()
-    started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    started_at = now_utc_naive()
     items_processed = 0
     newly_available = 0
     errors_count = 0
@@ -2656,7 +2657,7 @@ async def check_arr_statuses():
                 if available:
                     if not was_already_available:
                         req.status = RequestStatus.available
-                        req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        req.available_at = now_utc_naive()
                         req.next_release_at = None
                         req.next_release_label = None
                         newly_available += 1

@@ -13,6 +13,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from ..utils import now_utc, now_utc_naive
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -44,7 +46,7 @@ _MAX_RUNS = 30
 
 def _new_run(action: str) -> tuple[str, MaintenanceRun]:
     run_id = uuid.uuid4().hex[:12]
-    run = MaintenanceRun(action=action, started_at=datetime.now(timezone.utc).isoformat())
+    run = MaintenanceRun(action=action, started_at=now_utc().isoformat())
     _runs[run_id] = run
     if len(_runs) > _MAX_RUNS:
         del _runs[next(iter(_runs))]
@@ -198,7 +200,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
 
             if available:
                 req.status = RequestStatus.available
-                req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                req.available_at = now_utc_naive()
                 db.commit()
                 emit.ok(f"✓ '{req.title}' — disponible")
                 newly_available += 1
@@ -559,7 +561,7 @@ async def start_run(action: str, _: None = Depends(require_auth)):
             run.status = "error"
         finally:
             run.progress = 100
-            run.finished_at = datetime.now(timezone.utc).isoformat()
+            run.finished_at = now_utc().isoformat()
             _last_runs[action] = run
 
     asyncio.create_task(_execute())

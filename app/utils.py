@@ -1,6 +1,7 @@
 """Utilitaires partagés entre les modules de l'application."""
 
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any, Protocol, TypeVar
 
 from fastapi import HTTPException
@@ -61,3 +62,15 @@ def identity_keys(rec) -> list:
         keys.append(("imdb", rec.imdb_id))
     keys.append(("title", (rec.title or "").lower().strip(), rec.year, rec.media_type))
     return keys
+
+
+def now_utc() -> datetime:
+    """Instant courant, aware UTC."""
+    from datetime import timezone
+    return datetime.now(timezone.utc)
+
+
+def now_utc_naive() -> datetime:
+    """Instant courant UTC sans tzinfo (colonnes DB stockées en naïf-UTC)."""
+    from datetime import timezone
+    return datetime.now(timezone.utc).replace(tzinfo=None)

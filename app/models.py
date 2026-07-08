@@ -8,8 +8,10 @@ Tables :
 """
 
 import enum
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
+
+from .utils import now_utc
 
 from sqlalchemy import Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -196,7 +198,7 @@ class PlexUser(Base):
     seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
     custom_name: Mapped[Optional[str]] = mapped_column(default=None)
     source: Mapped[Optional[str]] = mapped_column(default=None)
-    created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
 
     # Routing
     sonarr_instance_id: Mapped[Optional[int]]
@@ -228,7 +230,7 @@ class NotificationLog(Base):
     __tablename__ = "notification_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    sent_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    sent_at: Mapped[datetime] = mapped_column(default=now_utc)
     event: Mapped[str]
     recipient: Mapped[str]
     is_admin: Mapped[bool] = mapped_column(default=False)
@@ -254,7 +256,7 @@ class NotificationMilestone(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(default=now_utc)
     req_id: Mapped[int]
     plex_user_id: Mapped[str]
     direction: Mapped[str]
@@ -299,7 +301,7 @@ class MediaRequest(Base):
     request_mail_sent: Mapped[bool] = mapped_column(default=False)
     available_mail_sent: Mapped[bool] = mapped_column(default=False)
 
-    requested_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    requested_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
     available_at: Mapped[Optional[datetime]]
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
@@ -391,8 +393,8 @@ class LibraryItem(Base):
     # Granularité VF pour les séries — voir MediaRequest.vf_granularity.
     vf_granularity: Mapped[Optional[str]] = mapped_column(default=None)
 
-    created_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
-    updated_at: Mapped[Optional[datetime]] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
 
 
 class VfEpisodeStatus(Base):
@@ -460,4 +462,4 @@ class SearchCache(Base):
     query: Mapped[str]
     category: Mapped[Optional[str]]  # "movie" | "tv"
     results_json: Mapped[str] = mapped_column(Text)
-    cached_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc))
+    cached_at: Mapped[datetime] = mapped_column(default=now_utc)

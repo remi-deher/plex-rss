@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
+from ..utils import now_utc, now_utc_naive
 from ..models import (
     ArrInstance,
     DownloadClient,
@@ -1513,7 +1514,7 @@ async def health_check(db: Session = Depends(get_db)):
 
     return {
         "status": overall,
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": now_utc().isoformat(),
         "services": services,
     }
 
@@ -1529,7 +1530,7 @@ def stats_timeline(db: Session = Depends(get_db)):
     from sqlalchemy import func
 
     days = 30
-    start = datetime.now(timezone.utc) - timedelta(days=days)
+    start = now_utc() - timedelta(days=days)
     rows = (
         db.query(
             func.date(MediaRequest.requested_at).label("day"),
@@ -1748,7 +1749,7 @@ async def vff_scan_single_request(
     if not res.get("found"):
         raise HTTPException(404, res.get("error", "Media not found in Plex libraries"))
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now_utc_naive()
     was_tracking = req.has_vf is False
     req.vf_category = res.get("category") or req.vf_category
     req.vf_checked_at = now
@@ -1932,7 +1933,7 @@ async def _vf_detail_payload(db: Session, req):
     plex_res = await plex_task if plex_task else {}
     plex_eps = plex_res.get("episodes", {}) if plex_res.get("found") else {}
     if plex_eps:
-        _persist_episode_status(db, source_type, req.id, plex_eps, datetime.now(timezone.utc).replace(tzinfo=None))
+        _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive())
         db.commit()
 
     def _status(in_plex, has_file):
@@ -2216,7 +2217,7 @@ async def library_vff_scan(
     if not res.get("found"):
         raise HTTPException(404, res.get("error", "Media not found in Plex libraries"))
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now_utc_naive()
     prev = item.has_vf
     item.vf_category = res.get("category") or item.vf_category
     item.vf_checked_at = now
@@ -2237,7 +2238,7 @@ async def library_vff_ignore(item_id: int, db: Session = Depends(get_db)):
     """Arrête le suivi VFF d'un élément de bibliothèque (force has_vf = True)."""
     item = get_or_404(db, LibraryItem, item_id, "Library item not found")
     item.has_vf = True
-    item.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    item.updated_at = now_utc_naive()
     db.commit()
     return {"status": "ok", "has_vf": item.has_vf}
 
@@ -2308,7 +2309,7 @@ def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
         .filter(
             MediaRequest.status == RequestStatus.sent_to_arr,
             MediaRequest.next_release_at.isnot(None),
-            MediaRequest.next_release_at > datetime.now(timezone.utc).replace(tzinfo=None),
+            MediaRequest.next_release_at > now_utc_naive(),
         )
         .order_by(MediaRequest.next_release_at.asc())
         .limit(limit)
@@ -2401,7 +2402,7 @@ async def unified_calendar(
 
     Par défaut : 7 jours avant aujourd'hui à 21 jours après (contexte + à venir).
     """
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     start_dt = datetime.fromisoformat(start) if start else now - timedelta(days=7)
     end_dt = datetime.fromisoformat(end) if end else now + timedelta(days=21)
     # Normalise en UTC-aware : un start/end fourni sans fuseau (ISO naïf) casserait les
@@ -2638,7 +2639,7 @@ def next_poll_info():
     job = scheduler.get_job("watchlist_poll")
     if not job or not job.next_run_time:
         return {"next_run_seconds": None, "next_run_iso": None}
-    now = datetime.now(timezone.utc)
+    now = now_utc()
     delta = (job.next_run_time - now).total_seconds()
     return {
         "next_run_seconds": max(0, int(delta)),
@@ -2916,7 +2917,7 @@ async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
 def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
     reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now_utc_naive()
     for req in reqs:
         req.status = "available"
         req.request_mail_sent = True
@@ -3028,7 +3029,7 @@ def mark_request_processed(
         req.status = RequestStatus.available
         req.available_mail_sent = True
         if not req.available_at:
-            req.available_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            req.available_at = now_utc_naive()
 
     db.commit()
 
@@ -3048,7 +3049,7 @@ def mark_request_processed(
 @router.get("/activity")
 def activity_log(db: Session = Depends(get_db)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
+    cutoff = now_utc_naive() - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
         .filter(MediaRequest.requested_at >= cutoff)
@@ -3342,7 +3343,7 @@ def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth
     ignored = _load_ignored()
     all_reqs = db.query(MediaRequest).all()
     known_user_ids = {u.plex_user_id for u in db.query(PlexUser).all()}
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now_utc_naive()
 
     # ── 1. Conflit tmdb via tvdb (Plex ≠ Seer) ──────────────────────────────
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)

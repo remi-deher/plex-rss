@@ -3,6 +3,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from ..utils import now_utc
+
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -56,7 +58,7 @@ def _mark_available_and_notify(title: str, media_type: str, arr_id: int | None, 
     requests = q.all()
     for req in requests:
         req.status = RequestStatus.available
-        req.available_at = datetime.now(timezone.utc)
+        req.available_at = now_utc()
         db.commit()
         if settings and settings.email_on_available and not req.available_mail_sent:
             user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
@@ -202,7 +204,7 @@ async def plex_webhook(request: Request):
         requests = q.all()
         for req in requests:
             req.status = RequestStatus.available
-            req.available_at = datetime.now(timezone.utc)
+            req.available_at = now_utc()
             db.commit()
             logger.info(f"Plex webhook: '{req.title}' marqué disponible")
             if settings and settings.email_on_available and not req.available_mail_sent:

@@ -1,6 +1,8 @@
 import json
 from datetime import datetime, timezone
 
+from ..utils import now_utc
+
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -40,14 +42,14 @@ def export_data(db: Session = Depends(get_db)):
 
     payload = {
         "version": EXPORT_VERSION,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": now_utc().isoformat(),
         "settings": row(s, exclude=["id", *_SETTINGS_CREDENTIAL_FIELDS]) if s else {},
         "users": [row(u) for u in users],
         "requests": [row(r) for r in requests],
     }
 
     content = json.dumps(payload, indent=2, default=str)
-    filename = f"plex-rss-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"plex-rss-export-{now_utc().strftime('%Y%m%d-%H%M%S')}.json"
     return StreamingResponse(
         iter([content]),
         media_type="application/json",

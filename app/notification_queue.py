@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
+from .utils import now_utc
 from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.email_service import (
     send_available_vf_notification,
@@ -121,7 +122,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                 all_ok = False
             db.add(
                 NotificationLog(
-                    sent_at=datetime.now(timezone.utc),
+                    sent_at=now_utc(),
                     event=event,
                     recipient=recipient,
                     is_admin=recipient in admin_emails,
