@@ -26,38 +26,53 @@
         </div>
       </div>
 
-      <!-- Webhooks — collapsed by default -->
+      <!-- Webhooks -->
       <div class="col-12">
         <div class="card border-warning">
           <div class="card-header d-flex justify-content-between align-items-center border-warning py-3"
                style="background:transparent;cursor:pointer"
-               data-bs-toggle="collapse" data-bs-target="#webhooks-body" aria-expanded="false" aria-controls="webhooks-body">
+               data-bs-toggle="collapse" data-bs-target="#webhooks-body" aria-expanded="true" aria-controls="webhooks-body">
             <h5 class="mb-0"><i class="bi bi-broadcast text-warning me-2"></i>Webhooks — Notifications de disponibilité</h5>
-            <i class="bi bi-chevron-down text-muted" id="webhooks-chevron"></i>
+            <i class="bi bi-chevron-up text-muted" id="webhooks-chevron"></i>
           </div>
-          <div class="collapse" id="webhooks-body">
+          <div class="collapse show" id="webhooks-body">
             <div class="card-body pt-0">
               <p class="text-muted mb-3">
-                Configurez ces URLs dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
-                pour être notifié dès qu'un contenu est téléchargé et importé.
-                Sélectionnez l'événement <strong>OnDownload / OnImport</strong>.
+                Collez ces URLs (secret inclus) dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
+                (événement <strong>On Import / On Grab</strong>) et dans <strong>Plex → Paramètres → Webhooks</strong>.
+                Les liens sont générés à partir de l'adresse de votre navigateur.
               </p>
+
+              <!-- Secret -->
+              <div class="mb-3">
+                <label class="form-label"><i class="bi bi-key text-warning me-1"></i>Secret webhook</label>
+                <div class="input-group">
+                  <input type="text" class="form-control font-monospace" value="{{ webhook_secret }}" readonly id="webhook-secret-value" placeholder="Aucun secret (endpoint non authentifié)">
+                  <button class="btn btn-outline-warning" onclick="copyEl('webhook-secret-value')" title="Copier le secret"><i class="bi bi-clipboard"></i></button>
+                  <button class="btn btn-outline-danger" onclick="regenWebhookSecret()" title="Générer un nouveau secret"><i class="bi bi-arrow-repeat me-1"></i>Régénérer</button>
+                </div>
+                <div class="form-text">
+                  Généré automatiquement au premier lancement. Le régénérer invalide les webhooks déjà configurés
+                  avec l'ancien secret (il faudra recoller les nouvelles URLs).
+                </div>
+              </div>
+
               <div class="row g-3">
                 <div class="col-md-6">
                   <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
                   <div class="input-group">
-                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/sonarr" readonly id="webhook-sonarr">
+                    <input type="text" class="form-control font-monospace" readonly id="webhook-sonarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Sonarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                  <div class="form-text">Sonarr → Connexions → Webhook · Événement : <strong>On Import / On Grab</strong></div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
                   <div class="input-group">
-                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/radarr" readonly id="webhook-radarr">
+                    <input type="text" class="form-control font-monospace" readonly id="webhook-radarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Radarr → Paramètres → Connexions → Webhook · Événement : <strong>OnDownload / OnImport</strong></div>
+                  <div class="form-text">Radarr → Connexions → Webhook · Événement : <strong>On Import / On Grab</strong></div>
                 </div>
                 <div class="col-12">
                   <hr class="border-secondary my-2">
@@ -69,12 +84,12 @@
                 <div class="col-md-8">
                   <label class="form-label">Plex — URL Webhook</label>
                   <div class="input-group">
-                    <input type="text" class="form-control font-monospace" value="{{ webhook_url }}/plex" readonly id="webhook-plex">
+                    <input type="text" class="form-control font-monospace" readonly id="webhook-plex">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-plex')"><i class="bi bi-clipboard"></i></button>
                   </div>
                   <div class="form-text">
-                    Plex → Paramètres → Webhooks → Ajouter un webhook · Événements traités : <strong>library.new</strong> (nouveau contenu) et <strong>media.scrobble</strong> (regardé en entier).
-                    Permet une détection de disponibilité instantanée sans attendre la vérification périodique.
+                    Plex → Paramètres → Webhooks · Événements traités : <strong>library.new</strong> et <strong>media.scrobble</strong>.
+                    Détection de disponibilité instantanée sans attendre la vérification périodique.
                   </div>
                 </div>
               </div>
@@ -86,6 +101,38 @@
           </div>
         </div>
       </div>
+
+      <script>
+        // Forge les URLs de webhook à partir de l'origine réelle du navigateur (respecte
+        // le reverse proxy / domaine public) + le secret courant.
+        function _buildWebhookUrls(secret) {
+          var origin = window.location.origin;
+          var qs = secret ? ('?secret=' + encodeURIComponent(secret)) : '';
+          [['webhook-sonarr', 'sonarr'], ['webhook-radarr', 'radarr'], ['webhook-plex', 'plex']].forEach(function (p) {
+            var el = document.getElementById(p[0]);
+            if (el) el.value = origin + '/webhook/' + p[1] + qs;
+          });
+        }
+        _buildWebhookUrls(document.getElementById('webhook-secret-value') ? document.getElementById('webhook-secret-value').value : '');
+
+        async function regenWebhookSecret() {
+          if (!await confirmAction({
+            title: 'Régénérer le secret',
+            body: 'Les webhooks déjà configurés avec l\'ancien secret cesseront de fonctionner jusqu\'à ce que vous recolliez les nouvelles URLs. Continuer ?',
+            okLabel: 'Régénérer', danger: true
+          })) return;
+          try {
+            const r = await fetch('/api/settings/webhook-secret', { method: 'POST' });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Erreur');
+            document.getElementById('webhook-secret-value').value = d.webhook_secret;
+            _buildWebhookUrls(d.webhook_secret);
+            showToast('Nouveau secret généré — recollez les URLs dans Sonarr/Radarr/Plex', 'success');
+          } catch (e) {
+            showToast('Erreur : ' + e.message, 'danger');
+          }
+        }
+      </script>
 
       <!-- Info Projet -->
       <div class="col-12">

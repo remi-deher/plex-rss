@@ -505,7 +505,8 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
         "settings.html",
         {
             "s": s,
-            "webhook_url": f"{base_url}/webhook/plex",
+            "webhook_url": f"{base_url}/webhook",
+            "webhook_secret": (s.webhook_secret if s else "") or "",
             "users": users,
             "request_template": (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE,
             "available_template": (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
