@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from .. import metrics as app_metrics
 from ..database import get_db
 from ..utils import now_utc, now_utc_naive
+from ..dependencies import get_settings_or_404
 from ..models import (
     ArrInstance,
     DownloadClient,
@@ -267,11 +268,8 @@ class SettingsUpdate(BaseModel):
 
 
 @router.get("/settings")
-def get_settings(db: Session = Depends(get_db)):
+def get_settings(s: Settings = Depends(get_settings_or_404)):
     """Retourne la configuration complète. Le mot de passe SMTP est masqué."""
-    s = db.query(Settings).first()
-    if not s:
-        raise HTTPException(404, "Settings not found")
     d = {c.name: getattr(s, c.name) for c in s.__table__.columns}
     if d.get("smtp_password"):
         d["smtp_password"] = "••••••••"
@@ -279,11 +277,8 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/settings")
-def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
+def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
     """Met à jour la configuration. Ignore la valeur masquée du mot de passe SMTP."""
-    s = db.query(Settings).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Paramètres non initialisés")
     # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
     _nullable_fields = {
         "email_request_template",

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..dependencies import get_settings_or_404
 from ..models import PlexUser, Settings
 import json
 
@@ -191,8 +192,7 @@ TEMPLATE_FIELDS = [
 
 
 @router.put("/api/email-templates")
-def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+def save_templates(body: SaveTemplates, db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
     s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = body.email_request_template
     s.email_available_template = body.email_available_template
@@ -219,9 +219,8 @@ def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
 
 
 @router.post("/api/email-templates/restore-previous")
-def restore_previous_templates(db: Session = Depends(get_db)):
+def restore_previous_templates(db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
     """Restaure les templates/sujets tels qu'ils étaient juste avant la dernière sauvegarde (undo à un niveau)."""
-    s = db.query(Settings).first()
     if not s.email_templates_backup:
         raise HTTPException(status_code=404, detail="Aucune sauvegarde précédente disponible")
     backup = json.loads(s.email_templates_backup)
@@ -233,8 +232,7 @@ def restore_previous_templates(db: Session = Depends(get_db)):
 
 
 @router.post("/api/email-templates/reset")
-def reset_templates(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+def reset_templates(db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
     s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
@@ -268,11 +266,7 @@ class TestSendRequest(BaseModel):
 
 
 @router.post("/api/email-templates/test-send")
-async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db)):
-    settings = db.query(Settings).first()
-    if not settings:
-        raise HTTPException(status_code=404, detail="Settings non trouvés")
-
+async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db), settings: Settings = Depends(get_settings_or_404)):
     # Resolve recipient: settings.admin_notification_email or settings.smtp_from
     recipient = (settings.admin_notification_email or "").strip()
     if body.user_id:
