@@ -155,6 +155,16 @@ def test_settings_page_returns_200_html(client, db):
     assert "Canal email (SMTP)" in resp.text
 
 
+def test_settings_page_disables_legacy_inline_template_script(client, db):
+    """Le JS templates ne doit pas être exécuté deux fois."""
+    _seed(db)
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert '<script src="/static/js/settings.js"></script>' in resp.text
+    assert '<script type="text/plain" id="legacy-template-script-disabled">' in resp.text
+    assert "<script>\n// ── Templates tab" not in resp.text
+
+
 def test_email_templates_page_redirects(client, db):
     """GET /settings/email-templates → 301 redirect vers /settings#tab-templates."""
     _seed(db)
