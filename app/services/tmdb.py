@@ -73,6 +73,24 @@ def _cache_put(db: Session, key: str, payload: dict) -> None:
     db.commit()
 
 
+async def check_connection(db: Session) -> tuple[bool, str]:
+    """Valide la clé API TMDB via un appel léger (/configuration). Retourne (ok, message)."""
+    try:
+        key = _api_key(db)
+    except TmdbNotConfigured:
+        return False, "Clé API TMDB non configurée"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{API_BASE}/configuration", params={"api_key": key})
+        if resp.status_code == 200:
+            return True, "Clé TMDB valide"
+        if resp.status_code == 401:
+            return False, "Clé TMDB invalide (401 Unauthorized)"
+        return False, f"Réponse TMDB inattendue ({resp.status_code})"
+    except Exception as e:
+        return False, f"Erreur de connexion TMDB : {e}"
+
+
 async def _get(db: Session, path: str, params: Optional[dict] = None, *, cache: bool = True) -> dict:
     """Appel GET TMDB avec cache optionnel. `path` commence par '/'."""
     key = _api_key(db)

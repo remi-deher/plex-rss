@@ -173,6 +173,7 @@
             <div class="card p-4">
               <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0"><i class="bi bi-compass text-warning me-2"></i>TMDB <span class="text-muted fw-normal small ms-1">(catalogue de découverte)</span></h5>
+                <span id="conn-badge-tmdb" class="conn-badge badge bg-secondary"><i class="bi bi-circle-fill me-1" style="font-size:8px"></i>Non testé</span>
               </div>
               <div class="row g-3">
                 <div class="col-md-8">
@@ -180,6 +181,7 @@
                   <div class="input-group">
                     <input type="password" class="form-control" name="tmdb_api_key" value="{{ s.tmdb_api_key or '' }}" id="tmdb_key" placeholder="Clé API v3 (32 caractères)">
                     <button type="button" class="btn btn-outline-secondary" onclick="togglePass('tmdb_key')"><i class="bi bi-eye"></i></button>
+                    <button type="button" class="btn btn-outline-warning" onclick="testConn('tmdb')">Tester</button>
                   </div>
                   <div class="form-text">
                     Gratuite : <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener" class="text-warning">themoviedb.org → Paramètres → API</a> (clé « API Read Access » v3).

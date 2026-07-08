@@ -362,6 +362,14 @@ async def test_gotify(db: Session = Depends(get_db)):
         return {"success": False, "message": str(e)}
 
 
+@router.post("/test/tmdb")
+async def test_tmdb(db: Session = Depends(get_db)):
+    from ..services import tmdb as tmdb_service
+
+    ok, msg = await tmdb_service.check_connection(db)
+    return {"success": ok, "message": msg}
+
+
 @router.post("/test/seer")
 async def test_seer(db: Session = Depends(get_db)):
     s = db.query(Settings).first()

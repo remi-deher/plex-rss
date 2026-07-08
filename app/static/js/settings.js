@@ -22,7 +22,7 @@ function setConnBadge(service, success, label) {
   try { sessionStorage.setItem(`conn_${service}`, JSON.stringify({success, label})); } catch(e) {}
 }
 function restoreConnBadges() {
-  ['plex-api','plex-rss','sonarr','radarr','seer','discord','telegram','smtp','ntfy','gotify'].forEach(s => {
+  ['plex-api','plex-rss','sonarr','radarr','tmdb','seer','discord','telegram','smtp','ntfy','gotify'].forEach(s => {
     try {
       const stored = sessionStorage.getItem(`conn_${s}`);
       if (stored) { const d = JSON.parse(stored); setConnBadge(s, d.success, d.label); }
