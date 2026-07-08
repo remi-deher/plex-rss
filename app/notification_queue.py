@@ -17,12 +17,11 @@ from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .utils import now_utc
 from .models import MediaRequest, NotificationLog, PlexUser, Settings
 from .services.email_service import (
+    send_available_notification,
     send_available_vf_notification,
     send_available_vo_tracking_notification,
-    send_available_notification,
     send_episode_track_notification,
     send_failure_notification,
     send_partially_available_notification,
@@ -30,6 +29,7 @@ from .services.email_service import (
     send_vf_available_notification,
     send_vo_only_notification,
 )
+from .services.notification_catalog import event_mail_flags
 from .services.notifications import (
     send_discord,
     send_discord_to_webhook,
@@ -38,7 +38,7 @@ from .services.notifications import (
     send_telegram,
     send_telegram_to_chat,
 )
-from .utils import parse_email_list
+from .utils import now_utc, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,36 @@ _worker_task: asyncio.Task | None = None
 
 _RETRY_DELAYS = [2, 5]  # secondes entre chaque tentative
 
+
+EMAIL_SENDERS = {
+    "request": lambda settings, req, recipient, reason, display_name: send_request_notification(
+        settings, req, recipient, display_name
+    ),
+    "available": lambda settings, req, recipient, reason, display_name: send_available_notification(
+        settings, req, recipient, display_name
+    ),
+    "available_vf": lambda settings, req, recipient, reason, display_name: send_available_vf_notification(
+        settings, req, recipient, display_name
+    ),
+    "available_vo_tracking": lambda settings, req, recipient, reason, display_name: send_available_vo_tracking_notification(
+        settings, req, recipient, display_name
+    ),
+    "vo_only": lambda settings, req, recipient, reason, display_name: send_vo_only_notification(
+        settings, req, recipient, display_name, reason
+    ),
+    "vf_available": lambda settings, req, recipient, reason, display_name: send_vf_available_notification(
+        settings, req, recipient, display_name, reason
+    ),
+    "episode_track": lambda settings, req, recipient, reason, display_name: send_episode_track_notification(
+        settings, req, recipient, display_name, reason
+    ),
+    "partially_available": lambda settings, req, recipient, reason, display_name: send_partially_available_notification(
+        settings, req, recipient, reason, display_name
+    ),
+    "failed": lambda settings, req, recipient, reason, display_name: send_failure_notification(
+        settings, req, recipient, reason, display_name
+    ),
+}
 
 def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
     """Empile une notification dans la queue (synchrone, sans await)."""
@@ -64,24 +94,9 @@ async def _send_with_retry(
     error_msg = None
     for attempt in range(len(_RETRY_DELAYS) + 1):
         try:
-            if event == "request":
-                await send_request_notification(settings, req, recipient, display_name)
-            elif event == "available":
-                await send_available_notification(settings, req, recipient, display_name)
-            elif event == "available_vf":
-                await send_available_vf_notification(settings, req, recipient, display_name)
-            elif event == "available_vo_tracking":
-                await send_available_vo_tracking_notification(settings, req, recipient, display_name)
-            elif event == "vo_only":
-                await send_vo_only_notification(settings, req, recipient, display_name, reason)
-            elif event == "vf_available":
-                await send_vf_available_notification(settings, req, recipient, display_name, reason)
-            elif event == "episode_track":
-                await send_episode_track_notification(settings, req, recipient, display_name, reason)
-            elif event == "partially_available":
-                await send_partially_available_notification(settings, req, recipient, reason, display_name)
-            elif event == "failed":
-                await send_failure_notification(settings, req, recipient, reason, display_name)
+            sender = EMAIL_SENDERS.get(event)
+            if sender:
+                await sender(settings, req, recipient, reason, display_name)
             logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
             return True, None
         except Exception as e:
@@ -137,19 +152,9 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
         app_metrics.record_notification(all_ok)
         if all_ok:
-            if event == "request":
-                req.request_mail_sent = True
-            elif event in ("available", "available_vf"):
-                req.available_mail_sent = True
-            elif event == "available_vo_tracking":
-                req.available_mail_sent = True
-                req.vo_only_mail_sent = True
-            elif event == "vo_only":
-                req.vo_only_mail_sent = True
-            elif event == "vf_available":
-                req.vf_available_mail_sent = True
-            elif event == "partially_available":
-                req.partial_available_mail_sent = True
+            for attr in event_mail_flags(event):
+                setattr(req, attr, True)
+            if event == "partially_available":
                 req.last_notified_episode_count = req.episodes_available_count
         db.commit()
 

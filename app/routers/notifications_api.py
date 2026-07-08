@@ -17,6 +17,7 @@ from ..services.email_service import (
     render_subject,
     render_template,
 )
+from ..services.notification_catalog import event_badge_class, get_event
 from ..utils import get_or_404, now_utc, now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(require_auth)])
@@ -181,11 +182,16 @@ def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depen
                 "id": log.id,
                 "sent_at": format_datetime(log.sent_at),
                 "event": log.event,
+                "event_label": get_event(log.event).label,
+                "event_group": get_event(log.event).group,
+                "event_description": get_event(log.event).description,
+                "event_badge_class": event_badge_class(log.event),
                 "recipient": log.recipient,
                 "is_admin": log.is_admin,
                 "media_title": log.media_title,
                 "media_type": log.media_type,
                 "success": log.success,
+                "status_label": "Envoyé" if log.success else "Erreur",
                 "error_msg": log.error_msg,
                 "req_id": log.req_id,
             }

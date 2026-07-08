@@ -353,3 +353,94 @@ async def test_movie_first_vo_detection_uses_single_available_vo_tracking_event(
 
     mock_enqueue.assert_called_once()
     assert mock_enqueue.call_args.args[:3] == ("available_vo_tracking", req_id, ["alice@example.com"])
+
+
+@pytest.mark.asyncio
+async def test_movie_first_vf_detection_uses_single_available_vf_event():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=None,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available_vf", req_id, ["alice@example.com"])
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_granularity == "full"
+
+
+@pytest.mark.asyncio
+async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_vf_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+        available_mail_sent=True,
+        vo_only_mail_sent=True,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.SessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("vf_available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == "VF film complet"
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_granularity == "full"
+    milestone = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vf").one()
+    assert milestone.milestone_type == "movie"

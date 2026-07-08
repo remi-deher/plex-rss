@@ -15,6 +15,7 @@ import logging
 import httpx
 
 from ..models import MediaRequest, Settings
+from .notification_catalog import event_color
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +61,7 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
 def _build_discord_embed(event: str, request: MediaRequest, include_synopsis: bool = False) -> dict:
     """Construit un embed Discord pour un événement donné."""
     title, body = _build_message(event, request)
-    color = {
-        "request": 0xE5A00D,
-        "available": 0x1DB954,
-        "available_vf": 0x1DB954,
-        "available_vo_tracking": 0x0D6EFD,
-        "vo_only": 0x0D6EFD,
-        "vf_available": 0x1DB954,
-        "episode_track": 0x0D6EFD,
-        "failed": 0xDC3545,
-    }.get(event, 0x888888)
-    embed: dict = {"title": title, "description": body, "color": color}
+    embed: dict = {"title": title, "description": body, "color": event_color(event)}
     if request.poster_url:
         embed["thumbnail"] = {"url": request.poster_url}
     if include_synopsis and request.overview:

@@ -9,9 +9,9 @@ from app.services.email_service import (
     _build_context,
     add_email_footer,
     render_template,
+    send_available_notification,
     send_available_vf_notification,
     send_available_vo_tracking_notification,
-    send_available_notification,
     send_failure_notification,
     send_partially_available_notification,
     send_request_notification,
@@ -256,12 +256,13 @@ async def test_send_vf_available_uses_episode_milestone_template():
 async def test_send_vf_available_upgrade_uses_update_badge():
     """Upgrade VF générique : le mail affiche le badge demandé."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vf_available_notification(_settings(), _req(), "dest@example.com")
+        await send_vf_available_notification(_settings(), _req(), "dest@example.com", reason="VF film complet")
 
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception est désormais disponible sur Plex en VF !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
     assert "Mise à jour en VF" in body
+    assert "VF film complet" in body
 
 
 @pytest.mark.asyncio

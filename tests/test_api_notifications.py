@@ -11,8 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db
-from app.main import app
 from app.dependencies import require_auth
+from app.main import app
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,6 +142,10 @@ def test_list_logs_item_fields():
         item = r.json()["items"][0]
         assert item["id"] == 7
         assert item["event"] == "available"
+        assert item["event_label"] == "Disponible sur Plex"
+        assert item["event_group"] == "Disponibilité"
+        assert item["event_badge_class"] == "bg-success"
+        assert item["status_label"] == "Erreur"
         assert item["recipient"] == "admin@b.com"
         assert item["is_admin"] is True
         assert item["media_title"] == "Dune"

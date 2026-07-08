@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,8 +9,6 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import get_settings_or_404, require_auth
 from ..models import PlexUser, Settings
-import json
-
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_AVAILABLE_VF_TEMPLATE,
@@ -26,7 +25,7 @@ from ..services.email_service import (
     render_template,
 )
 from ..services.email_service import _send as smtp_send
-
+from ..services.notification_catalog import get_event, template_fields
 
 router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_auth)])
 
@@ -63,6 +62,8 @@ class PreviewRequest(BaseModel):
 @router.post("/api/email-preview")
 def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     ctx = dict(SAMPLE_CONTEXT)
+    event_def = get_event(body.type)
+    ctx.update(event_def.preview_context)
     recipient_email = "jean.dupont@plex.local"
     if body.user_id:
         user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
@@ -110,6 +111,12 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
         "language_season_complete": f"[Plexarr] {ctx['title']} : saison complète en {ctx.get('language', 'VF')} sur Plex !",
         "language_series_complete": f"[Plexarr] {ctx['title']} est entièrement disponible en {ctx.get('language', 'VF')} sur Plex !",
     }
+    if event_def.default_subject:
+        subject_fallbacks[body.type] = render_subject(
+            event_def.default_subject,
+            ctx,
+            fallback=f"[Plexarr] {event_def.label} : {ctx['title']}",
+        )
     rendered_subject = render_subject(
         body.subject, ctx, fallback=subject_fallbacks.get(body.type, f"[Plexarr] Échec de transmission : {ctx['title']}")
     )
@@ -162,28 +169,7 @@ class SaveTemplates(BaseModel):
     email_language_series_complete_subject: Optional[str] = None
 
 
-TEMPLATE_FIELDS = [
-    "email_request_template",
-    "email_available_template",
-    "email_failure_template",
-    "email_available_vf_template",
-    "email_available_vo_tracking_template",
-    "email_vf_upgrade_template",
-    "email_language_episode_template",
-    "email_language_season_start_template",
-    "email_language_season_complete_template",
-    "email_language_series_complete_template",
-    "email_request_subject",
-    "email_available_subject",
-    "email_failure_subject",
-    "email_available_vf_subject",
-    "email_available_vo_tracking_subject",
-    "email_vf_upgrade_subject",
-    "email_language_episode_subject",
-    "email_language_season_start_subject",
-    "email_language_season_complete_subject",
-    "email_language_series_complete_subject",
-]
+TEMPLATE_FIELDS = template_fields()
 
 
 @router.put("/api/email-templates")
@@ -279,6 +265,8 @@ async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db), 
         )
 
     ctx = dict(SAMPLE_CONTEXT)
+    event_def = get_event(body.type)
+    ctx.update(event_def.preview_context)
     if body.user_id:
         user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
         if user:

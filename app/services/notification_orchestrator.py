@@ -303,6 +303,8 @@ def _series_language_milestones(direction: str, mode: str, episode_status: dict 
 def _milestone_reason(direction: str, milestone_type: str, season: int | None, episode: int | None) -> str:
     lang = "VF" if direction == "vf" else ("VO" if direction == "vo" else "")
     prefix = f"{lang} " if lang else ""
+    if milestone_type == "movie":
+        return f"{prefix}film complet".strip()
     if milestone_type == "episode" and season is not None and episode is not None:
         return f"{prefix}S{season:02d}E{episode:02d}"
     if milestone_type == "season_start" and season is not None:

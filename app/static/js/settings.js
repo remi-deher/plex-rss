@@ -88,7 +88,9 @@ async function loadNotifLog(offset = 0) {
     }
     const rows = logs.map(l => {
       const date = l.sent_at ? new Date(l.sent_at.endsWith('Z') || l.sent_at.includes('+') ? l.sent_at : l.sent_at + 'Z').toLocaleString('fr-FR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
-      const evBadge = `<span class="badge ${EVENT_COLORS[l.event] || 'bg-secondary'} me-1">${EVENT_LABELS[l.event] || l.event}</span>`;
+      const eventLabel = l.event_label || (EVENT_LABELS[l.event] || l.event);
+      const eventTitle = [l.event_group, l.event_description].filter(Boolean).join(' - ').replace(/"/g, '&quot;');
+      const evBadge = `<span class="badge ${l.event_badge_class || EVENT_COLORS[l.event] || 'bg-secondary'} me-1" title="${eventTitle}">${eventLabel}</span>`;
       const adminBadge = l.is_admin ? '<span class="badge bg-warning text-dark ms-1" title="Copie admin"><i class="bi bi-shield-fill"></i></span>' : '';
       const mediaIcon = `<i class="bi ${MEDIA_ICONS[l.media_type] || 'bi-question'} me-1 text-muted"></i>`;
       const statusIcon = l.success
@@ -99,10 +101,10 @@ async function loadNotifLog(offset = 0) {
         : '';
       return `<tr class="${l.success ? '' : 'table-danger bg-opacity-25'}">
         <td class="text-muted small text-nowrap">${date}</td>
-        <td>${evBadge}${adminBadge}</td>
+        <td>${evBadge}${adminBadge}<div class="text-muted small">${l.event_group || ''}</div></td>
         <td>${mediaIcon}<span class="small">${l.media_title || '—'}</span></td>
         <td class="small text-break">${l.recipient}</td>
-        <td class="text-center">${statusIcon}${resendBtn}</td>
+        <td class="text-center" title="${l.status_label || ''}">${statusIcon}${resendBtn}</td>
       </tr>`;
     }).join('');
 
