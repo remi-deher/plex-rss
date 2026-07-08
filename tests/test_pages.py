@@ -160,7 +160,7 @@ def test_settings_page_disables_legacy_inline_template_script(client, db):
     _seed(db)
     resp = client.get("/settings")
     assert resp.status_code == 200
-    assert '<script src="/static/js/settings.js"></script>' in resp.text
+    assert '<script src="/static/js/settings.js?v=templates-20260708"></script>' in resp.text
     assert '<script type="text/plain" id="legacy-template-script-disabled">' in resp.text
     assert "<script>\n// ── Templates tab" not in resp.text
 
