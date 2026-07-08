@@ -72,11 +72,17 @@ async def lifespan(app: FastAPI):
         _db = SessionLocal()
         try:
             _s = _db.query(_Settings).first()
-            _interval = _s.poll_interval_minutes if _s and _s.poll_interval_minutes else 5
+            # Priorité à l'intervalle en secondes (polling sous la minute) ; repli sur les minutes.
+            if _s and _s.poll_interval_seconds:
+                _seconds = _s.poll_interval_seconds
+            elif _s and _s.poll_interval_minutes:
+                _seconds = _s.poll_interval_minutes * 60
+            else:
+                _seconds = 300
         finally:
             _db.close()
 
-        start_scheduler(poll_minutes=_interval)
+        start_scheduler(poll_seconds=_seconds)
         start_notif_worker()
         logging.info("Scheduler OK. App ready.")
     except Exception:

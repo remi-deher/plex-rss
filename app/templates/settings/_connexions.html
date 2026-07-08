@@ -91,10 +91,38 @@
                     <label class="form-check-label" for="fallback">Basculer sur l'autre méthode en cas d'échec</label>
                   </div>
                 </div>
-                <div class="col-md-3">
-                  <label class="form-label">Intervalle de vérification (minutes)</label>
-                  <input type="number" class="form-control" name="poll_interval_minutes" value="{{ s.poll_interval_minutes or 5 }}" min="1" max="60">
+                <div class="col-md-5">
+                  <label class="form-label">Intervalle de vérification</label>
+                  <input type="hidden" name="poll_interval_seconds" id="poll_interval_seconds"
+                         value="{{ s.poll_interval_seconds or (s.poll_interval_minutes * 60 if s.poll_interval_minutes else 300) }}">
+                  <div class="input-group">
+                    <input type="number" class="form-control" id="poll_h" min="0" max="168" oninput="onPollDurationChange()" aria-label="Heures">
+                    <span class="input-group-text">h</span>
+                    <input type="number" class="form-control" id="poll_m" min="0" max="59" oninput="onPollDurationChange()" aria-label="Minutes">
+                    <span class="input-group-text">min</span>
+                    <input type="number" class="form-control" id="poll_s" min="0" max="59" step="5" oninput="onPollDurationChange()" aria-label="Secondes">
+                    <span class="input-group-text">s</span>
+                  </div>
+                  <div class="form-text">Fréquence de lecture de la watchlist Plex. Minimum 15 s. Court = très réactif (façon Jellyseerr) ; long = allège la charge Plex.</div>
                 </div>
+                <script>
+                  // Sélecteur h/m/s → recompose l'input caché poll_interval_seconds (en secondes).
+                  (function initPollDuration() {
+                    var total = parseInt(document.getElementById('poll_interval_seconds').value, 10) || 300;
+                    document.getElementById('poll_h').value = Math.floor(total / 3600);
+                    document.getElementById('poll_m').value = Math.floor((total % 3600) / 60);
+                    document.getElementById('poll_s').value = total % 60;
+                  })();
+                  function onPollDurationChange() {
+                    var h = parseInt(document.getElementById('poll_h').value, 10) || 0;
+                    var m = parseInt(document.getElementById('poll_m').value, 10) || 0;
+                    var s = parseInt(document.getElementById('poll_s').value, 10) || 0;
+                    var total = h * 3600 + m * 60 + s;
+                    if (total > 0 && total < 15) total = 15;  // plancher de sécurité
+                    document.getElementById('poll_interval_seconds').value = total || 15;
+                    if (typeof markDirty === 'function') markDirty();
+                  }
+                </script>
               </div>
             </div>
           </div>

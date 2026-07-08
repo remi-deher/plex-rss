@@ -82,14 +82,33 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-def start_scheduler(poll_minutes: int = 5):
-    """Enregistre les jobs et démarre le scheduler."""
+def start_scheduler(poll_seconds: int = 300):
+    """Enregistre les jobs et démarre le scheduler.
+
+    `poll_seconds` : intervalle de polling de la watchlist Plex, en secondes
+    (permet un rafraîchissement sous la minute, façon Overseerr/Jellyseerr).
+    """
     with db_session(SessionLocal) as db:
         settings = db.query(Settings).first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
         vff_interval = settings.vff_recheck_interval_minutes if settings and settings.vff_recheck_interval_minutes else 360
 
-    scheduler.add_job(poll_watchlists, "interval", minutes=poll_minutes, id="watchlist_poll", replace_existing=True)
+    # Poll watchlist : un premier passage ~15 s après le démarrage (rattrapage immédiat),
+    # puis toutes les `poll_seconds`. coalesce + max_instances=1 évitent l'empilement si un
+    # cycle dépasse l'intervalle (polling rapproché).
+    scheduler.add_job(
+        poll_watchlists,
+        "interval",
+        seconds=poll_seconds,
+        id="watchlist_poll",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=15),
+        max_instances=1,
+        coalesce=True,
+        # Tolère un léger retard (boucle asyncio ponctuellement saturée, ex. sync Plex au
+        # démarrage) sans sauter le cycle — important pour un intervalle court comme 30 s.
+        misfire_grace_time=30,
+    )
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(check_torrent_statuses, "interval", minutes=2, id="torrent_status_check", replace_existing=True)
     scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
@@ -113,13 +132,13 @@ def start_scheduler(poll_minutes: int = 5):
     if digest_hour is not None:
         scheduler.add_job(_send_digest, "cron", hour=digest_hour, minute=0, id="digest", replace_existing=True)
     scheduler.start()
-    logger.info(f"Scheduler started (poll every {poll_minutes}m)")
+    logger.info(f"Scheduler started (poll every {poll_seconds}s)")
 
 
-def update_poll_interval(minutes: int):
-    """Replanifie le job de polling sans redémarrer le scheduler."""
-    scheduler.reschedule_job("watchlist_poll", trigger=IntervalTrigger(minutes=minutes))
-    logger.info(f"Poll interval updated to {minutes}m")
+def update_poll_interval(seconds: int):
+    """Replanifie le job de polling watchlist (en secondes) sans redémarrer le scheduler."""
+    scheduler.reschedule_job("watchlist_poll", trigger=IntervalTrigger(seconds=seconds))
+    logger.info(f"Poll interval updated to {seconds}s")
 
 
 # --- Wrappers de déclenchement des jobs planifiés ---

@@ -45,6 +45,9 @@ class Settings(Base):
     watchlist_source_priority: Mapped[str] = mapped_column(default="api")
     watchlist_fallback_enabled: Mapped[bool] = mapped_column(default=True)
     poll_interval_minutes: Mapped[int] = mapped_column(default=5)
+    # Intervalle de polling de la watchlist en secondes (prioritaire sur poll_interval_minutes
+    # s'il est défini). Permet un rafraîchissement sous la minute. None → poll_interval_minutes*60.
+    poll_interval_seconds: Mapped[Optional[int]] = mapped_column(default=None)
 
     # --- Sonarr ---
     sonarr_url: Mapped[Optional[str]]

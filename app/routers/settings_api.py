@@ -48,6 +48,7 @@ class SettingsUpdate(BaseModel):
     watchlist_source_priority: Optional[str] = None
     watchlist_fallback_enabled: Optional[bool] = None
     poll_interval_minutes: Optional[int] = None
+    poll_interval_seconds: Optional[int] = None
     # --- SMTP / Mail ---
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
@@ -176,8 +177,11 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
             val = None
         setattr(s, key, val)
     db.commit()
-    if data.poll_interval_minutes:
-        update_poll_interval(data.poll_interval_minutes)
+    # Priorité aux secondes (polling sous la minute) ; repli sur les minutes.
+    if data.poll_interval_seconds:
+        update_poll_interval(data.poll_interval_seconds)
+    elif data.poll_interval_minutes:
+        update_poll_interval(data.poll_interval_minutes * 60)
     # Replanifier le digest si l'heure ou l'activation change
     if data.digest_enabled is not None or data.digest_hour is not None:
         hour = s.digest_hour or 8
