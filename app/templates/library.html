@@ -118,24 +118,15 @@
     <input type="hidden" name="per_page" value="{{ per_page }}">
     <input type="hidden" name="sort" value="{{ sort }}">
     <input type="hidden" name="order" value="{{ order }}">
+    {% if active_type %}<input type="hidden" name="type" value="{{ active_type }}">{% endif %}
+    {% if active_vf %}<input type="hidden" name="vf" value="{{ active_vf }}">{% endif %}
     <div class="row g-2 align-items-center">
-      <div class="col-12 col-lg-4">
+      <div class="col-12 col-lg-5">
         <div class="input-group input-group-sm">
           <span class="input-group-text bg-dark border-secondary"><i class="bi bi-search text-muted"></i></span>
           <input type="search" class="form-control bg-dark border-secondary text-white" id="searchInput" name="search" placeholder="Rechercher un titre..." value="{{ active_search }}">
           <button class="btn btn-warning" type="submit"><i class="bi bi-arrow-return-left"></i></button>
         </div>
-      </div>
-      <div class="col-6 col-md-3 col-lg-2">
-        <select class="form-select form-select-sm" name="vf" onchange="this.form.submit()">
-          <option value="">VF : toutes</option>
-          <option value="vf" {% if active_vf == 'vf' %}selected{% endif %}>VF complete</option>
-          <option value="vo" {% if active_vf == 'vo' %}selected{% endif %}>VF en attente</option>
-          <option value="season_partial" {% if active_vf == 'season_partial' %}selected{% endif %}>VF saison partiel</option>
-          <option value="episode_partial" {% if active_vf == 'episode_partial' %}selected{% endif %}>VF episode partiel</option>
-          <option value="unchecked" {% if active_vf == 'unchecked' %}selected{% endif %}>Non analyses</option>
-          <option value="requested" {% if active_vf == 'requested' %}selected{% endif %}>Hors Plex</option>
-        </select>
       </div>
       <div class="col-6 col-md-3 col-lg-2">
         <select class="form-select form-select-sm" name="status" onchange="this.form.submit()">
@@ -155,25 +146,18 @@
         </select>
       </div>
       <div class="col-6 col-md-3 col-lg-2">
-        <button class="btn btn-sm btn-outline-secondary w-100" type="button" data-bs-toggle="collapse" data-bs-target="#advanced-library-filters" aria-expanded="{{ 'true' if active_view != 'all' or active_type or active_source else 'false' }}" aria-controls="advanced-library-filters">
+        <button class="btn btn-sm btn-outline-secondary w-100" type="button" data-bs-toggle="collapse" data-bs-target="#advanced-library-filters" aria-expanded="{{ 'true' if active_view != 'all' or active_source else 'false' }}" aria-controls="advanced-library-filters">
           <i class="bi bi-sliders me-1"></i>Plus de filtres
         </button>
       </div>
     </div>
-    <div class="collapse {% if active_view != 'all' or active_type or active_source %}show{% endif %} mt-2" id="advanced-library-filters">
+    <div class="collapse {% if active_view != 'all' or active_source %}show{% endif %} mt-2" id="advanced-library-filters">
       <div class="row g-2">
         <div class="col-6 col-md-4 col-lg-2">
           <select class="form-select form-select-sm" name="view" onchange="this.form.submit()">
             <option value="all" {% if active_view == 'all' %}selected{% endif %}>Tous medias</option>
             <option value="requests" {% if active_view == 'requests' %}selected{% endif %}>Avec demandes</option>
             <option value="calendar" {% if active_view == 'calendar' %}selected{% endif %}>Calendrier</option>
-          </select>
-        </div>
-        <div class="col-6 col-md-4 col-lg-2">
-          <select class="form-select form-select-sm" name="type" onchange="this.form.submit()">
-            <option value="">Tous types</option>
-            <option value="movie" {% if active_type == 'movie' %}selected{% endif %}>Films</option>
-            <option value="show" {% if active_type == 'show' %}selected{% endif %}>Series</option>
           </select>
         </div>
         <div class="col-12 col-md-4 col-lg-3">
