@@ -472,32 +472,52 @@ def add_email_footer(html: str) -> str:
     return html + footer
 
 
+def _resolve_str_setting(settings, field):
+    val = getattr(settings, field, None)
+    return val if isinstance(val, str) else None
+
+
+async def _send_templated(
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None, *,
+    template_field: str, default_template: str, subject_field: str, default_subject: str, subject_fallback: str,
+    extra_ctx: dict | None = None,
+):
+    ctx = _build_context(request, display_name)
+    if extra_ctx:
+        ctx.update(extra_ctx)
+    html = render_template(_resolve_str_setting(settings, template_field) or default_template, ctx)
+    subject = render_subject(
+        _resolve_str_setting(settings, subject_field) or default_subject, ctx, fallback=subject_fallback
+    )
+    await _send(settings, recipient, subject, html)
+
+
 async def send_request_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
     """Envoie l'email de confirmation de demande."""
-    ctx = _build_context(request, display_name)
-    template = settings.email_request_template if isinstance(settings.email_request_template, str) else None
-    template = template or DEFAULT_REQUEST_TEMPLATE
-    html = render_template(template, ctx)
-    subject_tmpl = settings.email_request_subject if isinstance(settings.email_request_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plexarr] Nouvelle demande : {{ title }}"
-    subject = render_subject(subject_tmpl, ctx, fallback=f"[Plexarr] Nouvelle demande : {request.title}")
-    await _send(settings, recipient, subject, html)
+    await _send_templated(
+        settings, request, recipient, display_name,
+        template_field="email_request_template",
+        default_template=DEFAULT_REQUEST_TEMPLATE,
+        subject_field="email_request_subject",
+        default_subject="[Plexarr] Nouvelle demande : {{ title }}",
+        subject_fallback=f"[Plexarr] Nouvelle demande : {request.title}",
+    )
 
 
 async def send_available_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
     """Envoie l'email de notification de disponibilité."""
-    ctx = _build_context(request, display_name)
-    template = settings.email_available_template if isinstance(settings.email_available_template, str) else None
-    template = template or DEFAULT_AVAILABLE_TEMPLATE
-    html = render_template(template, ctx)
-    subject_tmpl = settings.email_available_subject if isinstance(settings.email_available_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex !"
-    subject = render_subject(subject_tmpl, ctx, fallback=f"[Plexarr] {request.title} est disponible sur Plex !")
-    await _send(settings, recipient, subject, html)
+    await _send_templated(
+        settings, request, recipient, display_name,
+        template_field="email_available_template",
+        default_template=DEFAULT_AVAILABLE_TEMPLATE,
+        subject_field="email_available_subject",
+        default_subject="[Plexarr] {{ title }} est disponible sur Plex !",
+        subject_fallback=f"[Plexarr] {request.title} est disponible sur Plex !",
+    )
 
 
 async def send_vo_only_notification(
@@ -550,48 +570,28 @@ async def send_available_vf_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
     """Envoie un seul email quand la disponibilité initiale est déjà en VF."""
-    ctx = _build_context(request, display_name)
-    template = (
-        settings.email_available_vf_template
-        if isinstance(getattr(settings, "email_available_vf_template", None), str)
-        else None
+    await _send_templated(
+        settings, request, recipient, display_name,
+        template_field="email_available_vf_template",
+        default_template=DEFAULT_AVAILABLE_VF_TEMPLATE,
+        subject_field="email_available_vf_subject",
+        default_subject="[Plexarr] {{ title }} est disponible sur Plex en VF !",
+        subject_fallback=f"[Plexarr] {request.title} est disponible sur Plex en VF !",
     )
-    html = render_template(template or DEFAULT_AVAILABLE_VF_TEMPLATE, ctx)
-    subject_tmpl = (
-        settings.email_available_vf_subject
-        if isinstance(getattr(settings, "email_available_vf_subject", None), str)
-        else None
-    )
-    subject = render_subject(
-        subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex en VF !",
-        ctx,
-        fallback=f"[Plexarr] {request.title} est disponible sur Plex en VF !",
-    )
-    await _send(settings, recipient, subject, html)
 
 
 async def send_available_vo_tracking_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
     """Envoie un seul email quand la disponibilité initiale est VO avec suivi VF."""
-    ctx = _build_context(request, display_name)
-    template = (
-        settings.email_available_vo_tracking_template
-        if isinstance(getattr(settings, "email_available_vo_tracking_template", None), str)
-        else None
+    await _send_templated(
+        settings, request, recipient, display_name,
+        template_field="email_available_vo_tracking_template",
+        default_template=DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
+        subject_field="email_available_vo_tracking_subject",
+        default_subject="[Plexarr] {{ title }} est disponible sur Plex en VO !",
+        subject_fallback=f"[Plexarr] {request.title} est disponible sur Plex en VO !",
     )
-    html = render_template(template or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE, ctx)
-    subject_tmpl = (
-        settings.email_available_vo_tracking_subject
-        if isinstance(getattr(settings, "email_available_vo_tracking_subject", None), str)
-        else None
-    )
-    subject = render_subject(
-        subject_tmpl or "[Plexarr] {{ title }} est disponible sur Plex en VO !",
-        ctx,
-        fallback=f"[Plexarr] {request.title} est disponible sur Plex en VO !",
-    )
-    await _send(settings, recipient, subject, html)
 
 
 async def send_episode_track_notification(
@@ -659,15 +659,15 @@ async def send_failure_notification(
     settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None
 ):
     """Envoie l'email d'échec de transmission."""
-    ctx = _build_context(request, display_name)
-    ctx["reason"] = reason or "Erreur inconnue"
-    template = settings.email_failure_template if isinstance(settings.email_failure_template, str) else None
-    template = template or DEFAULT_FAILURE_TEMPLATE
-    html = render_template(template, ctx)
-    subject_tmpl = settings.email_failure_subject if isinstance(settings.email_failure_subject, str) else None
-    subject_tmpl = subject_tmpl or "[Plexarr] Échec de transmission : {{ title }}"
-    subject = render_subject(subject_tmpl, ctx, fallback=f"[Plexarr] Échec de transmission : {request.title}")
-    await _send(settings, recipient, subject, html)
+    await _send_templated(
+        settings, request, recipient, display_name,
+        template_field="email_failure_template",
+        default_template=DEFAULT_FAILURE_TEMPLATE,
+        subject_field="email_failure_subject",
+        default_subject="[Plexarr] Échec de transmission : {{ title }}",
+        subject_fallback=f"[Plexarr] Échec de transmission : {request.title}",
+        extra_ctx={"reason": reason or "Erreur inconnue"},
+    )
 
 
 async def test_smtp(settings: Settings, test_recipient: str) -> tuple[bool, str]:
