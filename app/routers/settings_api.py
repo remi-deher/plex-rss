@@ -102,6 +102,8 @@ class SettingsUpdate(BaseModel):
     seer_enabled: Optional[bool] = None
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
+    # --- TMDB (découverte) ---
+    tmdb_api_key: Optional[str] = None
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
     arr_poll_interval_hours: Optional[int] = None

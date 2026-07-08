@@ -37,6 +37,7 @@ from .routers import (
     maintenance,
     metrics_api,
     misc_api,
+    discover_api,
     notifications_api,
     pages,
     requests_api,
@@ -219,6 +220,7 @@ app.include_router(users_api.router)
 app.include_router(requests_api.router)
 app.include_router(calendar_api.router)
 app.include_router(library_api.router)
+app.include_router(discover_api.router)
 app.include_router(vff_api.router)
 app.include_router(metrics_api.router)
 app.include_router(notifications_api.router)

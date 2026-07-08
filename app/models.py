@@ -101,6 +101,9 @@ class Settings(Base):
     digest_enabled: Mapped[bool] = mapped_column(default=False)
     digest_hour: Mapped[int] = mapped_column(default=8)
 
+    # --- TMDB (catalogue de découverte) ---
+    tmdb_api_key: Mapped[Optional[str]]
+
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
     seer_api_key: Mapped[Optional[str]]

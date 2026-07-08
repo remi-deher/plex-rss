@@ -481,6 +481,17 @@ def calendar_page(request: Request, _: None = Depends(require_auth)):
     return templates.TemplateResponse(request, "calendar.html", {"page": "calendar"})
 
 
+@router.get("/discover", response_class=HTMLResponse)
+def discover_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
+    """Page Découvrir : catalogue TMDB (tendances, populaires, genres, recherche)."""
+    s = db.query(Settings).first()
+    return templates.TemplateResponse(
+        request,
+        "discover.html",
+        {"page": "discover", "tmdb_configured": bool(s and (s.tmdb_api_key or "").strip())},
+    )
+
+
 @router.get("/logs", response_class=HTMLResponse)
 def logs_page(request: Request, _: None = Depends(require_auth)):
     """Page des logs applicatifs en temps réel."""
