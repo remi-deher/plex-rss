@@ -89,6 +89,7 @@ class Settings(Base):
     email_language_season_start_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_language_season_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_language_series_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
+    email_templates_backup: Mapped[Optional[str]] = mapped_column(Text)
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
@@ -155,6 +156,10 @@ class Settings(Base):
     movie_vf_notify: Mapped[bool] = mapped_column(default=True)
     series_vo_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
     series_vf_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
+    # Mode de suivi des séries : "language" (VF/VO, comportement historique ci-dessus) ou
+    # "simple" (nouveaux épisodes/saisons, indépendant de la langue). Mutuellement exclusifs.
+    series_tracking_mode: Mapped[str] = mapped_column(default="language")
+    series_episode_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
 
 
 class ArrInstance(Base):
@@ -208,6 +213,10 @@ class PlexUser(Base):
     movie_vf_notify: Mapped[Optional[bool]] = mapped_column(default=None)
     series_vo_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
     series_vf_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
+    # Surcharge par utilisateur de Settings.series_tracking_mode / series_episode_notify_mode.
+    # None = hérite du réglage global.
+    series_tracking_mode: Mapped[Optional[str]] = mapped_column(default=None)
+    series_episode_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Fréquence de notification pour une série suivie en disponibilité partielle
     # (épisodes en cours de diffusion). None = hérite du réglage global

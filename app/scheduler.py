@@ -75,6 +75,16 @@ vff_scan_state = {
     "error": None
 }
 
+# État en mémoire du scan de suivi épisode "simple" (indépendant de la langue, partagé)
+episode_scan_state = {
+    "status": "idle",  # "idle" | "running" | "failed"
+    "started_at": None,
+    "finished_at": None,
+    "items_scanned": 0,
+    "total_items": 0,
+    "error": None
+}
+
 # État en mémoire de la synchronisation Plex (partagé)
 plex_sync_state = {
     "status": "idle",  # "idle" | "running" | "failed"
@@ -217,6 +227,9 @@ def start_scheduler(poll_minutes: int = 5):
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(check_torrent_statuses, "interval", minutes=2, id="torrent_status_check", replace_existing=True)
     scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
+    scheduler.add_job(
+        check_episode_tracking, "interval", minutes=vff_interval, id="episode_tracking_check", replace_existing=True
+    )
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)
     scheduler.add_job(sync_plex_media, "interval", hours=24, id="plex_library_sync", replace_existing=True)
@@ -911,6 +924,23 @@ def _resolve_series_notify_mode(direction: str, settings: Settings, user_obj: Pl
     return _valid_series_notify_mode(user_value or getattr(settings, attr, None))
 
 
+def _resolve_series_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
+    """"language" (VF/VO, historique) ou "simple" (épisodes/saisons, sans langue).
+
+    Réglage par utilisateur (PlexUser.series_tracking_mode) prioritaire sur le réglage
+    global (Settings.series_tracking_mode) s'il est défini. Les deux modes sont
+    mutuellement exclusifs pour une série donnée.
+    """
+    user_value = getattr(user_obj, "series_tracking_mode", None) if user_obj else None
+    value = user_value or getattr(settings, "series_tracking_mode", None)
+    return value if value in ("language", "simple") else "language"
+
+
+def _resolve_episode_notify_mode(settings: Settings, user_obj: PlexUser | None) -> str:
+    user_value = getattr(user_obj, "series_episode_notify_mode", None) if user_obj else None
+    return _valid_series_notify_mode(user_value or getattr(settings, "series_episode_notify_mode", None))
+
+
 def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[int, bool]]:
     normalized: dict[int, dict[int, bool]] = {}
     for season, eps in (episode_status or {}).items():
@@ -929,16 +959,24 @@ def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[in
 
 
 def _series_language_milestones(direction: str, mode: str, episode_status: dict | None, has_vf_full: bool):
+    """Calcule les jalons (episode/season_start/season_complete/series_complete) à notifier.
+
+    `direction` : "vf"/"vo" (suivi par langue) ou "simple" (suivi épisode indépendant de
+    la langue — `episode_status` ne sert alors qu'à connaître la présence des épisodes sur
+    Plex, `matches` est donc toujours vrai : tout épisode connu de Plex "correspond").
+    """
     status = _normalized_episode_status(episode_status)
 
     def matches(has_vf: bool) -> bool:
+        if direction == "simple":
+            return True
         return has_vf if direction == "vf" else not has_vf
 
     milestones = []
     mode = _valid_series_notify_mode(mode)
 
     if mode == "series_complete":
-        if (direction == "vf" and has_vf_full) or (status and direction == "vo" and all(
+        if (direction == "vf" and has_vf_full) or (status and direction in ("vo", "simple") and all(
             matches(v) for eps in status.values() for v in eps.values()
         )):
             milestones.append(("series_complete", None, None))
@@ -961,15 +999,16 @@ def _series_language_milestones(direction: str, mode: str, episode_status: dict 
 
 
 def _milestone_reason(direction: str, milestone_type: str, season: int | None, episode: int | None) -> str:
-    lang = "VF" if direction == "vf" else "VO"
+    lang = "VF" if direction == "vf" else ("VO" if direction == "vo" else "")
+    prefix = f"{lang} " if lang else ""
     if milestone_type == "episode" and season is not None and episode is not None:
-        return f"{lang} S{season:02d}E{episode:02d}"
+        return f"{prefix}S{season:02d}E{episode:02d}"
     if milestone_type == "season_start" and season is not None:
-        return f"{lang} saison {season} demarree"
+        return f"{prefix}saison {season} demarree"
     if milestone_type == "season_complete" and season is not None:
-        return f"{lang} saison {season} complete"
+        return f"{prefix}saison {season} complete"
     if milestone_type == "series_complete":
-        return f"{lang} serie complete"
+        return f"{prefix}serie complete"
     return lang
 
 
@@ -995,6 +1034,31 @@ def _queue_vf_milestone(
     episode: int | None = None,
 ) -> bool:
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+
+    if direction == "simple":
+        # Suivi épisode indépendant de la langue : pas de gate VF (notify_vf_*), on
+        # respecte simplement le flag standard "disponibilité" de l'utilisateur.
+        if req.media_type != "show":
+            return False
+        if _milestone_exists(db, req, direction, milestone_type, season, episode):
+            return False
+        db.add(
+            NotificationMilestone(
+                req_id=req.id,
+                plex_user_id=req.plex_user_id,
+                direction=direction,
+                milestone_type=milestone_type,
+                season_number=season,
+                episode_number=episode,
+            )
+        )
+        db.commit()
+        recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
+        enqueue_notification(
+            "episode_track", req.id, recipients, _milestone_reason(direction, milestone_type, season, episode)
+        )
+        return True
+
     if not _user_wants_vf(user_obj, req.vf_category):
         return False
     if req.media_type == "movie" and not _resolve_movie_notify(direction, settings, user_obj):
@@ -1041,6 +1105,21 @@ def _queue_language_progress_notifications(
     count = 0
     for milestone_type, season, episode in _series_language_milestones(direction, mode, episode_status, has_vf_full):
         if _queue_vf_milestone(direction, settings, req, db, milestone_type, season, episode):
+            count += 1
+    return count
+
+
+def _queue_episode_progress_notifications(settings: Settings, req: MediaRequest, db: Session, episode_status: dict | None) -> int:
+    """Équivalent de `_queue_language_progress_notifications` pour le mode "simple"
+    (suivi épisode/saison indépendant de la langue, voir `_resolve_series_tracking_mode`).
+    """
+    if req.media_type != "show":
+        return 0
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    mode = _resolve_episode_notify_mode(settings, user_obj)
+    count = 0
+    for milestone_type, season, episode in _series_language_milestones("simple", mode, episode_status, False):
+        if _queue_vf_milestone("simple", settings, req, db, milestone_type, season, episode):
             count += 1
     return count
 
@@ -1106,8 +1185,21 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
             _notify("available", settings, req, db)
         return
 
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    tracking_mode = _resolve_series_tracking_mode(settings, user_obj)
+    # Un suivi de série est "actif" s'il va effectivement tourner et notifier la complétion
+    # via son propre jalon "série complète" : le mode "simple" tourne toujours
+    # (check_episode_tracking, indépendant de vff_enabled) ; le mode "langue" ne tourne
+    # que si VFF est activé (check_vf_statuses). Sinon, aucun autre mécanisme ne préviendra
+    # jamais l'utilisateur — il ne faut alors pas supprimer le mail "Disponible" classique.
+    tracking_active = tracking_mode == "simple" or (tracking_mode == "language" and settings.vff_enabled)
+
     is_complete = (req.episodes_available_count or 0) >= req.episodes_total_count
     if is_complete:
+        if tracking_active:
+            # Le suivi de série annonce déjà la complétion via son jalon "série complète" —
+            # éviter le doublon avec le mail "Disponible" classique.
+            return
         if not req.available_mail_sent:
             _notify("available", settings, req, db)
         return
@@ -1115,7 +1207,12 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
     if (req.episodes_available_count or 0) <= 0:
         return  # aucun fichier pour l'instant, rien à notifier
 
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    if tracking_mode == "simple":
+        # Le suivi "simple" (check_episode_tracking) couvre déjà "nouvel épisode" /
+        # "saison complète" à partir du scan Plex — la notif "disponibilité partielle"
+        # (issue des compteurs Sonarr) ferait doublon pour le même événement.
+        return
+
     frequency = _resolve_partial_notify_frequency(settings, user_obj)
 
     if frequency == "every_episode":
@@ -2045,6 +2142,102 @@ async def check_vf_statuses():
         logger.error(f"Erreur check_vf_statuses : {e}")
         vff_scan_state["status"] = "failed"
         vff_scan_state["error"] = str(e)
+    finally:
+        db.close()
+
+
+async def check_episode_tracking():
+    """Job de suivi épisode/saison en mode "simple" (voir `_resolve_series_tracking_mode`).
+
+    Contrairement à `check_vf_statuses`, ne dépend pas de `settings.vff_enabled` : seules
+    les demandes dont le mode de suivi résolu (global ou par utilisateur) vaut "simple"
+    sont scannées. Réutilise le même scanner Plex (`_scan_vf_blocking`) — la présence
+    d'un épisode dans `episode_status` (retourné par le scan, indépendamment de sa valeur
+    has_vf) suffit à prouver sa présence dans la bibliothèque Plex, langue non prise en
+    compte ici. Les jalons sont dédupliqués via `NotificationMilestone` (direction="simple"),
+    donc rescanner une série déjà notifiée est sans effet (pas de doublon).
+    """
+    if episode_scan_state["status"] == "running":
+        logger.info("Suivi épisode : un scan est déjà en cours, skip")
+        return
+
+    episode_scan_state["status"] = "running"
+    episode_scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+    episode_scan_state["finished_at"] = None
+    episode_scan_state["items_scanned"] = 0
+    episode_scan_state["total_items"] = 0
+    episode_scan_state["error"] = None
+
+    db = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+        if not settings or not settings.plex_url or not settings.plex_token:
+            episode_scan_state["status"] = "idle"
+            return
+
+        libs = _parse_vff_libraries(settings)
+        if not libs:
+            episode_scan_state["status"] = "idle"
+            return
+
+        global_simple = _resolve_series_tracking_mode(settings, None) == "simple"
+        candidates_q = (
+            db.query(MediaRequest)
+            .filter(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
+            .all()
+        )
+        users_by_id = {u.plex_user_id: u for u in db.query(PlexUser).all()}
+
+        def _wants_simple(req: MediaRequest) -> bool:
+            user_obj = users_by_id.get(req.plex_user_id)
+            if user_obj and user_obj.series_tracking_mode:
+                return user_obj.series_tracking_mode == "simple"
+            return global_simple
+
+        candidates_q = [r for r in candidates_q if _wants_simple(r)]
+        if not candidates_q:
+            episode_scan_state["status"] = "idle"
+            episode_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return
+
+        def _to_candidate(r):
+            return {
+                "id": r.id,
+                "title": r.title,
+                "year": r.year,
+                "media_type": r.media_type,
+                "tmdb_id": r.tmdb_id,
+                "tvdb_id": r.tvdb_id,
+                "imdb_id": r.imdb_id,
+                "plex_guid": r.plex_guid,
+            }
+
+        candidates = [_to_candidate(r) for r in candidates_q]
+        episode_scan_state["total_items"] = len(candidates)
+        logger.info(f"Suivi épisode : analyse de {len(candidates)} série(s) en mode simple")
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        results = await asyncio.to_thread(_scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs)
+        results_by_id = {r["id"]: r for r in results}
+
+        notified = 0
+        for req in candidates_q:
+            res = results_by_id.get(req.id)
+            if not res or not res.get("found"):
+                continue
+            episode_status = res.get("episode_status")
+            if episode_status:
+                _persist_episode_status(db, "request", req.id, episode_status, now)
+                db.commit()
+            notified += _queue_episode_progress_notifications(settings, req, db, episode_status)
+
+        logger.info(f"Suivi épisode : analyse terminée ({notified} notification(s) déclenchée(s))")
+        episode_scan_state["status"] = "idle"
+        episode_scan_state["finished_at"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        logger.error(f"Erreur check_episode_tracking : {e}")
+        episode_scan_state["status"] = "failed"
+        episode_scan_state["error"] = str(e)
     finally:
         db.close()
 

@@ -47,6 +47,9 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
     elif event == "vf_available":
         title = f"VF disponible — {request.title}{year}"
         body = f"{type_label} est maintenant disponible en version française sur Plex !"
+    elif event == "episode_track":
+        title = f"Nouveau contenu — {request.title}{year}"
+        body = f"{type_label} : nouvel épisode/saison disponible sur Plex."
     else:
         title = f"Echec — {request.title}{year}"
         body = f"Impossible de transmettre à {'Sonarr' if request.media_type == 'show' else 'Radarr'}"
@@ -64,6 +67,7 @@ def _build_discord_embed(event: str, request: MediaRequest, include_synopsis: bo
         "available_vo_tracking": 0x0D6EFD,
         "vo_only": 0x0D6EFD,
         "vf_available": 0x1DB954,
+        "episode_track": 0x0D6EFD,
         "failed": 0xDC3545,
     }.get(event, 0x888888)
     embed: dict = {"title": title, "description": body, "color": color}

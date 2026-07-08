@@ -14,12 +14,36 @@
 .notification-summary { border:1px solid var(--pr-border); border-radius:8px; background:var(--pr-surface-2); padding:14px; height:100%; }
 .notification-summary .summary-icon { width:34px; height:34px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:rgba(229,160,13,.12); color:var(--pr-accent); }
 .notification-card-title { display:flex; align-items:center; gap:.5rem; margin-bottom:.35rem; }
+.settings-topnav { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-bottom:24px; padding:6px 8px; background:var(--pr-surface); border:1px solid var(--pr-border); border-radius:12px; }
+.settings-topnav .nav-link { color:var(--pr-text-muted); border-radius:8px; padding:.45rem .8rem; font-size:.9rem; transition:background .15s, color .15s; }
+.settings-topnav .nav-link:hover { background:var(--pr-surface-2); color:var(--bs-body-color); }
+.settings-topnav .nav-link.active { background:var(--pr-accent); color:#141414; font-weight:600; }
+.settings-topnav .nav-link .bi:first-child { opacity:.85; }
+.settings-topnav .nav-link.active .bi:first-child { opacity:1; }
+.settings-topnav .badge { line-height:1; }
+.topnav-group-label { font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--pr-text-muted); padding:0 6px 0 4px; align-self:center; user-select:none; }
+.topnav-divider { width:1px; align-self:stretch; min-height:24px; background:var(--pr-border); margin:0 4px; }
+.tmpl-var-group { margin-top:10px; }
+.tmpl-var-group:first-child { margin-top:0; }
+.tmpl-var-group-label { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--pr-text-muted); margin:0 0 6px; }
+.tmpl-var { cursor:pointer; font-family:var(--bs-font-monospace); font-size:12.5px; background:var(--pr-surface); border:1px solid var(--pr-border); color:var(--bs-body-color); padding:4px 9px; border-radius:6px; display:inline-flex; align-items:center; gap:5px; transition:border-color .12s,color .12s,opacity .12s; }
+.tmpl-var:hover { border-color:var(--pr-accent); color:var(--pr-accent); }
+.tmpl-var .tmpl-var-check { display:none; font-size:12px; }
+.tmpl-var.used { border-color:#1db954; color:#4ade80; }
+.tmpl-var.used .tmpl-var-check { display:inline; }
+.tmpl-var.na { opacity:.36; }
+.tmpl-var.na:hover { opacity:.75; }
+.tmpl-var.flash { background:var(--pr-accent); color:#141414; border-color:var(--pr-accent); }
+.tmpl-var-legend { display:inline-block; width:10px; height:10px; border-radius:3px; vertical-align:-1px; margin-right:3px; }
+.tmpl-var-legend.used { background:#1db954; }
+.tmpl-var-legend.na { background:var(--pr-border); }
 </style>
 
 <form id="settings-form">
 
-<!-- ── Tabs ── -->
-<ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+<!-- ── Barre de catégories ── -->
+<ul class="nav nav-pills settings-topnav" id="settingsTabs" role="tablist">
+  <li class="topnav-group-label" aria-hidden="true">Configuration</li>
   <li class="nav-item" role="presentation">
     <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-connexions" type="button" role="tab">
       <i class="bi bi-plug"></i> Connexions
@@ -47,15 +71,12 @@
       <i class="bi bi-translate"></i> VFF
     </button>
   </li>
-  <li class="nav-item ms-auto d-flex align-items-center" role="presentation">
-    <span class="text-muted text-uppercase px-2" style="font-size:11px;letter-spacing:.08em" title="Outils d'administration et de dépannage">
-      <i class="bi bi-wrench-adjustable me-1"></i>Outils
-    </span>
-  </li>
+  <li class="topnav-divider" aria-hidden="true"></li>
+  <li class="topnav-group-label" aria-hidden="true" title="Outils d'administration et de dépannage">Outils</li>
   <li class="nav-item" role="presentation">
     <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-conflits" type="button" role="tab" onclick="initConflictsTab()">
       <i class="bi bi-exclamation-triangle"></i> Conflits
-      <span id="conflicts-badge" class="badge bg-danger ms-1 d-none">0</span>
+      <span id="conflicts-badge" class="badge bg-danger d-none">0</span>
     </button>
   </li>
   <li class="nav-item" role="presentation">
@@ -420,6 +441,31 @@
         </div>
       </div>
 
+      <!-- Sous-navigation Notifications -->
+      <div class="col-12">
+        <ul class="nav nav-pills mb-1" id="notifSubTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-email" type="button" role="tab">
+              <i class="bi bi-envelope"></i> Email
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-push" type="button" role="tab">
+              <i class="bi bi-bell"></i> Push
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="pill" data-bs-target="#notif-rules" type="button" role="tab">
+              <i class="bi bi-sliders"></i> Règles VO / VF
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="col-12 tab-content" id="notifSubTabContent">
+      <div class="tab-pane fade show active" id="notif-email" role="tabpanel">
+      <div class="row g-4">
+
       <!-- Email SMTP -->
       <div class="col-12">
         <div class="card p-4">
@@ -519,6 +565,40 @@
         </div>
       </div>
 
+      <!-- Historique emails -->
+      <div class="col-12">
+        <div class="card p-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
+          </div>
+          <div class="row g-3 mb-3 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label">Conserver l'historique pendant</label>
+              <select class="form-select" name="notification_log_retention_days">
+                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
+                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
+                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
+                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
+                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
+                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
+                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
+              </select>
+              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
+            </div>
+          </div>
+          <div id="notif-log-wrap">
+            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+      </div><!-- /notif-email -->
+
+      <div class="tab-pane fade" id="notif-rules" role="tabpanel">
+      <div class="row g-4">
+
       <!-- Disponibilité partielle (séries en cours de diffusion) -->
       <div class="col-12">
         <div class="card p-4">
@@ -527,6 +607,11 @@
             Une série en cours de diffusion peut être « partiellement disponible » (certains épisodes
             téléchargés, d'autres pas encore diffusés). Réglage par défaut pour toutes les demandes —
             chaque utilisateur peut le remplacer depuis sa fiche (page Utilisateurs).
+          </p>
+          <p class="text-muted small mb-3">
+            <i class="bi bi-info-circle me-1"></i>Sans effet pour les séries en mode de suivi
+            <strong>Simple</strong> (ci-dessous) : ce mode couvre déjà « nouvel épisode » / « saison
+            complète » à partir de la bibliothèque Plex, pour éviter les doublons.
           </p>
           <div class="row g-3">
             <div class="col-md-6">
@@ -544,47 +629,98 @@
         </div>
       </div>
 
-      <!-- Push -->
+      <!-- Suivi des séries -->
       <div class="col-12">
         <div class="card p-4">
-          <h5 class="mb-2"><i class="bi bi-translate text-warning me-2"></i>Regles VO / VF par defaut</h5>
-          <p class="text-muted small mb-3">Controle les jalons de notification linguistique. Les utilisateurs peuvent personnaliser ces modes depuis leur fiche.</p>
-          <div class="row g-3">
-            <div class="col-md-3">
-              <div class="form-check form-switch mt-4">
-                <input class="form-check-input" type="checkbox" name="movie_vo_notify" id="movie_vo_notify" {% if s.movie_vo_notify is not false %}checked{% endif %}>
-                <label class="form-check-label" for="movie_vo_notify">Film disponible en VO</label>
+          <h5 class="mb-2"><i class="bi bi-translate text-warning me-2"></i>Suivi des séries par défaut</h5>
+          <p class="text-muted small mb-3">
+            Contrôle le suivi épisode par épisode d'une série. Les utilisateurs peuvent personnaliser
+            ce mode depuis leur fiche.
+          </p>
+
+          <div class="settings-section-title">Mode de suivi</div>
+          <div class="row g-3 mb-3">
+            <div class="col-12">
+              <div class="d-flex flex-wrap gap-2" role="group">
+                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-language" value="language"
+                       {% if (s.series_tracking_mode or 'language') == 'language' %}checked{% endif %} onchange="toggleTrackingMode()">
+                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-language">
+                  <i class="bi bi-translate me-1"></i>Par langue (VF / VO)
+                </label>
+                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-simple" value="simple"
+                       {% if s.series_tracking_mode == 'simple' %}checked{% endif %} onchange="toggleTrackingMode()">
+                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-simple">
+                  <i class="bi bi-collection-play me-1"></i>Simple (épisodes, sans distinction de langue)
+                </label>
+              </div>
+              <div class="form-text">
+                Mutuellement exclusifs pour une série donnée : « Par langue » prévient de l'arrivée
+                de la VO puis de la VF ; « Simple » prévient à chaque nouvel épisode/saison, sans
+                se soucier de la langue.
               </div>
             </div>
-            <div class="col-md-3">
-              <div class="form-check form-switch mt-4">
-                <input class="form-check-input" type="checkbox" name="movie_vf_notify" id="movie_vf_notify" {% if s.movie_vf_notify is not false %}checked{% endif %}>
-                <label class="form-check-label" for="movie_vf_notify">Film upgrade VF</label>
+          </div>
+
+          <div id="tracking-mode-language-fields">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <div class="form-check form-switch mt-4">
+                  <input class="form-check-input" type="checkbox" name="movie_vo_notify" id="movie_vo_notify" {% if s.movie_vo_notify is not false %}checked{% endif %}>
+                  <label class="form-check-label" for="movie_vo_notify">Film disponible en VO</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <div class="form-check form-switch mt-4">
+                  <input class="form-check-input" type="checkbox" name="movie_vf_notify" id="movie_vf_notify" {% if s.movie_vf_notify is not false %}checked{% endif %}>
+                  <label class="form-check-label" for="movie_vf_notify">Film upgrade VF</label>
+                </div>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Series VO</label>
+                <select class="form-select" name="series_vo_notify_mode">
+                  {% set vo_mode = s.series_vo_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if vo_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if vo_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if vo_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if vo_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Series VF</label>
+                <select class="form-select" name="series_vf_notify_mode">
+                  {% set vf_mode = s.series_vf_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if vf_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if vf_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if vf_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if vf_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
               </div>
             </div>
-            <div class="col-md-3">
-              <label class="form-label">Series VO</label>
-              <select class="form-select" name="series_vo_notify_mode">
-                {% set vo_mode = s.series_vo_notify_mode or 'season_start_and_complete' %}
-                <option value="every_episode" {% if vo_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
-                <option value="season_complete" {% if vo_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
-                <option value="series_complete" {% if vo_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
-                <option value="season_start_and_complete" {% if vo_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label">Series VF</label>
-              <select class="form-select" name="series_vf_notify_mode">
-                {% set vf_mode = s.series_vf_notify_mode or 'season_start_and_complete' %}
-                <option value="every_episode" {% if vf_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
-                <option value="season_complete" {% if vf_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
-                <option value="series_complete" {% if vf_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
-                <option value="season_start_and_complete" {% if vf_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
-              </select>
+          </div>
+
+          <div id="tracking-mode-simple-fields" style="display:none">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Fréquence de suivi</label>
+                <select class="form-select" name="series_episode_notify_mode">
+                  {% set ep_mode = s.series_episode_notify_mode or 'season_start_and_complete' %}
+                  <option value="every_episode" {% if ep_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
+                  <option value="season_complete" {% if ep_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
+                  <option value="series_complete" {% if ep_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
+                  <option value="season_start_and_complete" {% if ep_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
+                </select>
+                <div class="form-text">Nécessite que la bibliothèque Plex soit configurée dans l'onglet VFF (analyse épisode par épisode).</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      </div>
+      </div><!-- /notif-rules -->
+
+      <div class="tab-pane fade" id="notif-push" role="tabpanel">
+      <div class="row g-4">
 
       <!-- Push -->
       <div class="col-12">
@@ -674,33 +810,10 @@
         </div>
       </div>
 
-      <!-- Historique emails -->
-      <div class="col-12">
-        <div class="card p-4">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0"><i class="bi bi-clock-history text-info me-2"></i>Historique des emails envoyés</h5>
-            <button class="btn btn-sm btn-outline-secondary" onclick="loadNotifLog()"><i class="bi bi-arrow-clockwise me-1"></i>Actualiser</button>
-          </div>
-          <div class="row g-3 mb-3 align-items-end">
-            <div class="col-md-4">
-              <label class="form-label">Conserver l'historique pendant</label>
-              <select class="form-select" name="notification_log_retention_days">
-                <option value="0"   {% if not s.notification_log_retention_days %}selected{% endif %}>Indéfiniment</option>
-                <option value="7"   {% if s.notification_log_retention_days == 7   %}selected{% endif %}>7 jours</option>
-                <option value="30"  {% if s.notification_log_retention_days == 30  %}selected{% endif %}>30 jours</option>
-                <option value="60"  {% if s.notification_log_retention_days == 60  %}selected{% endif %}>60 jours</option>
-                <option value="90"  {% if s.notification_log_retention_days == 90  %}selected{% endif %}>90 jours</option>
-                <option value="180" {% if s.notification_log_retention_days == 180 %}selected{% endif %}>6 mois</option>
-                <option value="365" {% if s.notification_log_retention_days == 365 %}selected{% endif %}>1 an</option>
-              </select>
-              <div class="form-text">Nettoyage automatique chaque nuit à 3h.</div>
-            </div>
-          </div>
-          <div id="notif-log-wrap">
-            <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-2"></span>Chargement…</div>
-          </div>
-        </div>
       </div>
+      </div><!-- /notif-push -->
+
+      </div><!-- /notifSubTabContent -->
 
     </div>
   </div>
@@ -1009,75 +1122,96 @@
   <!-- ════════════════════════ TAB : TEMPLATES ════════════════════════ -->
   <div class="tab-pane fade" id="tab-templates" role="tabpanel">
 
-    <!-- Variables disponibles -->
-    <div class="card p-3 mb-3" style="background:var(--pr-surface-2)">
-      <h6 class="mb-2 text-muted">Variables disponibles</h6>
-      <div class="d-flex flex-wrap gap-2">
-        {% for var, desc in template_variables %}
-        <span class="badge bg-secondary" style="cursor:pointer;font-size:13px" title="{{ desc }}" onclick="tmplInsertVar(event, '{{ var }}')">{{ var }}</span>
-        {% endfor %}
+    <!-- Variables disponibles (contextuelles) -->
+    <div class="card mb-3" style="background:var(--pr-surface-2);overflow:hidden">
+      <div class="d-flex align-items-center justify-content-between px-3 py-2" style="cursor:pointer" onclick="tmplToggleVars()">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <i class="bi bi-braces text-warning"></i>
+          <span class="fw-semibold" style="font-size:14px">Variables</span>
+          <span class="text-muted small">— cliquez pour insérer à la position du curseur · syntaxe Jinja2 : <code>{% raw %}{% if poster_url %}…{% endif %}{% endraw %}</code></span>
+        </div>
+        <i class="bi bi-chevron-up" id="tmpl-vars-chevron"></i>
       </div>
-      <small class="text-muted mt-2 d-block">Cliquez sur une variable pour l'insérer à la position du curseur. Syntaxe Jinja2 supportée : <code>{% raw %}{% if poster_url %}...{% endif %}{% endraw %}</code></small>
+      <div id="tmpl-vars-body" class="px-3 pb-3">
+        <div id="tmpl-vars-groups"></div>
+        <div class="d-flex align-items-center gap-3 mt-3 pt-2 flex-wrap" style="font-size:11px;border-top:1px solid var(--pr-border)">
+          <span class="text-muted"><span class="tmpl-var-legend used"></span> utilisée dans ce template</span>
+          <span class="text-muted"><span class="tmpl-var-legend na"></span> non utilisée par ce type d'email</span>
+        </div>
+      </div>
     </div>
 
     <!-- Onglets template -->
-    <ul class="nav nav-tabs mb-0" id="templateTabs">
-      <li class="nav-item">
-        <button class="nav-link active" id="tmpl-tab-request" onclick="tmplSwitchTab('request')">
-          <i class="bi bi-envelope me-1"></i>Nouvelle demande
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-available" onclick="tmplSwitchTab('available')">
-          <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-available_vf" onclick="tmplSwitchTab('available_vf')">
-          <i class="bi bi-translate me-1"></i>Disponible en VF
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-available_vo_tracking" onclick="tmplSwitchTab('available_vo_tracking')">
-          <i class="bi bi-soundwave me-1"></i>VO + suivi VF
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-vf_upgrade" onclick="tmplSwitchTab('vf_upgrade')">
-          <i class="bi bi-arrow-up-circle me-1"></i>Mise à jour VF
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-language_episode" onclick="tmplSwitchTab('language_episode')">
-          <i class="bi bi-collection-play me-1"></i>Suivi episode
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-language_season_start" onclick="tmplSwitchTab('language_season_start')">
-          <i class="bi bi-play-circle me-1"></i>Debut saison
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-language_season_complete" onclick="tmplSwitchTab('language_season_complete')">
-          <i class="bi bi-check2-circle me-1"></i>Saison complete
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-language_series_complete" onclick="tmplSwitchTab('language_series_complete')">
-          <i class="bi bi-check-all me-1"></i>Serie complete
-        </button>
-      </li>
-      <li class="nav-item">
-        <button class="nav-link" id="tmpl-tab-failure" onclick="tmplSwitchTab('failure')">
-          <i class="bi bi-exclamation-triangle me-1"></i>Échec de transmission
-        </button>
-      </li>
-      <li class="nav-item ms-auto d-flex align-items-center gap-2 pe-1">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <div class="d-flex flex-column gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted text-uppercase" style="font-size:10px;letter-spacing:.08em;min-width:78px">Statut</span>
+          <ul class="nav nav-pills gap-1 mb-0" id="templateTabsStatus">
+            <li class="nav-item">
+              <button class="nav-link active" id="tmpl-tab-request" onclick="tmplSwitchTab('request')">
+                <i class="bi bi-envelope me-1"></i>Nouvelle demande
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available" onclick="tmplSwitchTab('available')">
+                <i class="bi bi-check-circle me-1"></i>Disponible sur Plex
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available_vf" onclick="tmplSwitchTab('available_vf')">
+                <i class="bi bi-translate me-1"></i>Disponible en VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-available_vo_tracking" onclick="tmplSwitchTab('available_vo_tracking')">
+                <i class="bi bi-soundwave me-1"></i>VO + suivi VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-vf_upgrade" onclick="tmplSwitchTab('vf_upgrade')">
+                <i class="bi bi-arrow-up-circle me-1"></i>Mise à jour VF
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-failure" onclick="tmplSwitchTab('failure')">
+                <i class="bi bi-exclamation-triangle me-1"></i>Échec de transmission
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted text-uppercase" style="font-size:10px;letter-spacing:.08em;min-width:78px">Suivi VF/VO</span>
+          <ul class="nav nav-pills gap-1 mb-0" id="templateTabsLanguage">
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_episode" onclick="tmplSwitchTab('language_episode')">
+                <i class="bi bi-collection-play me-1"></i>Episode
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_season_start" onclick="tmplSwitchTab('language_season_start')">
+                <i class="bi bi-play-circle me-1"></i>Debut saison
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_season_complete" onclick="tmplSwitchTab('language_season_complete')">
+                <i class="bi bi-check2-circle me-1"></i>Saison complete
+              </button>
+            </li>
+            <li class="nav-item">
+              <button class="nav-link" id="tmpl-tab-language_series_complete" onclick="tmplSwitchTab('language_series_complete')">
+                <i class="bi bi-check-all me-1"></i>Serie complete
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 pe-1 flex-shrink-0">
+        <button class="btn btn-sm btn-outline-secondary" onclick="tmplRestorePrevious()" title="Annuler la dernière modification"><i class="bi bi-reply me-1"></i>Annuler</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="tmplReset()"><i class="bi bi-arrow-counterclockwise me-1"></i>Réinitialiser</button>
         <button class="btn btn-sm btn-outline-warning" onclick="tmplTestSend()"><i class="bi bi-send me-1"></i>Envoyer un test</button>
         <button class="btn btn-sm btn-warning" onclick="tmplSave()"><i class="bi bi-save me-1"></i>Enregistrer</button>
-      </li>
-    </ul>
+      </div>
+    </div>
 
     <div class="row g-0" style="height:calc(100vh - 320px);min-height:500px">
       <!-- Éditeur -->
@@ -1089,43 +1223,43 @@
         <div class="p-3 bg-dark border-bottom border-secondary" style="flex-shrink:0">
           <div id="tmpl-subject-group-request">
             <label class="form-label small text-muted">Objet (Nouvelle demande)</label>
-            <input type="text" id="tmpl-subject-request" class="form-control form-control-sm" value="{{ request_subject }}" placeholder="[Plexarr] Nouvelle demande : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-request" class="form-control form-control-sm" value="{{ request_subject }}" placeholder="[Plexarr] Nouvelle demande : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-available" style="display:none">
             <label class="form-label small text-muted">Objet (Disponible sur Plex)</label>
-            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-available" class="form-control form-control-sm" value="{{ available_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-available_vf" style="display:none">
             <label class="form-label small text-muted">Objet (Disponible en VF)</label>
-            <input type="text" id="tmpl-subject-available_vf" class="form-control form-control-sm" value="{{ available_vf_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VF !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-available_vf" class="form-control form-control-sm" value="{{ available_vf_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VF !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-available_vo_tracking" style="display:none">
             <label class="form-label small text-muted">Objet (Disponible en VO + suivi VF)</label>
-            <input type="text" id="tmpl-subject-available_vo_tracking" class="form-control form-control-sm" value="{{ available_vo_tracking_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VO !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-available_vo_tracking" class="form-control form-control-sm" value="{{ available_vo_tracking_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VO !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-vf_upgrade" style="display:none">
             <label class="form-label small text-muted">Objet (Mise à jour VF)</label>
-            <input type="text" id="tmpl-subject-vf_upgrade" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-vf_upgrade" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-language_episode" style="display:none">
             <label class="form-label small text-muted">Objet (Suivi par episode)</label>
-            <input type="text" id="tmpl-subject-language_episode" class="form-control form-control-sm" value="{{ language_episode_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : nouvel episode en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-language_episode" class="form-control form-control-sm" value="{{ language_episode_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : nouvel episode en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-language_season_start" style="display:none">
             <label class="form-label small text-muted">Objet (Premier episode de saison)</label>
-            <input type="text" id="tmpl-subject-language_season_start" class="form-control form-control-sm" value="{{ language_season_start_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison demarree en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-language_season_start" class="form-control form-control-sm" value="{{ language_season_start_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison demarree en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-language_season_complete" style="display:none">
             <label class="form-label small text-muted">Objet (Saison complete)</label>
-            <input type="text" id="tmpl-subject-language_season_complete" class="form-control form-control-sm" value="{{ language_season_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison complete en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-language_season_complete" class="form-control form-control-sm" value="{{ language_season_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} : saison complete en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-language_series_complete" style="display:none">
             <label class="form-label small text-muted">Objet (Serie complete)</label>
-            <input type="text" id="tmpl-subject-language_series_complete" class="form-control form-control-sm" value="{{ language_series_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est entierement disponible en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-language_series_complete" class="form-control form-control-sm" value="{{ language_series_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est entierement disponible en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-failure" style="display:none">
             <label class="form-label small text-muted">Objet (Échec de transmission)</label>
-            <input type="text" id="tmpl-subject-failure" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plexarr] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplSchedulePreview()">
+            <input type="text" id="tmpl-subject-failure" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plexarr] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
           </div>
         </div>
         <div style="flex-grow:1;position:relative">
@@ -1182,7 +1316,7 @@
 
   </div>
 
-</div>
+</div><!-- /tab-content -->
 <!-- Modal Instance Arr -->
 <div class="modal fade" id="arrInstanceModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
@@ -1558,6 +1692,13 @@ document.getElementById('webhooks-body').addEventListener('show.bs.collapse', ()
 document.getElementById('webhooks-body').addEventListener('hide.bs.collapse', () => {
   document.getElementById('webhooks-chevron').className = 'bi bi-chevron-down text-muted';
 });
+
+function toggleTrackingMode() {
+  const simple = document.getElementById('tracking-mode-simple').checked;
+  document.getElementById('tracking-mode-language-fields').style.display = simple ? 'none' : '';
+  document.getElementById('tracking-mode-simple-fields').style.display = simple ? '' : 'none';
+}
+toggleTrackingMode();
 
 // ── Core functions ────────────────────────────────────────────────────────────
 function togglePass(id) {
@@ -2973,9 +3114,82 @@ const tmplTypes = [
   'failure'
 ];
 
+{% raw %}
+// ── Variables contextuelles ─────────────────────────────────────────────────
+const TMPL_CORE_VARS = ['title', 'year', 'poster_url', 'plex_user'];
+const tmplVarGroups = [
+  { label: 'Contenu', vars: [
+    { n: 'title', d: 'Titre du film ou de la série' },
+    { n: 'year', d: 'Année de sortie' },
+    { n: 'poster_url', d: "URL de l'affiche" },
+    { n: 'overview', d: 'Synopsis' },
+    { n: 'genres', d: 'Genres (ex : Action, Drame)' },
+    { n: 'media_type_label', d: 'Film ou Série' },
+    { n: 'media_type_label_cap', d: 'Le film / La série' }
+  ]},
+  { label: 'Utilisateur', vars: [
+    { n: 'plex_user', d: "Nom de l'utilisateur" }
+  ]},
+  { label: 'Suivi VF / VO', vars: [
+    { n: 'language', d: 'Langue du jalon (VF ou VO)' },
+    { n: 'language_reason', d: 'Détail du jalon (ex : VF saison 1 complète)' }
+  ]},
+  { label: 'Échec', vars: [
+    { n: 'reason', d: "Raison de l'échec" }
+  ]}
+];
+const tmplVarRelevance = {
+  request:               TMPL_CORE_VARS.concat(['media_type_label', 'media_type_label_cap', 'overview', 'genres']),
+  available:             TMPL_CORE_VARS.concat(['media_type_label_cap', 'genres']),
+  available_vf:          TMPL_CORE_VARS.concat(['media_type_label_cap']),
+  available_vo_tracking: TMPL_CORE_VARS.concat(['media_type_label_cap']),
+  vf_upgrade:            TMPL_CORE_VARS.concat(['media_type_label_cap', 'language_reason']),
+  language_episode:         TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
+  language_season_start:    TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
+  language_season_complete: TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
+  language_series_complete: TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
+  failure:               TMPL_CORE_VARS.concat(['media_type_label', 'reason'])
+};
+
+function tmplToggleVars() {
+  const body = document.getElementById('tmpl-vars-body');
+  const chev = document.getElementById('tmpl-vars-chevron');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  chev.className = hidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+}
+
+function tmplRenderVars() {
+  const wrap = document.getElementById('tmpl-vars-groups');
+  if (!wrap) return;
+  const relevant = tmplVarRelevance[tmplCurrentTab] || TMPL_CORE_VARS;
+  const subjEl = document.getElementById('tmpl-subject-' + tmplCurrentTab);
+  const haystack = tmplGetValue(tmplCurrentTab) + ' ' + (subjEl ? subjEl.value : '');
+  let html = '';
+  tmplVarGroups.forEach(function (g) {
+    const chips = g.vars.map(function (v) {
+      const used = new RegExp('\\b' + v.n + '\\b').test(haystack);
+      const na = relevant.indexOf(v.n) === -1;
+      const cls = 'tmpl-var' + (used ? ' used' : '') + (na ? ' na' : '');
+      const title = (na ? v.d + " — non utilisée pour ce type d'email" : v.d).replace(/"/g, '&quot;');
+      const token = '{{ ' + v.n + ' }}';
+      return '<span class="' + cls + '" title="' + title + '" onclick="tmplInsertVar(event, \'' + token + '\')">' + token + '<i class="bi bi-check2 tmpl-var-check"></i></span>';
+    }).join('');
+    html += '<div class="tmpl-var-group"><div class="tmpl-var-group-label">' + g.label + '</div><div class="d-flex flex-wrap gap-2">' + chips + '</div></div>';
+  });
+  wrap.innerHTML = html;
+}
+
+function tmplOnEdit() {
+  tmplRenderVars();
+  tmplSchedulePreview();
+}
+{% endraw %}
+
 function onTemplatesTabShow() {
   if (tmplEditorsReady) {
     Object.values(tmplEditors).forEach(cm => cm.refresh());
+    tmplRenderVars();
     tmplLivePreview();
     return;
   }
@@ -2985,8 +3199,9 @@ function onTemplatesTabShow() {
     tmplEditors[type] = CodeMirror.fromTextArea(el, {
       mode: 'htmlmixed', theme: 'monokai', lineNumbers: true, lineWrapping: true, tabSize: 2,
     });
-    tmplEditors[type].on('change', () => tmplSchedulePreview());
+    tmplEditors[type].on('change', () => tmplOnEdit());
   });
+  tmplRenderVars();
   setTimeout(tmplLivePreview, 200);
 }
 
@@ -3002,6 +3217,7 @@ function tmplSwitchTab(tab) {
     document.getElementById('tmpl-tab-' + t).classList.toggle('active', t === tab);
   });
   if (tmplEditors[tab]) tmplEditors[tab].refresh();
+  tmplRenderVars();
   tmplLivePreview();
 }
 
@@ -3080,6 +3296,22 @@ async function tmplReset() {
   setTimeout(() => location.reload(), 1000);
 }
 
+async function tmplRestorePrevious() {
+  if (!await confirmAction({
+    title: 'Annuler la dernière modification',
+    body: 'Restaurer les templates et objets tels qu\'ils étaient avant le dernier enregistrement ou la dernière réinitialisation ?',
+    okLabel: 'Restaurer', danger: true,
+  })) return;
+  const r = await fetch('/api/email-templates/restore-previous', {method: 'POST'});
+  if (!r.ok) {
+    const res = await r.json().catch(() => ({}));
+    showToast(res.detail || 'Aucune sauvegarde disponible', 'danger');
+    return;
+  }
+  showToast('Restauré — rechargement...', 'success');
+  setTimeout(() => location.reload(), 1000);
+}
+
 async function tmplTestSend() {
   showToast('Envoi du mail de test en cours...', 'info');
   try {
@@ -3115,6 +3347,7 @@ function tmplInsertVar(e, varName) {
     cm.replaceRange(varName, cm.getDoc().getCursor());
     cm.focus();
   }
+  tmplRenderVars();
 }
 </script>
 {% endblock %}

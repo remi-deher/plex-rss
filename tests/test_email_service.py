@@ -223,7 +223,7 @@ async def test_send_available_vf_uses_merged_template():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VF !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible sur Plex en VF !" in body
+    assert "Disponible sur Plex en VF&nbsp;!" in body
 
 
 @pytest.mark.asyncio
@@ -235,7 +235,7 @@ async def test_send_available_vo_tracking_uses_merged_template():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VO !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible sur Plex en VO !" in body
+    assert "Disponible sur Plex en VO&nbsp;!" in body
     assert "Plexarr continue de surveiller l'arrivée de la VF" in body
 
 
@@ -248,7 +248,7 @@ async def test_send_vf_available_uses_episode_milestone_template():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception : nouvel épisode en VF sur Plex !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Nouvel épisode en VF !" in body
+    assert "Nouvel épisode en VF&nbsp;!" in body
     assert "VF S01E02" in body
 
 
@@ -273,7 +273,7 @@ async def test_send_vo_only_uses_season_start_milestone_template():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception : saison démarrée en VO sur Plex !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Saison démarrée en VO !" in body
+    assert "Saison démarrée en VO&nbsp;!" in body
     assert "VO saison 1 demarree" in body
 
 

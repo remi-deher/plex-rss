@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import PlexUser, Settings
+import json
+
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_AVAILABLE_VF_TEMPLATE,
@@ -19,6 +21,7 @@ from ..services.email_service import (
     DEFAULT_REQUEST_TEMPLATE,
     DEFAULT_VF_AVAILABLE_TEMPLATE,
     add_email_footer,
+    render_subject,
     render_template,
 )
 from ..services.email_service import _send as smtp_send
@@ -97,79 +100,23 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
         elif body.type == "language_series_complete":
             ctx["language_reason"] = "VF serie complete"
             ctx["language_milestone_type"] = "series_complete"
-    elif body.type in ("available_vf", "available_vo_tracking", "vf_upgrade"):
-        ctx["media_type_label"] = "Film"
-        ctx["media_type_label_cap"] = "Le film"
-        ctx["language_reason"] = "VF film complet"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-    elif body.type.startswith("language_"):
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-        if body.type == "language_episode":
-            ctx["language_reason"] = "VF S01E02"
-            ctx["language_milestone_type"] = "episode"
-        elif body.type == "language_season_start":
-            ctx["language_reason"] = "VF saison 1 demarree"
-            ctx["language_milestone_type"] = "season_start"
-        elif body.type == "language_season_complete":
-            ctx["language_reason"] = "VF saison 1 complete"
-            ctx["language_milestone_type"] = "season_complete"
-        elif body.type == "language_series_complete":
-            ctx["language_reason"] = "VF serie complete"
-            ctx["language_milestone_type"] = "series_complete"
     elif body.type == "failure":
         ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
 
-    if body.type in ("available_vf", "available_vo_tracking", "vf_upgrade") and "language_reason" not in ctx:
-        ctx["media_type_label"] = "Film"
-        ctx["media_type_label_cap"] = "Le film"
-        ctx["language_reason"] = "VF film complet"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-
-    if body.type.startswith("language_"):
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-        if body.type == "language_episode":
-            ctx["language_reason"] = "VF S01E02"
-            ctx["language_milestone_type"] = "episode"
-        elif body.type == "language_season_start":
-            ctx["language_reason"] = "VF saison 1 demarree"
-            ctx["language_milestone_type"] = "season_start"
-        elif body.type == "language_season_complete":
-            ctx["language_reason"] = "VF saison 1 complete"
-            ctx["language_milestone_type"] = "season_complete"
-        elif body.type == "language_series_complete":
-            ctx["language_reason"] = "VF serie complete"
-            ctx["language_milestone_type"] = "series_complete"
-
-    rendered_subject = render_template(body.subject, ctx)
-    if rendered_subject.startswith("<p>Erreur de template"):
-        if body.type == "request":
-            rendered_subject = f"[Plexarr] Nouvelle demande : {ctx['title']}"
-        elif body.type == "available":
-            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex !"
-        elif body.type == "available_vf":
-            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex en VF !"
-        elif body.type == "available_vo_tracking":
-            rendered_subject = f"[Plexarr] {ctx['title']} est disponible sur Plex en VO !"
-        elif body.type == "vf_upgrade":
-            rendered_subject = f"[Plexarr] {ctx['title']} est désormais disponible sur Plex en VF !"
-        elif body.type == "language_episode":
-            rendered_subject = f"[Plexarr] {ctx['title']} : nouvel épisode en {ctx['language']} sur Plex !"
-        elif body.type == "language_season_start":
-            rendered_subject = f"[Plexarr] {ctx['title']} : saison démarrée en {ctx['language']} sur Plex !"
-        elif body.type == "language_season_complete":
-            rendered_subject = f"[Plexarr] {ctx['title']} : saison complète en {ctx['language']} sur Plex !"
-        elif body.type == "language_series_complete":
-            rendered_subject = f"[Plexarr] {ctx['title']} est entièrement disponible en {ctx['language']} sur Plex !"
-        else:
-            rendered_subject = f"[Plexarr] Échec de transmission : {ctx['title']}"
+    subject_fallbacks = {
+        "request": f"[Plexarr] Nouvelle demande : {ctx['title']}",
+        "available": f"[Plexarr] {ctx['title']} est disponible sur Plex !",
+        "available_vf": f"[Plexarr] {ctx['title']} est disponible sur Plex en VF !",
+        "available_vo_tracking": f"[Plexarr] {ctx['title']} est disponible sur Plex en VO !",
+        "vf_upgrade": f"[Plexarr] {ctx['title']} est désormais disponible sur Plex en VF !",
+        "language_episode": f"[Plexarr] {ctx['title']} : nouvel épisode en {ctx.get('language', 'VF')} sur Plex !",
+        "language_season_start": f"[Plexarr] {ctx['title']} : saison démarrée en {ctx.get('language', 'VF')} sur Plex !",
+        "language_season_complete": f"[Plexarr] {ctx['title']} : saison complète en {ctx.get('language', 'VF')} sur Plex !",
+        "language_series_complete": f"[Plexarr] {ctx['title']} est entièrement disponible en {ctx.get('language', 'VF')} sur Plex !",
+    }
+    rendered_subject = render_subject(
+        body.subject, ctx, fallback=subject_fallbacks.get(body.type, f"[Plexarr] Échec de transmission : {ctx['title']}")
+    )
 
     html = render_template(body.template, ctx)
 
@@ -219,9 +166,34 @@ class SaveTemplates(BaseModel):
     email_language_series_complete_subject: Optional[str] = None
 
 
+TEMPLATE_FIELDS = [
+    "email_request_template",
+    "email_available_template",
+    "email_failure_template",
+    "email_available_vf_template",
+    "email_available_vo_tracking_template",
+    "email_vf_upgrade_template",
+    "email_language_episode_template",
+    "email_language_season_start_template",
+    "email_language_season_complete_template",
+    "email_language_series_complete_template",
+    "email_request_subject",
+    "email_available_subject",
+    "email_failure_subject",
+    "email_available_vf_subject",
+    "email_available_vo_tracking_subject",
+    "email_vf_upgrade_subject",
+    "email_language_episode_subject",
+    "email_language_season_start_subject",
+    "email_language_season_complete_subject",
+    "email_language_series_complete_subject",
+]
+
+
 @router.put("/api/email-templates")
 def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = body.email_request_template
     s.email_available_template = body.email_available_template
     s.email_failure_template = body.email_failure_template
@@ -246,9 +218,24 @@ def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 
+@router.post("/api/email-templates/restore-previous")
+def restore_previous_templates(db: Session = Depends(get_db)):
+    """Restaure les templates/sujets tels qu'ils étaient juste avant la dernière sauvegarde (undo à un niveau)."""
+    s = db.query(Settings).first()
+    if not s.email_templates_backup:
+        raise HTTPException(status_code=404, detail="Aucune sauvegarde précédente disponible")
+    backup = json.loads(s.email_templates_backup)
+    for field in TEMPLATE_FIELDS:
+        setattr(s, field, backup.get(field))
+    s.email_templates_backup = None
+    db.commit()
+    return {"status": "ok"}
+
+
 @router.post("/api/email-templates/reset")
 def reset_templates(db: Session = Depends(get_db)):
     s = db.query(Settings).first()
+    s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
     s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
@@ -319,11 +306,9 @@ async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db)):
         ctx["media_type_label_cap"] = "Le film"
         ctx["language_reason"] = "VF film complet"
 
-    rendered_subject = render_template(body.subject, ctx)
-    if rendered_subject.startswith("<p>Erreur de template"):
-        rendered_subject = f"[Plex Test] {body.type} : {ctx['title']}"
-    else:
-        rendered_subject = f"[Test] {rendered_subject}"
+    fallback_subject = f"[Plex Test] {body.type} : {ctx['title']}"
+    rendered_subject = render_subject(body.subject, ctx, fallback=fallback_subject)
+    rendered_subject = fallback_subject if rendered_subject == fallback_subject else f"[Test] {rendered_subject}"
 
     html = render_template(body.template, ctx)
 

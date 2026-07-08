@@ -51,7 +51,13 @@ from ..scheduler import scheduler as _scheduler
 from ..services import email_service, prowlarr, radarr, sonarr
 from ..services import seer as seer_service
 from ..services.download_clients import add_torrent_file_to_client, add_torrent_to_client, check_client_connection
-from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, add_email_footer, render_template
+from ..services.email_service import (
+    DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_REQUEST_TEMPLATE,
+    add_email_footer,
+    render_subject,
+    render_template,
+)
 from ..services.email_service import _send as smtp_send
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
@@ -185,10 +191,13 @@ SERIES_NOTIFY_MODES = {
 
 
 def _validate_series_notify_modes(payload: dict):
-    for key in ("series_vo_notify_mode", "series_vf_notify_mode"):
+    for key in ("series_vo_notify_mode", "series_vf_notify_mode", "series_episode_notify_mode"):
         value = payload.get(key)
         if value is not None and value not in SERIES_NOTIFY_MODES:
             raise HTTPException(status_code=400, detail=f"Mode de notification invalide: {value}")
+    tracking_mode = payload.get("series_tracking_mode")
+    if tracking_mode is not None and tracking_mode not in ("language", "simple"):
+        raise HTTPException(status_code=400, detail=f"Mode de suivi invalide: {tracking_mode}")
 
 
 class SettingsUpdate(BaseModel):
@@ -252,6 +261,8 @@ class SettingsUpdate(BaseModel):
     movie_vf_notify: Optional[bool] = None
     series_vo_notify_mode: Optional[str] = None
     series_vf_notify_mode: Optional[str] = None
+    series_tracking_mode: Optional[str] = None
+    series_episode_notify_mode: Optional[str] = None
 
 
 @router.get("/settings")
@@ -1070,6 +1081,8 @@ class UserCreate(BaseModel):
     movie_vf_notify: Optional[bool] = None
     series_vo_notify_mode: Optional[str] = None
     series_vf_notify_mode: Optional[str] = None
+    series_tracking_mode: Optional[str] = None
+    series_episode_notify_mode: Optional[str] = None
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
@@ -2314,6 +2327,58 @@ def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
     ]
 
 
+def _parse_arr_date(value: str):
+    """Parse une date ISO renvoyée par Sonarr/Radarr (gère le suffixe 'Z') en datetime aware."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def _arr_poster(entity: dict) -> Optional[str]:
+    """Extrait l'URL d'affiche (poster) d'une ressource Sonarr/Radarr.
+
+    Privilégie `remoteUrl` (absolu, ex. TMDB/TVDB) — utilisable directement dans un
+    navigateur sans passer par l'API arr ni sa clé.
+    """
+    for img in entity.get("images") or []:
+        if img.get("coverType") == "poster":
+            return img.get("remoteUrl") or img.get("url")
+    return None
+
+
+def _movie_release_events(movie: dict, start_dt: datetime, end_dt: datetime, now: datetime) -> list[tuple]:
+    """Événements de sortie d'un film pour le calendrier : (date_iso, type, sous-titre).
+
+    Radarr renvoie un film dès qu'UNE de ses dates (ciné / digitale / physique) tombe dans
+    la fenêtre. On émet une entrée par sortie réellement dans la fenêtre, pour afficher la
+    sortie cinéma ET la sortie digitale sur leurs jours respectifs (color-codées côté UI).
+    Si aucune date n'est dans la fenêtre, une seule entrée de repli (prochaine à venir,
+    sinon la plus récente connue) pour que le film reste visible.
+    """
+    specs = (
+        ("cinema", "Sortie cinéma", movie.get("inCinemas")),
+        ("digital", "Sortie digitale", movie.get("digitalRelease")),
+        ("physical", "Sortie physique", movie.get("physicalRelease")),
+    )
+    parsed = [
+        (raw, rtype, label, dt)
+        for rtype, label, raw in specs
+        if raw and (dt := _parse_arr_date(raw)) is not None
+    ]
+    if not parsed:
+        return []
+    in_window = sorted(
+        ((raw, rtype, label) for raw, rtype, label, dt in parsed if start_dt <= dt <= end_dt),
+        key=lambda x: x[0],
+    )
+    if in_window:
+        return in_window
+    future = [(raw, rtype, label, dt) for raw, rtype, label, dt in parsed if dt >= now]
+    raw, rtype, label, _ = min(future, key=lambda x: x[3]) if future else max(parsed, key=lambda x: x[3])
+    return [(raw, rtype, label)]
+
+
 @router.get("/calendar")
 async def unified_calendar(
     start: Optional[str] = None,
@@ -2339,6 +2404,12 @@ async def unified_calendar(
     now = datetime.now(timezone.utc)
     start_dt = datetime.fromisoformat(start) if start else now - timedelta(days=7)
     end_dt = datetime.fromisoformat(end) if end else now + timedelta(days=21)
+    # Normalise en UTC-aware : un start/end fourni sans fuseau (ISO naïf) casserait les
+    # comparaisons avec les dates aware de Sonarr/Radarr.
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
 
     # Index des médias suivis par identifiant externe, pour marquer/enrichir les entrées.
     shows_by_tvdb: dict[str, dict] = {}
@@ -2443,11 +2514,12 @@ async def unified_calendar(
 
                     events.append({
                         "type": "episode",
+                        "release_type": "episode",
                         "date": date,
                         "title": series.get("title") or "",
                         "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
                         + (f" — {ep.get('title')}" if ep.get("title") else ""),
-                        "poster_url": (tracked or {}).get("poster_url"),
+                        "poster_url": (tracked or {}).get("poster_url") or _arr_poster(series),
                         "has_file": bool(ep.get("hasFile")),
                         "tracked": bool(tracked),
                         "library_item_id": (tracked or {}).get("library_item_id"),
@@ -2457,8 +2529,8 @@ async def unified_calendar(
             else:
                 movies = await radarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
                 for m in movies:
-                    date = m.get("inCinemas") or m.get("digitalRelease") or m.get("physicalRelease")
-                    if not date:
+                    release_events = _movie_release_events(m, start_dt, end_dt, now)
+                    if not release_events:
                         continue
                     tmdb_id = str(m.get("tmdbId")) if m.get("tmdbId") else None
                     tracked = movies_by_tmdb.get(tmdb_id) if tmdb_id else None
@@ -2489,18 +2561,21 @@ async def unified_calendar(
                         elif vf == "requested" and tracked.get("in_library"):
                             continue
 
-                    events.append({
-                        "type": "movie",
-                        "date": date,
-                        "title": title,
-                        "subtitle": "Sortie",
-                        "poster_url": (tracked or {}).get("poster_url"),
-                        "has_file": bool(m.get("hasFile")),
-                        "tracked": bool(tracked),
-                        "library_item_id": (tracked or {}).get("library_item_id"),
-                        "request_id": (tracked or {}).get("request_id"),
-                        "instance": inst.name,
-                    })
+                    poster = (tracked or {}).get("poster_url") or _arr_poster(m)
+                    for rdate, rtype, rlabel in release_events:
+                        events.append({
+                            "type": "movie",
+                            "release_type": rtype,
+                            "date": rdate,
+                            "title": title,
+                            "subtitle": rlabel,
+                            "poster_url": poster,
+                            "has_file": bool(m.get("hasFile")),
+                            "tracked": bool(tracked),
+                            "library_item_id": (tracked or {}).get("library_item_id"),
+                            "request_id": (tracked or {}).get("request_id"),
+                            "instance": inst.name,
+                        })
         except Exception as e:
             logger.warning(f"Calendar fetch failed for '{inst.name}': {e}")
 
@@ -2722,13 +2797,12 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
             settings.email_request_subject if (settings and isinstance(settings.email_request_subject, str)) else None
         ) or "[Plexarr] Nouvelle demande : {{ title }}"
 
-    rendered_subject = render_template(subject_tmpl, ctx)
-    if rendered_subject.startswith("<p>Erreur de template"):
-        rendered_subject = (
-            f"[Plexarr] Nouvelle demande : {fake.title}"
-            if event == "request"
-            else f"[Plexarr] {fake.title} est disponible sur Plex !"
-        )
+    fallback_subject = (
+        f"[Plexarr] Nouvelle demande : {fake.title}"
+        if event == "request"
+        else f"[Plexarr] {fake.title} est disponible sur Plex !"
+    )
+    rendered_subject = render_subject(subject_tmpl, ctx, fallback=fallback_subject)
 
     html = render_template(tpl, ctx)
 

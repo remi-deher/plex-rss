@@ -22,6 +22,7 @@ from .services.email_service import (
     send_available_vf_notification,
     send_available_vo_tracking_notification,
     send_available_notification,
+    send_episode_track_notification,
     send_failure_notification,
     send_partially_available_notification,
     send_request_notification,
@@ -74,6 +75,8 @@ async def _send_with_retry(
                 await send_vo_only_notification(settings, req, recipient, display_name, reason)
             elif event == "vf_available":
                 await send_vf_available_notification(settings, req, recipient, display_name, reason)
+            elif event == "episode_track":
+                await send_episode_track_notification(settings, req, recipient, display_name, reason)
             elif event == "partially_available":
                 await send_partially_available_notification(settings, req, recipient, reason, display_name)
             elif event == "failed":

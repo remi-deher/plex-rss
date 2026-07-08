@@ -39,20 +39,34 @@ function dayLabel(dateStr) {
   return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)} ${full}`;
 }
 
+// Code couleur par type de sortie (cinéma / digitale / physique / épisode).
+function releaseMeta(e) {
+  if (e.type === 'episode') return { color: '#0dcaf0', icon: 'bi-tv', label: 'Série', dark: true };
+  switch (e.release_type) {
+    case 'cinema':   return { color: '#e5a00d', icon: 'bi-camera-reels', label: 'Cinéma',   dark: true };
+    case 'digital':  return { color: '#0d6efd', icon: 'bi-laptop',       label: 'Digital',  dark: false };
+    case 'physical': return { color: '#6f42c1', icon: 'bi-disc',         label: 'Physique', dark: false };
+    default:         return { color: '#0d6efd', icon: 'bi-film',         label: 'Film',     dark: false };
+  }
+}
+
 function renderEvent(e) {
   const isPast = new Date(e.date) < new Date();
-  const typeBadge = e.type === 'episode'
-    ? '<span class="badge bg-info text-dark" style="font-size:9px"><i class="bi bi-tv me-1"></i>Série</span>'
-    : '<span class="badge bg-primary" style="font-size:9px"><i class="bi bi-film me-1"></i>Film</span>';
+  const m = releaseMeta(e);
+  const typeBadge = `<span class="badge" style="font-size:9px;background:${m.color};color:${m.dark ? '#141414' : '#fff'}"><i class="bi ${m.icon} me-1"></i>${m.label}</span>`;
   const trackedBadge = e.tracked ? '<span class="badge bg-warning text-dark" style="font-size:9px"><i class="bi bi-bookmark-star-fill me-1"></i>Suivi</span>' : '';
   const fileBadge = e.has_file
-    ? '<span class="badge badge-available" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Téléchargé</span>'
+    ? '<span class="badge badge-available" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>'
     : (isPast ? '<span class="badge badge-pending" style="font-size:9px"><i class="bi bi-hourglass-split me-1"></i>En attente</span>' : '');
   const poster = e.poster_url
     ? `<img src="${escHtml(e.poster_url)}" style="width:40px;height:60px;object-fit:cover;border-radius:4px" alt="">`
-    : `<div style="width:40px;height:60px;border-radius:4px;background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center"><i class="bi ${e.type === 'episode' ? 'bi-tv' : 'bi-film'} text-muted"></i></div>`;
-  const time = new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  return `<div class="d-flex align-items-center gap-3 py-2 px-1" style="border-bottom:1px solid var(--pr-border)">
+    : `<div style="width:40px;height:60px;border-radius:4px;background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center"><i class="bi ${m.icon}" style="color:${m.color}"></i></div>`;
+  // Heure de diffusion : pertinente pour les épisodes (airDateUtc) — pas pour les sorties
+  // ciné/digitales des films (date au niveau du jour uniquement).
+  const time = e.type === 'episode'
+    ? `<i class="bi bi-clock me-1"></i>${new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    : '';
+  return `<div class="d-flex align-items-center gap-3 py-2 ps-2 pe-1" style="border-bottom:1px solid var(--pr-border);border-left:3px solid ${m.color}">
     ${poster}
     <div class="flex-grow-1" style="min-width:0">
       <div class="d-flex align-items-center gap-2 flex-wrap">

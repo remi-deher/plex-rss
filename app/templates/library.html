@@ -649,7 +649,7 @@ function renderCalendarTab(d) {
         <div class="fw-semibold">${escHtml(e.subtitle || e.title)}</div>
         <div class="text-muted small">${fmtDateTime(e.date)}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div>
       </div>
-      ${e.has_file ? '<span class="badge badge-available">Telecharge</span>' : '<span class="badge bg-secondary">A venir</span>'}
+      ${e.has_file ? '<span class="badge badge-available">Disponible</span>' : '<span class="badge bg-secondary">A venir</span>'}
     </div>`).join('')}
   </div>`;
 }
@@ -1307,11 +1307,32 @@ async function _confirmProwlarrGrab(svcVal) {
   setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
 }
 
+// Code couleur par type de sortie (cinéma / digitale / physique / épisode).
+function calReleaseMeta(e) {
+  if (e.type === 'episode') return { color: '#0dcaf0', icon: 'bi-tv', label: 'Série', dark: true };
+  switch (e.release_type) {
+    case 'cinema':   return { color: '#e5a00d', icon: 'bi-camera-reels', label: 'Cinéma',   dark: true };
+    case 'digital':  return { color: '#0d6efd', icon: 'bi-laptop',       label: 'Digital',  dark: false };
+    case 'physical': return { color: '#6f42c1', icon: 'bi-disc',         label: 'Physique', dark: false };
+    default:         return { color: '#0d6efd', icon: 'bi-film',         label: 'Film',     dark: false };
+  }
+}
+
 function renderGlobalCalendar(events) {
   if (!events.length) return '<div class="text-center text-muted py-5"><i class="bi bi-calendar-x fs-1 d-block mb-2 opacity-25"></i>Aucune sortie suivie.</div>';
   const byDay = {};
   events.forEach(e => { const day = e.date.slice(0,10); (byDay[day] = byDay[day] || []).push(e); });
-  return Object.keys(byDay).sort().map(day => `<div class="mb-3"><h6 class="text-warning mb-2">${fmtDate(day)}</h6><div class="card p-2">${byDay[day].map(e => `<div class="d-flex align-items-center gap-3 py-2 px-1" style="border-bottom:1px solid var(--pr-border)"><div class="flex-grow-1"><strong>${escHtml(e.title)}</strong><div class="text-muted small">${escHtml(e.subtitle || '')}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div></div><span class="badge ${e.type === 'episode' ? 'bg-info text-dark' : 'bg-primary'}">${e.type === 'episode' ? 'Serie' : 'Film'}</span>${e.has_file ? '<span class="badge badge-available">Telecharge</span>' : ''}</div>`).join('')}</div></div>`).join('');
+  return Object.keys(byDay).sort().map(day => `<div class="mb-3"><h6 class="text-warning mb-2">${fmtDate(day)}</h6><div class="card p-2">${byDay[day].map(e => {
+    const m = calReleaseMeta(e);
+    const poster = e.poster_url
+      ? `<img src="${escHtml(e.poster_url)}" style="width:38px;height:57px;object-fit:cover;border-radius:4px" alt="">`
+      : `<div style="width:38px;height:57px;border-radius:4px;background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi ${m.icon}" style="color:${m.color}"></i></div>`;
+    const badge = `<span class="badge" style="background:${m.color};color:${m.dark ? '#141414' : '#fff'}"><i class="bi ${m.icon} me-1"></i>${m.label}</span>`;
+    const time = e.type === 'episode'
+      ? `<span class="text-muted small text-nowrap ms-1"><i class="bi bi-clock me-1"></i>${new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>`
+      : '';
+    return `<div class="d-flex align-items-center gap-2 py-2 ps-2 pe-1" style="border-bottom:1px solid var(--pr-border);border-left:3px solid ${m.color}">${poster}<div class="flex-grow-1" style="min-width:0"><strong class="text-truncate d-block">${escHtml(e.title)}</strong><div class="text-muted small text-truncate">${escHtml(e.subtitle || '')}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div></div>${badge}${e.has_file ? '<span class="badge badge-available">Disponible</span>' : ''}${time}</div>`;
+  }).join('')}</div></div>`).join('');
 }
 // Le calendrier est calé sur aujourd'hui par défaut (pas de jours passés affichés).
 // "Voir le mois précédent" recule le début de la plage d'un mois à chaque clic,

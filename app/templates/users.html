@@ -202,6 +202,24 @@
                 </select>
               </div>
               <div class="col-md-6">
+                <label class="form-label small mb-1">Mode de suivi des series</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesTrackingMode" onchange="onSeriesTrackingModeChange()">
+                  <option value="">Reglage global</option>
+                  <option value="language">Par langue (VF / VO)</option>
+                  <option value="simple">Simple (episodes, sans distinction de langue)</option>
+                </select>
+              </div>
+              <div class="col-md-6" id="fSeriesEpisodeNotifyModeWrap" style="display:none">
+                <label class="form-label small mb-1">Frequence de suivi (mode simple)</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesEpisodeNotifyMode">
+                  <option value="">Reglage global</option>
+                  <option value="every_episode">Chaque episode</option>
+                  <option value="season_complete">Saison complete</option>
+                  <option value="series_complete">Serie complete</option>
+                  <option value="season_start_and_complete">Premier episode + saison complete</option>
+                </select>
+              </div>
+              <div class="col-md-6" id="fSeriesVoNotifyModeWrap">
                 <label class="form-label small mb-1">Series VO</label>
                 <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVoNotifyMode">
                   <option value="">Reglage global</option>
@@ -211,7 +229,7 @@
                   <option value="season_start_and_complete">Premier episode + saison complete</option>
                 </select>
               </div>
-              <div class="col-md-6">
+              <div class="col-md-6" id="fSeriesVfNotifyModeWrap">
                 <label class="form-label small mb-1">Series VF</label>
                 <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVfNotifyMode">
                   <option value="">Reglage global</option>
@@ -362,6 +380,13 @@ async function loadSeerUsers() {
 
 function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 
+function onSeriesTrackingModeChange() {
+  const simple = document.getElementById('fSeriesTrackingMode').value === 'simple';
+  document.getElementById('fSeriesEpisodeNotifyModeWrap').style.display = simple ? '' : 'none';
+  document.getElementById('fSeriesVoNotifyModeWrap').style.display = simple ? 'none' : '';
+  document.getElementById('fSeriesVfNotifyModeWrap').style.display = simple ? 'none' : '';
+}
+
 // ── Ouverture de la modale hub ────────────────────────────────────────────────
 function setNullableBoolSelect(id, value) {
   document.getElementById(id).value = value == null ? '' : String(!!value);
@@ -391,6 +416,9 @@ function _setFields(u) {
   setNullableBoolSelect('fMovieVfNotify', u.movie_vf_notify);
   document.getElementById('fSeriesVoNotifyMode').value = u.series_vo_notify_mode || '';
   document.getElementById('fSeriesVfNotifyMode').value = u.series_vf_notify_mode || '';
+  document.getElementById('fSeriesTrackingMode').value = u.series_tracking_mode || '';
+  document.getElementById('fSeriesEpisodeNotifyMode').value = u.series_episode_notify_mode || '';
+  onSeriesTrackingModeChange();
   document.getElementById('fPartialNotifyFrequency').value = u.partial_notify_frequency || '';
   document.getElementById('fSonarrInstance').value = u.sonarr_instance_id || '';
   document.getElementById('fRadarrInstance').value = u.radarr_instance_id || '';
@@ -644,6 +672,8 @@ async function saveUser() {
     movie_vf_notify: nullableBoolSelect('fMovieVfNotify'),
     series_vo_notify_mode: document.getElementById('fSeriesVoNotifyMode').value || null,
     series_vf_notify_mode: document.getElementById('fSeriesVfNotifyMode').value || null,
+    series_tracking_mode: document.getElementById('fSeriesTrackingMode').value || null,
+    series_episode_notify_mode: document.getElementById('fSeriesEpisodeNotifyMode').value || null,
     partial_notify_frequency: document.getElementById('fPartialNotifyFrequency').value || null,
     discord_webhook_url: document.getElementById('fDiscordWebhook').value.trim() || null,
     telegram_chat_id: document.getElementById('fTelegramChatId').value.trim() || null,
