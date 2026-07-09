@@ -403,7 +403,7 @@ async def test_check_arr_seer_used_when_enabled(db):
     """Seer activé → seer_available utilisé à la place de is_movie_available."""
     s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
-    db.add(_sent_request())
+    db.add(_sent_request(source="seer"))
     db.commit()
 
     with (
@@ -423,7 +423,7 @@ async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
     """Seer dit non dispo → fallback direct sur Radarr qui dit dispo."""
     s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
-    db.add(_sent_request())
+    db.add(_sent_request(source="seer"))
     db.commit()
 
     with (
@@ -448,7 +448,7 @@ async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
     """Seer dit non dispo → fallback direct sur Sonarr qui dit dispo."""
     s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
-    db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
+    db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189", source="seer"))
     db.commit()
 
     series_stats = {
@@ -479,7 +479,7 @@ async def test_check_arr_seer_unavailable_radarr_also_unavailable(db):
     """Seer et Radarr disent tous les deux non dispo → reste sent_to_arr."""
     s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
-    db.add(_sent_request())
+    db.add(_sent_request(source="seer"))
     db.commit()
 
     with (

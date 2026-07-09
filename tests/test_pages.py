@@ -151,7 +151,7 @@ def test_settings_page_returns_200_html(client, db):
     resp = client.get("/settings")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Actualiser les librairies Plex" in resp.text
+    assert "Se connecter avec Plex (SSO)" in resp.text
     assert "Canal email (SMTP)" in resp.text
 
 
@@ -499,10 +499,10 @@ def test_library_counts_bar_shows_partial_vf_counts(client, db):
     )
     db.commit()
 
-    resp = client.get("/library")
+    resp = client.get("/library?type=show")
     assert resp.status_code == 200
-    assert "1 VF Saison Partiel" in resp.text
-    assert "1 VF Episode Partiel" in resp.text
+    assert "1 VF partielle saisons" in resp.text
+    assert "1 VF partielle épisodes" in resp.text
 
 
 def test_library_filter_by_partial_vf_granularity(client, db):
@@ -526,7 +526,7 @@ def test_library_filter_by_partial_vf_granularity(client, db):
     )
     db.commit()
 
-    resp = client.get("/library?vf=season_partial")
+    resp = client.get("/library?type=show&vf=season_partial")
     assert resp.status_code == 200
     assert "Season Partial Show" in resp.text
     assert "Episode Partial Show" not in resp.text

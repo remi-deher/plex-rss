@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, LibraryItem, MediaRequest, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import _link_request_to_library_item, check_vf_statuses
 
 
@@ -152,6 +152,7 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
 
     li = LibraryItem(title="Dune", year=2021, media_type="movie", plex_guid="plex://movie/abc", has_vf=True)
     db.add(li)
+    db.add(PlexUser(plex_user_id="u1", enabled=True))
     db.commit()
 
     req = MediaRequest(

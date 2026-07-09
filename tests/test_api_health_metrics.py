@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.dependencies import require_auth
 from app.main import app
-from app.models import Base, MediaRequest, RequestStatus, Settings
+from app.models import ArrInstance, Base, MediaRequest, RequestStatus, Settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -67,6 +67,19 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
+def _arr_instances() -> list[ArrInstance]:
+    """Instances Sonarr/Radarr par défaut : /api/health résout via ArrInstance,
+    pas directement via Settings.sonarr_url/radarr_url."""
+    return [
+        ArrInstance(
+            name="Sonarr", arr_type="sonarr", url="http://sonarr.local", api_key="key", enabled=True, is_default=True
+        ),
+        ArrInstance(
+            name="Radarr", arr_type="radarr", url="http://radarr.local", api_key="key", enabled=True, is_default=True
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # /api/health — structure de la réponse
 # ---------------------------------------------------------------------------
@@ -110,6 +123,7 @@ def test_health_all_ok_returns_healthy(client, db):
 def test_health_sonarr_down_returns_down(client, db):
     """Sonarr KO → status = down."""
     db.add(_settings())
+    db.add_all(_arr_instances())
     db.commit()
 
     with (
@@ -131,8 +145,10 @@ def test_health_seer_down_returns_degraded(client, db):
             seer_enabled=True,
             seer_url="http://seer.local",
             seer_api_key="key",
+            seer_send_requests=True,
         )
     )
+    db.add_all(_arr_instances())
     db.commit()
 
     with (
@@ -160,6 +176,7 @@ def test_health_unconfigured_service_has_null_ok(client, db):
 def test_health_services_include_response_ms(client, db):
     """Les services checkés inclus response_ms (float ou int)."""
     db.add(_settings())
+    db.add_all(_arr_instances())
     db.commit()
 
     with (

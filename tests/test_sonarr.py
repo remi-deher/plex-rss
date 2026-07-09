@@ -84,7 +84,7 @@ async def test_add_series_no_tvdb_id_lookup_success():
     """Pas de TVDB ID dans l'item → lookup par titre → série ajoutée."""
     item = {"title": "Breaking Bad", "media_type": "show"}  # pas de tvdb_id
 
-    lookup_resp = _make_response(200, [{"tvdbId": 81189}])
+    lookup_resp = _make_response(200, [{"tvdbId": 81189, "title": "Breaking Bad"}])
     existing_resp = _make_response(200, [])
     add_resp = _make_response(201, {"id": 99, "titleSlug": "breaking-bad"})
 
