@@ -776,8 +776,8 @@ function renderHubDiagnostic(u) {
         </div>
         <div class="d-flex flex-wrap gap-1">
           <span class="badge ${u.enabled !== false ? 'bg-success' : 'bg-secondary'}">${u.enabled !== false ? 'Actif' : 'Desactive'}</span>
-          ${SEER_ENABLED ? (u.seer_user_id ? '<span class="badge bg-info text-dark">Seer lié</span>' : '<span class="badge bg-secondary">Seer non lié</span>') : ''}
-          ${SEER_ENABLED && d.seer_requests_enabled ? '<span class="badge bg-primary">Demandes via Seer</span>' : (SEER_ENABLED ? '<span class="badge bg-dark border border-secondary">ARR direct/global</span>' : '')}
+          ${u.seer_user_id ? '<span class="badge bg-info text-dark">Seer lié</span>' : '<span class="badge bg-secondary">Seer non lié</span>'}
+          ${d.seer_requests_enabled ? '<span class="badge bg-primary">Demandes via Seer</span>' : '<span class="badge bg-dark border border-secondary">ARR direct/global</span>'}
         </div>
       </div>
       <div class="row g-2 mt-3">
