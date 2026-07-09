@@ -14,7 +14,9 @@ from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 
 import itsdangerous
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from itsdangerous.exc import BadSignature
@@ -22,8 +24,10 @@ from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import Session
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from sqlalchemy.orm import Session as SqlSession
 
-from .database import init_db
+from .database import init_db, get_db
+from .dependencies import require_admin
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
@@ -104,6 +108,32 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
+
+
+class SessionSyncMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next) -> Response:
+        if request.session.get("authenticated"):
+            from .database import SessionLocal
+            from .models import Settings, PlexUser
+            db = SessionLocal()
+            try:
+                plex_user_id = request.session.get("plex_user_id")
+                if plex_user_id:
+                    u = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+                    if u:
+                        request.session["role"] = u.role or "user"
+                        request.session["is_owner"] = (u.role == "admin")
+                else:
+                    username = request.session.get("username")
+                    s = db.query(Settings).first()
+                    if s and s.auth_username and username == s.auth_username:
+                        request.session["role"] = "admin"
+                        request.session["is_owner"] = True
+            except Exception:
+                pass
+            finally:
+                db.close()
+        return await call_next(request)
 
 
 def _request_is_https(scope: Scope) -> bool:
@@ -197,9 +227,22 @@ class DynamicSecureSessionMiddleware:
         await self.app(scope, receive, send_wrapper)
 
 
-app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+
+
+@app.get("/api/docs", include_in_schema=False)
+async def get_documentation(request: Request, db: SqlSession = Depends(get_db)):
+    require_admin(request, db)
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Plexarr API Docs")
+
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def get_open_api_endpoint(request: Request, db: SqlSession = Depends(get_db)):
+    require_admin(request, db)
+    return get_openapi(title="Plexarr", version="1.0.0", routes=app.routes)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SessionSyncMiddleware)
 # Middleware de session (doit être ajouté avant les routers)
 app.add_middleware(DynamicSecureSessionMiddleware, secret_key=get_secret_key())
 

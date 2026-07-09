@@ -1866,3 +1866,165 @@ function tmplInsertVar(e, varName) {
   }
   tmplRenderVars();
 }
+
+// ── Media Issues Management ──────────────────────────────────────────────────
+let _mediaIssues = [];
+let _editingIssueId = null;
+
+function _issueEscHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function _issueFmtDateTime(iso) {
+  if (!iso) return '-';
+  const s = String(iso).endsWith('Z') || String(iso).includes('+') ? iso : iso + 'Z';
+  const d = new Date(s);
+  return isNaN(d) ? '-' : d.toLocaleString('fr-FR');
+}
+
+async function initIssuesTab() {
+  await loadIssues();
+}
+
+async function loadIssues() {
+  const statusFilter = document.querySelector('input[name="issueStatusFilter"]:checked')?.value || 'open';
+  const tbody = document.getElementById('issues-list');
+  const badge = document.getElementById('issues-badge');
+
+  try {
+    const r = await fetch(`/api/media/issues?status=${encodeURIComponent(statusFilter)}`);
+    _mediaIssues = await r.json();
+
+    // Dynamically update open issues badge count (always count "open" & "investigating")
+    const openCountResp = await fetch('/api/media/issues?status=open');
+    const openCountData = await openCountResp.json();
+    const invCountResp = await fetch('/api/media/issues?status=investigating');
+    const invCountData = await invCountResp.json();
+    const totalOpen = (openCountData.length || 0) + (invCountData.length || 0);
+
+    if (badge) {
+      if (totalOpen > 0) {
+        badge.textContent = totalOpen;
+        badge.classList.remove('d-none');
+      } else {
+        badge.classList.add('d-none');
+      }
+    }
+
+    if (!_mediaIssues.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Aucun signalement trouvé.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = _mediaIssues.map(issue => {
+      const typeLabel = issue.media_type === 'show' ? 'Série' : 'Film';
+      const createdStr = _issueFmtDateTime(issue.created_at);
+      
+      let statusBadge = '';
+      if (issue.status === 'open') statusBadge = '<span class="badge bg-danger">Ouvert</span>';
+      else if (issue.status === 'investigating') statusBadge = '<span class="badge bg-warning text-dark">En cours</span>';
+      else if (issue.status === 'resolved') statusBadge = '<span class="badge bg-success">Résolu</span>';
+      else if (issue.status === 'closed') statusBadge = '<span class="badge bg-secondary">Fermé</span>';
+
+      return `
+        <tr>
+          <td class="text-muted small">${_issueEscHtml(createdStr)}</td>
+          <td>
+            <div class="fw-semibold">${_issueEscHtml(issue.title)}</div>
+            <span class="badge bg-secondary" style="font-size:10px">${typeLabel}</span>
+          </td>
+          <td><span class="badge bg-info text-dark">${_issueEscHtml(issue.issue_type)}</span></td>
+          <td>${_issueEscHtml(issue.reporter_name || 'Inconnu')}</td>
+          <td>
+            <div class="small" style="max-width:300px; white-space:pre-wrap;">${_issueEscHtml(issue.message || '—')}</div>
+          </td>
+          <td>
+            <div class="small text-muted" style="max-width:250px; white-space:pre-wrap;">${_issueEscHtml(issue.admin_note || '—')}</div>
+          </td>
+          <td class="text-end">
+            <div class="d-inline-flex gap-1">
+              <button class="btn btn-sm btn-outline-warning" onclick="editIssue(${issue.id})" title="Gérer/Note">
+                <i class="bi bi-pencil-square"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-info" onclick="retryIssueSearch(${issue.id}, this)" title="Relancer la recherche dans *arr">
+                <i class="bi bi-search"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    showToast("Erreur lors du chargement des signalements : " + e.message, "danger");
+  }
+}
+
+function editIssue(id) {
+  const issue = _mediaIssues.find(x => x.id === id);
+  if (!issue) return;
+
+  _editingIssueId = id;
+  document.getElementById('edit-issue-id').value = id;
+  document.getElementById('edit-issue-status').value = issue.status;
+  document.getElementById('edit-issue-note').value = issue.admin_note || '';
+
+  const modal = new bootstrap.Modal(document.getElementById('issueEditModal'));
+  modal.show();
+}
+
+async function saveIssueChanges() {
+  const id = _editingIssueId;
+  const status = document.getElementById('edit-issue-status').value;
+  const admin_note = document.getElementById('edit-issue-note').value.trim();
+
+  try {
+    const r = await fetch(`/api/media/issues/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, admin_note })
+    });
+    if (!r.ok) throw new Error("Erreur de sauvegarde");
+
+    showToast("Signalement mis à jour !", "success");
+    bootstrap.Modal.getInstance(document.getElementById('issueEditModal')).hide();
+    await loadIssues();
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function retryIssueSearch(id, btn) {
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const r = await fetch(`/api/media/issues/${id}/retry`, { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || "Erreur de connexion aux serveurs Radarr/Sonarr");
+    showToast("Recherche relancée avec succès !", "success");
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// Check open issues on load to display badge
+document.addEventListener('DOMContentLoaded', async () => {
+  const badge = document.getElementById('issues-badge');
+  if (badge) {
+    try {
+      const openCountResp = await fetch('/api/media/issues?status=open');
+      const openCountData = await openCountResp.json();
+      const invCountResp = await fetch('/api/media/issues?status=investigating');
+      const invCountData = await invCountResp.json();
+      const totalOpen = (openCountData.length || 0) + (invCountData.length || 0);
+      if (totalOpen > 0) {
+        badge.textContent = totalOpen;
+        badge.classList.remove('d-none');
+      }
+    } catch(e) {}
+  }
+});

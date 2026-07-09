@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_api_scope, require_auth
 from ..models import MediaRequest, PlexUser, PollHistory, RequestStatus
 from ..scheduler import poll_watchlists
 from ..schemas import HealthOut, MetricsOut, PollHistoryOut, RequestOut, UserOut
@@ -14,7 +14,7 @@ from .metrics_api import get_metrics, get_poll_history, health_check
 router = APIRouter(prefix="/api/v1", tags=["v1"], dependencies=[Depends(require_auth)])
 
 
-@router.get("/requests", response_model=List[RequestOut])
+@router.get("/requests", response_model=List[RequestOut], dependencies=[Depends(require_api_scope("requests:read"))])
 def list_requests_v1(
     status: Optional[str] = Query(
         None, description="Filter requests by status (pending, sent_to_arr, available, failed)"
@@ -33,13 +33,13 @@ def list_requests_v1(
     return q.order_by(MediaRequest.requested_at.desc()).offset(offset).limit(limit).all()
 
 
-@router.get("/requests/{request_id}", response_model=RequestOut)
+@router.get("/requests/{request_id}", response_model=RequestOut, dependencies=[Depends(require_api_scope("requests:read"))])
 def get_request_v1(request_id: int, db: Session = Depends(get_db)):
     """Récupère les détails d'une demande spécifique."""
     return get_or_404(db, MediaRequest, request_id, "Request not found")
 
 
-@router.post("/requests/{request_id}/retry")
+@router.post("/requests/{request_id}/retry", dependencies=[Depends(require_api_scope("requests:write"))])
 async def retry_request_v1(request_id: int, db: Session = Depends(get_db)):
     """Repasse une demande en attente (pending) et force un poll immédiat."""
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -51,7 +51,7 @@ async def retry_request_v1(request_id: int, db: Session = Depends(get_db)):
     return {"status": "retrying"}
 
 
-@router.delete("/requests/{request_id}")
+@router.delete("/requests/{request_id}", dependencies=[Depends(require_api_scope("requests:write"))])
 def delete_request_v1(request_id: int, db: Session = Depends(get_db)):
     """Supprime définitivement une demande."""
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -60,25 +60,25 @@ def delete_request_v1(request_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
-@router.get("/users", response_model=List[UserOut])
+@router.get("/users", response_model=List[UserOut], dependencies=[Depends(require_api_scope("users:read"))])
 def list_users_v1(db: Session = Depends(get_db)):
     """Liste tous les utilisateurs Plex enregistrés."""
     return db.query(PlexUser).all()
 
 
-@router.get("/health", response_model=HealthOut)
+@router.get("/health", response_model=HealthOut, dependencies=[Depends(require_api_scope("system:read"))])
 async def health_check_v1(db: Session = Depends(get_db)):
     """Retourne l'état de santé détaillé des services connectés."""
     return await health_check(db)
 
 
-@router.get("/metrics", response_model=MetricsOut)
+@router.get("/metrics", response_model=MetricsOut, dependencies=[Depends(require_api_scope("system:read"))])
 def get_metrics_v1(db: Session = Depends(get_db)):
     """Retourne les métriques courantes de l'application et de la base de données."""
     return get_metrics(db)
 
 
-@router.get("/poll-history", response_model=List[PollHistoryOut])
+@router.get("/poll-history", response_model=List[PollHistoryOut], dependencies=[Depends(require_api_scope("system:read"))])
 def get_poll_history_v1(limit: int = 50, job: Optional[str] = None, db: Session = Depends(get_db)):
     """Retourne l'historique des exécutions du scheduler."""
     return get_poll_history(limit, job, db)

@@ -21,7 +21,9 @@
   .disc-modal-actions { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
   .disc-modal-field { min-width:180px; max-width:260px; flex:1 1 180px; }
   .disc-modal-folder { min-width:220px; max-width:340px; flex:1 1 220px; }
+  .disc-season-picker { flex:1 1 100%; display:flex; flex-wrap:wrap; gap:6px; }
   .disc-modal-field label, .disc-modal-folder label { font-size:11px; color:var(--pr-text-muted); margin-bottom:3px; }
+  .disc-season-picker label { border:1px solid var(--pr-border); border-radius:6px; padding:5px 8px; font-size:12px; background:rgba(255,255,255,.04); }
 </style>
 
 <div class="disc-hero">
@@ -219,7 +221,7 @@ function onSearch(q){
 // Utilisateurs (chargés une fois) — le demandeur se choisit dans la modale.
 let _discUsers = [];
 async function loadDiscUsers(){
-  try { _discUsers = (await fetch('/api/users').then(r=>r.ok?r.json():[])).filter(u=>u.enabled); }
+  try { _discUsers = (await fetch('/api/discover/requesters').then(r=>r.ok?r.json():[])).filter(u=>u.enabled); }
   catch(e){ _discUsers = []; }
 }
 function _savedRequester(){ try { return localStorage.getItem('disc_requester') || ''; } catch(e){ return ''; } }
@@ -287,6 +289,13 @@ async function doModalRequest(tmdbId, mediaType){
     try { localStorage.setItem(`disc_root_folder_${svc}`, rootFolder); } catch(e){}
   }
   const btn = document.getElementById('disc-detail-req');
+  const seasons = mediaType === 'show'
+    ? Array.from(document.querySelectorAll('.disc-season-check:checked')).map(el => parseInt(el.value, 10)).filter(Number.isFinite)
+    : null;
+  if (mediaType === 'show' && (!seasons || !seasons.length)){
+    showToast('Selectionnez au moins une saison', 'warning');
+    return;
+  }
   if (btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Envoi…'; }
   try {
     const d = await api(`detail?media_type=${mediaType}&tmdb_id=${tmdbId}`);
@@ -296,16 +305,21 @@ async function doModalRequest(tmdbId, mediaType){
         title:d.title, year:d.year, media_type:mediaType,
         tmdb_id:tmdbId, tvdb_id:d.tvdb_id||null, imdb_id:d.imdb_id||null,
         poster_url:d.poster_url||null, overview:d.overview||null,
-        plex_user_id: requester, root_folder: rootFolder,
+        plex_user_id: requester, root_folder: rootFolder, seasons: seasons,
         auto_search: true,
       }),
     });
     const res = await r.json().catch(()=>({}));
     if (!r.ok) throw new Error(res.detail || 'Erreur');
-    const searchInfo = res.search_triggered ? ' · recherche relancée' : '';
-    showToast(`« ${d.title} » demandé (${res.via||'ok'})${searchInfo}`, 'success');
     const box = document.getElementById('disc-req-box');
-    if (box) box.innerHTML = '<span class="badge bg-success p-2"><i class="bi bi-check-lg me-1"></i>Demandé</span>';
+    if (res.pending_approval){
+      showToast(`« ${d.title} » envoyé — en attente de validation`, 'warning');
+      if (box) box.innerHTML = '<span class="badge badge-pending p-2"><i class="bi bi-hourglass-split me-1"></i>En attente de validation</span>';
+    } else {
+      const searchInfo = res.search_triggered ? ' · recherche relancée' : '';
+      showToast(`« ${d.title} » demandé (${res.via||'ok'})${searchInfo}`, 'success');
+      if (box) box.innerHTML = '<span class="badge bg-success p-2"><i class="bi bi-check-lg me-1"></i>Demandé</span>';
+    }
   } catch(e){
     showToast('Erreur : ' + e.message, 'danger');
     if (btn){ btn.disabled=false; btn.innerHTML='<i class="bi bi-plus-circle me-1"></i>Demander'; }
@@ -351,6 +365,7 @@ function renderDiscDetail(d, mediaType){
             <option value="">Chargement...</option>
           </select>
         </div>
+        ${seasonPicker(d, mediaType)}
         <button class="btn btn-warning" id="disc-detail-req" onclick="doModalRequest(${d.tmdb_id}, '${mediaType}')"><i class="bi bi-plus-circle me-1"></i>Demander</button>
       </div>`
     : '';
@@ -377,6 +392,17 @@ function renderDiscDetail(d, mediaType){
       <p class="text-white-50" style="line-height:1.6">${escH(d.overview) || 'Pas de résumé disponible.'}</p>
       ${recoRow}
     </div>`;
+}
+
+function seasonPicker(d, mediaType){
+  if (mediaType !== 'show') return '';
+  const count = Number(d.number_of_seasons || 0);
+  if (!count) return '';
+  let boxes = '';
+  for (let i = 1; i <= count; i++){
+    boxes += `<label><input type="checkbox" class="form-check-input me-1 disc-season-check" value="${i}" checked>Saison ${i}</label>`;
+  }
+  return `<div class="disc-season-picker" aria-label="Saisons a demander">${boxes}</div>`;
 }
 
 if (TMDB_OK){

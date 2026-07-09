@@ -60,6 +60,29 @@ async def test_add_series_new():
 
 
 @pytest.mark.asyncio
+async def test_add_series_selected_seasons_payload():
+    """Selection de saisons -> Sonarr recoit uniquement ces saisons monitorees."""
+    existing_resp = _make_response(200, [])
+    add_resp = _make_response(201, {"id": 42, "titleSlug": "breaking-bad"})
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=existing_resp)
+    client_mock.post = AsyncMock(return_value=add_resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    item = {**ITEM, "seasons": [1, 3]}
+    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+        await add_series(URL, KEY, 1, "/tv", item)
+
+    payload = client_mock.post.call_args.kwargs["json"]
+    assert payload["seasons"] == [
+        {"seasonNumber": 1, "monitored": True},
+        {"seasonNumber": 3, "monitored": True},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_add_series_already_exists():
     """Série déjà dans Sonarr → retourne l'ID existant, already_existed=True."""
     existing_series = [{"id": 7, "tvdbId": 81189, "titleSlug": "breaking-bad"}]

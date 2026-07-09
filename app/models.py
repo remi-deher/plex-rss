@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from .crypto import EncryptedText
 from .utils import now_utc
 
 
@@ -27,6 +28,8 @@ class WatchlistSource(str, enum.Enum):
 
 
 class RequestStatus(str, enum.Enum):
+    pending_approval = "pending_approval"  # demande d'un utilisateur en attente de validation admin
+    rejected = "rejected"  # demande refusée par un admin (conservée pour l'historique)
     pending = "pending"
     sent_to_arr = "sent_to_arr"
     available = "available"
@@ -40,7 +43,7 @@ class Settings(Base):
 
     # --- Plex ---
     plex_url: Mapped[Optional[str]]
-    plex_token: Mapped[Optional[str]]
+    plex_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
     plex_rss_url: Mapped[Optional[str]]
     watchlist_source_priority: Mapped[str] = mapped_column(default="api")
     watchlist_fallback_enabled: Mapped[bool] = mapped_column(default=True)
@@ -51,14 +54,14 @@ class Settings(Base):
 
     # --- Sonarr ---
     sonarr_url: Mapped[Optional[str]]
-    sonarr_api_key: Mapped[Optional[str]]
+    sonarr_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
     sonarr_quality_profile_id: Mapped[Optional[int]]
     sonarr_root_folder: Mapped[Optional[str]]
     sonarr_enabled: Mapped[bool] = mapped_column(default=True)
 
     # --- Radarr ---
     radarr_url: Mapped[Optional[str]]
-    radarr_api_key: Mapped[Optional[str]]
+    radarr_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
     radarr_quality_profile_id: Mapped[Optional[int]]
     radarr_root_folder: Mapped[Optional[str]]
     radarr_enabled: Mapped[bool] = mapped_column(default=True)
@@ -68,7 +71,7 @@ class Settings(Base):
     smtp_host: Mapped[Optional[str]]
     smtp_port: Mapped[int] = mapped_column(default=587)
     smtp_user: Mapped[Optional[str]]
-    smtp_password: Mapped[Optional[str]]
+    smtp_password: Mapped[Optional[str]] = mapped_column(EncryptedText)
     smtp_from: Mapped[Optional[str]]
     smtp_tls: Mapped[bool] = mapped_column(default=True)
     admin_notification_email: Mapped[Optional[str]]
@@ -103,23 +106,23 @@ class Settings(Base):
     digest_hour: Mapped[int] = mapped_column(default=8)
 
     # --- TMDB (catalogue de découverte) ---
-    tmdb_api_key: Mapped[Optional[str]]
+    tmdb_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
 
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
-    seer_api_key: Mapped[Optional[str]]
+    seer_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
     seer_enabled: Mapped[bool] = mapped_column(default=False)  # legacy, remplacé par seer_send_requests
     seer_send_requests: Mapped[bool] = mapped_column(default=False)
     seer_fallback_arr: Mapped[bool] = mapped_column(default=True)
 
     # --- Notifications push (Discord / Telegram) ---
     discord_enabled: Mapped[bool] = mapped_column(default=True)
-    discord_webhook_url: Mapped[Optional[str]]
+    discord_webhook_url: Mapped[Optional[str]] = mapped_column(EncryptedText)
     discord_send_request: Mapped[bool] = mapped_column(default=True)
     discord_send_available: Mapped[bool] = mapped_column(default=True)
     discord_send_failure: Mapped[bool] = mapped_column(default=True)
     telegram_enabled: Mapped[bool] = mapped_column(default=True)
-    telegram_bot_token: Mapped[Optional[str]]
+    telegram_bot_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
     telegram_chat_id: Mapped[Optional[str]]
     telegram_send_request: Mapped[bool] = mapped_column(default=True)
     telegram_send_available: Mapped[bool] = mapped_column(default=True)
@@ -128,13 +131,13 @@ class Settings(Base):
     # --- Notifications push (ntfy / Gotify) ---
     ntfy_enabled: Mapped[bool] = mapped_column(default=True)
     ntfy_url: Mapped[Optional[str]]
-    ntfy_token: Mapped[Optional[str]]
+    ntfy_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
     ntfy_send_request: Mapped[bool] = mapped_column(default=True)
     ntfy_send_available: Mapped[bool] = mapped_column(default=True)
     ntfy_send_failure: Mapped[bool] = mapped_column(default=True)
     gotify_enabled: Mapped[bool] = mapped_column(default=True)
     gotify_url: Mapped[Optional[str]]
-    gotify_token: Mapped[Optional[str]]
+    gotify_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
     gotify_send_request: Mapped[bool] = mapped_column(default=True)
     gotify_send_available: Mapped[bool] = mapped_column(default=True)
     gotify_send_failure: Mapped[bool] = mapped_column(default=True)
@@ -145,8 +148,18 @@ class Settings(Base):
     # --- Authentification ---
     auth_username: Mapped[Optional[str]]
     auth_password_hash: Mapped[Optional[str]]
-    api_token: Mapped[Optional[str]]
-    webhook_secret: Mapped[Optional[str]]
+    api_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    api_token_scopes: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    webhook_secret: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    totp_secret: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    totp_enabled: Mapped[bool] = mapped_column(default=False)
+    default_locale: Mapped[str] = mapped_column(default="fr")
+
+    # --- Approbation des demandes ---
+    # Si True, une demande d'un utilisateur 'user' non auto-approuvé attend la validation
+    # d'un admin (statut pending_approval) avant d'être envoyée à *arr. Les admins et les
+    # utilisateurs avec auto_approve=True ne sont jamais bloqués.
+    require_approval: Mapped[bool] = mapped_column(default=False)
 
     # --- Sécurité réseau ---
     plex_verify_ssl: Mapped[bool] = mapped_column(default=True)
@@ -193,7 +206,7 @@ class ArrInstance(Base):
     name: Mapped[str]  # ex: "Sonarr 4K"
     arr_type: Mapped[str]  # "sonarr" | "radarr" | "prowlarr"
     url: Mapped[str]
-    api_key: Mapped[str]
+    api_key: Mapped[str] = mapped_column(EncryptedText)
     quality_profile_id: Mapped[Optional[int]]
     root_folder: Mapped[Optional[str]]
     minimum_availability: Mapped[str] = mapped_column(default="released")  # radarr only
@@ -222,6 +235,21 @@ class PlexUser(Base):
     custom_name: Mapped[Optional[str]] = mapped_column(default=None)
     source: Mapped[Optional[str]] = mapped_column(default=None)
     created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
+
+    # --- Authentification par utilisateur (login Plex SSO) ---
+    # role : "admin" (accès total) ou "user" (Discover + ses propres demandes).
+    role: Mapped[str] = mapped_column(default="user")
+    # can_login : autorise ce compte Plex à se connecter au portail (gate admin).
+    can_login: Mapped[bool] = mapped_column(default=True)
+    # UUID stable du compte Plex (plex.tv /api/v2/user → uuid), pour un rattachement
+    # fiable indépendant du username (qui peut changer). Null pour les users legacy.
+    plex_account_uuid: Mapped[Optional[str]] = mapped_column(default=None)
+    avatar_url: Mapped[Optional[str]] = mapped_column(default=None)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    # auto_approve : si True, les demandes de cet utilisateur partent directement
+    # vers *arr sans validation admin (même quand require_approval est actif).
+    auto_approve: Mapped[bool] = mapped_column(default=False)
+    locale: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Routing
     sonarr_instance_id: Mapped[Optional[int]]
@@ -306,6 +334,38 @@ class PendingNotification(Base):
     reason: Mapped[str] = mapped_column(default="")
 
 
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ip_address: Mapped[str]
+    username: Mapped[Optional[str]] = mapped_column(default=None)
+    attempted_at: Mapped[datetime] = mapped_column(default=now_utc)
+    success: Mapped[bool] = mapped_column(default=False)
+    reason: Mapped[Optional[str]] = mapped_column(default=None)
+
+
+class MediaIssue(Base):
+    __tablename__ = "media_issues"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(default=now_utc)
+    status: Mapped[str] = mapped_column(default="open")
+    issue_type: Mapped[str]
+    message: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    reporter_plex_user_id: Mapped[Optional[str]] = mapped_column(default=None)
+    reporter_name: Mapped[Optional[str]] = mapped_column(default=None)
+    library_item_id: Mapped[Optional[int]] = mapped_column(default=None)
+    request_id: Mapped[Optional[int]] = mapped_column(default=None)
+    title: Mapped[str]
+    media_type: Mapped[str]
+    tmdb_id: Mapped[Optional[str]] = mapped_column(default=None)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(default=None)
+    imdb_id: Mapped[Optional[str]] = mapped_column(default=None)
+    admin_note: Mapped[Optional[str]] = mapped_column(Text, default=None)
+
+
 class PollHistory(Base):
     __tablename__ = "poll_history"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -352,6 +412,12 @@ class MediaRequest(Base):
     # consommé par /api/upcoming sans appel réseau supplémentaire).
     next_release_at: Mapped[Optional[datetime]]
     next_release_label: Mapped[Optional[str]]
+
+    # --- Approbation (demandes des utilisateurs 'user') ---
+    # Renseignés quand une demande passe par la file de validation admin.
+    approved_by: Mapped[Optional[str]] = mapped_column(default=None)  # plex_user_id de l'admin
+    approved_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    rejected_reason: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Instance tracking
     arr_instance_id: Mapped[Optional[int]]
@@ -489,7 +555,7 @@ class DownloadClient(Base):
     client_type: Mapped[str]  # "qbittorrent" | "transmission"
     url: Mapped[str]
     username: Mapped[Optional[str]]
-    password: Mapped[Optional[str]]
+    password: Mapped[Optional[str]] = mapped_column(EncryptedText)
     category: Mapped[Optional[str]]  # ex: "plex-rss"
     tags: Mapped[Optional[str]]  # comma-separated tags
     is_default: Mapped[bool] = mapped_column(default=False)

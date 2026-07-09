@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import MediaRequest, NotificationLog, PlexUser, Settings
 from ..notification_queue import enqueue as enqueue_notification
 from ..serializers import format_datetime
@@ -20,7 +20,7 @@ from ..services.email_service import (
 from ..services.notification_catalog import event_badge_class, get_event
 from ..utils import get_or_404, now_utc, now_utc_naive
 
-router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/activity")
@@ -118,7 +118,7 @@ def recent_available(since: str = None, db: Session = Depends(get_db)):
 
 
 @router.get("/logs")
-def get_logs(_: None = Depends(require_auth)):
+def get_logs(_: None = Depends(require_admin)):
     """Retourne les derniers logs applicatifs (buffer mémoire circulaire)."""
     from ..log_buffer import get_logs as _get_logs
 

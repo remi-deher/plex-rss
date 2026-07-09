@@ -6,11 +6,11 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import MediaRequest, PlexUser, Settings
 from ..utils import now_utc
 
-router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_admin)])
 
 EXPORT_VERSION = 1
 

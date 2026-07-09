@@ -535,6 +535,16 @@ async def _process_watchlist_item(
         db.add(req)
         db.flush()
 
+    needs_approval = bool(
+        settings.require_approval
+        and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))
+    )
+    if needs_approval:
+        req.status = RequestStatus.pending_approval
+        db.commit()
+        logger.info("Demande en attente de validation : %s -> '%s'", display_name, item["title"])
+        return "sent"
+
     # Routage intelligent : si l'utilisateur est Hybride (RSS + Seer actif),
     # vérifier si Seer a déjà traité cette demande.
     # Si oui → skip la soumission arr (Seer l'a déjà faite).

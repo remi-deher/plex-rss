@@ -58,6 +58,15 @@ async def add_series(
     except httpx.HTTPError:
         pass
 
+    selected_seasons = item.get("seasons")
+    seasons_payload = []
+    if selected_seasons:
+        seasons_payload = [
+            {"seasonNumber": int(season_number), "monitored": True}
+            for season_number in selected_seasons
+            if int(season_number) >= 0
+        ]
+
     payload = {
         "title": item["title"],
         "tvdbId": int(tvdb_id),
@@ -65,7 +74,7 @@ async def add_series(
         "rootFolderPath": root_folder,
         "monitored": True,
         "addOptions": {"searchForMissingEpisodes": True},
-        "seasons": [],
+        "seasons": seasons_payload,
         "tags": tag_ids or [],
     }
 

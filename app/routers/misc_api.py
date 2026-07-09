@@ -7,12 +7,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import get_current_plex_user, require_admin, require_auth
+from ..i18n import SUPPORTED_LOCALES, catalog, normalize_locale
 from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeStatus
 from ..serializers import format_datetime
 from ..utils import now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["misc"])
+
+
+@router.get("/i18n/catalog", dependencies=[Depends(require_auth)])
+def i18n_catalog(request: Request, db: Session = Depends(get_db), user: PlexUser | None = Depends(get_current_plex_user)):
+    settings = db.query(Settings).first()
+    requested = request.query_params.get("locale")
+    locale = normalize_locale(requested or (user.locale if user else None) or (settings.default_locale if settings else None))
+    return {"locale": locale, "supported": sorted(SUPPORTED_LOCALES), "messages": catalog(locale)}
 
 
 def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
@@ -23,7 +32,7 @@ def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
 
 
 @router.get("/onboarding")
-def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     """Retourne l'Ã©tat d'avancement de la configuration initiale (checklist)."""
     s = db.query(Settings).first()
     users_count = db.query(PlexUser).count()
@@ -46,7 +55,7 @@ def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_a
 
 
 @router.post("/plex/sso/pin")
-async def plex_sso_pin(request: Request, _: None = Depends(require_auth)):
+async def plex_sso_pin(request: Request, _: None = Depends(require_admin)):
     """CrÃ©e une demande de PIN Plex SSO et retourne l'URL d'authentification."""
     from ..services.plex_api import get_auth_pin
 
@@ -60,7 +69,7 @@ async def plex_sso_pin(request: Request, _: None = Depends(require_auth)):
 
 
 @router.get("/plex/sso/check/{pin_id}")
-async def plex_sso_check(pin_id: int, _: None = Depends(require_auth)):
+async def plex_sso_check(pin_id: int, _: None = Depends(require_admin)):
     """VÃ©rifie si le PIN Plex a Ã©tÃ© validÃ© et retourne le token."""
     from ..services.plex_api import check_auth_pin
 
@@ -133,7 +142,7 @@ def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db):
 
 
 @router.get("/conflicts")
-def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     """Retourne tous les conflits dÃ©tectÃ©s, filtrÃ©s des ignorÃ©s."""
     ignored = _load_ignored()
     all_reqs = db.query(MediaRequest).all()
@@ -196,7 +205,7 @@ def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth
 
 
 @router.post("/conflicts/resolve")
-def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     keep_id: int = body.get("keep_id")
     delete_ids: list[int] = body.get("delete_ids", [])
     if not keep_id or not delete_ids:
@@ -213,7 +222,7 @@ def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depend
 
 
 @router.post("/conflicts/auto-resolve")
-def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     """RÃ©sout automatiquement tous les conflits tmdb : garde l'entrÃ©e Seer."""
     all_reqs = db.query(MediaRequest).all()
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
@@ -238,7 +247,7 @@ def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(requ
 
 
 @router.post("/conflicts/ignore")
-def ignore_conflict(body: dict, _: None = Depends(require_auth)):
+def ignore_conflict(body: dict, _: None = Depends(require_admin)):
     """Marque un conflit comme ignorÃ© (ne rÃ©apparaÃ®tra plus)."""
     key: str = body.get("key")
     if not key:
@@ -250,7 +259,7 @@ def ignore_conflict(body: dict, _: None = Depends(require_auth)):
 
 
 @router.delete("/conflicts/ignore/{key:path}")
-def unignore_conflict(key: str, _: None = Depends(require_auth)):
+def unignore_conflict(key: str, _: None = Depends(require_admin)):
     """Retire un conflit de la liste des ignorÃ©s."""
     ignored = _load_ignored()
     ignored.discard(key)
@@ -259,7 +268,7 @@ def unignore_conflict(key: str, _: None = Depends(require_auth)):
 
 
 @router.delete("/conflicts/no-tmdb/{request_id}")
-def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     req = db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "EntrÃ©e introuvable")
@@ -272,7 +281,7 @@ def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Dep
 
 
 @router.delete("/conflicts/orphan/{request_id}")
-def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_auth)):
+def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     req = db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "EntrÃ©e introuvable")

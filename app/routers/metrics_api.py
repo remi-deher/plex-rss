@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session
 
 from .. import metrics as app_metrics
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
 from ..services.seer import check_connection as seer_test
 from ..utils import now_utc, now_utc_naive
 
-router = APIRouter(prefix="/api", tags=["metrics"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["metrics"], dependencies=[Depends(require_admin)])
 
 
 async def _timed_check(coro) -> tuple[bool | None, str, float | None]:

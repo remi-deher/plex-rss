@@ -4,10 +4,11 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import MediaRequest, PlexUser, RequestStatus, Settings
+from ..models import MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..notification_queue import enqueue as enqueue_notification
 from ..utils import now_utc
 
@@ -44,26 +45,121 @@ def _get_recipients(user_obj, settings: Settings) -> list[str]:
     return recipients
 
 
-def _mark_available_and_notify(title: str, media_type: str, arr_id: int | None, db: Session, settings: Settings):
-    """Trouve les demandes correspondantes, les marque disponibles, empile les notifications."""
-    q = db.query(MediaRequest).filter(MediaRequest.status != RequestStatus.available)
+def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+    db.query(VfEpisodeStatus).filter(
+        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
+    ).delete()
+
+
+def _arr_event_query(
+    db: Session,
+    media_type: str,
+    *,
+    arr_id: int | None = None,
+    tmdb_id: int | str | None = None,
+    tvdb_id: int | str | None = None,
+    imdb_id: str | None = None,
+    title: str | None = None,
+    instance_id: int | None = None,
+):
+    q = db.query(MediaRequest).filter(MediaRequest.media_type == media_type)
+    if instance_id:
+        q = q.filter(MediaRequest.arr_instance_id == instance_id)
+
+    candidates = []
     if arr_id:
-        q = q.filter(MediaRequest.arr_id == arr_id)
-    else:
-        q = q.filter(
-            MediaRequest.title.ilike(f"%{title}%"),
-            MediaRequest.media_type == media_type,
-        )
+        candidates.append(MediaRequest.arr_id == int(arr_id))
+    if tmdb_id:
+        candidates.append(MediaRequest.tmdb_id == str(tmdb_id))
+    if tvdb_id:
+        candidates.append(MediaRequest.tvdb_id == str(tvdb_id))
+    if imdb_id:
+        candidates.append(MediaRequest.imdb_id == str(imdb_id))
+
+    if candidates:
+        return q.filter(or_(*candidates))
+    if title:
+        return q.filter(MediaRequest.title.ilike(f"%{title}%"))
+    return q.filter(False)
+
+
+def _mark_available_and_notify(
+    title: str,
+    media_type: str,
+    arr_id: int | None,
+    db: Session,
+    settings: Settings,
+    *,
+    tmdb_id: int | str | None = None,
+    tvdb_id: int | str | None = None,
+    imdb_id: str | None = None,
+    instance_id: int | None = None,
+):
+    """Trouve les demandes correspondantes, les marque disponibles, empile les notifications."""
+    q = _arr_event_query(
+        db,
+        media_type,
+        arr_id=arr_id,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        imdb_id=imdb_id,
+        title=title,
+        instance_id=instance_id,
+    )
     requests = q.all()
     for req in requests:
+        if req.status == RequestStatus.available:
+            continue
         req.status = RequestStatus.available
         req.available_at = now_utc()
+        if arr_id and not req.arr_id:
+            req.arr_id = int(arr_id)
+        if instance_id and not req.arr_instance_id:
+            req.arr_instance_id = instance_id
         db.commit()
         if settings and settings.email_on_available and not req.available_mail_sent:
             user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
             recipients = _get_recipients(user_obj, settings)
             enqueue_notification("available", req.id, recipients)
     return len(requests)
+
+
+def _delete_arr_requests(
+    db: Session,
+    media_type: str,
+    *,
+    arr_id: int | None = None,
+    tmdb_id: int | str | None = None,
+    tvdb_id: int | str | None = None,
+    imdb_id: str | None = None,
+    title: str | None = None,
+    instance_id: int | None = None,
+) -> int:
+    requests = _arr_event_query(
+        db,
+        media_type,
+        arr_id=arr_id,
+        tmdb_id=tmdb_id,
+        tvdb_id=tvdb_id,
+        imdb_id=imdb_id,
+        title=title,
+        instance_id=instance_id,
+    ).all()
+    count = 0
+    for req in requests:
+        _delete_vf_episode_cache(db, req.id)
+        db.delete(req)
+        count += 1
+    db.commit()
+    return count
+
+
+def _query_instance_id(request: Request) -> int | None:
+    raw = request.query_params.get("instance_id")
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
 
 
 @router.post("/sonarr")
@@ -78,15 +174,35 @@ async def sonarr_webhook(request: Request):
         event = data.get("eventType", "")
         logger.info(f"Sonarr webhook: {event}")
 
+        if event in ("SeriesDelete", "EpisodeFileDelete"):
+            series = data.get("series", {})
+            deleted = _delete_arr_requests(
+                db,
+                "show",
+                arr_id=series.get("id"),
+                tvdb_id=series.get("tvdbId"),
+                title=series.get("title", ""),
+                instance_id=_query_instance_id(request),
+            )
+            return {"status": "ok", "deleted": deleted}
+
         if event not in ("Download", "Import"):
             return {"status": "ignored"}
 
         series = data.get("series", {})
         title = series.get("title", "")
+        sonarr_id = series.get("id")
         tvdb_id = series.get("tvdbId")
 
-        # Try to find by arr_id (tvdbId stored as arr_id for shows)
-        matched = _mark_available_and_notify(title, "show", tvdb_id, db, settings)
+        matched = _mark_available_and_notify(
+            title,
+            "show",
+            sonarr_id,
+            db,
+            settings,
+            tvdb_id=tvdb_id,
+            instance_id=_query_instance_id(request),
+        )
         return {"status": "ok", "matched": matched}
     finally:
         db.close()
@@ -104,14 +220,38 @@ async def radarr_webhook(request: Request):
         event = data.get("eventType", "")
         logger.info(f"Radarr webhook: {event}")
 
+        if event in ("MovieDelete", "MovieFileDelete"):
+            movie = data.get("movie", {})
+            deleted = _delete_arr_requests(
+                db,
+                "movie",
+                arr_id=movie.get("id"),
+                tmdb_id=movie.get("tmdbId"),
+                imdb_id=movie.get("imdbId"),
+                title=movie.get("title", ""),
+                instance_id=_query_instance_id(request),
+            )
+            return {"status": "ok", "deleted": deleted}
+
         if event not in ("Download", "Import", "MovieAdded"):
             return {"status": "ignored"}
 
         movie = data.get("movie", {})
         title = movie.get("title", "")
+        radarr_id = movie.get("id")
         tmdb_id = movie.get("tmdbId")
+        imdb_id = movie.get("imdbId")
 
-        matched = _mark_available_and_notify(title, "movie", tmdb_id, db, settings)
+        matched = _mark_available_and_notify(
+            title,
+            "movie",
+            radarr_id,
+            db,
+            settings,
+            tmdb_id=tmdb_id,
+            imdb_id=imdb_id,
+            instance_id=_query_instance_id(request),
+        )
         return {"status": "ok", "matched": matched}
     finally:
         db.close()

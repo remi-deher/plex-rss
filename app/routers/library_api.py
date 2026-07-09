@@ -3,16 +3,16 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
-from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
+from ..dependencies import current_user, require_admin, require_auth
+from ..models import ArrInstance, LibraryItem, MediaIssue, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services import radarr, sonarr
 from ..services import seer as seer_service
-from ..utils import get_or_404, identity_keys
+from ..utils import get_or_404, identity_keys, now_utc_naive
 from .arr_api import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
@@ -31,12 +31,43 @@ class MediaAddRequest(BaseModel):
     overview: Optional[str] = None
     quality_profile_id: Optional[int] = None
     root_folder: Optional[str] = None
-    tag_ids: list[int] = []
+    tag_ids: list[int] = Field(default_factory=list)
+    seasons: Optional[list[int]] = None
     plex_user_id: Optional[str] = None
     instance_id: Optional[int] = None  # None = Seer ou instance par défaut
     use_seer: bool = False
     bypass_seer: bool = False
     auto_search: bool = False
+
+
+class MediaIssueCreate(BaseModel):
+    library_id: Optional[int] = None
+    request_id: Optional[int] = None
+    issue_type: str = Field(..., min_length=2, max_length=50)
+    message: Optional[str] = Field(default=None, max_length=2000)
+
+
+class MediaIssueUpdate(BaseModel):
+    status: Optional[str] = None
+    admin_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+def _serialize_issue(issue: MediaIssue) -> dict:
+    return {
+        "id": issue.id,
+        "created_at": issue.created_at.isoformat() if issue.created_at else None,
+        "updated_at": issue.updated_at.isoformat() if issue.updated_at else None,
+        "status": issue.status,
+        "issue_type": issue.issue_type,
+        "message": issue.message,
+        "reporter_plex_user_id": issue.reporter_plex_user_id,
+        "reporter_name": issue.reporter_name,
+        "library_item_id": issue.library_item_id,
+        "request_id": issue.request_id,
+        "title": issue.title,
+        "media_type": issue.media_type,
+        "admin_note": issue.admin_note,
+    }
 
 
 def _media_identity_filter(db: Session, item) -> list[MediaRequest]:
@@ -233,6 +264,17 @@ async def media_detail(
 
     request_payloads = [serialize_media_request(req, users) for req in related_requests]
     schedule = await _media_schedule_payload(db, media_obj)
+    request_ids = [req.id for req in related_requests]
+    issue_q = db.query(MediaIssue).filter(MediaIssue.status != "closed")
+    if library_item and request_ids:
+        issue_q = issue_q.filter(
+            (MediaIssue.library_item_id == library_item.id) | (MediaIssue.request_id.in_(request_ids))
+        )
+    elif library_item:
+        issue_q = issue_q.filter(MediaIssue.library_item_id == library_item.id)
+    elif selected_request:
+        issue_q = issue_q.filter(MediaIssue.request_id == selected_request.id)
+    open_issues = issue_q.order_by(MediaIssue.created_at.desc()).all()
 
     return {
         "media": {
@@ -261,9 +303,102 @@ async def media_detail(
             "added_at": format_datetime(library_item.added_at) if library_item else None,
         },
         "requests": request_payloads,
+        "issues": [_serialize_issue(issue) for issue in open_issues],
         "timeline": schedule["timeline"],
         "calendar": schedule["events"],
     }
+
+
+@router.post("/media/issues")
+def create_media_issue(
+    body: MediaIssueCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    if not body.library_id and not body.request_id:
+        raise HTTPException(400, "library_id or request_id is required")
+    library_item = db.query(LibraryItem).filter(LibraryItem.id == body.library_id).first() if body.library_id else None
+    media_request = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first() if body.request_id else None
+    if body.library_id and not library_item:
+        raise HTTPException(404, "Library item not found")
+    if body.request_id and not media_request:
+        raise HTTPException(404, "Request not found")
+
+    media_obj = library_item or media_request
+    user = current_user(request, db)
+    issue = MediaIssue(
+        issue_type=body.issue_type.strip(),
+        message=(body.message or "").strip() or None,
+        reporter_plex_user_id=user.get("plex_user_id") if user else None,
+        reporter_name=user.get("username") if user else None,
+        library_item_id=library_item.id if library_item else None,
+        request_id=media_request.id if media_request else None,
+        title=media_obj.title,
+        media_type=media_obj.media_type,
+        tmdb_id=getattr(media_obj, "tmdb_id", None),
+        tvdb_id=getattr(media_obj, "tvdb_id", None),
+        imdb_id=getattr(media_obj, "imdb_id", None),
+    )
+    db.add(issue)
+    db.commit()
+    db.refresh(issue)
+    return _serialize_issue(issue)
+
+
+@router.get("/media/issues", dependencies=[Depends(require_admin)])
+def list_media_issues(status: Optional[str] = "open", db: Session = Depends(get_db)):
+    q = db.query(MediaIssue)
+    if status:
+        q = q.filter(MediaIssue.status == status)
+    return [_serialize_issue(issue) for issue in q.order_by(MediaIssue.created_at.desc()).limit(200).all()]
+
+
+@router.patch("/media/issues/{issue_id}", dependencies=[Depends(require_admin)])
+def update_media_issue(issue_id: int, body: MediaIssueUpdate, db: Session = Depends(get_db)):
+    issue = get_or_404(db, MediaIssue, issue_id, "Issue not found")
+    if body.status is not None:
+        if body.status not in {"open", "investigating", "resolved", "closed"}:
+            raise HTTPException(400, "Invalid issue status")
+        issue.status = body.status
+    if body.admin_note is not None:
+        issue.admin_note = body.admin_note
+    issue.updated_at = now_utc_naive()
+    db.commit()
+    db.refresh(issue)
+    return _serialize_issue(issue)
+
+
+@router.post("/media/issues/{issue_id}/retry", dependencies=[Depends(require_admin)])
+async def retry_issue_media_search(issue_id: int, db: Session = Depends(get_db)):
+    issue = get_or_404(db, MediaIssue, issue_id, "Issue not found")
+    arr_id = None
+    arr_instance_id = None
+
+    if issue.library_item_id:
+        lib_item = db.query(LibraryItem).filter(LibraryItem.id == issue.library_item_id).first()
+        if lib_item:
+            arr_id = lib_item.arr_id
+            arr_instance_id = lib_item.arr_instance_id
+
+    if not arr_id and issue.request_id:
+        req = db.query(MediaRequest).filter(MediaRequest.id == issue.request_id).first()
+        if req:
+            arr_id = req.arr_id
+            arr_instance_id = req.arr_instance_id
+
+    if not arr_id or not arr_instance_id:
+        raise HTTPException(status_code=400, detail="Média non associé à une instance Sonarr/Radarr")
+
+    try:
+        if issue.media_type in ("show", "series"):
+            inst = _resolve_arr_instance(db, arr_instance_id, "sonarr")
+            success = await sonarr.search_series(inst.url, inst.api_key, arr_id)
+        else:
+            inst = _resolve_arr_instance(db, arr_instance_id, "radarr")
+            success = await radarr.search_movie(inst.url, inst.api_key, arr_id)
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erreur d'appel *arr : {e}")
 
 
 @router.post("/media/recheck-plex")
@@ -470,11 +605,91 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
     return normalized
 
 
+def _needs_approval(db: Session, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]) -> bool:
+    """Détermine si une demande doit passer par la file de validation admin.
+
+    Jamais pour un admin/owner (ni un appel token API). Sinon uniquement si
+    l'approbation est activée globalement ET que l'utilisateur n'est pas auto-approuvé.
+    """
+    if not caller or caller.get("is_owner") or caller.get("role") == "admin":
+        return False
+    if not (settings and settings.require_approval):
+        return False
+    if plex_user_id:
+        pu = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+        if pu and pu.auto_approve:
+            return False
+    return True
+
+
+def _create_pending_request(db: Session, body: "MediaAddRequest") -> dict:
+    """Enregistre une demande en attente de validation (aucune soumission à *arr)."""
+    tmdb_str = str(body.tmdb_id) if body.tmdb_id else None
+    tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
+
+    existing = None
+    if tmdb_str:
+        existing = db.query(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str).first()
+    if not existing and tvdb_str:
+        existing = db.query(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str).first()
+    if not existing:
+        existing = (
+            db.query(MediaRequest)
+            .filter(MediaRequest.title == body.title, MediaRequest.media_type == body.media_type)
+            .first()
+        )
+    if existing:
+        # Média déjà connu : on ne recrée pas de doublon en attente.
+        return {"ok": True, "pending_approval": True, "already_existed": True, "id": existing.id}
+
+    user_id = body.plex_user_id or "manual"
+    user_label = user_id
+    pu = db.query(PlexUser).filter(PlexUser.plex_user_id == user_id).first()
+    if pu:
+        user_label = pu.custom_name or pu.display_name or pu.plex_user_id
+
+    req = MediaRequest(
+        plex_user_id=user_id,
+        plex_user=user_label,
+        title=body.title,
+        year=body.year,
+        media_type=body.media_type,
+        tmdb_id=tmdb_str,
+        tvdb_id=tvdb_str,
+        imdb_id=body.imdb_id,
+        status=RequestStatus.pending_approval,
+        source="user_request",
+        poster_url=body.poster_url,
+        overview=body.overview,
+        requested_at=now_utc_naive(),
+    )
+    db.add(req)
+    db.commit()
+    return {"ok": True, "pending_approval": True, "already_existed": False, "id": req.id}
+
+
 @router.post("/media/add")
-async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
-    """Ajoute un média via Seer (prioritaire) ou directement dans Sonarr/Radarr."""
+async def media_add(body: MediaAddRequest, request: Request, db: Session = Depends(get_db)):
+    """Ajoute un média via Seer (prioritaire) ou directement dans Sonarr/Radarr.
+
+    Contrôle d'accès : un utilisateur 'user' ne peut demander que pour lui-même
+    (le plex_user_id de la session prime sur le corps de requête). Si l'approbation
+    est activée et que cet utilisateur n'est pas auto-approuvé, la demande est mise
+    en file d'attente (pending_approval) sans être envoyée à *arr.
+    """
     s = db.query(Settings).first()
     item = body.model_dump()
+
+    caller = current_user(request, db)
+    caller_is_admin = bool(caller and (caller.get("is_owner") or caller.get("role") == "admin"))
+    if not caller_is_admin and caller and caller.get("plex_user_id"):
+        # Un 'user' demande forcément pour lui-même : on ignore body.plex_user_id.
+        body.plex_user_id = caller["plex_user_id"]
+        item["plex_user_id"] = caller["plex_user_id"]
+
+    pending = _needs_approval(db, s, caller, body.plex_user_id)
+    if pending:
+        return _create_pending_request(db, body)
 
     arr_id = None
     already = False
@@ -533,6 +748,7 @@ async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
         search_triggered = False
         try:
             if arr_type == "sonarr":
+                item["seasons"] = body.seasons
                 arr_id, already, chosen_slug = await sonarr.add_series(
                     inst.url, inst.api_key, qp_id, rf, item, tag_ids=body.tag_ids
                 )

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import get_settings_or_404, require_auth
+from ..dependencies import get_settings_or_404, require_admin
 from ..models import PlexUser, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
@@ -27,7 +27,7 @@ from ..services.email_service import (
 from ..services.email_service import _send as smtp_send
 from ..services.notification_catalog import get_event, template_fields
 
-router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_auth)])
+router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/settings/email-templates")

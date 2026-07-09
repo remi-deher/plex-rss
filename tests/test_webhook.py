@@ -200,6 +200,25 @@ def test_sonarr_webhook_import_event():
     assert r.json()["status"] == "ok"
 
 
+def test_sonarr_webhook_delete_event_removes_requests():
+    req = _req(title="Lost", media_type="show", arr_id=77)
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
+    db.query.return_value.filter.return_value.filter.return_value.all.return_value = [req]
+
+    with _db_patch(db):
+        r = client.post(
+            "/webhook/sonarr",
+            json={
+                "eventType": "SeriesDelete",
+                "series": {"id": 77, "title": "Lost", "tvdbId": 73739},
+            },
+        )
+    assert r.status_code == 200
+    assert r.json()["deleted"] == 1
+    db.delete.assert_called_with(req)
+
+
 # ---------------------------------------------------------------------------
 # POST /webhook/radarr
 # ---------------------------------------------------------------------------
@@ -245,6 +264,25 @@ def test_radarr_webhook_movie_added():
             },
         )
     assert r.status_code == 200
+
+
+def test_radarr_webhook_delete_event_removes_requests():
+    req = _req(title="Dune", media_type="movie", arr_id=12)
+    db = MagicMock()
+    db.query.return_value.first.return_value = _settings()
+    db.query.return_value.filter.return_value.filter.return_value.all.return_value = [req]
+
+    with _db_patch(db):
+        r = client.post(
+            "/webhook/radarr",
+            json={
+                "eventType": "MovieDelete",
+                "movie": {"id": 12, "title": "Dune", "tmdbId": 438631},
+            },
+        )
+    assert r.status_code == 200
+    assert r.json()["deleted"] == 1
+    db.delete.assert_called_with(req)
 
 
 # ---------------------------------------------------------------------------

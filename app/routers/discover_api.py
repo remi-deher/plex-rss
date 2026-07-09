@@ -8,11 +8,11 @@ les tmdb_id avec LibraryItem et MediaRequest.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import current_user, require_auth
 from ..models import LibraryItem, MediaRequest, PlexUser, Settings
 from ..serializers import request_status_value, serialize_media_request
 from ..services import tmdb
@@ -66,6 +66,16 @@ def discover_status(db: Session = Depends(get_db)):
     """Indique si TMDB est configuré (pour l'affichage conditionnel de la page)."""
     s = db.query(Settings).first()
     return {"configured": bool(s and (s.tmdb_api_key or "").strip())}
+
+
+@router.get("/requesters")
+def discover_requesters(request: Request, db: Session = Depends(get_db)):
+    caller = current_user(request, db)
+    if caller and not (caller.get("is_owner") or caller.get("role") == "admin"):
+        uid = caller.get("plex_user_id")
+        user = db.query(PlexUser).filter(PlexUser.plex_user_id == uid, PlexUser.enabled).first()
+        return [user] if user else []
+    return db.query(PlexUser).filter(PlexUser.enabled).order_by(PlexUser.display_name).all()
 
 
 def _guard(exc: Exception):

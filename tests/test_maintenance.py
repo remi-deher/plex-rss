@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import require_auth
+from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.routers.maintenance import (
     ACTIONS_META,
@@ -31,9 +31,11 @@ from app.routers.maintenance import (
 @pytest.fixture()
 def client():
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     c = TestClient(app, raise_server_exceptions=False)
     yield c
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_admin, None)
 
 
 # ---------------------------------------------------------------------------

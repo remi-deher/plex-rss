@@ -146,6 +146,42 @@ async def test_poll_new_item_creates_request_and_notifies(db):
 
 
 @pytest.mark.asyncio
+async def test_poll_requires_approval_for_standard_user(db):
+    """Validation globale active -> demande creee mais pas transmise a Arr."""
+    db.add(_settings(require_approval=True))
+    db.add(PlexUser(plex_user_id="alice", enabled=True, role="user", auto_approve=False))
+    db.commit()
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        _patch_submit() as mock_submit,
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.pending_approval
+    mock_submit.assert_not_called()
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_poll_auto_approved_user_bypasses_approval(db):
+    """Un utilisateur auto_approve continue a partir directement vers Arr."""
+    db.add(_settings(require_approval=True))
+    db.add(PlexUser(plex_user_id="alice", enabled=True, role="user", auto_approve=True))
+    db.commit()
+
+    with _patch_session(db), _patch_watchlist([_movie_item()]), _patch_submit() as mock_submit, _patch_enqueue():
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+    mock_submit.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_poll_existing_sent_to_arr_is_skipped(db):
     """Item déjà sent_to_arr → pas de doublon, pas de notification."""
     db.add(_settings())

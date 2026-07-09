@@ -87,6 +87,36 @@ async def _get_account_username(client: httpx.AsyncClient, headers: dict) -> str
         return "admin"
 
 
+async def get_plex_account(token: str) -> Optional[dict]:
+    """Résout le compte Plex propriétaire d'un token (login SSO par utilisateur).
+
+    Returns un dict {uuid, username, email, thumb} ou None si le token est invalide.
+    L'uuid est l'identifiant stable du compte (indépendant du username, qui peut changer).
+    """
+    headers = {
+        "X-Plex-Token": token,
+        "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{PLEX_TV_BASE}/api/v2/user", headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.warning(f"Could not resolve Plex account from token: {e}")
+        return None
+    username = data.get("username") or data.get("title") or data.get("email")
+    if not username:
+        return None
+    return {
+        "uuid": data.get("uuid") or str(data.get("id") or ""),
+        "username": username,
+        "email": data.get("email"),
+        "thumb": data.get("thumb"),
+    }
+
+
 async def _get_user_watchlist(
     client: httpx.AsyncClient, token: str, username: str, user_id: str | None = None
 ) -> list[dict]:
@@ -216,3 +246,69 @@ async def check_auth_pin(pin_id: int) -> Optional[str]:
         resp.raise_for_status()
         data = resp.json()
         return data.get("authToken")
+
+
+async def has_server_access(
+    admin_token: str, user_username: str, user_email: str | None, user_uuid: str | None
+) -> bool:
+    """Vérifie si l'utilisateur a accès au serveur (est le propriétaire, un ami, ou membre du Home)."""
+    headers = {
+        "X-Plex-Token": admin_token,
+        "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        # 1. Vérifier si c'est le propriétaire
+        try:
+            resp = await client.get(f"{PLEX_TV_BASE}/api/v2/user", headers=headers)
+            if resp.status_code == 200:
+                owner = resp.json()
+                owner_uuid = owner.get("uuid") or str(owner.get("id") or "")
+                owner_username = owner.get("username") or owner.get("title")
+                owner_email = owner.get("email")
+                if (
+                    (user_uuid and owner_uuid == user_uuid)
+                    or (user_username and owner_username.lower() == user_username.lower())
+                    or (user_email and owner_email and owner_email.lower() == user_email.lower())
+                ):
+                    return True
+        except Exception as e:
+            logger.warning(f"Error checking Plex owner account: {e}")
+
+        # 2. Vérifier les amis (friends)
+        try:
+            resp = await client.get(f"{PLEX_TV_BASE}/api/v2/friends", headers=headers)
+            if resp.status_code == 200:
+                friends = resp.json()
+                for friend in friends:
+                    friend_uuid = friend.get("uuid") or str(friend.get("id") or "")
+                    friend_username = friend.get("username") or friend.get("title")
+                    friend_email = friend.get("email")
+                    if (
+                        (user_uuid and friend_uuid == user_uuid)
+                        or (user_username and friend_username and friend_username.lower() == user_username.lower())
+                        or (user_email and friend_email and friend_email.lower() == user_email.lower())
+                    ):
+                        return True
+        except Exception as e:
+            logger.warning(f"Error checking Plex friends: {e}")
+
+        # 3. Vérifier les membres du Plex Home (home/users)
+        try:
+            resp = await client.get(f"{PLEX_TV_BASE}/api/v2/home/users", headers=headers)
+            if resp.status_code == 200:
+                home_users = resp.json()
+                for member in home_users:
+                    member_uuid = member.get("uuid") or str(member.get("id") or "")
+                    member_username = member.get("username") or member.get("title")
+                    member_email = member.get("email")
+                    if (
+                        (user_uuid and member_uuid == user_uuid)
+                        or (user_username and member_username and member_username.lower() == user_username.lower())
+                        or (user_email and member_email and member_email.lower() == user_email.lower())
+                    ):
+                        return True
+        except Exception as e:
+            logger.warning(f"Error checking Plex Home users: {e}")
+
+    return False

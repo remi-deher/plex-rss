@@ -173,6 +173,28 @@
             <div class="form-text">
               Desactive : l'utilisateur disparait du selecteur Discover, les automatisations ignorent ses demandes, mais l'historique et la liaison Seer sont conserves.
             </div>
+            <hr class="border-secondary">
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label">Profil portail</label>
+                <select class="form-select bg-dark text-light border-secondary" id="fRole">
+                  <option value="user">Utilisateur</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div class="col-md-4 d-flex align-items-end">
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="fCanLogin" checked>
+                  <label class="form-check-label" for="fCanLogin">Connexion Plex SSO</label>
+                </div>
+              </div>
+              <div class="col-md-4 d-flex align-items-end">
+                <div class="form-check form-switch mb-2">
+                  <input class="form-check-input" type="checkbox" id="fAutoApprove">
+                  <label class="form-check-label" for="fAutoApprove">Auto-accepter</label>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Diagnostic -->
@@ -569,6 +591,9 @@ function _setFields(u) {
   document.getElementById('fPlexEmail').value = u.plex_email || '';
   document.getElementById('fNotifEmail').value = u.notification_email || '';
   document.getElementById('fEnabled').checked = u.enabled !== false;
+  document.getElementById('fRole').value = u.role || 'user';
+  document.getElementById('fCanLogin').checked = u.can_login !== false;
+  document.getElementById('fAutoApprove').checked = !!u.auto_approve;
   document.getElementById('fNotifyAdmin').checked = u.notify_admin !== false;
   document.getElementById('fNotifyOnRequest').checked = u.notify_on_request !== false;
   document.getElementById('fNotifyOnAvailable').checked = u.notify_on_available !== false;
@@ -1068,6 +1093,9 @@ async function saveUser() {
     plex_email: document.getElementById('fPlexEmail').value.trim() || null,
     notification_email: document.getElementById('fNotifEmail').value.trim() || null,
     enabled: document.getElementById('fEnabled').checked,
+    role: document.getElementById('fRole').value || 'user',
+    can_login: document.getElementById('fCanLogin').checked,
+    auto_approve: document.getElementById('fAutoApprove').checked,
     notify_admin: document.getElementById('fNotifyAdmin').checked,
     notify_on_request: document.getElementById('fNotifyOnRequest').checked,
     notify_on_available: document.getElementById('fNotifyOnAvailable').checked,

@@ -1,6 +1,5 @@
 <div class="tab-pane fade" id="tab-avance" role="tabpanel">
     <div class="row g-4">
-
       <!-- Import / Export -->
       <div class="col-12">
         <div class="card p-4">
@@ -25,7 +24,6 @@
           </div>
         </div>
       </div>
-
       <!-- Webhooks -->
       <div class="col-12">
         <div class="card border-warning">
@@ -39,10 +37,10 @@
             <div class="card-body pt-0">
               <p class="text-muted mb-3">
                 Collez ces URLs (secret inclus) dans <strong>Sonarr / Radarr → Paramètres → Connexions → Webhook</strong>
-                (événement <strong>On Import / On Grab</strong>) et dans <strong>Plex → Paramètres → Webhooks</strong>.
+                (événements <strong>On Import / On Delete</strong>) et dans <strong>Plex → Paramètres → Webhooks</strong>.
                 Les liens sont générés à partir de l'adresse de votre navigateur.
+                En multi-instance, ajoutez <code>&amp;instance_id=ID</code> à l'URL Sonarr/Radarr concernée.
               </p>
-
               <!-- Secret -->
               <div class="mb-3">
                 <label class="form-label"><i class="bi bi-key text-warning me-1"></i>Secret webhook</label>
@@ -56,7 +54,6 @@
                   avec l'ancien secret (il faudra recoller les nouvelles URLs).
                 </div>
               </div>
-
               <div class="row g-3">
                 <div class="col-md-6">
                   <label class="form-label"><i class="bi bi-tv text-info me-1"></i>Sonarr — URL Webhook</label>
@@ -64,7 +61,7 @@
                     <input type="text" class="form-control font-monospace" readonly id="webhook-sonarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Sonarr → Connexions → Webhook · Événement : <strong>On Import / On Grab</strong></div>
+                  <div class="form-text">Sonarr → Connexions → Webhook · Événements : <strong>On Import / On Delete</strong></div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
@@ -72,7 +69,7 @@
                     <input type="text" class="form-control font-monospace" readonly id="webhook-radarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Radarr → Connexions → Webhook · Événement : <strong>On Import / On Grab</strong></div>
+                  <div class="form-text">Radarr → Connexions → Webhook · Événements : <strong>On Import / On Delete</strong></div>
                 </div>
                 <div class="col-12">
                   <hr class="border-secondary my-2">
@@ -101,7 +98,6 @@
           </div>
         </div>
       </div>
-
       <script>
         // Forge les URLs de webhook à partir de l'origine réelle du navigateur (respecte
         // le reverse proxy / domaine public) + le secret courant.
@@ -114,7 +110,6 @@
           });
         }
         _buildWebhookUrls(document.getElementById('webhook-secret-value') ? document.getElementById('webhook-secret-value').value : '');
-
         async function regenWebhookSecret() {
           if (!await confirmAction({
             title: 'Régénérer le secret',
@@ -128,6 +123,140 @@
             document.getElementById('webhook-secret-value').value = d.webhook_secret;
             _buildWebhookUrls(d.webhook_secret);
             showToast('Nouveau secret généré — recollez les URLs dans Sonarr/Radarr/Plex', 'success');
+          } catch (e) {
+            showToast('Erreur : ' + e.message, 'danger');
+          }
+        }
+      </script>
+      <!-- 2FA / TOTP -->
+      <div class="col-12">
+        <div class="card p-4">
+          <h5 class="mb-3"><i class="bi bi-shield-lock text-warning me-2"></i>Double Authentification (2FA)</h5>
+          <div id="totp-status-container">
+            {% if s and s.totp_enabled %}
+            <div class="alert alert-success d-flex align-items-center gap-2">
+              <i class="bi bi-shield-fill-check fs-4 text-success"></i>
+              <div>
+                <strong>La double authentification est activée.</strong>
+                <div class="small text-muted">Les connexions requièrent un code à usage unique (TOTP) en plus de votre mot de passe.</div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-danger" onclick="disableTotp()">
+              <i class="bi bi-shield-slash me-1"></i>Désactiver la double authentification
+            </button>
+            {% else %}
+            <div class="alert alert-secondary py-2 small mb-3" style="background:var(--pr-surface-2)">
+              <i class="bi bi-info-circle me-1"></i>La double authentification n'est pas activée pour ce compte.
+            </div>
+            <button type="button" class="btn btn-warning" onclick="startTotpSetup()">
+              <i class="bi bi-shield-plus me-1"></i>Configurer la double authentification
+            </button>
+            {% endif %}
+          </div>
+
+          <div id="totp-setup-container" style="display:none;" class="mt-3 border rounded p-3 border-secondary">
+            <h6 class="mb-2">Configuration de l'authentificateur</h6>
+            <p class="text-muted small mb-3">
+              Scannez le code QR ci-dessous avec votre application d'authentification (ex: Google Authenticator, Bitwarden, Authy), ou saisissez la clé secrète manuellement.
+            </p>
+            <div class="d-flex flex-wrap align-items-center gap-4 mb-3">
+              <div class="bg-white p-2 rounded" style="width:200px; height:200px; display: flex; align-items: center; justify-content: center;">
+                <img id="totp-qr-image" src="" alt="Code QR 2FA" style="width: 100%; height: 100%; display: none;">
+                <span id="totp-qr-loading" class="spinner-border text-warning"></span>
+              </div>
+              <div>
+                <label class="form-label small text-muted">Clé de configuration</label>
+                <div class="input-group input-group-sm mb-2" style="max-width:320px">
+                  <input type="text" class="form-control font-monospace" id="totp-secret-key" readonly>
+                  <button type="button" class="btn btn-outline-warning" onclick="copyEl('totp-secret-key')"><i class="bi bi-clipboard"></i></button>
+                </div>
+                <div class="form-text small">Clé à entrer manuellement si le scan ne fonctionne pas.</div>
+              </div>
+            </div>
+            <div class="row g-2 align-items-end" style="max-width:400px">
+              <div class="col">
+                <label for="totp-verification-code" class="form-label small">Entrez le code à 6 chiffres</label>
+                <input type="text" class="form-control" id="totp-verification-code" placeholder="000000" maxlength="6">
+              </div>
+              <div class="col-auto">
+                <button type="button" class="btn btn-warning" onclick="confirmTotpEnable()">Activer</button>
+                <button type="button" class="btn btn-outline-secondary" onclick="cancelTotpSetup()">Annuler</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script>
+        async function startTotpSetup() {
+          const setupContainer = document.getElementById('totp-setup-container');
+          const qrLoading = document.getElementById('totp-qr-loading');
+          const qrImage = document.getElementById('totp-qr-image');
+          const secretKeyInput = document.getElementById('totp-secret-key');
+
+          setupContainer.style.display = 'block';
+          qrLoading.style.display = 'inline-block';
+          qrImage.style.display = 'none';
+
+          try {
+            const r = await fetch('/api/settings/totp/setup', { method: 'POST' });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Erreur lors de la configuration');
+
+            secretKeyInput.value = d.secret;
+            qrImage.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(d.provisioning_uri);
+            qrImage.onload = () => {
+              qrLoading.style.display = 'none';
+              qrImage.style.display = 'block';
+            };
+          } catch (e) {
+            showToast('Erreur : ' + e.message, 'danger');
+            setupContainer.style.display = 'none';
+          }
+        }
+
+        function cancelTotpSetup() {
+          document.getElementById('totp-setup-container').style.display = 'none';
+          document.getElementById('totp-verification-code').value = '';
+        }
+
+        async function confirmTotpEnable() {
+          const code = document.getElementById('totp-verification-code').value.trim();
+          if (!code || code.length !== 6) {
+            showToast('Veuillez entrer un code à 6 chiffres valide', 'warning');
+            return;
+          }
+
+          try {
+            const r = await fetch('/api/settings/totp/enable', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code })
+            });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Code incorrect ou invalide');
+
+            showToast('Double authentification activée avec succès !', 'success');
+            setTimeout(() => location.reload(), 1200);
+          } catch (e) {
+            showToast('Erreur : ' + e.message, 'danger');
+          }
+        }
+
+        async function disableTotp() {
+          if (!await confirmAction({
+            title: 'Désactiver la double authentification',
+            body: 'Voulez-vous vraiment désactiver la double authentification ? Votre compte sera moins sécurisé.',
+            okLabel: 'Désactiver', danger: true
+          })) return;
+
+          try {
+            const r = await fetch('/api/settings/totp', { method: 'DELETE' });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Erreur lors de la désactivation');
+
+            showToast('Double authentification désactivée', 'success');
+            setTimeout(() => location.reload(), 1200);
           } catch (e) {
             showToast('Erreur : ' + e.message, 'danger');
           }
@@ -150,6 +279,5 @@
           </div>
         </div>
       </div>
-
     </div>
   </div>

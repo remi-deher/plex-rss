@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import get_settings_or_404, require_auth
+from ..dependencies import get_settings_or_404, require_admin
 from ..models import Settings
 from ..scheduler import _send_digest, update_poll_interval
 from ..scheduler import scheduler as _scheduler
@@ -18,10 +18,11 @@ from ..services.notifications import send_gotify, send_ntfy
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
+from ..services.totp import generate_secret, provisioning_uri, verify_code
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_admin)])
 
 SERIES_NOTIFY_MODES = {
     "every_episode",
@@ -144,10 +145,20 @@ class SettingsUpdate(BaseModel):
     series_vf_notify_mode: Optional[str] = None
     series_tracking_mode: Optional[str] = None
     series_episode_notify_mode: Optional[str] = None
+    require_approval: Optional[bool] = None
+    default_locale: Optional[str] = None
 
 
 class SmtpTestRequest(BaseModel):
     recipient: str
+
+
+class ApiTokenCreate(BaseModel):
+    scopes: list[str] = ["*"]
+
+
+class TotpEnableRequest(BaseModel):
+    code: str
 
 
 @router.get("/settings")
@@ -156,6 +167,8 @@ def get_settings(s: Settings = Depends(get_settings_or_404)):
     d = {c.name: getattr(s, c.name) for c in s.__table__.columns}
     if d.get("smtp_password"):
         d["smtp_password"] = "••••••••"
+    if d.get("totp_secret"):
+        d["totp_secret"] = "configured"
     return d
 
 
@@ -215,15 +228,18 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
 
 
 @router.post("/settings/token")
-def generate_api_token(db: Session = Depends(get_db)):
+def generate_api_token(body: ApiTokenCreate | None = None, db: Session = Depends(get_db)):
     """Génère un nouveau token d'API et le stocke dans les paramètres."""
     s = db.query(Settings).first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     token = secrets.token_urlsafe(32)
+    scopes = body.scopes if body else ["*"]
+    scopes = [scope.strip() for scope in scopes if scope.strip()]
     s.api_token = token
+    s.api_token_scopes = ",".join(scopes or ["*"])
     db.commit()
-    return {"api_token": token}
+    return {"api_token": token, "scopes": scopes or ["*"]}
 
 
 @router.delete("/settings/token")
@@ -233,6 +249,7 @@ def revoke_api_token(db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     s.api_token = None
+    s.api_token_scopes = None
     db.commit()
     return {"status": "revoked"}
 
@@ -241,7 +258,44 @@ def revoke_api_token(db: Session = Depends(get_db)):
 def get_api_token_status(db: Session = Depends(get_db)):
     """Indique si un token d'API est actif (sans révéler sa valeur)."""
     s = db.query(Settings).first()
-    return {"active": bool(s and s.api_token)}
+    scopes = [scope.strip() for scope in (s.api_token_scopes or "*").split(",") if scope.strip()] if s else []
+    return {"active": bool(s and s.api_token), "scopes": scopes}
+
+
+@router.post("/settings/totp/setup")
+def setup_totp(db: Session = Depends(get_db)):
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Parametres non initialises")
+    secret = generate_secret()
+    s.totp_secret = secret
+    s.totp_enabled = False
+    db.commit()
+    account = s.auth_username or "admin"
+    return {"secret": secret, "provisioning_uri": provisioning_uri(secret, account), "enabled": False}
+
+
+@router.post("/settings/totp/enable")
+def enable_totp(body: TotpEnableRequest, db: Session = Depends(get_db)):
+    s = db.query(Settings).first()
+    if not s or not s.totp_secret:
+        raise HTTPException(400, "Aucun secret 2FA en attente")
+    if not verify_code(s.totp_secret, body.code):
+        raise HTTPException(400, "Code 2FA invalide")
+    s.totp_enabled = True
+    db.commit()
+    return {"enabled": True}
+
+
+@router.delete("/settings/totp")
+def disable_totp(db: Session = Depends(get_db)):
+    s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(404, "Parametres non initialises")
+    s.totp_secret = None
+    s.totp_enabled = False
+    db.commit()
+    return {"enabled": False}
 
 
 @router.post("/settings/webhook-secret")

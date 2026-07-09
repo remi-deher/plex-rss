@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db
-from app.dependencies import require_auth
+from app.dependencies import require_admin, require_auth
 from app.main import app
 
 # ---------------------------------------------------------------------------
@@ -21,12 +21,14 @@ from app.main import app
 
 def _client_with_db(db):
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     return TestClient(app, raise_server_exceptions=False)
 
 
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_admin, None)
     app.dependency_overrides.pop(get_db, None)
 
 

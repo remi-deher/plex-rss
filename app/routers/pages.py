@@ -48,6 +48,22 @@ def require_auth(request: Request):
         raise RedirectException(f"/login?next={path}")
 
 
+def _is_admin_session(request: Request) -> bool:
+    return bool(request.session.get("is_owner") or request.session.get("role") == "admin")
+
+
+def require_admin(request: Request):
+    """Dépendance pages : réservé aux admins. Un utilisateur 'user' est renvoyé vers
+    /discover (sa page d'accueil), un visiteur non connecté vers /login."""
+    if not request.session.get("authenticated"):
+        from urllib.parse import quote
+
+        path = quote(str(request.url.path), safe="/")
+        raise RedirectException(f"/login?next={path}")
+    if not _is_admin_session(request):
+        raise RedirectException("/discover")
+
+
 def build_users_map(db: Session) -> dict:
     """Retourne {plex_user_id: nom lisible} pour tous les utilisateurs connus.
 
@@ -98,10 +114,19 @@ def _request_summary(req: MediaRequest, users_map: dict[str, str]) -> dict:
 
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
-    """Page principale : stats globales + 10 demandes récentes + graphique timeline (JS)."""
+def dashboard(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+    """Page principale : stats globales + 10 demandes récentes + graphique timeline (JS).
+
+    Réservée aux admins ; un utilisateur 'user' est redirigé vers /discover."""
     settings = db.query(Settings).first()
     recent = db.query(MediaRequest).order_by(MediaRequest.requested_at.desc()).limit(10).all()
+    pending_approval = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.status == RequestStatus.pending_approval)
+        .order_by(MediaRequest.requested_at.desc())
+        .limit(10)
+        .all()
+    )
     all_requests = db.query(MediaRequest).all()
     stats = {
         "total": len(all_requests),
@@ -115,6 +140,7 @@ def dashboard(request: Request, _: None = Depends(require_auth), db: Session = D
         {
             "settings": settings,
             "recent_requests": recent,
+            "pending_approval": pending_approval,
             "stats": stats,
             "users_map": build_users_map(db),
         },
@@ -134,7 +160,7 @@ def requests_page(
     per_page: int = 50,
     sort: str = "date",
     order: str = "desc",
-    _: None = Depends(require_auth),
+    _: None = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Page des demandes avec tri, recherche et pagination côté serveur."""
@@ -176,7 +202,7 @@ def library_page(
     per_page: int = 60,
     sort: str = "date",
     order: str = "desc",
-    _: None = Depends(require_auth),
+    _: None = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Bibliothèque : union des médias présents dans Plex (library_items) et des
@@ -404,7 +430,7 @@ def library_page(
 
 
 @router.get("/users", response_class=HTMLResponse)
-def users_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
+def users_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
     """Page des utilisateurs avec compteurs de demandes par statut."""
     users = db.query(PlexUser).all()
 
@@ -455,7 +481,7 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
 
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)
-def user_detail_page(user_id: int, request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
+def user_detail_page(user_id: int, request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
     """Page de détail d'un utilisateur : stats et historique complet de ses demandes."""
     user = db.get(PlexUser, user_id)
     if not user:
@@ -486,7 +512,7 @@ def user_detail_page(user_id: int, request: Request, _: None = Depends(require_a
 
 
 @router.get("/downloads", response_class=HTMLResponse)
-def downloads_page(request: Request, _: None = Depends(require_auth)):
+def downloads_page(request: Request, _: None = Depends(require_admin)):
     """Page Téléchargements : file d'attente *arr unifiée (auto-rafraîchie)."""
     return templates.TemplateResponse(request, "downloads.html", {"page": "downloads"})
 
@@ -513,13 +539,13 @@ def discover_page(request: Request, _: None = Depends(require_auth), db: Session
 
 
 @router.get("/logs", response_class=HTMLResponse)
-def logs_page(request: Request, _: None = Depends(require_auth)):
+def logs_page(request: Request, _: None = Depends(require_admin)):
     """Page des logs applicatifs en temps réel."""
     return templates.TemplateResponse(request, "logs.html")
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
+def settings_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
     """Page de configuration globale de l'application."""
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")

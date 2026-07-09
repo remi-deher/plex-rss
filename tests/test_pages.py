@@ -48,12 +48,14 @@ def db():
 def client(db):
     """Client avec auth bypassée et DB in-memory."""
     app.dependency_overrides[pages_router.require_auth] = lambda: None
-    app.dependency_overrides[email_templates_router.require_auth] = lambda: None
+    app.dependency_overrides[pages_router.require_admin] = lambda: None
+    app.dependency_overrides[email_templates_router.require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
     yield c
     app.dependency_overrides.pop(pages_router.require_auth, None)
-    app.dependency_overrides.pop(email_templates_router.require_auth, None)
+    app.dependency_overrides.pop(pages_router.require_admin, None)
+    app.dependency_overrides.pop(email_templates_router.require_admin, None)
     app.dependency_overrides.pop(get_db, None)
 
 

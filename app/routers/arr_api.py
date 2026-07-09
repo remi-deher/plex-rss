@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import ArrInstance, DownloadClient, MediaRequest, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
 from ..services.download_clients import (
@@ -16,7 +16,7 @@ from ..services.download_clients import (
 )
 from ..utils import get_or_404
 
-router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
 
 
 def _set_single_default(db: Session, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:

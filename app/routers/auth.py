@@ -10,8 +10,7 @@ Trois routes :
 """
 
 import hmac
-import time
-from collections import defaultdict
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -19,25 +18,36 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Settings
+from ..models import LoginAttempt, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
+from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
+from ..services.totp import verify_code
+from ..utils import now_utc
 
 router = APIRouter(tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
 
-_login_attempts: dict[str, list[float]] = defaultdict(list)
 _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 600
 
 
-def _is_rate_limited(ip: str) -> bool:
-    now = time.monotonic()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < _WINDOW_SECONDS]
-    return len(_login_attempts[ip]) >= _MAX_ATTEMPTS
+def _is_rate_limited(db: Session, ip: str) -> bool:
+    cutoff = now_utc() - timedelta(seconds=_WINDOW_SECONDS)
+    count = (
+        db.query(LoginAttempt)
+        .filter(
+            LoginAttempt.ip_address == ip,
+            LoginAttempt.success == False,  # noqa: E712
+            LoginAttempt.attempted_at >= cutoff,
+        )
+        .count()
+    )
+    return count >= _MAX_ATTEMPTS
 
 
-def _record_failed_attempt(ip: str) -> None:
-    _login_attempts[ip].append(time.monotonic())
+def _record_login_attempt(db: Session, ip: str, username: str | None, success: bool, reason: str | None = None) -> None:
+    db.add(LoginAttempt(ip_address=ip, username=username, success=success, reason=reason, attempted_at=now_utc()))
+    db.commit()
 
 
 @router.get("/setup", response_class=HTMLResponse)
@@ -86,6 +96,8 @@ async def setup_post(
     # Connecter l'utilisateur immédiatement après la création du compte
     request.session["authenticated"] = True
     request.session["username"] = username
+    request.session["is_owner"] = True
+    request.session["role"] = "admin"
     return RedirectResponse("/", status_code=302)
 
 
@@ -105,12 +117,13 @@ async def login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    otp_code: str = Form(default=""),
     next: str = Form(default="/"),
     db: Session = Depends(get_db),
 ):
     """Vérifie les identifiants et ouvre une session."""
     ip = request.client.host if request.client else "unknown"
-    if _is_rate_limited(ip):
+    if _is_rate_limited(db, ip):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 10 minutes.")
 
     s = db.query(Settings).first()
@@ -122,15 +135,123 @@ async def login_post(
         return RedirectResponse("/setup", status_code=302)
 
     if not hmac.compare_digest(username, s.auth_username) or not verify_password(password, s.auth_password_hash):
-        _record_failed_attempt(ip)
+        _record_login_attempt(db, ip, username, False, "bad_credentials")
         return error("Identifiants incorrects.")
+
+    if s.totp_enabled and not verify_code(s.totp_secret, otp_code):
+        _record_login_attempt(db, ip, username, False, "bad_totp")
+        return error("Code 2FA incorrect.")
 
     request.session["authenticated"] = True
     request.session["username"] = username
+    request.session["is_owner"] = True
+    request.session["role"] = "admin"
+    _record_login_attempt(db, ip, username, True)
 
     # Rediriger vers la page demandée initialement (paramètre ?next=)
     safe_next = next if next and next.startswith("/") else "/"
     return RedirectResponse(safe_next, status_code=302)
+
+
+@router.post("/login/plex/pin")
+async def login_plex_pin(request: Request):
+    """Initie une connexion Plex SSO : crée un PIN et retourne l'URL d'auth Plex.
+
+    Le front ouvre `auth_url` dans une popup, puis interroge /login/plex/check/{id}.
+    """
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    forward_url = f"{scheme}://{host}/login"
+    try:
+        return await get_auth_pin(forward_url=forward_url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erreur d'initialisation SSO Plex : {e}")
+
+
+@router.get("/login/plex/check/{pin_id}")
+async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(get_db)):
+    """Vérifie si le PIN Plex a été validé ; si oui, ouvre la session du bon utilisateur.
+
+    Le token Plex ne sert qu'à identifier le compte (plex.tv /api/v2/user) — il n'est
+    jamais persisté. Un compte inconnu est créé avec le rôle 'user' ; il doit être
+    autorisé (can_login) et actif (enabled) pour se connecter.
+    """
+    from ..services.plex_api import check_auth_pin
+
+    try:
+        token = await check_auth_pin(pin_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if not token:
+        return {"authenticated": False}
+
+    account = await get_plex_account(token)
+    if not account:
+        raise HTTPException(status_code=502, detail="Impossible de résoudre le compte Plex.")
+
+    # Rattachement : uuid stable en priorité, sinon username (users legacy RSS/API).
+    user = None
+    if account["uuid"]:
+        user = db.query(PlexUser).filter(PlexUser.plex_account_uuid == account["uuid"]).first()
+    if not user:
+        user = db.query(PlexUser).filter(PlexUser.plex_user_id == account["username"]).first()
+    s = db.query(Settings).first()
+    is_admin_username = bool(s and s.auth_username and account["username"] == s.auth_username)
+
+    if s and s.plex_token:
+        has_access = await has_server_access(
+            admin_token=s.plex_token,
+            user_username=account["username"],
+            user_email=account.get("email"),
+            user_uuid=account["uuid"],
+        )
+        if not has_access:
+            raise HTTPException(
+                status_code=403,
+                detail="Ce compte Plex n'a pas accès au serveur Plex de l'application."
+            )
+
+    if not user:
+        user = PlexUser(
+            plex_user_id=account["username"],
+            display_name=account["username"],
+            plex_email=account.get("email"),
+            plex_account_uuid=account["uuid"] or None,
+            avatar_url=account.get("thumb"),
+            role="admin" if is_admin_username else "user",
+            can_login=True,
+            enabled=True,
+            source="plex_sso",
+        )
+        db.add(user)
+        db.flush()
+    else:
+        # Enrichit / met à jour l'enregistrement existant sans écraser les choix admin.
+        if account["uuid"] and not user.plex_account_uuid:
+            user.plex_account_uuid = account["uuid"]
+        if account.get("thumb"):
+            user.avatar_url = account["thumb"]
+        if account.get("email") and not user.plex_email:
+            user.plex_email = account["email"]
+        if is_admin_username:
+            user.role = "admin"
+
+    if not user.enabled or not user.can_login:
+        db.commit()
+        raise HTTPException(
+            status_code=403, detail="Ce compte n'est pas autorisé à se connecter. Contactez l'administrateur."
+        )
+
+    user.last_login_at = now_utc()
+    db.commit()
+
+    request.session["authenticated"] = True
+    request.session["is_owner"] = (user.role == "admin")
+    request.session["role"] = user.role or "user"
+    request.session["plex_user_id"] = user.plex_user_id
+    request.session["username"] = user.custom_name or user.display_name or user.plex_user_id
+    return {"authenticated": True, "role": user.role or "user"}
 
 
 @router.get("/logout")

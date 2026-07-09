@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, Settings
-from app.routers.importexport import require_auth as ie_require_auth
+from app.routers.importexport import require_admin as ie_require_auth
 
 # ---------------------------------------------------------------------------
 # Base de données en mémoire partagée entre les tests du module

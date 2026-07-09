@@ -17,7 +17,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import SessionLocal
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
 from ..utils import now_utc, now_utc_naive
 
@@ -539,7 +539,7 @@ _ACTION_RUNNERS = {
 
 
 @router.get("/actions")
-def list_actions(_: None = Depends(require_auth)):
+def list_actions(_: None = Depends(require_admin)):
     result = {}
     for key, meta in ACTIONS_META.items():
         last = _last_runs.get(key)
@@ -557,7 +557,7 @@ def list_actions(_: None = Depends(require_auth)):
 
 
 @router.post("/run/{action}")
-async def start_run(action: str, _: None = Depends(require_auth)):
+async def start_run(action: str, _: None = Depends(require_admin)):
     if action not in _ACTION_RUNNERS:
         raise HTTPException(404, f"Action inconnue : {action}")
 
@@ -579,7 +579,7 @@ async def start_run(action: str, _: None = Depends(require_auth)):
 
 
 @router.get("/run/{run_id}")
-def get_run(run_id: str, _: None = Depends(require_auth)):
+def get_run(run_id: str, _: None = Depends(require_admin)):
     run = _runs.get(run_id)
     if not run:
         raise HTTPException(404, "Run introuvable")

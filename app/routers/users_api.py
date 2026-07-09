@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin
 from ..models import MediaRequest, PlexUser, Settings
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
@@ -17,7 +17,7 @@ from ..utils import get_or_404
 # Réutilise la validation du mode de notification définie dans settings_api
 from .settings_api import _validate_series_notify_modes
 
-router = APIRouter(prefix="/api", tags=["users"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/api", tags=["users"], dependencies=[Depends(require_admin)])
 
 
 class UserCreate(BaseModel):
@@ -38,6 +38,9 @@ class UserCreate(BaseModel):
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
+    role: str = "user"
+    can_login: bool = True
+    auto_approve: bool = False
     sonarr_instance_id: Optional[int] = None
     radarr_instance_id: Optional[int] = None
 
@@ -56,6 +59,11 @@ def _user_source_label(user: PlexUser) -> str:
     if user.seer_user_id:
         return "RSS + Seer"
     return "RSS"
+
+
+def _validate_portal_profile(payload: dict) -> None:
+    if payload.get("role") not in ("admin", "user"):
+        raise HTTPException(400, "Role utilisateur invalide.")
 
 
 def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
@@ -244,6 +252,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 def create_user(data: UserCreate, db: Session = Depends(get_db)):
     payload = data.model_dump()
     _validate_series_notify_modes(payload)
+    _validate_portal_profile(payload)
     existing = db.query(PlexUser).filter(PlexUser.plex_user_id == data.plex_user_id).first()
     if existing:
         raise HTTPException(409, "User already exists")
@@ -259,6 +268,7 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
     user = get_or_404(db, PlexUser, user_id, "User not found")
     payload = data.model_dump()
     _validate_series_notify_modes(payload)
+    _validate_portal_profile(payload)
     for k, v in payload.items():
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes

@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
-from app.dependencies import require_auth
+from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
 from app.routers import email_templates as email_templates_router
@@ -47,8 +47,10 @@ def db():
 @pytest.fixture()
 def client(db):
     app.dependency_overrides[pages_router.require_auth] = lambda: None
-    app.dependency_overrides[email_templates_router.require_auth] = lambda: None
+    app.dependency_overrides[pages_router.require_admin] = lambda: None
+    app.dependency_overrides[email_templates_router.require_admin] = lambda: None
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
     yield c

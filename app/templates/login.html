@@ -313,10 +313,36 @@
           </div>
         </div>
 
+        <div>
+          <label class="form-label" for="otp_code">Code 2FA</label>
+          <div class="input-group-custom">
+            <i class="bi bi-shield-lock-fill input-icon"></i>
+            <input
+              type="text"
+              id="otp_code"
+              name="otp_code"
+              class="form-control"
+              placeholder="123456"
+              autocomplete="one-time-code"
+              inputmode="numeric"
+              pattern="[0-9 ]{6,12}"
+            >
+          </div>
+        </div>
+
         <button type="submit" class="btn-login" id="btn-submit">
           <i class="bi bi-box-arrow-in-right me-2"></i>Se connecter
         </button>
       </form>
+
+      <div style="display:flex;align-items:center;gap:12px;margin:22px 0 18px;color:#444;font-size:.75rem">
+        <span style="flex:1;height:1px;background:rgba(255,255,255,.08)"></span>OU<span style="flex:1;height:1px;background:rgba(255,255,255,.08)"></span>
+      </div>
+
+      <button type="button" class="btn-login" id="btn-plex" style="background:linear-gradient(135deg,#e5a00d,#cc7b19);color:#111">
+        <i class="bi bi-collection-play-fill me-2"></i>Se connecter avec Plex
+      </button>
+      <p id="plex-status" style="text-align:center;color:#888;font-size:.8rem;margin-top:12px;min-height:1rem"></p>
     </div>
 
     <div class="login-footer">
@@ -340,6 +366,54 @@
       const btn = document.getElementById('btn-submit');
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Connexion…';
+    });
+
+    // Connexion Plex SSO : ouvre une popup vers Plex, puis interroge le backend.
+    const NEXT = new URLSearchParams(location.search).get('next') || '/';
+    const plexBtn = document.getElementById('btn-plex');
+    const plexStatus = document.getElementById('plex-status');
+    let _pollTimer = null;
+
+    plexBtn.addEventListener('click', async () => {
+      plexBtn.disabled = true;
+      plexStatus.textContent = 'Ouverture de Plex…';
+      try {
+        const r = await fetch('/login/plex/pin', { method: 'POST' });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur Plex');
+        const { id, auth_url } = await r.json();
+        const popup = window.open(auth_url, 'plexAuth', 'width=600,height=720');
+        plexStatus.textContent = 'Validez la connexion dans la fenêtre Plex…';
+
+        let elapsed = 0;
+        _pollTimer = setInterval(async () => {
+          elapsed += 2;
+          if (elapsed > 180 || (popup && popup.closed && elapsed > 4)) {
+            clearInterval(_pollTimer);
+            plexBtn.disabled = false;
+            plexStatus.textContent = popup && popup.closed ? 'Fenêtre fermée.' : 'Délai dépassé.';
+            return;
+          }
+          try {
+            const c = await fetch('/login/plex/check/' + id);
+            if (c.status === 403) {
+              clearInterval(_pollTimer);
+              plexStatus.textContent = (await c.json()).detail || 'Compte non autorisé.';
+              return;
+            }
+            if (!c.ok) return;
+            const d = await c.json();
+            if (d.authenticated) {
+              clearInterval(_pollTimer);
+              if (popup && !popup.closed) popup.close();
+              plexStatus.textContent = 'Connecté ! Redirection…';
+              location.href = NEXT.startsWith('/') ? NEXT : '/';
+            }
+          } catch (e) { /* réseau transitoire, on réessaie */ }
+        }, 2000);
+      } catch (e) {
+        plexBtn.disabled = false;
+        plexStatus.textContent = 'Erreur : ' + e.message;
+      }
     });
   </script>
 </body>

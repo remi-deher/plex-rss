@@ -3,12 +3,12 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import current_user, require_admin, require_auth
 from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import _notify, check_arr_statuses, poll_watchlists
 from ..services import radarr, sonarr
@@ -17,6 +17,28 @@ from ..utils import get_or_404, now_utc_naive, parse_email_list
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["requests"], dependencies=[Depends(require_auth)])
+
+
+def _caller_plex_user_id(request, db: Session) -> str | None:
+    caller = current_user(request, db)
+    if not caller or caller.get("is_owner") or caller.get("role") == "admin":
+        return None
+    return caller.get("plex_user_id")
+
+
+def _ensure_request_visible(req: MediaRequest, request, db: Session) -> None:
+    uid = _caller_plex_user_id(request, db)
+    if not uid:
+        return
+    if req.plex_user_id == uid:
+        return
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+    except Exception:
+        extras = []
+    if any(e.get("plex_user_id") == uid for e in extras):
+        return
+    raise HTTPException(status_code=404, detail="Request not found")
 
 
 class BulkAction(BaseModel):
@@ -56,7 +78,7 @@ class RequestersUpdate(BaseModel):
     requester_ids: list[str]
 
 
-@router.put("/requests/{request_id}/requesters")
+@router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_admin)])
 def update_requesters(request_id: int, body: RequestersUpdate, db: Session = Depends(get_db)):
     """Définit la liste des demandeurs d'une demande (le 1er = demandeur principal,
     les suivants = demandeurs additionnels). Modification manuelle : **aucun mail de
@@ -99,8 +121,15 @@ def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
 
 
 @router.get("/requests")
-def list_requests(query: Optional[str] = None, db: Session = Depends(get_db)):
+def list_requests(query: Optional[str] = None, request: Request = None, db: Session = Depends(get_db)):
     q = db.query(MediaRequest)
+    uid = _caller_plex_user_id(request, db) if request else None
+    if uid:
+        q = q.filter(
+            (MediaRequest.plex_user_id == uid)
+            | (MediaRequest.extra_requesters.like(f'%"plex_user_id": "{uid}"%'))
+            | (MediaRequest.extra_requesters.like(f'%"plex_user_id":"{uid}"%'))
+        )
     if query:
         q = q.filter(MediaRequest.title.ilike(f"%{query}%"))
     return q.order_by(MediaRequest.requested_at.desc()).limit(200).all()
@@ -141,9 +170,26 @@ async def plex_library_search(query: str, db: Session = Depends(get_db)):
         return []
 
 
+@router.get("/requests/pending", dependencies=[Depends(require_admin)])
+def list_pending_requests(db: Session = Depends(get_db)):
+    """File des demandes en attente de validation (admin). Déclaré avant
+    /requests/{request_id} pour ne pas être capté par le param int."""
+    from ..serializers import serialize_media_request
+
+    reqs = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.status == RequestStatus.pending_approval)
+        .order_by(MediaRequest.requested_at.desc())
+        .all()
+    )
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    return [serialize_media_request(r, users) for r in reqs]
+
+
 @router.get("/requests/{request_id}")
-async def get_request(request_id: int, db: Session = Depends(get_db)):
+async def get_request(request_id: int, request: Request, db: Session = Depends(get_db)):
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    _ensure_request_visible(req, request, db)
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
 
     # Utilise le sérialiseur centralisé pour les formats de dates
@@ -190,7 +236,7 @@ async def get_request(request_id: int, db: Session = Depends(get_db)):
     return d
 
 
-@router.post("/requests/bulk/retry")
+@router.post("/requests/bulk/retry", dependencies=[Depends(require_admin)])
 async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
     """Repasse plusieurs demandes en pending et lance un polling."""
     reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
@@ -205,7 +251,7 @@ async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
     return {"status": "success", "count": count}
 
 
-@router.post("/requests/bulk/mark-processed")
+@router.post("/requests/bulk/mark-processed", dependencies=[Depends(require_admin)])
 def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
     reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
@@ -220,7 +266,7 @@ def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)
     return {"status": "success", "count": len(reqs)}
 
 
-@router.post("/requests/bulk/delete")
+@router.post("/requests/bulk/delete", dependencies=[Depends(require_admin)])
 async def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
     """Supprime plusieurs demandes définitivement.
 
@@ -245,7 +291,71 @@ async def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
     return {"status": "success", "count": count, "skipped": skipped}
 
 
-@router.post("/requests/{request_id}/retry")
+class RejectBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/requests/{request_id}/approve", dependencies=[Depends(require_admin)])
+async def approve_request(request_id: int, request: Request, db: Session = Depends(get_db)):
+    """Valide une demande en attente : la transmet à *arr et bascule en sent_to_arr."""
+    from ..services.watchlist_poller import _submit_to_arr
+
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    if req.status != RequestStatus.pending_approval:
+        raise HTTPException(400, "Seules les demandes en attente de validation peuvent être approuvées.")
+
+    settings = db.query(Settings).first()
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    item = {
+        "title": req.title,
+        "year": req.year,
+        "media_type": req.media_type,
+        "tmdb_id": req.tmdb_id,
+        "tvdb_id": req.tvdb_id,
+        "imdb_id": req.imdb_id,
+    }
+    try:
+        arr_id, _already, arr_slug = await _submit_to_arr(settings, item, user_obj, db=db)
+    except Exception as e:
+        raise HTTPException(502, f"Échec de transmission à *arr : {e}")
+
+    # Source de suivi : Seer si l'envoi n'a pas transité par une instance *arr ni un torrent.
+    seer_used = arr_id is not None and not item.get("_arr_instance_id") and not item.get("_torrent_hash")
+    req.source = "seer" if seer_used else "manual_search"
+    req.status = RequestStatus.sent_to_arr
+    req.arr_id = arr_id if isinstance(arr_id, int) else None
+    req.arr_slug = arr_slug
+    req.arr_instance_id = item.get("_arr_instance_id")
+    if item.get("_torrent_hash"):
+        req.torrent_hash = item.get("_torrent_hash")
+        req.download_client_id = item.get("_download_client_id")
+    caller = current_user(request, db)
+    req.approved_by = (caller or {}).get("plex_user_id") or "admin"
+    req.approved_at = now_utc_naive()
+    req.rejected_reason = None
+    db.commit()
+
+    if settings:
+        _notify("request", settings, req, db)
+    return {"ok": True, "status": "sent_to_arr", "id": req.id}
+
+
+@router.post("/requests/{request_id}/reject", dependencies=[Depends(require_admin)])
+def reject_request(request_id: int, body: RejectBody, request: Request, db: Session = Depends(get_db)):
+    """Refuse une demande en attente (conservée en historique avec le motif)."""
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    if req.status != RequestStatus.pending_approval:
+        raise HTTPException(400, "Seules les demandes en attente de validation peuvent être refusées.")
+    req.status = RequestStatus.rejected
+    req.rejected_reason = (body.reason or "").strip() or None
+    caller = current_user(request, db)
+    req.approved_by = (caller or {}).get("plex_user_id") or "admin"
+    req.approved_at = now_utc_naive()
+    db.commit()
+    return {"ok": True, "status": "rejected", "id": req.id}
+
+
+@router.post("/requests/{request_id}/retry", dependencies=[Depends(require_admin)])
 async def retry_request(request_id: int, db: Session = Depends(get_db)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -257,7 +367,7 @@ async def retry_request(request_id: int, db: Session = Depends(get_db)):
     return {"status": "retrying"}
 
 
-@router.post("/requests/retry-failed")
+@router.post("/requests/retry-failed", dependencies=[Depends(require_admin)])
 async def retry_all_failed(db: Session = Depends(get_db)):
     """Repasse toutes les demandes 'failed' en 'pending' et déclenche un polling."""
     failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").all()
@@ -269,7 +379,7 @@ async def retry_all_failed(db: Session = Depends(get_db)):
     return {"status": "ok", "retried": count}
 
 
-@router.post("/requests/recalculate-dates")
+@router.post("/requests/recalculate-dates", dependencies=[Depends(require_admin)])
 async def recalculate_dates():
     """Re-joue sync_seer_requests pour corriger requested_at et available_at depuis Seer."""
     from ..scheduler import sync_seer_requests
@@ -278,7 +388,7 @@ async def recalculate_dates():
     return {"status": "ok"}
 
 
-@router.post("/requests/merge-duplicates")
+@router.post("/requests/merge-duplicates", dependencies=[Depends(require_admin)])
 def merge_duplicates_endpoint():
     """Fusionne les MediaRequest en double (même tmdb_id toutes sources)."""
     from scripts.merge_duplicate_requests import merge_duplicates
@@ -287,7 +397,7 @@ def merge_duplicates_endpoint():
     return {"status": "ok"}
 
 
-@router.post("/requests/poll")
+@router.post("/requests/poll", dependencies=[Depends(require_admin)])
 async def trigger_poll():
     """Déclenche manuellement le polling des watchlists ET la vérification des statuts *arr."""
     await poll_watchlists()
@@ -297,7 +407,11 @@ async def trigger_poll():
 
 @router.delete("/requests/{request_id}")
 async def delete_request(
-    request_id: int, delete_from_arr: bool = False, delete_files: bool = False, db: Session = Depends(get_db)
+    request_id: int,
+    delete_from_arr: bool = False,
+    delete_files: bool = False,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
 ):
     """Supprime une demande. Si `delete_from_arr=True`, supprime aussi le média dans
     Sonarr/Radarr — mais seulement si cette suppression réussit (ou que le média y est
@@ -319,7 +433,7 @@ def mark_request_processed(
     request_id: int,
     event: str = "available",
     db: Session = Depends(get_db),
-    _: None = Depends(require_auth),
+    _: None = Depends(require_admin),
 ):
     """Envoie manuellement le mail "demande" ou "disponible" pour une requête."""
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
