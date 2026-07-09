@@ -56,6 +56,10 @@ class SettingsUpdate(BaseModel):
     smtp_password: Optional[str] = None
     smtp_from: Optional[str] = None
     smtp_tls: Optional[bool] = None
+    admin_notification_email: Optional[str] = None
+    email_on_request: Optional[bool] = None
+    email_on_available: Optional[bool] = None
+    email_on_failure: Optional[bool] = None
     email_recipients: Optional[str] = None
     email_send_available: Optional[bool] = None
     email_send_request: Optional[bool] = None
@@ -102,6 +106,8 @@ class SettingsUpdate(BaseModel):
     seer_enabled: Optional[bool] = None
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
+    seer_send_requests: Optional[bool] = None
+    seer_fallback_arr: Optional[bool] = None
     # --- TMDB (découverte) ---
     tmdb_api_key: Optional[str] = None
     # --- Retention & Purges ---

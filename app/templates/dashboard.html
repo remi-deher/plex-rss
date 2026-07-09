@@ -1,6 +1,46 @@
 {% extends "base.html" %}
 {% set page = "dashboard" %}
 {% block content %}
+<style>
+  .recent-timeline {
+    max-height: 300px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .timeline-event {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: .75rem;
+    padding: .7rem 0;
+    border-bottom: 1px solid var(--pr-border);
+    color: inherit;
+  }
+  .timeline-event:hover { background: var(--pr-surface-2); }
+  .timeline-event:last-child { border-bottom: 0; }
+  .timeline-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--pr-surface-2);
+  }
+  .timeline-title { min-width: 0; }
+  .timeline-meta {
+    color: var(--pr-text-muted);
+    font-size: 12px;
+  }
+  .timeline-time {
+    color: var(--pr-text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    padding-top: .25rem;
+  }
+  @media (max-width: 767px) {
+    .timeline-event { grid-template-columns: 30px minmax(0, 1fr); }
+    .timeline-time { grid-column: 2; padding-top: 0; }
+  }
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
@@ -43,6 +83,21 @@
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-radarr">
     <div class="fs-4 mb-1"><i class="bi bi-camera-video"></i></div>
     <div class="fw-bold">Radarr</div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-prowlarr">
+    <div class="fs-4 mb-1"><i class="bi bi-search"></i></div>
+    <div class="fw-bold">Prowlarr</div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-plex">
+    <div class="fs-4 mb-1"><i class="bi bi-hdd-network"></i></div>
+    <div class="fw-bold">Plex API</div>
+    <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-seer">
+    <div class="fs-4 mb-1"><i class="bi bi-compass"></i></div>
+    <div class="fw-bold">Seer</div>
     <div class="health-badge mt-1"><span class="skel skel-line mx-auto" style="width:54px;height:18px;margin-bottom:0"></span></div>
   </div></div>
   <div class="col-6 col-md-3"><div class="card p-3 text-center health-card" id="h-smtp">
@@ -102,13 +157,13 @@
   <canvas id="timelineChart" height="80"></canvas>
 </div>
 
-<!-- Journal d'activite -->
+<!-- Chronologie recente -->
 <div class="card p-3 mb-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h6 class="mb-0"><i class="bi bi-activity me-2 text-warning"></i>Activite recente</h6>
+    <h6 class="mb-0"><i class="bi bi-signpost-split me-2 text-warning"></i>Chronologie recente</h6>
     <span class="text-muted small" id="activity-updated"></span>
   </div>
-  <div id="activity-log" style="max-height:220px;overflow-y:auto">
+  <div id="activity-log" class="recent-timeline">
     <div class="py-1"><span class="skel skel-line" style="width:90%"></span><span class="skel skel-line" style="width:75%"></span><span class="skel skel-line" style="width:82%"></span></div>
   </div>
 </div>
@@ -219,13 +274,34 @@ async function loadHealth(manual = false) {
     const services = d.services || d;
     _healthCheckedAt = d.checked_at ? new Date(d.checked_at) : new Date();
     refreshHealthAge();
-    const map = { 'h-sonarr': services.sonarr, 'h-radarr': services.radarr, 'h-smtp': services.smtp, 'h-rss': services.rss };
+    const map = {
+      'h-sonarr': services.sonarr,
+      'h-radarr': services.radarr,
+      'h-prowlarr': services.prowlarr,
+      'h-plex': services.plex,
+      'h-seer': services.seer,
+      'h-smtp': services.smtp,
+      'h-rss': services.rss
+    };
+    const actionBtn = (info, fallbackLabel) => {
+      const url = info.action_url || '/settings';
+      const label = info.action_label || fallbackLabel || 'Configurer';
+      return `<div class="mt-2"><a class="btn btn-xs btn-outline-warning py-0 px-2" href="${url}" style="font-size:11px">${label}</a></div>`;
+    };
     for (const [id, info] of Object.entries(map)) {
       const el = document.querySelector(`#${id} .health-badge`);
       const card = document.getElementById(id);
-      if (info.ok === null) {
-        el.innerHTML = `<span class="badge bg-secondary">Non configuré</span>`
-          + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '');
+      if (!el || !card || !info) continue;
+      const state = info.state || (info.ok === null ? 'non_configured' : (info.ok ? 'ok' : 'error'));
+      if (state === 'disabled') {
+        el.innerHTML = `<span class="badge bg-secondary">D&eacute;sactiv&eacute;</span>`
+          + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+          + actionBtn(info, 'Activer');
+        card.style.borderColor = '';
+      } else if (state === 'non_configured' || info.ok === null) {
+        el.innerHTML = `<span class="badge bg-secondary">Non configur&eacute;</span>`
+          + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+          + actionBtn(info, 'Configurer');
         card.style.borderColor = '';
       } else if (info.ok) {
         el.innerHTML = `<span class="badge bg-success" title="${info.message}">OK</span>`
@@ -233,7 +309,8 @@ async function loadHealth(manual = false) {
         card.style.borderColor = '#198754';
       } else {
         el.innerHTML = `<span class="badge bg-danger">Erreur</span>`
-          + (info.message ? `<div class="text-danger mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '');
+          + (info.message ? `<div class="text-danger mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+          + actionBtn(info, 'Corriger');
         card.style.borderColor = '#dc3545';
       }
     }
@@ -342,7 +419,7 @@ async function loadPollTimer() {
   } catch(e) { document.getElementById('poll-countdown').textContent = ''; }
 }
 
-async function loadActivity() {
+async function loadActivityLegacy() {
   try {
     const events = await fetch('/api/activity').then(r => r.json());
     const el = document.getElementById('activity-log');
@@ -463,6 +540,87 @@ async function checkNewAvailable() {
   try {
     const items = await fetch(`/api/notifications/recent-available?since=${encodeURIComponent(since)}`).then(r => r.json());
     items.forEach(item => showToast(`Disponible : <strong>${item.title}</strong>`, 'success'));
+  } catch(e) {}
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+function timelineIcon(type) {
+  const icons = {
+    detected: ['bi-eye-fill', 'text-warning'],
+    request: ['bi-eye-fill', 'text-warning'],
+    sent: ['bi-send-fill', 'text-primary'],
+    available: ['bi-check-circle-fill', 'text-success'],
+    vf_available: ['bi-translate', 'text-info'],
+    failed: ['bi-x-circle-fill', 'text-danger'],
+    notification: ['bi-bell-fill', 'text-warning'],
+    notification_failed: ['bi-bell-slash-fill', 'text-danger']
+  };
+  return icons[type] || ['bi-dot', 'text-muted'];
+}
+
+function mediaTypeLabel(type) {
+  if (type === 'show') return 'Serie';
+  if (type === 'movie') return 'Film';
+  return 'Media';
+}
+
+function sourceLabel(source) {
+  const sources = {
+    rss: 'RSS',
+    api: 'Plex API',
+    seer: 'Seer',
+    manual: 'Manuel',
+    discover: 'Discover',
+    notification: 'Notification'
+  };
+  return sources[source] || source || 'Source inconnue';
+}
+
+async function loadActivity() {
+  try {
+    const events = await fetch('/api/activity').then(r => r.json());
+    const el = document.getElementById('activity-log');
+    if (!events.length) {
+      el.innerHTML = '<p class="text-muted small mb-0">Aucune activite recente.</p>';
+      return;
+    }
+
+    el.innerHTML = events.map(e => {
+      const d = e.time ? new Date(e.time) : null;
+      const [icon, iconClass] = timelineIcon(e.type);
+      const title = escapeHtml(e.title || 'Sans titre');
+      const label = escapeHtml(e.label || e.type || 'Evenement');
+      const typeLabel = escapeHtml(mediaTypeLabel(e.media_type));
+      const user = escapeHtml(e.user || '?');
+      const source = escapeHtml(sourceLabel(e.source));
+      const detail = e.detail ? ` &middot; ${escapeHtml(e.detail)}` : '';
+      const arr = e.arr_slug ? ` &middot; ${escapeHtml(e.arr_slug)}` : '';
+      const href = e.request_id ? `/library?view=requests&search=${encodeURIComponent(e.title || '')}` : '/library?view=requests';
+      const hasDate = d && !Number.isNaN(d.getTime());
+      const timeTitle = hasDate ? d.toLocaleString('fr-FR') : '';
+      const timeText = hasDate ? formatRelTime(d) : '';
+      return `<a href="${href}" class="timeline-event text-decoration-none">
+        <div class="timeline-icon"><i class="bi ${icon} ${iconClass}"></i></div>
+        <div class="timeline-title">
+          <div class="d-flex flex-wrap align-items-center gap-1">
+            <span class="fw-semibold text-truncate" style="color:var(--bs-body-color)">${title}</span>
+            <span class="badge bg-dark border border-secondary">${label}</span>
+          </div>
+          <div class="timeline-meta">${typeLabel} &middot; ${user} &middot; ${source}${detail}${arr}</div>
+        </div>
+        <div class="timeline-time" title="${timeTitle}">${timeText}</div>
+      </a>`;
+    }).join('');
+    document.getElementById('activity-updated').textContent = 'Mis a jour ' + formatRelTime(new Date());
   } catch(e) {}
 }
 

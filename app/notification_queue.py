@@ -12,12 +12,13 @@ Cycle de vie :
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
-from .models import MediaRequest, NotificationLog, PlexUser, Settings
+from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import (
     send_available_notification,
     send_available_vf_notification,
@@ -76,11 +77,79 @@ EMAIL_SENDERS = {
     "failed": lambda settings, req, recipient, reason, display_name: send_failure_notification(
         settings, req, recipient, reason, display_name
     ),
+    "failure": lambda settings, req, recipient, reason, display_name: send_failure_notification(
+        settings, req, recipient, reason, display_name
+    ),
 }
 
+
+def _event_group(event: str) -> str:
+    if event == "request":
+        return "request"
+    if event in ("failed", "failure"):
+        return "failure"
+    return "available"
+
+
+def _push_allowed(settings: Settings, channel: str, event: str) -> bool:
+    if not getattr(settings, f"{channel}_enabled", True):
+        return False
+    return bool(getattr(settings, f"{channel}_send_{_event_group(event)}", True))
+
+
 def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
-    """Empile une notification dans la queue (synchrone, sans await)."""
-    _queue.put_nowait((event, req_id, recipients, reason))
+    """Empile une notification dans la queue (synchrone, sans await).
+
+    Persiste d'abord la notification en base (`PendingNotification`) pour qu'elle
+    survive à un crash/redémarrage entre l'empilement et son traitement par le worker
+    (la queue asyncio en mémoire serait sinon vidée silencieusement). La ligne est
+    supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
+    """
+    pending_id = None
+    db = SessionLocal()
+    try:
+        row = PendingNotification(event=event, req_id=req_id, recipients=json.dumps(recipients), reason=reason)
+        db.add(row)
+        db.commit()
+        pending_id = row.id
+    except Exception as e:
+        logger.error(f"Impossible de persister la notification en attente [{event}] req#{req_id}: {e}")
+    finally:
+        db.close()
+    _queue.put_nowait((pending_id, event, req_id, recipients, reason))
+
+
+def _delete_pending(pending_id: int | None):
+    if pending_id is None:
+        return
+    db = SessionLocal()
+    try:
+        db.query(PendingNotification).filter(PendingNotification.id == pending_id).delete()
+        db.commit()
+    except Exception as e:
+        logger.error(f"Impossible de supprimer la notification en attente #{pending_id}: {e}")
+    finally:
+        db.close()
+
+
+def _load_pending():
+    """Recharge dans la queue asyncio les notifications persistées non traitées
+    (typiquement après un redémarrage/crash survenu entre `enqueue()` et leur envoi)."""
+    db = SessionLocal()
+    try:
+        rows = db.query(PendingNotification).order_by(PendingNotification.created_at).all()
+        for row in rows:
+            try:
+                recipients = json.loads(row.recipients)
+            except Exception:
+                recipients = []
+            _queue.put_nowait((row.id, row.event, row.req_id, recipients, row.reason or ""))
+        if rows:
+            logger.info(f"{len(rows)} notification(s) en attente rechargée(s) après redémarrage")
+    except Exception as e:
+        logger.error(f"Impossible de recharger les notifications en attente: {e}")
+    finally:
+        db.close()
 
 
 async def _send_with_retry(
@@ -159,16 +228,20 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         db.commit()
 
         # Push global (Discord + Telegram + ntfy + Gotify configurés dans Settings)
-        await send_discord(settings, req, event)
-        await send_telegram(settings, req, event)
-        await send_ntfy_notif(settings, req, event)
-        await send_gotify_notif(settings, req, event)
+        if _push_allowed(settings, "discord", event):
+            await send_discord(settings, req, event)
+        if _push_allowed(settings, "telegram", event):
+            await send_telegram(settings, req, event)
+        if _push_allowed(settings, "ntfy", event):
+            await send_ntfy_notif(settings, req, event)
+        if _push_allowed(settings, "gotify", event):
+            await send_gotify_notif(settings, req, event)
 
         # Push par utilisateur (webhook Discord / chat_id Telegram individuels)
         if user_obj:
-            if user_obj.discord_webhook_url:
+            if user_obj.discord_webhook_url and _push_allowed(settings, "discord", event):
                 await send_discord_to_webhook(user_obj.discord_webhook_url, req, event)
-            if user_obj.telegram_chat_id and settings.telegram_bot_token:
+            if user_obj.telegram_chat_id and settings.telegram_bot_token and _push_allowed(settings, "telegram", event):
                 await send_telegram_to_chat(settings.telegram_bot_token, user_obj.telegram_chat_id, req, event)
 
     except Exception as e:
@@ -181,8 +254,11 @@ async def _worker():
     logger.info("Notification worker démarré")
     while True:
         try:
-            event, req_id, recipients, reason = await _queue.get()
-            await _process(event, req_id, recipients, reason)
+            pending_id, event, req_id, recipients, reason = await _queue.get()
+            try:
+                await _process(event, req_id, recipients, reason)
+            finally:
+                _delete_pending(pending_id)
         except asyncio.CancelledError:
             logger.info("Notification worker arrêté")
             break
@@ -197,6 +273,7 @@ async def _worker():
 
 def start_worker():
     global _worker_task
+    _load_pending()
     _worker_task = asyncio.create_task(_worker())
     return _worker_task
 

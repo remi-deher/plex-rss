@@ -39,6 +39,7 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "source": req.source,
         "plex_user_id": req.plex_user_id,
         "plex_user": users.get(req.plex_user_id, req.plex_user or req.plex_user_id),
+        "requester_ids": requester_ids,
         "requesters": requesters,
         "requested_by": ", ".join(requesters),
         "extra_requesters": _json.dumps(extras),

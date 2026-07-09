@@ -1,29 +1,55 @@
 {% extends "base.html" %}
 {% set page = "users" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2 class="mb-0"><i class="bi bi-people me-2"></i>Utilisateurs</h2>
+<section class="users-shell mb-3">
+  <div>
+    <div class="text-warning small text-uppercase fw-semibold mb-1" style="letter-spacing:.06em">Administration</div>
+    <h2 class="mb-1"><i class="bi bi-people me-2"></i>Utilisateurs</h2>
+    <div class="text-muted">
+      Un utilisateur desactive reste dans l'historique, mais il n'apparait plus dans Discover et ses demandes automatiques sont ignorees.
+    </div>
+  </div>
   <div class="d-flex gap-2">
     {% if seer_enabled %}
     <button id="btn-seer-sync" class="btn btn-outline-info btn-sm" onclick="syncSeer()">
       <i class="bi bi-cloud-arrow-down me-1"></i>Sync Seer
     </button>
     {% endif %}
-    <button class="btn btn-warning" onclick="openAdd()">
+    <button class="btn btn-warning btn-sm" onclick="openAdd()">
       <i class="bi bi-plus-lg me-1"></i>Ajouter
     </button>
   </div>
+</section>
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-3"><div class="user-stat"><span>Total</span><strong>{{ user_summary.total }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="user-stat"><span>Actifs</span><strong class="text-success">{{ user_summary.enabled }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="user-stat"><span>Desactives</span><strong class="text-secondary">{{ user_summary.disabled }}</strong></div></div>
+  <div class="col-6 col-lg-3"><div class="user-stat"><span>Lies a Seer</span><strong class="text-info">{{ user_summary.seer_linked }}</strong></div></div>
 </div>
 
-<!-- Barre de tri + compteur -->
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div class="text-muted small">{{ users | length }} utilisateur{% if users | length > 1 %}s{% endif %}</div>
-  <div class="d-flex align-items-center gap-2">
-    <label class="text-muted small mb-0">Trier par</label>
-    <select class="form-select form-select-sm bg-dark border-secondary text-light" style="width:auto" id="userSort" onchange="sortUsers()">
+<div class="users-toolbar d-flex flex-column flex-xl-row gap-2 align-items-stretch align-items-xl-center justify-content-between mb-3">
+  <div class="input-group input-group-sm" style="max-width:360px">
+    <span class="input-group-text bg-dark border-secondary text-muted"><i class="bi bi-search"></i></span>
+    <input type="search" id="userSearch" class="form-control bg-dark border-secondary text-light" placeholder="Rechercher un utilisateur" oninput="filterUsers()">
+  </div>
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <select class="form-select form-select-sm bg-dark border-secondary text-light user-filter" id="userStatusFilter" onchange="filterUsers()">
+      <option value="">Tous les statuts</option>
+      <option value="active">Actifs</option>
+      <option value="disabled">Desactives</option>
+    </select>
+    <select class="form-select form-select-sm bg-dark border-secondary text-light user-filter" id="userSourceFilter" onchange="filterUsers()">
+      <option value="">Toutes les sources</option>
+      <option value="rss">RSS</option>
+      <option value="api">Plex API</option>
+      <option value="linked">Plex + Seer</option>
+      <option value="seer">Seer only</option>
+    </select>
+    <select class="form-select form-select-sm bg-dark border-secondary text-light user-filter" id="userSort" onchange="sortUsers()">
       <option value="name">Nom</option>
       <option value="requests">Demandes</option>
-      <option value="status">Actif / Ignoré</option>
+      <option value="status">Statut</option>
     </select>
   </div>
 </div>
@@ -36,13 +62,15 @@
   {% set ci = u.id % 5 %}
   {% set initials = ((u.custom_name or u.display_name or u.plex_user_id)[:1] | upper) %}
   <div class="col-md-6 col-xl-4" id="card-wrapper-{{ u.id }}">
-    <div class="card h-100 user-card" role="button" tabindex="0"
+    <div class="card h-100 user-card{% if not u.enabled %} is-disabled{% endif %}" role="button" tabindex="0"
          data-user-id="{{ u.id }}"
          data-source="{{ u.source or 'rss' }}"
+         data-source-kind="{% if u.source == 'seer' %}seer{% elif u.seer_user_id and u.seer_active %}linked{% elif u.source == 'api' %}api{% else %}rss{% endif %}"
          data-seer-user-id="{{ u.seer_user_id or '' }}"
          data-name="{{ (u.custom_name or u.display_name or u.plex_user_id) | lower }}"
          data-requests="{{ c.get('total', 0) }}"
          data-enabled="{{ '1' if u.enabled else '0' }}"
+         data-status="{{ 'active' if u.enabled else 'disabled' }}"
          style="cursor:pointer; transition:border-color .15s, transform .15s"
          onclick="openUserHub({{ u.id }})" onkeydown="if(event.key==='Enter'){openUserHub({{ u.id }})}">
       <div class="card-body d-flex gap-3 align-items-center">
@@ -58,17 +86,23 @@
             {% if u.source == 'seer' %}
             <span class="badge bg-info text-dark card-source-badge" style="font-size:9px"><i class="bi bi-stars me-1"></i>Seer</span>
             {% elif u.seer_user_id and u.seer_active %}
-            <span class="badge text-white card-source-badge" style="font-size:9px;background:#6f42c1"><i class="bi bi-intersect me-1"></i>RSS+Seer</span>
+            <span class="badge text-white card-source-badge" style="font-size:9px;background:#6f42c1"><i class="bi bi-intersect me-1"></i>{% if u.source == 'api' %}Plex API+Seer{% else %}RSS+Seer{% endif %}</span>
+            {% elif u.source == 'api' %}
+            <span class="badge bg-primary card-source-badge" style="font-size:9px"><i class="bi bi-cloud me-1"></i>Plex API</span>
             {% else %}
             <span class="badge bg-secondary card-source-badge" style="font-size:9px"><i class="bi bi-rss me-1"></i>RSS</span>
             {% endif %}
-            {% if u.source != 'seer' %}
-              {% if u.enabled %}<span class="badge bg-success" style="font-size:9px">Actif</span>
-              {% else %}<span class="badge" style="font-size:9px;background:#444">Ignoré</span>{% endif %}
+            {% if u.enabled %}
+            <span class="badge bg-success card-status-badge" style="font-size:9px">Actif</span>
+            {% else %}
+            <span class="badge bg-secondary card-status-badge" style="font-size:9px">Desactive</span>
             {% endif %}
             {% if u.notify_admin %}<span class="badge bg-warning text-dark" style="font-size:9px"><i class="bi bi-bell-fill"></i></span>{% endif %}
             {% if not u.notification_email %}<span class="badge bg-warning bg-opacity-25 text-warning" style="font-size:9px" title="Aucun email de notification"><i class="bi bi-envelope-exclamation"></i></span>{% endif %}
           </div>
+          {% if not u.enabled %}
+          <div class="text-muted small mt-1 card-status-hint"><i class="bi bi-eye-slash me-1"></i>Absent de Discover et ignore par les automatisations.</div>
+          {% endif %}
         </div>
 
         <div class="text-end flex-shrink-0">
@@ -101,6 +135,7 @@
       <div class="modal-body">
         <ul class="nav nav-tabs mb-3" role="tablist">
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#hub-tab-profil" type="button"><i class="bi bi-person me-1"></i>Profil</button></li>
+          <li class="nav-item" id="hub-tabli-diagnostic"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-diagnostic" type="button"><i class="bi bi-clipboard-pulse me-1"></i>Diagnostic</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-notif" type="button"><i class="bi bi-bell me-1"></i>Notifications</button></li>
           <li class="nav-item" id="hub-tabli-seer"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-seer" type="button"><i class="bi bi-intersect me-1"></i>Seer</button></li>
           <li class="nav-item" id="hub-tabli-activity"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-activity" type="button"><i class="bi bi-graph-up me-1"></i>Activité</button></li>
@@ -134,6 +169,16 @@
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="fEnabled" checked>
               <label class="form-check-label" for="fEnabled">Traiter les demandes de cet utilisateur</label>
+            </div>
+            <div class="form-text">
+              Desactive : l'utilisateur disparait du selecteur Discover, les automatisations ignorent ses demandes, mais l'historique et la liaison Seer sont conserves.
+            </div>
+          </div>
+
+          <!-- Diagnostic -->
+          <div class="tab-pane fade" id="hub-tab-diagnostic">
+            <div id="hub-diagnostic">
+              <div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div>
             </div>
           </div>
 
@@ -310,6 +355,21 @@
 </div>
 
 <!-- Modal confirmation déliaison Seer -->
+<div class="modal fade" id="activityDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content" style="background:var(--pr-surface)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="activityDetailTitle"><i class="bi bi-bug me-2 text-warning"></i>Details provenance</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="activityDetailBody"></div>
+      <div class="modal-footer border-secondary">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="unlinkSeerModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content" style="background:var(--pr-surface)">
@@ -357,15 +417,119 @@
 
 {% block scripts %}
 <style>
+  .users-shell {
+    background: linear-gradient(135deg, rgba(229,160,13,.12), transparent 55%), var(--pr-surface);
+    border: 1px solid var(--pr-border);
+    border-radius: 8px;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .user-stat {
+    background: var(--pr-surface);
+    border: 1px solid var(--pr-border);
+    border-radius: 8px;
+    padding: .7rem .85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: .75rem;
+  }
+  .user-stat span { color: var(--pr-text-muted); font-size: .82rem; }
+  .user-stat strong { font-size: 1.15rem; }
+  .user-filter { width: auto; min-width: 150px; }
+  .diagnostic-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+  }
+  .diagnostic-effect, .diag-mini {
+    border: 1px solid var(--pr-border);
+    border-radius: 8px;
+    padding: .75rem;
+    background: var(--pr-bg);
+  }
+  .diagnostic-effect.is-warn { border-color: rgba(255,193,7,.45); }
+  .diag-mini {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    align-items: center;
+  }
+  .diag-mini span { color: var(--pr-text-muted); font-size: .8rem; }
+  .activity-list {
+    border: 1px solid var(--pr-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .activity-row {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .75rem;
+    background: var(--pr-bg);
+    border-bottom: 1px solid var(--pr-border);
+  }
+  .activity-row:last-child { border-bottom: 0; }
+  .activity-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    background: var(--pr-surface-2);
+    color: var(--pr-accent);
+    flex: 0 0 auto;
+  }
+  .activity-actions { width: 132px; }
+  .activity-actions .btn { padding: .15rem .45rem; font-size: .75rem; }
+  .detail-panel {
+    border: 1px solid var(--pr-border);
+    border-radius: 8px;
+    background: var(--pr-bg);
+    padding: .85rem;
+    height: 100%;
+  }
+  .detail-title {
+    color: var(--pr-accent);
+    font-size: .78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .5rem;
+  }
+  .detail-row {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .25rem 0;
+    border-bottom: 1px solid rgba(128,128,128,.12);
+  }
+  .detail-row:last-child { border-bottom: 0; }
+  .detail-row span { color: var(--pr-text-muted); font-size: .82rem; }
+  .detail-row strong { text-align: right; font-size: .82rem; overflow-wrap: anywhere; }
   .user-card:hover { border-color: var(--pr-accent) !important; transform: translateY(-2px); }
+  .user-card.is-disabled { opacity: .72; border-style: dashed; }
+  .user-card.is-disabled:hover { opacity: .95; }
+  @media (max-width: 767px) {
+    .user-filter { width: 100%; }
+    .diagnostic-grid { grid-template-columns: 1fr; }
+    .activity-row { align-items: flex-start; }
+    .activity-actions { width: auto; max-width: 98px; }
+    .users-toolbar .input-group { max-width: none !important; }
+  }
 </style>
 <script>
 let editingId = null;
 let _seerUsers = [];
 let _seerById = {};
+let _activityById = {};
 const hubModal = new bootstrap.Modal(document.getElementById('userHubModal'));
 
-document.addEventListener('DOMContentLoaded', () => { loadSeerUsers(); });
+document.addEventListener('DOMContentLoaded', () => { loadSeerUsers(); filterUsers(); });
 
 async function loadSeerUsers() {
   try {
@@ -443,6 +607,7 @@ function openAdd() {
   document.getElementById('btn-delete-user').style.display = 'none';
   document.getElementById('hub-tabli-seer').style.display = 'none';
   document.getElementById('hub-tabli-activity').style.display = 'none';
+  document.getElementById('hub-tabli-diagnostic').style.display = 'none';
   _showTab('#hub-tab-profil');
   hubModal.show();
 }
@@ -451,9 +616,11 @@ async function openUserHub(id) {
   editingId = id;
   document.getElementById('hub-tabli-seer').style.display = '';
   document.getElementById('hub-tabli-activity').style.display = '';
+  document.getElementById('hub-tabli-diagnostic').style.display = '';
   document.getElementById('btn-test-email').style.display = '';
   document.getElementById('btn-delete-user').style.display = '';
   document.getElementById('fUserId').readOnly = true;
+  document.getElementById('hub-diagnostic').innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div>';
   document.getElementById('hubTitle').textContent = 'Chargement…';
   document.getElementById('hub-seer-cell').innerHTML = '<span class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Chargement…</span>';
   document.getElementById('hub-activity').innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div>';
@@ -464,6 +631,7 @@ async function openUserHub(id) {
     document.getElementById('editId').value = id;
     document.getElementById('hubTitle').textContent = u.custom_name || u.display_name || u.plex_user_id;
     _setFields(u);
+    renderHubDiagnostic(u);
     renderHubSeer(id, u.seer_user_id || null, u.source);
     renderHubActivity(u);
   } catch(e) {
@@ -473,6 +641,81 @@ async function openUserHub(id) {
 }
 
 // ── Onglet Activité ───────────────────────────────────────────────────────────
+function renderHubDiagnostic(u) {
+  const d = u.diagnostic || {};
+  const effectHtml = (d.effects || []).map(e => `
+    <div class="diagnostic-effect ${e.ok ? 'is-ok' : 'is-warn'}">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi ${e.ok ? 'bi-check-circle-fill text-success' : 'bi-exclamation-circle-fill text-warning'}"></i>
+        <strong>${escHtml(e.label)}</strong>
+      </div>
+      <div class="text-muted small mt-1">${escHtml(e.detail)}</div>
+    </div>`).join('');
+  const warnings = (d.warnings || []).map(w => `
+    <div class="alert alert-warning py-2 px-3 mb-2 small">
+      <i class="bi bi-exclamation-triangle me-1"></i>${escHtml(w)}
+    </div>`).join('');
+  const actions = (d.actions || []).map(a => `
+    <button class="btn btn-sm btn-${escHtml(a.style || 'outline-secondary')}" onclick="runUserDiagnosticAction('${escHtml(a.key)}')">
+      ${escHtml(a.label)}
+    </button>`).join('');
+  document.getElementById('hub-diagnostic').innerHTML = `
+    <div class="rounded p-3 mb-3" style="background:var(--pr-bg);border:1px solid var(--pr-border)">
+      <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center">
+        <div>
+          <div class="text-muted small">Source detectee</div>
+          <div class="fw-semibold">${escHtml(d.source_label || sourceLabel(u))}</div>
+        </div>
+        <div class="d-flex flex-wrap gap-1">
+          <span class="badge ${u.enabled !== false ? 'bg-success' : 'bg-secondary'}">${u.enabled !== false ? 'Actif' : 'Desactive'}</span>
+          ${u.seer_user_id ? '<span class="badge bg-info text-dark">Seer lie</span>' : '<span class="badge bg-secondary">Seer non lie</span>'}
+          ${d.seer_requests_enabled ? '<span class="badge bg-primary">Demandes via Seer</span>' : '<span class="badge bg-dark border border-secondary">ARR direct/global</span>'}
+        </div>
+      </div>
+      <div class="row g-2 mt-3">
+        <div class="col-6"><div class="diag-mini"><span>Demandes principales</span><strong>${d.primary_request_count || 0}</strong></div></div>
+        <div class="col-6"><div class="diag-mini"><span>Co-demandes</span><strong>${d.co_request_count || 0}</strong></div></div>
+      </div>
+    </div>
+    ${warnings || '<div class="alert alert-success py-2 px-3 small"><i class="bi bi-check-circle me-1"></i>Aucune incoherence evidente.</div>'}
+    <div class="diagnostic-grid mb-3">${effectHtml}</div>
+    <div class="d-flex flex-wrap gap-2">${actions}</div>`;
+}
+
+function sourceLabel(u) {
+  if (u.source === 'seer') return 'Seer only';
+  if (u.source === 'api' && u.seer_user_id) return 'Plex API + Seer';
+  if (u.source === 'api') return 'Plex API';
+  if (u.seer_user_id) return 'RSS + Seer';
+  return 'RSS';
+}
+
+async function runUserDiagnosticAction(action) {
+  if (!editingId) return;
+  if (action === 'enable' || action === 'disable') {
+    await setUserEnabled(action === 'enable');
+  } else if (action === 'automatch_seer') {
+    await autoMatchSeer(editingId);
+  } else if (action === 'complete_seer') {
+    await completeSeer(editingId);
+  }
+}
+
+async function setUserEnabled(enabled) {
+  try {
+    const r = await fetch(`/api/users/${editingId}/enabled`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({enabled})
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast(enabled ? 'Utilisateur active' : 'Utilisateur desactive', 'success');
+    await refreshHub(editingId);
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
 function renderHubActivity(u) {
   const s = u.stats || {};
   const pill = (label, val, cls) => val ? `<span class="badge ${cls} me-1">${val} ${label}</span>` : '';
@@ -491,6 +734,134 @@ function renderHubActivity(u) {
 }
 
 // ── Onglet Seer ───────────────────────────────────────────────────────────────
+function activityStatus(status) {
+  const map = {
+    available: ['Disponible', 'badge-available'],
+    sent_to_arr: ['Envoye', 'badge-sent'],
+    pending: ['En attente', 'badge-pending'],
+    failed: ['Echec', 'badge-failed']
+  };
+  return map[status] || [status || 'Inconnu', 'bg-secondary'];
+}
+
+function activitySource(source) {
+  const map = {rss: 'RSS', api: 'Plex API', seer: 'Seer', manual: 'Manuel'};
+  return map[source] || source || 'Source inconnue';
+}
+
+function activityDate(value) {
+  if (!value) return 'Date inconnue';
+  const safe = value.endsWith('Z') || value.includes('+') ? value : value + 'Z';
+  return new Date(safe).toLocaleString('fr-FR', {dateStyle:'medium', timeStyle:'short'});
+}
+
+function detailRow(label, value, mono=false) {
+  const display = value == null || value === '' ? '<span class="text-muted">-</span>' : escHtml(value);
+  return `<div class="detail-row"><span>${escHtml(label)}</span><strong class="${mono ? 'font-monospace' : ''}">${display}</strong></div>`;
+}
+
+function showActivityDetails(id) {
+  const item = _activityById[String(id)];
+  if (!item) return;
+  const d = item.details || {};
+  let extras = [];
+  try { extras = JSON.parse(d.extra_requesters || '[]'); } catch(e) { extras = []; }
+  const requesterHtml = extras.length
+    ? extras.map(e => `<span class="badge bg-dark border border-secondary me-1">${escHtml(e.display_name || e.plex_user_id || '?')}</span>`).join('')
+    : '<span class="text-muted small">Aucun co-demandeur</span>';
+  document.getElementById('activityDetailTitle').innerHTML = `<i class="bi bi-bug me-2 text-warning"></i>${escHtml(item.title || 'Details provenance')}`;
+  document.getElementById('activityDetailBody').innerHTML = `
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="detail-panel">
+          <div class="detail-title">Origine</div>
+          ${detailRow('Source app', activitySource(item.source))}
+          ${detailRow('Role utilisateur', item.role === 'co_requester' ? 'Co-demandeur' : 'Demande principale')}
+          ${detailRow('Utilisateur principal', d.plex_user || d.plex_user_id)}
+          ${detailRow('Plex user id', d.plex_user_id, true)}
+          ${detailRow('Date demande', activityDate(item.requested_at))}
+          ${detailRow('Date disponible', item.available_at ? activityDate(item.available_at) : '')}
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="detail-panel">
+          <div class="detail-title">Identifiants media</div>
+          ${detailRow('Request DB id', d.request_id, true)}
+          ${detailRow('TMDB', d.tmdb_id, true)}
+          ${detailRow('TVDB', d.tvdb_id, true)}
+          ${detailRow('IMDb', d.imdb_id, true)}
+          ${detailRow('Plex GUID', d.plex_guid, true)}
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="detail-panel">
+          <div class="detail-title">ARR / Telechargement</div>
+          ${detailRow('ARR id', d.arr_id, true)}
+          ${detailRow('ARR slug', d.arr_slug, true)}
+          ${detailRow('Instance ARR', d.arr_instance_id, true)}
+          ${detailRow('Download client', d.download_client_id, true)}
+          ${detailRow('Torrent hash', d.torrent_hash, true)}
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="detail-panel">
+          <div class="detail-title">Contexte</div>
+          ${detailRow('Statut', activityStatus(item.status)[0])}
+          ${detailRow('Prochaine sortie', d.next_release_at ? activityDate(d.next_release_at) : '')}
+          ${detailRow('Libelle sortie', d.next_release_label)}
+          <div class="mt-2"><div class="text-muted small mb-1">Co-demandeurs</div>${requesterHtml}</div>
+        </div>
+      </div>
+    </div>
+    ${d.overview ? `<div class="detail-panel mt-3"><div class="detail-title">Overview</div><div class="text-muted small">${escHtml(d.overview)}</div></div>` : ''}`;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('activityDetailModal')).show();
+}
+
+function renderHubActivity(u) {
+  const s = u.stats || {};
+  const recent = u.activity?.recent || [];
+  _activityById = Object.fromEntries(recent.map(r => [String(r.id), r]));
+  const pill = (label, val, cls) => val ? `<span class="badge ${cls} me-1">${val} ${label}</span>` : '';
+  const rows = recent.map(r => {
+    const [statusLabel, statusClass] = activityStatus(r.status);
+    const icon = r.media_type === 'show' ? 'bi-tv' : 'bi-film';
+    const role = r.role === 'co_requester'
+      ? '<span class="badge bg-dark border border-secondary">Co-demande</span>'
+      : '<span class="badge bg-secondary">Demande principale</span>';
+    return `
+      <div class="activity-row">
+        <div class="activity-icon"><i class="bi ${icon}"></i></div>
+        <div class="flex-grow-1 min-w-0">
+          <div class="fw-semibold text-truncate mb-1">${escHtml(r.title || 'Sans titre')}${r.year ? ` <span class="text-muted">(${r.year})</span>` : ''}</div>
+          <div class="d-flex flex-wrap gap-1 align-items-center small">
+            <span class="badge ${statusClass}">${statusLabel}</span>
+            <span class="badge bg-dark border border-secondary">${escHtml(activitySource(r.source))}</span>
+            ${role}
+          </div>
+        </div>
+        <div class="text-end flex-shrink-0 activity-actions">
+          <div class="text-muted small activity-date mb-1">${activityDate(r.requested_at)}</div>
+          <button class="btn btn-sm btn-outline-info" onclick="showActivityDetails(${r.id})"><i class="bi bi-bug me-1"></i>Details</button>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('hub-activity').innerHTML = `
+    <div class="d-flex flex-wrap gap-1 mb-3">
+      <span class="badge bg-secondary me-1">${s.total || 0} au total</span>
+      ${pill('dispo', s.available, 'badge-available')}
+      ${pill('en cours', (s.pending||0)+(s.sent||0), 'badge-sent')}
+      ${pill('echec', s.failed, 'badge-failed')}
+    </div>
+    ${u.last_requested_at ? `<div class="text-muted small mb-3"><i class="bi bi-clock-history me-1"></i>Derniere demande principale : ${activityDate(u.last_requested_at)}</div>` : ''}
+    <div class="activity-list mb-3">
+      ${rows || '<div class="text-center text-muted py-4">Aucune activite connue pour cet utilisateur.</div>'}
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="/library?view=requests&user=${encodeURIComponent(u.plex_user_id)}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-list-ul me-1"></i>Voir ses demandes</a>
+      <a href="/users/${u.id}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill me-1"></i>Historique complet</a>
+    </div>`;
+}
+
 function renderHubSeer(userId, linkedSeerUserId, source) {
   const cell = document.getElementById('hub-seer-cell');
   if (!_seerUsers.length) { cell.innerHTML = '<span class="text-muted small">— Seer non configuré ou aucun compte —</span>'; return; }
@@ -538,6 +909,7 @@ async function refreshHub(id) {
     const u = await fetch(`/api/users/${id}`).then(r => r.json());
     _setFields(u);
     document.getElementById('hubTitle').textContent = u.custom_name || u.display_name || u.plex_user_id;
+    renderHubDiagnostic(u);
     renderHubSeer(id, u.seer_user_id || null, u.source);
     renderHubActivity(u);
     updateUserCard(id, u);
@@ -546,8 +918,31 @@ async function refreshHub(id) {
 
 function sourceBadgeHtml(u) {
   if (u.source === 'seer') return '<span class="badge bg-info text-dark card-source-badge" style="font-size:9px"><i class="bi bi-stars me-1"></i>Seer</span>';
-  if (u.seer_user_id && u.seer_active) return '<span class="badge text-white card-source-badge" style="font-size:9px;background:#6f42c1"><i class="bi bi-intersect me-1"></i>RSS+Seer</span>';
+  if (u.seer_user_id && u.seer_active) {
+    const label = u.source === 'api' ? 'Plex API+Seer' : 'RSS+Seer';
+    return `<span class="badge text-white card-source-badge" style="font-size:9px;background:#6f42c1"><i class="bi bi-intersect me-1"></i>${label}</span>`;
+  }
+  if (u.source === 'api') return '<span class="badge bg-primary card-source-badge" style="font-size:9px"><i class="bi bi-cloud me-1"></i>Plex API</span>';
   return '<span class="badge bg-secondary card-source-badge" style="font-size:9px"><i class="bi bi-rss me-1"></i>RSS</span>';
+}
+
+function sourceKind(u) {
+  if (u.source === 'seer') return 'seer';
+  if (u.seer_user_id && u.seer_active) return 'linked';
+  if (u.source === 'api') return 'api';
+  return 'rss';
+}
+
+function statusBadgeHtml(u) {
+  return u.enabled !== false
+    ? '<span class="badge bg-success card-status-badge" style="font-size:9px">Actif</span>'
+    : '<span class="badge bg-secondary card-status-badge" style="font-size:9px">Desactive</span>';
+}
+
+function statusHintHtml(u) {
+  return u.enabled !== false
+    ? ''
+    : '<div class="text-muted small mt-1 card-status-hint"><i class="bi bi-eye-slash me-1"></i>Absent de Discover et ignore par les automatisations.</div>';
 }
 
 function updateUserCard(id, u) {
@@ -555,10 +950,22 @@ function updateUserCard(id, u) {
   if (!card) return;
   card.dataset.seerUserId = u.seer_user_id || '';
   card.dataset.name = (u.custom_name || u.display_name || u.plex_user_id || '').toLowerCase();
+  card.dataset.enabled = u.enabled !== false ? '1' : '0';
+  card.dataset.status = u.enabled !== false ? 'active' : 'disabled';
+  card.dataset.source = u.source || 'rss';
+  card.dataset.sourceKind = sourceKind(u);
+  card.classList.toggle('is-disabled', u.enabled === false);
   const nameEl = card.querySelector('.fw-semibold');
   if (nameEl) nameEl.textContent = u.custom_name || u.display_name || u.plex_user_id;
   const sb = card.querySelector('.card-source-badge');
   if (sb) sb.outerHTML = sourceBadgeHtml(u);
+  const statusBadge = card.querySelector('.card-status-badge');
+  if (statusBadge) statusBadge.outerHTML = statusBadgeHtml(u);
+  const oldHint = card.querySelector('.card-status-hint');
+  if (oldHint) oldHint.remove();
+  const infoCol = card.querySelector('.flex-grow-1');
+  if (infoCol && u.enabled === false) infoCol.insertAdjacentHTML('beforeend', statusHintHtml(u));
+  filterUsers();
 }
 
 async function autoMatchSeer(userId) {
@@ -730,6 +1137,21 @@ function sortUsers() {
     return (ca.dataset.name || '').localeCompare(cb.dataset.name || '', 'fr');
   });
   cards.forEach(c => grid.appendChild(c));
+}
+
+function filterUsers() {
+  const search = (document.getElementById('userSearch')?.value || '').trim().toLowerCase();
+  const status = document.getElementById('userStatusFilter')?.value || '';
+  const source = document.getElementById('userSourceFilter')?.value || '';
+  document.querySelectorAll('#users-grid [id^=card-wrapper-]').forEach(wrapper => {
+    const card = wrapper.querySelector('.card');
+    if (!card) return;
+    const matchesSearch = !search || (card.dataset.name || '').includes(search);
+    const matchesStatus = !status || card.dataset.status === status;
+    const matchesSource = !source || card.dataset.sourceKind === source;
+    wrapper.style.display = matchesSearch && matchesStatus && matchesSource ? '' : 'none';
+  });
+  sortUsers();
 }
 
 // ── Sync Seer ─────────────────────────────────────────────────────────────────

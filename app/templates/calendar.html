@@ -109,6 +109,13 @@ function render(events) {
   `).join('');
 }
 
+function configCallout(title, body, actionLabel = 'Configurer'){
+  return `<div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-3">
+    <div><strong>${escHtml(title)}</strong><div class="small mt-1">${escHtml(body)}</div></div>
+    <a href="/settings#tab-connexions" class="btn btn-sm btn-warning"><i class="bi bi-gear me-1"></i>${actionLabel}</a>
+  </div>`;
+}
+
 function initTrackedOnlyFromQuery() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('tracked_only') === 'true') document.getElementById('cal-tracked-only').checked = true;
@@ -156,11 +163,26 @@ async function loadCalendar(prependPreviousMonth = false, appendNextMonth = fals
     params.set('tracked_only', trackedOnly);
     params.set('start', calendarRangeStart.toISOString());
     params.set('end', calendarRangeEnd.toISOString());
-    const events = await fetch(`/api/calendar?${params.toString()}`).then(r => r.json());
+    const caps = await fetch('/api/arr/capabilities').then(r => r.ok ? r.json() : {});
+    if (!caps.has_sonarr && !caps.has_radarr) {
+      const disabled = caps.sonarr_disabled || caps.radarr_disabled;
+      container.innerHTML = configCallout(
+        disabled ? 'Calendrier desactive.' : 'Calendrier non configure.',
+        disabled
+          ? 'Une instance Sonarr ou Radarr existe, mais elle est desactivee. Activez-la pour afficher les sorties.'
+          : 'Ajoutez au moins une instance Sonarr ou Radarr active pour afficher les sorties.',
+        disabled ? 'Activer' : 'Configurer'
+      );
+      return;
+    }
+    const events = await fetch(`/api/calendar?${params.toString()}`).then(r => { if (!r.ok) throw new Error('Calendrier Sonarr/Radarr inaccessible'); return r.json(); });
     container.innerHTML = render(events);
     document.getElementById('cal-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
   } catch (e) {
-    container.innerHTML = `<div class="alert alert-danger">Erreur de chargement : ${escHtml(e.message)}</div>`;
+    container.innerHTML = configCallout(
+      'Calendrier inaccessible.',
+      `${e.message || 'Erreur de chargement'}. Verifiez les connexions Sonarr/Radarr.`
+    );
   } finally {
     btns.forEach(b => { if (b) { b.disabled = false; b.querySelector('i')?.classList.remove('spin'); } });
   }

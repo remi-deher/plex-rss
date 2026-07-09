@@ -27,12 +27,16 @@ class MediaAddRequest(BaseModel):
     tmdb_id: Optional[int] = None
     tvdb_id: Optional[int] = None
     imdb_id: Optional[str] = None
+    poster_url: Optional[str] = None
+    overview: Optional[str] = None
     quality_profile_id: Optional[int] = None
     root_folder: Optional[str] = None
     tag_ids: list[int] = []
     plex_user_id: Optional[str] = None
     instance_id: Optional[int] = None  # None = Seer ou instance par défaut
     use_seer: bool = False
+    bypass_seer: bool = False
+    auto_search: bool = False
 
 
 def _media_identity_filter(db: Session, item) -> list[MediaRequest]:
@@ -85,11 +89,24 @@ async def _media_schedule_payload(db: Session, item) -> dict:
             data = None
             series_id = None
             if item.tvdb_id:
-                data = await sonarr.lookup_series(inst.url, inst.api_key, tvdb_id=item.tvdb_id)
+                data = await sonarr.lookup_series(
+                    inst.url,
+                    inst.api_key,
+                    tvdb_id=item.tvdb_id,
+                    tmdb_id=item.tmdb_id,
+                    imdb_id=item.imdb_id,
+                )
                 series_id = data.get("id") if data else None
             if not series_id and getattr(item, "source", None) != "seer" and item.arr_id:
                 series_id = item.arr_id
-                data = data or await sonarr.lookup_series(inst.url, inst.api_key, arr_id=series_id)
+                data = data or await sonarr.lookup_series(
+                    inst.url,
+                    inst.api_key,
+                    arr_id=series_id,
+                    tvdb_id=item.tvdb_id,
+                    tmdb_id=item.tmdb_id,
+                    imdb_id=item.imdb_id,
+                )
             if data:
                 timeline["first_aired"] = data.get("firstAired")
                 timeline["next_episode_at"] = data.get("nextAiring")
@@ -375,7 +392,9 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
     """Cherche un titre via l'API Sonarr ou Radarr et retourne les métadonnées enrichies."""
     instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
     arr_type = "sonarr" if type == "show" else "radarr"
-    inst = next((i for i in instances if i.arr_type == arr_type), None)
+    inst = next((i for i in instances if i.arr_type == arr_type and i.is_default), None)
+    if not inst:
+        inst = next((i for i in instances if i.arr_type == arr_type), None)
 
     if not inst:
         return []
@@ -447,9 +466,11 @@ async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
     arr_id = None
     already = False
     via = None
+    chosen_instance_id = None  # instance *arr choisie (pour le suivi de statut)
+    chosen_slug = None
 
     seer_eligible = s and s.seer_send_requests and s.seer_url and s.seer_api_key
-    if body.use_seer or (not body.instance_id and seer_eligible):
+    if not body.bypass_seer and (body.use_seer or (not body.instance_id and seer_eligible)):
         if not seer_eligible:
             raise HTTPException(400, "Seer n'est pas configuré.")
         try:
@@ -496,18 +517,30 @@ async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
             except Exception as e:
                 raise HTTPException(502, f"Impossible de récupérer la config {arr_type}: {e}")
 
+        search_triggered = False
         try:
             if arr_type == "sonarr":
-                arr_id, already, _ = await sonarr.add_series(
+                arr_id, already, chosen_slug = await sonarr.add_series(
                     inst.url, inst.api_key, qp_id, rf, item, tag_ids=body.tag_ids
                 )
+                if already and body.auto_search and isinstance(arr_id, int):
+                    search_triggered = await sonarr.search_series(inst.url, inst.api_key, arr_id)
+                elif body.auto_search and not already:
+                    search_triggered = True
             else:
-                arr_id, already, _ = await radarr.add_movie(
+                arr_id, already, chosen_slug = await radarr.add_movie(
                     inst.url, inst.api_key, qp_id, rf, item, tag_ids=body.tag_ids
                 )
+                if already and body.auto_search and isinstance(arr_id, int):
+                    search_triggered = await radarr.search_movie(inst.url, inst.api_key, arr_id)
+                elif body.auto_search and not already:
+                    search_triggered = True
             via = arr_type
+            chosen_instance_id = inst.id
         except Exception as e:
             raise HTTPException(502, f"Erreur {arr_type} : {e}")
+    else:
+        search_triggered = False
 
     tmdb_str = str(body.tmdb_id) if body.tmdb_id else None
     tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
@@ -523,6 +556,10 @@ async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
         existing = db.query(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str).first()
     if tvdb_str and not existing:
         existing = db.query(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str).first()
+
+    # Source de suivi : "seer" → suivi par seer_sync (interroge Overseerr) ;
+    # sinon → suivi par check_arr_statuses via l'instance *arr enregistrée.
+    source_val = "seer" if via == "seer" else "manual_search"
 
     if not existing:
         user_id = body.plex_user_id or "manual"
@@ -541,10 +578,37 @@ async def media_add(body: MediaAddRequest, db: Session = Depends(get_db)):
             tvdb_id=tvdb_str,
             imdb_id=body.imdb_id,
             status=RequestStatus.sent_to_arr,
-            source="manual_search",
+            source=source_val,
             arr_id=arr_id if isinstance(arr_id, int) else None,
+            arr_slug=chosen_slug,
+            arr_instance_id=chosen_instance_id,
+            poster_url=body.poster_url,
+            overview=body.overview,
         )
         db.add(req)
         db.commit()
+    else:
+        # Ré-attache le contexte de suivi à une demande existante qui n'en avait pas
+        # (ancienne demande manuelle, ou média re-demandé), pour que le statut repasse.
+        if chosen_instance_id and not existing.arr_instance_id:
+            existing.arr_instance_id = chosen_instance_id
+        if chosen_slug and not existing.arr_slug:
+            existing.arr_slug = chosen_slug
+        if isinstance(arr_id, int) and not existing.arr_id:
+            existing.arr_id = arr_id
+        if via == "seer" and existing.source != "seer":
+            existing.source = "seer"
+        if body.poster_url and not existing.poster_url:
+            existing.poster_url = body.poster_url
+        if body.overview and not existing.overview:
+            existing.overview = body.overview
+        # Ré-attribue un demandeur réel si la demande était orpheline ("manual")
+        if body.plex_user_id and existing.plex_user_id == "manual":
+            existing.plex_user_id = body.plex_user_id
+            pu = db.query(PlexUser).filter(PlexUser.plex_user_id == body.plex_user_id).first()
+            existing.plex_user = (pu.display_name or pu.plex_user_id) if pu else body.plex_user_id
+        if existing.status in (RequestStatus.failed, RequestStatus.pending):
+            existing.status = RequestStatus.sent_to_arr
+        db.commit()
 
-    return {"ok": True, "via": via, "already_existed": already, "id": arr_id}
+    return {"ok": True, "via": via, "already_existed": already, "id": arr_id, "search_triggered": search_triggered}

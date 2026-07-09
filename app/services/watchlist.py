@@ -13,7 +13,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from ..models import Settings
-from .plex_api import get_friends_watchlist
+from .plex_api import get_admin_watchlist, get_friends_watchlist
 from .plex_rss import fetch_watchlist_rss
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,8 @@ async def fetch_watchlist(settings: Settings) -> list[dict]:
 
     try:
         items = await primary_fn()
+        if priority == "rss" and settings.plex_token:
+            items = await _append_admin_watchlist(items, settings)
         logger.info(f"Watchlist fetched via {priority} ({len(items)} items)")
         return items
     except Exception as e:
@@ -47,6 +49,42 @@ async def fetch_watchlist(settings: Settings) -> list[dict]:
             logger.error(f"Fallback source ({fallback_name}) also failed: {e}")
 
     return []
+
+
+async def _append_admin_watchlist(items: list[dict], settings: Settings) -> list[dict]:
+    """Ajoute la watchlist du proprietaire Plex quand le RSS ne l'expose pas."""
+    try:
+        admin_items = await get_admin_watchlist(settings.plex_url or "", settings.plex_token)
+    except Exception as e:
+        logger.warning(f"Could not append Plex owner watchlist: {e}")
+        return items
+
+    seen = {_item_key(item) for item in items}
+    merged = list(items)
+    added = 0
+    for item in admin_items:
+        key = _item_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+        added += 1
+    if added:
+        logger.info(f"Watchlist fetched via rss + Plex owner API ({added} owner items)")
+    return merged
+
+
+def _item_key(item: dict) -> tuple:
+    return (
+        item.get("plex_user_id") or item.get("plex_user") or "unknown",
+        item.get("media_type"),
+        item.get("tmdb_id") or "",
+        item.get("tvdb_id") or "",
+        item.get("imdb_id") or "",
+        item.get("plex_guid") or "",
+        (item.get("title") or "").lower(),
+        item.get("year") or "",
+    )
 
 
 def _get_sources(priority: str, settings: Settings):

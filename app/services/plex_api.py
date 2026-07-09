@@ -48,11 +48,12 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
                 friend_token = friend.get("authToken")
                 if not friend_token:
                     continue
-                friend_items = await _get_user_watchlist(client, friend_token, username)
+                friend_items = await _get_user_watchlist(client, friend_token, username, username)
                 items.extend(friend_items)
 
             # Inclure aussi la watchlist du compte admin lui-même
-            admin_items = await _get_user_watchlist(client, plex_token, "admin")
+            admin_username = await _get_account_username(client, headers)
+            admin_items = await _get_user_watchlist(client, plex_token, admin_username, admin_username)
             items.extend(admin_items)
 
     except httpx.HTTPError as e:
@@ -62,7 +63,33 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
     return items
 
 
-async def _get_user_watchlist(client: httpx.AsyncClient, token: str, username: str) -> list[dict]:
+async def get_admin_watchlist(plex_url: str, plex_token: str) -> list[dict]:
+    """RÃ©cupÃ¨re uniquement la watchlist du compte propriÃ©taire du token Plex."""
+    headers = {
+        "X-Plex-Token": plex_token,
+        "Accept": "application/json",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        username = await _get_account_username(client, headers)
+        return await _get_user_watchlist(client, plex_token, username, username)
+
+
+async def _get_account_username(client: httpx.AsyncClient, headers: dict) -> str:
+    """Retourne le username Plex du compte courant, compatible avec plexUsername Seer."""
+    try:
+        resp = await client.get(f"{PLEX_TV_BASE}/api/v2/user", headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("username") or data.get("title") or data.get("email") or "admin"
+    except httpx.HTTPError as e:
+        logger.warning(f"Could not resolve Plex account username, using admin fallback: {e}")
+        return "admin"
+
+
+async def _get_user_watchlist(
+    client: httpx.AsyncClient, token: str, username: str, user_id: str | None = None
+) -> list[dict]:
     """Récupère la watchlist d'un utilisateur via son token personnel.
 
     Utilise le endpoint discover.provider.plex.tv (le seul à exposer la liste
@@ -87,13 +114,13 @@ async def _get_user_watchlist(client: httpx.AsyncClient, token: str, username: s
         data = resp.json()
         media_container = data.get("MediaContainer", {})
         for item in media_container.get("Metadata", []):
-            items.append(_parse_api_item(item, username))
+            items.append(_parse_api_item(item, username, user_id or username))
     except httpx.HTTPError as e:
         logger.warning(f"Could not fetch watchlist for user {username}: {e}")
     return items
 
 
-def _parse_api_item(item: dict, username: str) -> dict:
+def _parse_api_item(item: dict, username: str, user_id: str) -> dict:
     """Convertit un objet Metadata Plex API en dict normalisé.
 
     Les GUIDs sont sous la forme [{"id": "tmdb://12345"}, {"id": "imdb://tt..."}].
@@ -115,6 +142,7 @@ def _parse_api_item(item: dict, username: str) -> dict:
             else item.get("thumb")
         ),
         "overview": item.get("summary", ""),
+        "plex_user_id": user_id,
         "plex_user": username,
         "source": "api",
     }

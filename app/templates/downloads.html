@@ -69,17 +69,39 @@ function render(items){
     <tbody>${rows}</tbody></table></div></div>`;
 }
 
+function configCallout(title, body, actionLabel = 'Configurer'){
+  return `<div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-3">
+    <div><strong>${escHtml(title)}</strong><div class="small mt-1">${escHtml(body)}</div></div>
+    <a href="/settings#tab-connexions" class="btn btn-sm btn-warning"><i class="bi bi-gear me-1"></i>${actionLabel}</a>
+  </div>`;
+}
+
 async function loadQueue(){
   try {
-    const [arrq, direct] = await Promise.all([
-      fetch('/api/arr/queue').then(r => r.ok ? r.json() : []),
-      fetch('/api/downloads/direct').then(r => r.ok ? r.json() : []),
+    const [caps, arrq, direct] = await Promise.all([
+      fetch('/api/arr/capabilities').then(r => r.ok ? r.json() : {}),
+      fetch('/api/arr/queue').then(r => { if (!r.ok) throw new Error('File Sonarr/Radarr inaccessible'); return r.json(); }),
+      fetch('/api/downloads/direct').then(r => { if (!r.ok) throw new Error('Clients de telechargement inaccessibles'); return r.json(); }),
     ]);
+    if (!caps.has_arr_downloads && !caps.has_download_clients) {
+      const disabled = caps.arr_downloads_disabled || caps.download_clients_disabled;
+      document.getElementById('dl-container').innerHTML = configCallout(
+        disabled ? 'Telechargements desactives.' : 'Aucun service de telechargement configure.',
+        disabled
+          ? 'Une source de telechargement existe, mais elle est desactivee. Activez Sonarr/Radarr ou un client direct.'
+          : 'Ajoutez au moins une instance Sonarr/Radarr active ou un client de telechargement direct.',
+        disabled ? 'Activer' : 'Configurer'
+      );
+      return;
+    }
     const items = [...arrq, ...direct].sort((a,b) => (a.progress||0) - (b.progress||0));
     document.getElementById('dl-container').innerHTML = render(items);
     document.getElementById('dl-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
   } catch (e) {
-    document.getElementById('dl-container').innerHTML = `<div class="alert alert-danger">Erreur de chargement : ${escHtml(e.message)}</div>`;
+    document.getElementById('dl-container').innerHTML = configCallout(
+      'Telechargements inaccessibles.',
+      `${e.message || 'Erreur de chargement'}. Verifiez les connexions Sonarr/Radarr et les clients de telechargement.`
+    );
   }
 }
 

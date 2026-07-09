@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import require_auth
-from ..models import LibraryItem, MediaRequest, Settings
+from ..models import LibraryItem, MediaRequest, PlexUser, Settings
+from ..serializers import request_status_value, serialize_media_request
 from ..services import tmdb
 
 logger = logging.getLogger(__name__)
@@ -22,36 +23,41 @@ router = APIRouter(prefix="/api/discover", tags=["discover"], dependencies=[Depe
 
 
 def _annotate(db: Session, items: list[dict]) -> list[dict]:
-    """Ajoute in_library / requested / available à chaque item selon l'état local."""
+    """Ajoute l'état local (bibliothèque/demande/VF) à chaque item, pour badge + lien
+    vers la fiche Library (qui porte déjà tout le reste : recherche interactive, ajout
+    de demandeur, relance, anomalie Plex, suppression — pas de duplication ici)."""
     ids_by_type: dict[str, set[str]] = {"movie": set(), "show": set()}
     for it in items:
         if it.get("tmdb_id") is not None and it.get("media_type") in ids_by_type:
             ids_by_type[it["media_type"]].add(str(it["tmdb_id"]))
 
-    lib: set[tuple[str, str]] = set()
-    reqs: dict[tuple[str, str], str] = {}
+    lib: dict[tuple[str, str], LibraryItem] = {}
+    reqs: dict[tuple[str, str], MediaRequest] = {}
     for mt, ids in ids_by_type.items():
         if not ids:
             continue
-        for (tid,) in db.query(LibraryItem.tmdb_id).filter(
-            LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)
-        ).all():
-            if tid:
-                lib.add((mt, tid))
-        for tid, status in db.query(MediaRequest.tmdb_id, MediaRequest.status).filter(
-            MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids)
-        ).all():
-            if tid:
-                sval = status.value if hasattr(status, "value") else str(status)
-                reqs[(mt, tid)] = sval
+        for li in db.query(LibraryItem).filter(LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)).all():
+            if li.tmdb_id:
+                lib[(mt, li.tmdb_id)] = li
+        for req in db.query(MediaRequest).filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids)).all():
+            if req.tmdb_id:
+                reqs[(mt, req.tmdb_id)] = req
 
     for it in items:
         k = (it.get("media_type"), str(it.get("tmdb_id")))
-        it["in_library"] = k in lib
-        st = reqs.get(k)
+        li = lib.get(k)
+        req = reqs.get(k)
+        it["in_library"] = li is not None
+        it["library_id"] = li.id if li else None
+        it["request_id"] = req.id if req else None
+        st = request_status_value(req.status) if req else None
         it["requested"] = st is not None
         it["request_status"] = st
         it["available"] = it["in_library"] or st == "available"
+        it["has_vf"] = li.has_vf if li else (req.has_vf if req else None)
+        it["vf_granularity"] = (li.vf_granularity if li else None) or (req.vf_granularity if req else None)
+        # Anomalie : *arr dit "disponible" mais absent de la bibliothèque Plex synchronisée.
+        it["plex_anomaly"] = bool(req and st == "available" and not li)
     return items
 
 
@@ -128,6 +134,11 @@ async def get_detail(media_type: str, tmdb_id: int, db: Session = Depends(get_db
     try:
         d = await tmdb.detail(db, media_type, tmdb_id)
         _annotate(db, [d])
+        if d.get("request_id"):
+            req = db.query(MediaRequest).filter(MediaRequest.id == d["request_id"]).first()
+            if req:
+                users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+                d["requesters"] = serialize_media_request(req, users)["requesters"]
         d["recommendations"] = _annotate(db, d.get("recommendations", []))
         d["similar"] = _annotate(db, d.get("similar", []))
         return d

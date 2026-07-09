@@ -29,38 +29,78 @@ def activity_log(db: Session = Depends(get_db)):
     cutoff = now_utc_naive() - timedelta(days=7)
     reqs = (
         db.query(MediaRequest)
-        .filter(MediaRequest.requested_at >= cutoff)
+        .filter(
+            (MediaRequest.requested_at >= cutoff)
+            | (MediaRequest.available_at >= cutoff)
+            | (MediaRequest.vf_available_at >= cutoff)
+        )
         .order_by(MediaRequest.requested_at.desc())
-        .limit(50)
+        .limit(120)
         .all()
     )
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
 
     events = []
+
+    def add_event(req: MediaRequest, event_type: str, event_time, label: str, detail: str = ""):
+        if not event_time:
+            return
+        user_name = users.get(req.plex_user_id) or req.plex_user or req.plex_user_id or "?"
+        events.append(
+            {
+                "type": event_type,
+                "label": label,
+                "detail": detail,
+                "title": req.title,
+                "user": user_name,
+                "media_type": req.media_type,
+                "source": req.source,
+                "status": req.status,
+                "request_id": req.id,
+                "arr_slug": req.arr_slug,
+                "time": format_datetime(event_time),
+            }
+        )
+
     for r in reqs:
-        user_name = users.get(r.plex_user_id) or r.plex_user or r.plex_user_id or "?"
         if r.requested_at:
-            events.append(
-                {
-                    "type": r.status if r.status in ("failed",) else "request",
-                    "title": r.title,
-                    "user": user_name,
-                    "media_type": r.media_type,
-                    "time": format_datetime(r.requested_at),
-                }
-            )
+            if r.status == "failed":
+                add_event(r, "failed", r.requested_at, "Echec", "Traitement en erreur")
+            elif r.status == "sent_to_arr":
+                add_event(r, "sent", r.requested_at, "Transmise", "Detection et envoi vers ARR")
+            else:
+                add_event(r, "detected", r.requested_at, "Detectee", "Detection watchlist ou demande")
         if r.available_at and r.available_at >= cutoff:
-            events.append(
-                {
-                    "type": "available",
-                    "title": r.title,
-                    "user": user_name,
-                    "media_type": r.media_type,
-                    "time": format_datetime(r.available_at),
-                }
-            )
+            add_event(r, "available", r.available_at, "Disponible", "Disponibilite confirmee")
+        if r.vf_available_at and r.vf_available_at >= cutoff:
+            add_event(r, "vf_available", r.vf_available_at, "VF disponible", "Upgrade VF detecte")
+
+    logs = (
+        db.query(NotificationLog)
+        .filter(NotificationLog.sent_at >= cutoff)
+        .order_by(NotificationLog.sent_at.desc())
+        .limit(80)
+        .all()
+    )
+    for log in logs:
+        events.append(
+            {
+                "type": "notification" if log.success else "notification_failed",
+                "label": "Notification" if log.success else "Notif. echouee",
+                "detail": log.event,
+                "title": log.media_title or (f"Demande #{log.req_id}" if log.req_id else "Notification"),
+                "user": "Admin" if log.is_admin else log.recipient,
+                "media_type": log.media_type,
+                "source": "notification",
+                "status": "sent" if log.success else "failed",
+                "request_id": log.req_id,
+                "arr_slug": None,
+                "time": format_datetime(log.sent_at),
+            }
+        )
+
     events.sort(key=lambda e: e["time"], reverse=True)
-    return events[:25]
+    return events[:40]
 
 
 @router.get("/notifications/recent-available")

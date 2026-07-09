@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from .. import metrics as app_metrics
 from ..database import get_db
 from ..dependencies import require_auth
-from ..models import MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
-from ..services import radarr, sonarr
+from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
+from ..services import prowlarr, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
 from ..services.seer import check_connection as seer_test
 from ..utils import now_utc, now_utc_naive
@@ -26,18 +26,66 @@ async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
     return ok, msg, round((time.monotonic() - t0) * 1000, 1)
 
 
+def _preferred_instance(db: Session, arr_type: str) -> ArrInstance | None:
+    inst = (
+        db.query(ArrInstance)
+        .filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default)
+        .first()
+    )
+    if inst:
+        return inst
+    return db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled).first()
+
+
+def _not_configured(message: str = "Non configure") -> dict:
+    return {
+        "ok": None,
+        "state": "non_configured",
+        "message": message,
+        "response_ms": None,
+        "action_url": "/settings#tab-connexions",
+        "action_label": "Configurer",
+    }
+
+
+def _disabled(message: str = "Desactive") -> dict:
+    return {
+        "ok": None,
+        "state": "disabled",
+        "message": message,
+        "response_ms": None,
+        "action_url": "/settings#tab-connexions",
+        "action_label": "Activer",
+    }
+
+
+def _missing_arr_state(db: Session, arr_type: str) -> dict:
+    exists = db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type).first() is not None
+    return _disabled("Instance configuree mais desactivee") if exists else _not_configured("Aucune instance configuree")
+
+
+async def _timed_prowlarr_check(inst: ArrInstance) -> tuple[bool | None, str, float | None]:
+    t0 = time.monotonic()
+    ok = await prowlarr.check_connection(inst.url, inst.api_key)
+    return ok, "OK" if ok else "Connexion impossible", round((time.monotonic() - t0) * 1000, 1)
+
+
 @router.get("/health")
 async def health_check(db: Session = Depends(get_db)):
     """État structuré de tous les services connectés avec latences."""
     s = db.query(Settings).first()
-    not_configured = {"ok": None, "message": "Non configuré", "response_ms": None}
-
     checks: dict[str, tuple] = {}
-    if s and s.sonarr_url and s.sonarr_api_key:
-        checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(s.sonarr_url, s.sonarr_api_key)))
-    if s and s.radarr_url and s.radarr_api_key:
-        checks["radarr"] = ("failed", _timed_check(radarr.check_connection(s.radarr_url, s.radarr_api_key)))
-    if s and s.seer_url and s.seer_api_key:
+    sonarr_inst = _preferred_instance(db, "sonarr")
+    radarr_inst = _preferred_instance(db, "radarr")
+    prowlarr_inst = _preferred_instance(db, "prowlarr")
+    if sonarr_inst:
+        checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(sonarr_inst.url, sonarr_inst.api_key)))
+    if radarr_inst:
+        checks["radarr"] = ("failed", _timed_check(radarr.check_connection(radarr_inst.url, radarr_inst.api_key)))
+    if prowlarr_inst:
+        checks["prowlarr"] = ("degraded", _timed_prowlarr_check(prowlarr_inst))
+    seer_disabled = bool(s and s.seer_url and s.seer_api_key and not s.seer_send_requests)
+    if s and s.seer_url and s.seer_api_key and s.seer_send_requests:
         checks["seer"] = ("degraded", _timed_check(seer_test(s.seer_url, s.seer_api_key)))
     if s and s.plex_url and s.plex_token:
         checks["plex"] = ("failed", _timed_check(plex_test(s.plex_url, s.plex_token, verify_ssl=s.plex_verify_ssl)))
@@ -47,13 +95,27 @@ async def health_check(db: Session = Depends(get_db)):
     services: dict[str, dict] = {}
     failed = 0
     degraded = 0
-    for name in ("sonarr", "radarr", "seer", "plex"):
+    for name in ("sonarr", "radarr", "prowlarr", "seer", "plex"):
         if name not in checks:
-            services[name] = not_configured
+            if name in ("sonarr", "radarr", "prowlarr"):
+                services[name] = _missing_arr_state(db, name)
+            elif name == "seer" and seer_disabled:
+                services[name] = _disabled("Demandes via Seer desactivees")
+            elif name == "plex":
+                services[name] = _not_configured("URL ou token Plex manquant")
+            else:
+                services[name] = _not_configured()
             continue
         severity, _ = checks[name]
         ok, msg, ms = results[name]
-        services[name] = {"ok": ok, "message": msg, "response_ms": ms}
+        services[name] = {
+            "ok": ok,
+            "state": "ok" if ok else "error",
+            "message": msg,
+            "response_ms": ms,
+            "action_url": "/settings#tab-connexions",
+            "action_label": "Corriger",
+        }
         if not ok:
             if severity == "degraded":
                 degraded += 1
@@ -62,13 +124,19 @@ async def health_check(db: Session = Depends(get_db)):
 
     services["smtp"] = {
         "ok": bool(s and s.smtp_host),
-        "message": "Configuré" if s and s.smtp_host else "Non configuré",
+        "state": "ok" if s and s.smtp_host else "non_configured",
+        "message": "Configure" if s and s.smtp_host else "Non configure",
         "response_ms": None,
+        "action_url": "/settings#tab-notifications",
+        "action_label": "Configurer",
     }
     services["rss"] = {
         "ok": bool(s and s.plex_rss_url),
-        "message": "Configuré" if s and s.plex_rss_url else "Non configuré",
+        "state": "ok" if s and s.plex_rss_url else "non_configured",
+        "message": "Configure" if s and s.plex_rss_url else "Non configure",
         "response_ms": None,
+        "action_url": "/settings#tab-connexions",
+        "action_label": "Configurer",
     }
 
     if failed > 0:
@@ -327,9 +395,17 @@ async def disk_space(db: Session = Depends(get_db)):
         except Exception:
             pass
 
-    if s and s.sonarr_url and s.sonarr_api_key:
-        await add("Sonarr", sonarr.get_disk_space(s.sonarr_url, s.sonarr_api_key))
-    if s and s.radarr_url and s.radarr_api_key:
-        await add("Radarr", radarr.get_disk_space(s.radarr_url, s.radarr_api_key))
+    instances = (
+        db.query(ArrInstance)
+        .filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"]))
+        .order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name)
+        .all()
+    )
+    for inst in instances:
+        label = f"{inst.name} ({inst.arr_type.title()})"
+        if inst.arr_type == "sonarr":
+            await add(label, sonarr.get_disk_space(inst.url, inst.api_key))
+        elif inst.arr_type == "radarr":
+            await add(label, radarr.get_disk_space(inst.url, inst.api_key))
 
     return list(volumes.values())

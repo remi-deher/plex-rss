@@ -74,10 +74,9 @@
         </div>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
-        <button type="button" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-1"
-                onclick="openAddPanel(document.getElementById('searchInput')?.value.trim() || '')">
-          <i class="bi bi-plus-circle"></i> Ajouter un titre
-        </button>
+        <a href="/discover" class="btn btn-sm btn-warning d-inline-flex align-items-center gap-1">
+          <i class="bi bi-compass"></i> Découvrir
+        </a>
         <div class="btn-group btn-group-sm">
           <button class="btn btn-outline-secondary" id="btn-grid" onclick="setViewMode('grid')" title="Vue grille">
             <i class="bi bi-grid-3x3-gap"></i>
@@ -211,27 +210,6 @@
   <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="bulkDelete()"><i class="bi bi-trash me-1"></i>Supprimer</button>
 </div>
 
-<div id="add-panel" class="d-none mb-4">
-  <div class="card p-4" style="background:var(--pr-surface-2);border:1px solid var(--pr-border)">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-      <h6 class="mb-0 fw-semibold"><i class="bi bi-plus-circle me-2 text-warning"></i>Ajouter un titre</h6>
-      <button class="btn btn-sm btn-outline-secondary" onclick="closeAddPanel()"><i class="bi bi-x"></i></button>
-    </div>
-    <div class="row g-2 mb-3">
-      <div class="col-md-6">
-        <div class="input-group">
-          <input type="text" id="add-query" class="form-control" placeholder="Titre du film ou de la serie..." onkeydown="if(event.key==='Enter'){event.preventDefault();addPanelSearch();}">
-          <button class="btn btn-warning" onclick="addPanelSearch()"><i class="bi bi-search"></i></button>
-        </div>
-      </div>
-      <div class="col-md-3">
-        <select id="add-media-type" class="form-select"><option value="movie">Film</option><option value="show">Serie</option></select>
-      </div>
-    </div>
-    <div id="add-panel-loading" class="text-center text-muted py-3 d-none"><span class="spinner-border spinner-border-sm text-warning me-2"></span>Recherche...</div>
-    <div id="add-panel-results" class="row g-3"></div>
-  </div>
-</div>
 
 {% if active_view == 'calendar' %}
 <div class="text-center mb-3">
@@ -357,125 +335,6 @@
   </div>
 </div>
 
-<div class="modal fade" id="addMediaModal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content" style="background:var(--pr-surface);color:var(--bs-body-color)">
-      <div class="modal-header border-secondary">
-        <div class="d-flex align-items-center gap-3">
-          <img id="add-action-poster" src="" alt="" style="width:50px;height:75px;object-fit:cover;border-radius:6px;display:none">
-          <div><h5 class="modal-title mb-0" id="add-action-title"></h5><div class="text-muted small" id="add-action-meta"></div></div>
-        </div>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p class="text-muted small mb-4" id="add-action-overview"></p>
-
-        <div id="add-arr-interactive" class="mb-3 d-none">
-          <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-2" onclick="addModalArrSearch(this)">
-            <i class="bi bi-search"></i> Recherche interactive Sonarr/Radarr (VF en tete)
-          </button>
-          <div id="add-arr-releases" class="mt-2" style="max-height:300px;overflow-y:auto"></div>
-        </div>
-
-        <div class="mb-3" id="add-service-field">
-          <label class="form-label fw-semibold">Service</label>
-          <select id="add-service-select" class="d-none" onchange="onServiceChange()"></select>
-          <div id="add-service-pills"></div>
-        </div>
-        <div id="add-manual-toggle" class="mb-3 d-none">
-          <a href="#" class="small text-warning text-decoration-none" onclick="revealManualDownload(event)">
-            <i class="bi bi-download me-1"></i>Telecharger manuellement...
-          </a>
-        </div>
-        <div id="add-prowlarr-toggle" class="mb-3 d-none">
-          <a href="#" class="small text-muted text-decoration-none" onclick="revealProwlarrOption(event)">
-            <i class="bi bi-search me-1"></i>Rechercher via Prowlarr a la place...
-          </a>
-        </div>
-
-        <div id="add-arr-fields" class="d-none">
-          <div class="row g-3 mb-3">
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Profil qualite</label>
-              <select id="add-quality-profile" class="form-select"><option value="">Chargement...</option></select>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Dossier racine</label>
-              <select id="add-root-folder" class="form-select"><option value="">Chargement...</option></select>
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
-            <div id="add-tags-container" class="d-flex flex-wrap gap-2 p-2 rounded" style="background:var(--pr-surface);border:1px solid var(--pr-border);min-height:42px">
-              <span class="text-muted small align-self-center">Chargement...</span>
-            </div>
-          </div>
-        </div>
-
-        <div id="add-prowlarr-fields" class="d-none">
-          <div class="alert alert-warning py-2 small mb-3">
-            <i class="bi bi-exclamation-triangle me-1"></i>Telechargement direct : contourne Sonarr/Radarr (pas d'import, renommage ou upgrade automatique).
-          </div>
-          <button type="button" class="btn btn-outline-warning btn-sm d-flex align-items-center gap-2 mb-3" onclick="addModalProwlarrSearch()">
-            <i class="bi bi-arrow-clockwise"></i> Relancer la recherche
-          </button>
-          <div id="add-prowlarr-loading" class="text-center text-muted py-2 d-none">
-            <span class="spinner-border spinner-border-sm text-warning me-2"></span>Recherche Prowlarr...
-          </div>
-          <div id="add-prowlarr-results" class="d-none" style="max-height:260px;overflow-y:auto">
-            <table class="table table-sm table-dark table-hover mb-0" style="font-size:12px">
-              <thead><tr><th>Titre</th><th>Taille</th><th>S/L</th><th></th></tr></thead>
-              <tbody id="add-prowlarr-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="add-direct-fields" class="d-none">
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Lien magnet ou URL</label>
-            <input type="text" id="add-direct-magnet" class="form-control" placeholder="magnet:?xt=urn:btih:... ou https://...">
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold">Ou fichier .torrent</label>
-            <input type="file" id="add-direct-file" class="form-control" accept=".torrent">
-          </div>
-        </div>
-
-        <div id="add-dl-client-fields" class="d-none">
-          <hr class="border-secondary">
-          <div id="add-selected-release" class="alert alert-secondary py-2 small mb-3 d-none">
-            <i class="bi bi-check-circle me-2"></i><span id="add-selected-release-title"></span>
-          </div>
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label fw-semibold">Client de telechargement</label>
-              <select id="add-dl-client" class="form-select" onchange="onAddDlClientChange()"><option value="">Chargement...</option></select>
-            </div>
-            <div class="col-md-6 qbit-only-add">
-              <label class="form-label fw-semibold">Categorie <span class="text-muted fw-normal">(optionnel)</span></label>
-              <input type="text" id="add-dl-category" class="form-control" placeholder="Defaut du client">
-            </div>
-          </div>
-          <div class="mt-3">
-            <label class="form-label fw-semibold">Tags <span class="text-muted fw-normal">(optionnel)</span></label>
-            <input type="text" id="add-dl-tags" class="form-control" placeholder="Defaut du client, separes par virgules">
-          </div>
-        </div>
-
-        <label class="form-label fw-semibold">Attribuer a</label>
-        <select id="add-action-user" class="form-select mb-3"><option value="">Recherche manuelle</option></select>
-        <div id="add-action-feedback" class="d-none"></div>
-      </div>
-      <div class="modal-footer border-secondary" id="add-action-footer">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-        <button class="btn btn-success d-flex align-items-center gap-2" id="add-action-btn" onclick="addPanelConfirm()">
-          <i class="bi bi-plus-circle"></i><span id="add-action-label">Ajouter</span>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 {% endblock %}
 
@@ -522,6 +381,16 @@ function setViewMode(v) {
   document.getElementById('btn-list')?.classList.toggle('active', v === 'list');
 }
 if (ACTIVE_VIEW !== 'calendar') document.addEventListener('DOMContentLoaded', () => setViewMode(currentViewMode));
+
+// Ouverture directe de la fiche depuis un lien externe (ex: Découvrir), via
+// /library?open_library=<id> ou /library?open_request=<id>.
+(function _openFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const libId = params.get('open_library');
+  const reqId = params.get('open_request');
+  if (libId != null) openMediaDetail(parseInt(libId), null);
+  else if (reqId != null) openMediaDetail(null, parseInt(reqId));
+})();
 
 function statusBadge(status) {
   const map = {
@@ -577,9 +446,10 @@ function renderMediaModal(d) {
       <div class="tab-pane fade" id="tab-requests">${renderRequestsTab(d.requests)}</div>
       <div class="tab-pane fade" id="tab-vf"><div id="vf-tab-body">${VFF_ENABLED || m.media_type === 'show' ? '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span></div>' : '<div class="text-muted small">Suivi VFF desactive.</div>'}</div></div>
       <div class="tab-pane fade" id="tab-calendar">${renderCalendarTab(d)}</div>
-      <div class="tab-pane fade" id="tab-search">${renderSearchTab(m)}</div>
+      <div class="tab-pane fade" id="tab-search"><div id="search-tab-body"><div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div></div></div>
     </div>`;
   loadVfDetail(d.media);
+  loadSearchTab(m);
 }
 
 async function recheckPlex(btn, requestId, libraryId) {
@@ -662,7 +532,7 @@ function renderRequestsTab(requests) {
       <div class="d-flex flex-wrap justify-content-between gap-2">
         <div>
           <div class="fw-semibold">${statusBadge(r.status)} <span class="badge bg-secondary ms-1">${escHtml(r.source || '?')}</span></div>
-          <div class="text-muted small mt-1"><i class="bi bi-person me-1"></i>${escHtml(r.requested_by || '-')}</div>
+          ${requesterEditor(r)}
           <div class="text-muted small">Demandee le ${fmtDateTime(r.requested_at)}${r.available_at ? ' · Disponible le ' + fmtDateTime(r.available_at) : ''}</div>
           <div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} · Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>
           ${error}
@@ -671,11 +541,55 @@ function renderRequestsTab(requests) {
           ${(r.status === 'failed' || r.status === 'pending') ? `<button class="btn btn-sm btn-outline-warning" onclick="retryRequest(${r.id}, this)"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>` : ''}
           ${!r.request_mail_sent ? `<button class="btn btn-sm btn-outline-secondary" onclick="markProcessed(${r.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Mail demande</button>` : ''}
           ${r.status !== 'available' ? `<button class="btn btn-sm btn-outline-success" onclick="markProcessed(${r.id}, this, 'available')"><i class="bi bi-check-all me-1"></i>Cloturer</button>` : ''}
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteRequest(${r.id})"><i class="bi bi-trash"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick='deleteRequest(${r.id}, ${JSON.stringify(!!r.arr_id && !(r.arr_slug || "").startsWith("prowlarr:"))})'><i class="bi bi-trash"></i></button>
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+// --- Gestion des demandeurs (principal + additionnels) ---------------------
+function _reqIds(r) {
+  if (Array.isArray(r.requester_ids)) return r.requester_ids.filter(Boolean);
+  try { return [r.plex_user_id, ...JSON.parse(r.extra_requesters || '[]').map(e => e.plex_user_id)].filter(Boolean); }
+  catch (e) { return [r.plex_user_id].filter(Boolean); }
+}
+function requesterEditor(r) {
+  const ids = _reqIds(r);
+  const names = r.requesters || [];
+  const chips = ids.map((id, i) =>
+    `<span class="badge bg-secondary d-inline-flex align-items-center gap-1">${i === 0 ? '<i class="bi bi-star-fill text-warning" title="Demandeur principal"></i>' : ''}${escHtml(names[i] || id)}${ids.length > 1 ? `<a href="#" class="text-white ms-1" style="text-decoration:none" title="Retirer" onclick="removeRequester(event, ${r.id}, '${escHtml(id)}')">&times;</a>` : ''}</span>`
+  ).join('');
+  const avail = (_addUsers || []).filter(u => u.enabled && !ids.includes(u.plex_user_id));
+  const opts = avail.map(u => `<option value="${escHtml(u.plex_user_id)}">${escHtml(u.custom_name || u.display_name || u.plex_user_id)}</option>`).join('');
+  const add = avail.length ? `<select class="form-select form-select-sm" style="width:auto" onchange="addRequester(${r.id}, this.value)"><option value="">+ Ajouter…</option>${opts}</select>` : '';
+  return `<div class="d-flex flex-wrap align-items-center gap-1 mt-1"><i class="bi bi-people me-1 text-muted" title="Demandeurs"></i>${chips}${add}</div>`;
+}
+function _findReq(reqId) { return ((currentMediaDetail && currentMediaDetail.requests) || []).find(x => x.id === reqId); }
+async function addRequester(reqId, userId) {
+  if (!userId) return;
+  const r = _findReq(reqId); if (!r) return;
+  const ids = _reqIds(r); if (!ids.includes(userId)) ids.push(userId);
+  await _saveRequesters(reqId, ids);
+}
+async function removeRequester(ev, reqId, userId) {
+  ev.preventDefault();
+  const r = _findReq(reqId); if (!r) return;
+  const ids = _reqIds(r).filter(i => i !== userId);
+  if (!ids.length) { showToast('Au moins un demandeur est requis', 'warning'); return; }
+  await _saveRequesters(reqId, ids);
+}
+async function _saveRequesters(reqId, ids) {
+  try {
+    // Modification manuelle : le backend n'envoie aucun mail de demande.
+    const r = await fetch(`/api/requests/${reqId}/requesters`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requester_ids: ids })
+    });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'Erreur'); }
+    showToast('Demandeurs mis à jour', 'success');
+    const m = currentMediaDetail && currentMediaDetail.media;
+    openMediaDetail(m ? m.library_id : null, m ? m.request_id : null);
+  } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
 }
 
 function renderCalendarTab(d) {
@@ -694,13 +608,91 @@ function renderCalendarTab(d) {
 }
 
 function renderSearchTab(m) {
-  if (!m.arr_id) return '<div class="text-muted small py-3">Aucun identifiant Sonarr/Radarr disponible pour lancer une recherche interactive.</div>';
   const reqId = m.request_id == null ? 'null' : m.request_id;
   const inst = m.arr_instance_id == null ? 'null' : m.arr_instance_id;
   return `<div class="d-flex justify-content-between align-items-center mb-2">
     <div class="text-muted small">Recherche interactive ${m.media_type === 'show' ? 'Sonarr' : 'Radarr'} avec les releases VF en tete.</div>
     <button class="btn btn-sm btn-outline-primary" onclick="loadReleaseSearch('${m.media_type}', ${m.arr_id}, ${inst}, ${reqId})"><i class="bi bi-search me-1"></i>Charger les releases</button>
   </div><div id="release-results"></div>`;
+}
+
+// Priorite : si le media est lie a une instance Sonarr/Radarr (arr_id present), on utilise
+// leur recherche interactive native (renderSearchTab, inchange). Sinon (aucun Sonarr/Radarr
+// pour ce media), on retombe sur une recherche directe Prowlarr + client torrent — mais
+// seulement si ce secours est reellement configure, sinon on l'indique clairement.
+async function loadSearchTab(m) {
+  const body = document.getElementById('search-tab-body');
+  if (!body) return;
+  if (m.arr_id) {
+    body.innerHTML = renderSearchTab(m);
+    return;
+  }
+  try {
+    const caps = await fetch('/api/arr/capabilities').then(r => r.json());
+    if (caps.has_prowlarr && caps.has_download_clients) {
+      body.innerHTML = renderProwlarrSearchTab(m);
+    } else {
+      body.innerHTML = '<div class="text-muted small py-3">Aucun mecanisme de recherche configure pour ce media (ni Sonarr/Radarr, ni Prowlarr + client de telechargement).</div>';
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="text-danger small">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderProwlarrSearchTab(m) {
+  const reqId = m.request_id == null ? 'null' : m.request_id;
+  const query = escHtml(`${m.title || ''}${m.year ? ' ' + m.year : ''}`);
+  return `<div class="text-muted small mb-2">Aucune instance Sonarr/Radarr liee a ce media — recherche directe via Prowlarr (mecanisme de secours).</div>
+  <div class="input-group input-group-sm mb-2">
+    <input type="text" id="prowlarr-search-query" class="form-control" value="${query}">
+    <button class="btn btn-outline-primary" onclick="loadProwlarrSearch('${m.media_type}', ${reqId})"><i class="bi bi-search me-1"></i>Rechercher</button>
+  </div><div id="prowlarr-release-results"></div>`;
+}
+
+const _FRENCH_TITLE_WORDS = new Set(['french', 'truefrench', 'vff', 'vf', 'vfi', 'vfq', 'multi']);
+function _releaseLooksFrench(title) {
+  const words = (title || '').toLowerCase().replace(/[._-]/g, ' ').split(/\s+/);
+  return words.some(w => _FRENCH_TITLE_WORDS.has(w));
+}
+
+async function loadProwlarrSearch(mediaType, requestId) {
+  const target = document.getElementById('prowlarr-release-results');
+  const query = document.getElementById('prowlarr-search-query').value.trim();
+  if (!query) return;
+  target.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div>';
+  try {
+    const rels = await fetch(`/api/search?query=${encodeURIComponent(query)}&media_type=${mediaType}`).then(r => r.json());
+    target.innerHTML = renderProwlarrReleases(rels, requestId);
+  } catch (e) {
+    target.innerHTML = `<div class="text-danger small">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderProwlarrReleases(rels, requestId) {
+  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
+  const req = requestId == null ? 'null' : requestId;
+  const rows = rels.map(r => {
+    const vf = _releaseLooksFrench(r.title) ? '<span class="badge badge-available me-1">VF</span>' : '';
+    return `<tr><td><div class="small">${vf}${escHtml(r.title)}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabProwlarrRelease(${JSON.stringify(r.downloadUrl)}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+  }).join('');
+  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function grabProwlarrRelease(downloadUrl, requestId, btn) {
+  if (!downloadUrl) { showToast('Aucun lien de telechargement pour cette release', 'danger'); return; }
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const clients = await fetch('/api/download-clients').then(r => r.json());
+    const client = clients.find(c => c.enabled && c.is_default) || clients.find(c => c.enabled);
+    if (!client) throw new Error('Aucun client de telechargement actif');
+    const r = await fetch('/api/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: client.id, torrent_url_or_magnet: downloadUrl, request_id: requestId }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
+    showToast('Envoye au client de telechargement', 'success'); btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+  } catch (e) { showToast('Echec : ' + e.message, 'danger'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; }
 }
 
 async function loadVfDetail(m) {
@@ -841,11 +833,25 @@ async function markProcessed(id, btn, event) {
     setTimeout(() => location.reload(), 800);
   } catch (e) { showToast('Erreur : ' + e.message, 'danger'); if (btn) btn.disabled = false; }
 }
-async function deleteRequest(id) {
-  if (!await confirmAction({ title:'Supprimer la demande', body:'Supprimer definitivement cette demande ?', okLabel:'Supprimer', danger:true })) return;
+function _arrDeleteCheckboxHtml(idPrefix) {
+  return `<div class="form-check mt-2 text-start">
+    <input type="checkbox" class="form-check-input" id="${idPrefix}-arr">
+    <label class="form-check-label small" for="${idPrefix}-arr">Supprimer aussi de Sonarr/Radarr</label>
+  </div>
+  <div class="form-check text-start">
+    <input type="checkbox" class="form-check-input" id="${idPrefix}-files">
+    <label class="form-check-label small" for="${idPrefix}-files">... et les fichiers deja telecharges</label>
+  </div>`;
+}
+async function deleteRequest(id, hasArr) {
+  const body = 'Supprimer definitivement cette demande ?' + (hasArr ? _arrDeleteCheckboxHtml('del-single') : '');
+  if (!await confirmAction({ title:'Supprimer la demande', body, okLabel:'Supprimer', danger:true })) return;
+  const deleteFromArr = hasArr && document.getElementById('del-single-arr')?.checked;
+  const deleteFiles = hasArr && document.getElementById('del-single-files')?.checked;
   try {
-    const r = await fetch(`/api/requests/${id}`, { method:'DELETE' });
-    if (!r.ok) throw new Error('Erreur');
+    const params = new URLSearchParams({ delete_from_arr: deleteFromArr ? 'true' : 'false', delete_files: deleteFiles ? 'true' : 'false' });
+    const r = await fetch(`/api/requests/${id}?${params.toString()}`, { method:'DELETE' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
     showToast('Demande supprimee', 'success');
     setTimeout(() => location.reload(), 800);
   } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
@@ -863,488 +869,22 @@ async function bulkMarkProcessed() {
 }
 async function bulkDelete() {
   const ids = getSelectedIds(); if (!ids.length) return;
-  if (!await confirmAction({ title:'Supprimer les demandes', body:`Supprimer ${ids.length} demande(s) ?`, okLabel:'Supprimer', danger:true })) return;
-  const r = await fetch('/api/requests/bulk/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids}) });
-  const d = await r.json(); showToast(`${d.count || 0} demande(s) supprimee(s)`, r.ok ? 'success' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
+  const body = `Supprimer ${ids.length} demande(s) ?` + _arrDeleteCheckboxHtml('del-bulk');
+  if (!await confirmAction({ title:'Supprimer les demandes', body, okLabel:'Supprimer', danger:true })) return;
+  const delete_from_arr = !!document.getElementById('del-bulk-arr')?.checked;
+  const delete_files = !!document.getElementById('del-bulk-files')?.checked;
+  const r = await fetch('/api/requests/bulk/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids, delete_from_arr, delete_files}) });
+  const d = await r.json().catch(() => ({}));
+  const skipped = d.skipped && d.skipped.length ? ` (${d.skipped.length} non supprimee(s), *arr injoignable)` : '';
+  showToast(`${d.count || 0} demande(s) supprimee(s)${skipped}`, r.ok ? (d.skipped && d.skipped.length ? 'warning' : 'success') : 'danger');
+  if (r.ok) setTimeout(() => location.reload(), 900);
 }
 
-let _addPanelItem = null;
-let _addCaps = {};
+// Utilisateurs (réutilisés par l'éditeur de demandeurs de la modale détail).
 let _addUsers = [];
-let _allInstances = [];
-let _selectedTagIds = new Set();
-let _hiddenProwlarrInstances = [];
-let _prowlarrSelectedUrl = null;
-let _prowlarrSelectedGuid = null;
-let _prowlarrSelectedIndexerId = null;
-let _prowlarrUseNativeClient = false;
-
-async function _loadInstances() {
-  try {
-    const r = await fetch('/api/arr-instances');
-    _allInstances = r.ok ? await r.json() : [];
-  } catch(e) { _allInstances = []; }
-}
-async function _initAddPanel() {
-  try {
-    const [capsR, usersR] = await Promise.all([
-      fetch('/api/media/capabilities'),
-      fetch('/api/users'),
-      _loadInstances(),
-    ]);
-    _addCaps = capsR.ok ? await capsR.json() : {};
-    _addUsers = usersR.ok ? await usersR.json() : [];
-    const sel = document.getElementById('add-action-user');
-    _addUsers.filter(u => u.enabled).forEach(u => {
-      const o = document.createElement('option');
-      o.value = u.plex_user_id; o.textContent = u.display_name || u.plex_user_id; sel.appendChild(o);
-    });
-  } catch(e) {}
-}
-_initAddPanel();
-
-function openAddPanel(query) {
-  const panel = document.getElementById('add-panel');
-  panel.classList.remove('d-none');
-  panel.scrollIntoView({ behavior:'smooth', block:'start' });
-  const input = document.getElementById('add-query');
-  input.value = query || '';
-  if (query) addPanelSearch(); else input.focus();
-}
-function closeAddPanel() {
-  document.getElementById('add-panel').classList.add('d-none');
-  document.getElementById('add-panel-results').innerHTML = '';
-  document.getElementById('add-action-feedback')?.classList.add('d-none');
-}
-async function addPanelSearch() {
-  const query = document.getElementById('add-query').value.trim();
-  const type = document.getElementById('add-media-type').value;
-  if (!query) return;
-  document.getElementById('add-panel-loading').classList.remove('d-none');
-  document.getElementById('add-panel-results').innerHTML = '';
-  try {
-    const items = await fetch(`/api/media/lookup?query=${encodeURIComponent(query)}&type=${type}`).then(r => r.ok ? r.json() : []);
-    window._addLookupItems = items;
-    const container = document.getElementById('add-panel-results');
-    if (!items.length) {
-      container.innerHTML = '<div class="col-12 text-muted small py-3">Aucun resultat. Verifiez que Sonarr/Radarr est configure.</div>';
-    } else {
-      container.innerHTML = items.map((item, idx) => {
-        const badge = item.already_added ? ' <span class="badge bg-primary">Deja ajoute</span>' : '';
-        const poster = item.poster ? `<img src="${escHtml(item.poster)}" style="width:40px;height:60px;object-fit:cover;border-radius:4px;flex-shrink:0" onerror="this.style.display='none'">` : '';
-        return `<div class="col-md-6 col-lg-4"><div class="card p-2 hover-card" style="background:var(--pr-surface);cursor:pointer" onclick="addPanelSelect(${idx})"><div class="d-flex gap-2">${poster}<div class="min-w-0"><div class="fw-semibold small text-truncate">${escHtml(item.title)}${item.year ? ` <span class="text-muted">(${item.year})</span>` : ''}${badge}</div><div class="text-muted" style="font-size:11px">${escHtml((item.overview || '').slice(0,90))}</div></div></div></div></div>`;
-      }).join('');
-    }
-  } catch(e) {
-    document.getElementById('add-panel-results').innerHTML = `<div class="col-12 text-danger small">${escHtml(e.message)}</div>`;
-  } finally {
-    document.getElementById('add-panel-loading').classList.add('d-none');
-  }
-}
-async function addPanelSelect(idx) {
-  _addPanelItem = window._addLookupItems[idx];
-  if (!_addPanelItem) return;
-  document.getElementById('add-action-title').textContent = _addPanelItem.title + (_addPanelItem.year ? ` (${_addPanelItem.year})` : '');
-  document.getElementById('add-action-meta').textContent = typeLabel(_addPanelItem.media_type);
-  document.getElementById('add-action-overview').textContent = (_addPanelItem.overview || '').slice(0, 240);
-  const poster = document.getElementById('add-action-poster');
-  poster.src = _addPanelItem.poster || ''; poster.style.display = _addPanelItem.poster ? '' : 'none';
-
-  const arrBlock = document.getElementById('add-arr-interactive');
-  arrBlock.classList.toggle('d-none', !(_addPanelItem.already_added && _addPanelItem.arr_id));
-  document.getElementById('add-arr-releases').innerHTML = '';
-  document.getElementById('add-action-feedback').classList.add('d-none');
-  document.getElementById('add-action-footer').classList.remove('d-none');
-  const btn = document.getElementById('add-action-btn');
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-plus-circle"></i><span id="add-action-label">Ajouter</span>';
-
-  const isShow = _addPanelItem.media_type === 'show';
-  const arrType = isShow ? 'sonarr' : 'radarr';
-  const serviceSel = document.getElementById('add-service-select');
-  serviceSel.innerHTML = '';
-
-  const grpMedia = document.createElement('optgroup');
-  grpMedia.label = 'Ajouter a la mediatheque';
-  if (_addCaps.has_seer) {
-    const o = document.createElement('option');
-    o.value = 'seer'; o.textContent = 'Seer (Overseerr / Jellyseerr)';
-    grpMedia.appendChild(o);
-  }
-  const arrInstances = _allInstances.filter(i => i.arr_type === arrType && i.enabled);
-  arrInstances.forEach(i => {
-    const o = document.createElement('option');
-    o.value = `arr:${i.id}`;
-    o.textContent = `${i.name}${i.is_default ? ' (Defaut)' : ''}`;
-    grpMedia.appendChild(o);
-  });
-  if (grpMedia.children.length) serviceSel.appendChild(grpMedia);
-
-  const grpDl = document.createElement('optgroup');
-  grpDl.label = 'Telechargement direct (hors *arr)';
-  const prowlarrInstances = _allInstances.filter(i => i.arr_type === 'prowlarr' && i.enabled);
-  _hiddenProwlarrInstances = arrInstances.length ? prowlarrInstances : [];
-  if (!_hiddenProwlarrInstances.length) {
-    prowlarrInstances.forEach(i => {
-      const o = document.createElement('option');
-      o.value = `prowlarr:${i.id}`; o.textContent = `Prowlarr - ${i.name}`;
-      grpDl.appendChild(o);
-    });
-  }
-  const oDirect = document.createElement('option');
-  oDirect.value = 'direct'; oDirect.textContent = 'Direct (magnet / .torrent)';
-  grpDl.appendChild(oDirect);
-  serviceSel.appendChild(grpDl);
-  document.getElementById('add-prowlarr-toggle').classList.toggle('d-none', !_hiddenProwlarrInstances.length);
-
-  if (_addCaps.has_seer) serviceSel.value = 'seer';
-  else if (arrInstances.length) {
-    const def = arrInstances.find(i => i.is_default) || arrInstances[0];
-    serviceSel.value = `arr:${def.id}`;
-  } else if (prowlarrInstances.length) serviceSel.value = `prowlarr:${prowlarrInstances[0].id}`;
-  else serviceSel.value = 'direct';
-
-  const libraryCount = (_addCaps.has_seer ? 1 : 0) + arrInstances.length;
-  document.getElementById('add-service-field').classList.toggle('d-none', libraryCount === 1 && !prowlarrInstances.length);
-  document.getElementById('add-manual-toggle').classList.toggle('d-none', !(libraryCount === 1 && !prowlarrInstances.length));
-  renderServicePills();
-  await onServiceChange();
-  new bootstrap.Modal(document.getElementById('addMediaModal')).show();
-}
-
-function revealManualDownload(e) {
-  e.preventDefault();
-  document.getElementById('add-manual-toggle').classList.add('d-none');
-  document.getElementById('add-service-field').classList.remove('d-none');
-  setService('direct');
-}
-function revealProwlarrOption(e) {
-  e.preventDefault();
-  const sel = document.getElementById('add-service-select');
-  const grpDl = Array.from(sel.children).find(n => n.tagName === 'OPTGROUP' && n.label.includes('direct'));
-  const target = grpDl || sel;
-  _hiddenProwlarrInstances.forEach(i => {
-    const o = document.createElement('option');
-    o.value = `prowlarr:${i.id}`;
-    o.textContent = `Prowlarr - ${i.name}`;
-    target.insertBefore(o, target.firstChild);
-  });
-  const firstId = _hiddenProwlarrInstances[0]?.id;
-  _hiddenProwlarrInstances = [];
-  document.getElementById('add-prowlarr-toggle').classList.add('d-none');
-  renderServicePills();
-  if (firstId != null) setService(`prowlarr:${firstId}`);
-}
-function _serviceIcon(val) {
-  if (val === 'seer') return 'bi-collection-play';
-  if (val.startsWith('arr:')) return _addPanelItem?.media_type === 'show' ? 'bi-tv' : 'bi-film';
-  if (val.startsWith('prowlarr:')) return 'bi-search';
-  if (val === 'direct') return 'bi-magnet';
-  return 'bi-question-circle';
-}
-function _makeServicePill(opt) {
-  const pill = document.createElement('button');
-  pill.type = 'button';
-  pill.className = 'btn btn-sm btn-outline-secondary service-pill d-flex align-items-center gap-2';
-  pill.dataset.value = opt.value;
-  pill.innerHTML = `<i class="bi ${_serviceIcon(opt.value)}"></i> ${escHtml(opt.textContent)}`;
-  pill.disabled = !opt.value;
-  pill.onclick = () => setService(opt.value);
-  return pill;
-}
-function renderServicePills() {
-  const sel = document.getElementById('add-service-select');
-  const container = document.getElementById('add-service-pills');
-  container.innerHTML = '';
-  Array.from(sel.children).forEach(node => {
-    if (node.tagName === 'OPTGROUP') {
-      const grp = document.createElement('div');
-      grp.className = 'mb-2';
-      const lbl = document.createElement('div');
-      lbl.className = 'text-muted small fw-semibold mb-1';
-      lbl.textContent = node.label;
-      grp.appendChild(lbl);
-      const row = document.createElement('div');
-      row.className = 'd-flex flex-wrap gap-2';
-      Array.from(node.children).forEach(opt => row.appendChild(_makeServicePill(opt)));
-      grp.appendChild(row);
-      container.appendChild(grp);
-    }
-  });
-  updatePillActive();
-}
-function updatePillActive() {
-  const val = document.getElementById('add-service-select').value;
-  document.querySelectorAll('#add-service-pills .service-pill').forEach(p => {
-    const active = p.dataset.value === val;
-    p.classList.toggle('btn-warning', active);
-    p.classList.toggle('text-dark', active);
-    p.classList.toggle('btn-outline-secondary', !active);
-  });
-}
-function setService(val) {
-  document.getElementById('add-service-select').value = val;
-  updatePillActive();
-  onServiceChange();
-}
-async function onServiceChange() {
-  if (!_addPanelItem) return;
-  const val = document.getElementById('add-service-select').value;
-  const btn = document.getElementById('add-action-btn');
-  _selectedTagIds = new Set();
-  _prowlarrSelectedUrl = null;
-  _prowlarrSelectedGuid = null;
-  _prowlarrSelectedIndexerId = null;
-  _prowlarrUseNativeClient = false;
-  updatePillActive();
-  ['add-arr-fields','add-prowlarr-fields','add-direct-fields','add-dl-client-fields'].forEach(id => document.getElementById(id).classList.add('d-none'));
-  document.getElementById('add-prowlarr-results').classList.add('d-none');
-  document.getElementById('add-selected-release').classList.add('d-none');
-
-  if (val === 'seer') {
-    document.getElementById('add-action-label').textContent = _addPanelItem.already_added ? 'Importer dans les demandes' : 'Ajouter via Seer';
-    btn.className = _addPanelItem.already_added ? 'btn btn-outline-secondary d-flex align-items-center gap-2' : 'btn btn-success d-flex align-items-center gap-2';
-    btn.disabled = false;
-  } else if (val.startsWith('arr:')) {
-    const isShow = _addPanelItem.media_type === 'show';
-    document.getElementById('add-arr-fields').classList.remove('d-none');
-    await loadArrOptions(isShow ? 'sonarr' : 'radarr', val.replace('arr:', ''));
-    document.getElementById('add-action-label').textContent = _addPanelItem.already_added ? 'Importer dans les demandes' : `Ajouter dans ${isShow ? 'Sonarr' : 'Radarr'}`;
-    btn.className = _addPanelItem.already_added ? 'btn btn-outline-secondary d-flex align-items-center gap-2' : 'btn btn-success d-flex align-items-center gap-2';
-    btn.disabled = false;
-  } else if (val.startsWith('prowlarr:')) {
-    document.getElementById('add-prowlarr-fields').classList.remove('d-none');
-    const instanceId = val.replace('prowlarr:', '');
-    try {
-      const status = await fetch(`/api/prowlarr/${instanceId}/download-client-status`).then(r => r.json());
-      _prowlarrUseNativeClient = !!status.has_client;
-    } catch(e) { _prowlarrUseNativeClient = false; }
-    if (!_prowlarrUseNativeClient) {
-      document.getElementById('add-dl-client-fields').classList.remove('d-none');
-      await loadDlClients();
-    }
-    document.getElementById('add-action-label').textContent = 'Telecharger';
-    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
-    btn.disabled = true;
-    addModalProwlarrSearch();
-  } else if (val === 'direct') {
-    document.getElementById('add-direct-fields').classList.remove('d-none');
-    document.getElementById('add-dl-client-fields').classList.remove('d-none');
-    await loadDlClients();
-    document.getElementById('add-action-label').textContent = 'Telecharger';
-    btn.className = 'btn btn-warning d-flex align-items-center gap-2';
-    btn.disabled = false;
-  } else {
-    btn.disabled = true;
-  }
-}
-async function loadDlClients() {
-  const sel = document.getElementById('add-dl-client');
-  sel.innerHTML = '<option>Chargement...</option>';
-  try {
-    const clients = await fetch('/api/download-clients').then(r => r.ok ? r.json() : []);
-    const enabled = clients.filter(c => c.enabled);
-    sel.innerHTML = enabled.length ? enabled.map(c => `<option value="${c.id}" data-type="${c.client_type}" data-cat="${escHtml(c.category||'')}" data-tags="${escHtml(c.tags||'')}">${escHtml(c.name)}${c.is_default ? ' (Defaut)' : ''}</option>`).join('') : '<option value="">Aucun client actif</option>';
-    onAddDlClientChange();
-  } catch(e) { sel.innerHTML = '<option value="">Erreur</option>'; }
-}
-function onAddDlClientChange() {
-  const sel = document.getElementById('add-dl-client');
-  const opt = sel.options[sel.selectedIndex];
-  const isQbit = opt?.dataset.type === 'qbittorrent';
-  document.querySelectorAll('.qbit-only-add').forEach(el => { el.style.display = isQbit ? '' : 'none'; });
-  if (opt) {
-    document.getElementById('add-dl-category').value = opt.dataset.cat || '';
-    document.getElementById('add-dl-tags').value = opt.dataset.tags || '';
-  }
-}
-async function addModalProwlarrSearch() {
-  const val = document.getElementById('add-service-select').value;
-  const instanceId = val.replace('prowlarr:', '');
-  const query = _addPanelItem?.title || '';
-  const mediaType = _addPanelItem?.media_type || 'movie';
-  document.getElementById('add-prowlarr-loading').classList.remove('d-none');
-  document.getElementById('add-prowlarr-results').classList.add('d-none');
-  let url = `/api/search?query=${encodeURIComponent(query)}&media_type=${mediaType}`;
-  if (instanceId) url += `&instance_id=${instanceId}`;
-  try {
-    const data = await fetch(url).then(r => r.ok ? r.json() : []);
-    const tbody = document.getElementById('add-prowlarr-tbody');
-    tbody.innerHTML = data.length ? data.map(item => `<tr style="cursor:pointer" onclick="selectProwlarrRelease('${escHtml(item.downloadUrl)}', '${escHtml(item.title)}', this, '${escHtml(item.guid)}', ${item.indexerId})"><td><span class="text-white">${escHtml(item.title)}</span><br><small class="text-muted">${escHtml(item.indexer||'')}</small></td><td class="text-nowrap">${formatBytes(item.size)}</td><td class="text-nowrap"><span class="text-success">${item.seeders}</span>/<span class="text-muted">${item.leechers}</span></td><td><i class="bi bi-download text-warning"></i></td></tr>`).join('') : '<tr><td colspan="4" class="text-center text-muted py-3">Aucune release</td></tr>';
-    document.getElementById('add-prowlarr-results').classList.remove('d-none');
-  } catch(e) {
-    showToast('Erreur Prowlarr : ' + e.message, 'danger');
-  } finally {
-    document.getElementById('add-prowlarr-loading').classList.add('d-none');
-  }
-}
-async function addModalArrSearch(btn) {
-  if (!_addPanelItem || !_addPanelItem.arr_id) return;
-  const container = document.getElementById('add-arr-releases');
-  container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span> <span class="text-muted small">Recherche interactive...</span></div>';
-  const mt = _addPanelItem.media_type;
-  const inst = _addPanelItem.arr_instance_id == null ? null : _addPanelItem.arr_instance_id;
-  let url = `/api/arr/releases?media_type=${mt}&arr_id=${_addPanelItem.arr_id}`;
-  if (inst != null) url += `&instance_id=${inst}`;
-  try {
-    const rels = await fetch(url).then(r => r.json());
-    container.innerHTML = renderAddArrReleases(rels, mt, inst, null);
-  } catch(e) {
-    container.innerHTML = `<div class="text-danger small py-2">Erreur : ${escHtml(e.message)}</div>`;
-  }
-}
-function renderAddArrReleases(rels, mediaType, instanceId, requestId) {
-  if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
-  const inst = instanceId == null ? 'null' : instanceId;
-  const req = requestId == null ? 'null' : requestId;
-  const rows = rels.map(r => {
-    const vf = r.is_french ? '<span class="badge badge-available me-1"><i class="bi bi-translate"></i> VF</span>' : '';
-    const rej = r.rejected ? `<i class="bi bi-exclamation-triangle text-warning ms-1" title="${escHtml((r.rejections||[]).join('; '))}"></i>` : '';
-    const langs = (r.languages||[]).join(', ');
-    const hl = r.is_french ? 'style="background:rgba(229,160,13,.08)"' : '';
-    return `<tr ${hl}><td><div class="small">${vf}${escHtml(r.title)}${rej}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} - ${escHtml(r.quality||'')}${langs ? ' - ' + escHtml(langs) : ''}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabAddRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
-  }).join('');
-  return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0" style="font-size:12px"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-async function grabAddRelease(mediaType, guid, indexerId, instanceId, requestId, btn) {
-  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-  try {
-    const r = await fetch('/api/arr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ media_type:mediaType, guid, indexer_id:indexerId, instance_id:instanceId, request_id:requestId }) });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
-    showToast('Release envoyee a ' + (mediaType === 'movie' ? 'Radarr' : 'Sonarr'), 'success');
-    btn.innerHTML = '<i class="bi bi-check-lg"></i>';
-  } catch(e) {
-    showToast('Erreur : ' + e.message, 'danger');
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>';
-  }
-}
-function selectProwlarrRelease(url, title, row, guid, indexerId) {
-  _prowlarrSelectedUrl = url;
-  _prowlarrSelectedGuid = guid;
-  _prowlarrSelectedIndexerId = indexerId;
-  document.querySelectorAll('#add-prowlarr-tbody tr').forEach(r => r.classList.remove('table-warning'));
-  row.classList.add('table-warning');
-  document.getElementById('add-selected-release-title').textContent = title;
-  document.getElementById('add-selected-release').classList.remove('d-none');
-  document.getElementById('add-action-btn').disabled = false;
-}
-async function loadArrOptions(arrType, instanceId) {
-  const profileSel = document.getElementById('add-quality-profile');
-  const folderSel = document.getElementById('add-root-folder');
-  const tagsContainer = document.getElementById('add-tags-container');
-  profileSel.innerHTML = '<option>Chargement...</option>';
-  folderSel.innerHTML = '<option>Chargement...</option>';
-  tagsContainer.innerHTML = '<span class="text-muted small align-self-center">Chargement...</span>';
-  const qs = instanceId ? `?instance_id=${instanceId}` : '';
-  try {
-    const [profiles, folders, tags] = await Promise.all([
-      fetch(`/api/${arrType}/profiles${qs}`).then(r => r.ok ? r.json() : []),
-      fetch(`/api/${arrType}/folders${qs}`).then(r => r.ok ? r.json() : []),
-      fetch(`/api/${arrType}/tags${qs}`).then(r => r.ok ? r.json() : []),
-    ]);
-    profileSel.innerHTML = profiles.map(p => `<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
-    folderSel.innerHTML = folders.map(f => `<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('');
-    tagsContainer.innerHTML = tags.length ? tags.map(t => `<span class="badge tag-toggle px-3 py-2" data-id="${t.id}" style="cursor:pointer;background:var(--pr-surface-2);border:1px solid var(--pr-border);color:var(--pr-text-muted);font-weight:500" onclick="toggleTag(this, ${t.id})">${escHtml(t.label)}</span>`).join('') : '<span class="text-muted small align-self-center">Aucun tag configure</span>';
-  } catch(e) {
-    profileSel.innerHTML = '<option>Erreur de chargement</option>';
-    folderSel.innerHTML = '<option>Erreur de chargement</option>';
-    tagsContainer.innerHTML = `<span class="text-danger small">${escHtml(e.message)}</span>`;
-  }
-}
-function toggleTag(el, id) {
-  if (_selectedTagIds.has(id)) {
-    _selectedTagIds.delete(id);
-    el.style.background = 'var(--pr-surface-2)';
-    el.style.borderColor = 'var(--pr-border)';
-    el.style.color = 'var(--pr-text-muted)';
-  } else {
-    _selectedTagIds.add(id);
-    el.style.background = 'var(--bs-warning)';
-    el.style.borderColor = 'var(--bs-warning)';
-    el.style.color = '#000';
-  }
-}
-async function addPanelConfirm() {
-  if (!_addPanelItem) return;
-  const svcVal = document.getElementById('add-service-select').value;
-  const btn = document.getElementById('add-action-btn');
-  const fb = document.getElementById('add-action-feedback');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>En cours...';
-  fb.classList.add('d-none');
-  try {
-    if (svcVal.startsWith('prowlarr:') && _prowlarrUseNativeClient) await _confirmProwlarrGrab(svcVal);
-    else if (svcVal.startsWith('prowlarr:') || svcVal === 'direct') await _confirmDownload();
-    else await _confirmMediaAdd(svcVal);
-  } catch(e) {
-    fb.innerHTML = `<div class="alert alert-danger mb-0">${escHtml(e.message)}</div>`; fb.classList.remove('d-none');
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat"></i><span id="add-action-label">Reessayer</span>';
-  }
-}
-async function _confirmMediaAdd(svcVal) {
-  const useSeer = svcVal === 'seer';
-  const instanceId = svcVal.startsWith('arr:') ? parseInt(svcVal.replace('arr:', '')) : null;
-  const r = await fetch('/api/media/add', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    title:_addPanelItem.title, year:_addPanelItem.year, media_type:_addPanelItem.media_type,
-    tmdb_id:_addPanelItem.tmdb_id, tvdb_id:_addPanelItem.tvdb_id, imdb_id:_addPanelItem.imdb_id,
-    plex_user_id:document.getElementById('add-action-user').value || null,
-    use_seer:useSeer, instance_id:instanceId,
-    quality_profile_id:parseInt(document.getElementById('add-quality-profile')?.value) || null,
-    root_folder:document.getElementById('add-root-folder')?.value || null,
-    tag_ids:[..._selectedTagIds],
-  })});
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
-  const via = d.via === 'seer' ? 'Seer' : d.via === 'sonarr' ? 'Sonarr' : 'Radarr';
-  const fb = document.getElementById('add-action-feedback');
-  fb.innerHTML = `<div class="alert alert-success mb-0"><strong>${escHtml(_addPanelItem.title)}</strong> ${d.already_existed ? 'etait deja present et a ete ajoute au suivi' : 'ajoute'} via <strong>${escHtml(via)}</strong>.</div>`;
-  fb.classList.remove('d-none');
-  document.getElementById('add-action-footer').classList.add('d-none');
-  setTimeout(() => { bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(); location.reload(); }, 1500);
-}
-async function _confirmDownload() {
-  const clientId = document.getElementById('add-dl-client').value;
-  if (!clientId) throw new Error('Selectionner un client de telechargement');
-  const category = document.getElementById('add-dl-category').value.trim();
-  const tags = document.getElementById('add-dl-tags').value.trim();
-  const magnetInput = document.getElementById('add-direct-magnet')?.value.trim();
-  const fileInput = document.getElementById('add-direct-file');
-  const hasFile = fileInput?.files?.length > 0;
-  let r;
-  if (hasFile) {
-    const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
-    fd.append('client_id', clientId);
-    if (category) fd.append('category', category);
-    if (tags) fd.append('tags', tags);
-    r = await fetch('/api/download/file', { method:'POST', body:fd });
-  } else {
-    const url = _prowlarrSelectedUrl || magnetInput;
-    if (!url) throw new Error('Fournir un lien magnet ou selectionner une release Prowlarr');
-    r = await fetch('/api/download', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ torrent_url_or_magnet:url, client_id:parseInt(clientId), category:category || null, tags:tags || null }) });
-  }
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
-  const clientSel = document.getElementById('add-dl-client');
-  const clientName = clientSel.options[clientSel.selectedIndex]?.textContent?.trim() || 'le client';
-  const fb = document.getElementById('add-action-feedback');
-  fb.innerHTML = `<div class="alert alert-success mb-0">Telechargement envoye a <strong>${escHtml(clientName)}</strong>.</div>`;
-  fb.classList.remove('d-none');
-  document.getElementById('add-action-footer').classList.add('d-none');
-  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
-}
-async function _confirmProwlarrGrab(svcVal) {
-  if (!_prowlarrSelectedGuid || _prowlarrSelectedIndexerId == null) throw new Error('Selectionner une release Prowlarr');
-  const instanceId = parseInt(svcVal.replace('prowlarr:', ''));
-  const r = await fetch('/api/prowlarr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ guid:_prowlarrSelectedGuid, indexer_id:_prowlarrSelectedIndexerId, instance_id:instanceId }) });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.detail || `Erreur ${r.status}`);
-  const fb = document.getElementById('add-action-feedback');
-  fb.innerHTML = '<div class="alert alert-success mb-0">Release envoyee au client configure dans Prowlarr.</div>';
-  fb.classList.remove('d-none');
-  document.getElementById('add-action-footer').classList.add('d-none');
-  setTimeout(() => bootstrap.Modal.getInstance(document.getElementById('addMediaModal'))?.hide(), 2000);
-}
+(async function _loadUsers() {
+  try { const r = await fetch('/api/users'); _addUsers = r.ok ? await r.json() : []; } catch (e) { _addUsers = []; }
+})();
 
 // Code couleur par type de sortie (cinéma / digitale / physique / épisode).
 function calReleaseMeta(e) {

@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import SessionLocal
-from ..models import Settings
+from ..models import ArrInstance, Settings
 from ..dependencies import require_auth
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
@@ -177,7 +177,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
             run.progress = round((i / len(candidates)) * 95)
             available = False
             try:
-                if settings.seer_enabled and settings.seer_url and settings.seer_api_key and req.arr_id:
+                if req.source == "seer" and settings.seer_url and settings.seer_api_key and req.arr_id:
                     available, *_ = await seer_available(settings.seer_url, settings.seer_api_key, req.arr_id)
                 elif req.media_type == "show" and settings.sonarr_url and settings.sonarr_api_key:
                     available, *_ = await is_series_available(
@@ -185,6 +185,8 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                         settings.sonarr_api_key,
                         arr_id=req.arr_id,
                         tvdb_id=req.tvdb_id,
+                        tmdb_id=req.tmdb_id,
+                        imdb_id=req.imdb_id,
                     )
                 elif req.media_type == "movie" and settings.radarr_url and settings.radarr_api_key:
                     available, *_ = await is_movie_available(
@@ -230,11 +232,14 @@ async def _run_health_check(run: MaintenanceRun):
             services.append(("Plex API", "plex"))
         if settings.plex_rss_url:
             services.append(("Plex RSS", "plex-rss"))
-        if settings.sonarr_enabled and settings.sonarr_url:
-            services.append(("Sonarr", "sonarr"))
-        if settings.radarr_enabled and settings.radarr_url:
-            services.append(("Radarr", "radarr"))
-        if settings.seer_enabled and settings.seer_url:
+        for inst in (
+            db.query(ArrInstance)
+            .filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"]))
+            .order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name)
+            .all()
+        ):
+            services.append((inst.name or inst.arr_type.title(), inst))
+        if settings.seer_url and settings.seer_api_key:
             services.append(("Seer", "seer"))
 
         if not services:
@@ -257,6 +262,12 @@ async def _run_health_check(run: MaintenanceRun):
                         r = await client.get(settings.plex_rss_url)
                         r.raise_for_status()
                         emit.ok(f"✓ {label} — OK ({r.elapsed.microseconds // 1000} ms)")
+                    elif isinstance(key, ArrInstance):
+                        url = f"{key.url.rstrip('/')}/api/v3/system/status"
+                        r = await client.get(url, headers={"X-Api-Key": key.api_key})
+                        r.raise_for_status()
+                        version = r.json().get("version", "?")
+                        emit.ok(f"✓ {label} — OK v{version} ({r.elapsed.microseconds // 1000} ms)")
                     elif key == "sonarr":
                         url = f"{settings.sonarr_url.rstrip('/')}/api/v3/system/status"
                         r = await client.get(url, headers={"X-Api-Key": settings.sonarr_api_key})

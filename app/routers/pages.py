@@ -419,7 +419,14 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
             counts_map[uid]["last_requested_at"] = r.requested_at
 
     settings = db.query(Settings).first()
-    seer_enabled = bool(settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key)
+    seer_enabled = bool(settings and settings.seer_url and settings.seer_api_key)
+    user_summary = {
+        "total": len(users),
+        "enabled": sum(1 for u in users if u.enabled),
+        "disabled": sum(1 for u in users if not u.enabled),
+        "seer_linked": sum(1 for u in users if u.seer_user_id),
+        "seer_only": sum(1 for u in users if u.source == "seer"),
+    }
 
     instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
     sonarr_instances = [i for i in instances if i.arr_type == "sonarr"]
@@ -431,6 +438,7 @@ def users_page(request: Request, _: None = Depends(require_auth), db: Session = 
         {
             "users": users,
             "counts_map": counts_map,
+            "user_summary": user_summary,
             "seer_enabled": seer_enabled,
             "sonarr_instances": sonarr_instances,
             "radarr_instances": radarr_instances,
@@ -488,7 +496,11 @@ def discover_page(request: Request, _: None = Depends(require_auth), db: Session
     return templates.TemplateResponse(
         request,
         "discover.html",
-        {"page": "discover", "tmdb_configured": bool(s and (s.tmdb_api_key or "").strip())},
+        {
+            "page": "discover",
+            "tmdb_configured": bool(s and (s.tmdb_api_key or "").strip()),
+            "seer_requests_enabled": bool(s and s.seer_send_requests and s.seer_url and s.seer_api_key),
+        },
     )
 
 
@@ -496,13 +508,6 @@ def discover_page(request: Request, _: None = Depends(require_auth), db: Session
 def logs_page(request: Request, _: None = Depends(require_auth)):
     """Page des logs applicatifs en temps réel."""
     return templates.TemplateResponse(request, "logs.html")
-
-
-@router.get("/search")
-def search_page():
-    from fastapi.responses import RedirectResponse
-
-    return RedirectResponse(url="/library?view=requests", status_code=301)
 
 
 @router.get("/settings", response_class=HTMLResponse)

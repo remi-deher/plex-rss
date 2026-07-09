@@ -12,6 +12,7 @@ Fonctions principales :
 """
 
 import logging
+import re
 
 import httpx
 
@@ -38,8 +39,9 @@ async def add_series(
 
     tvdb_id = item.get("tvdb_id")
     if not tvdb_id:
-        # TVDB ID absent du flux RSS (rare) : recherche via le lookup Sonarr
-        tvdb_id = await _search_tvdb_id(base, headers, item["title"])
+        # TVDB ID absent du flux RSS/API : résolution via Sonarr, en privilégiant
+        # les IDs externes. Un lookup au titre seul peut matcher un homonyme.
+        tvdb_id = await _search_tvdb_id(base, headers, item)
     if not tvdb_id:
         logger.warning(f"Cannot find TVDB ID for '{item['title']}'")
         return None, False, None
@@ -78,21 +80,101 @@ async def add_series(
         raise
 
 
-async def _search_tvdb_id(base: str, headers: dict, title: str) -> str | None:
-    """Cherche un TVDB ID via le lookup Sonarr (fallback quand absent du flux RSS)."""
+def _norm_external_id(value) -> str | None:
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _same_external_id(candidate, expected) -> bool:
+    candidate = _norm_external_id(candidate)
+    expected = _norm_external_id(expected)
+    return bool(candidate and expected and candidate == expected)
+
+
+def _norm_title(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).strip()
+
+
+def _candidate_matches_item(candidate: dict, item: dict, *, strict_ids: bool = False) -> bool:
+    """Valide qu'un résultat Sonarr correspond bien à l'item Plex demandé."""
+    if _same_external_id(candidate.get("tvdbId"), item.get("tvdb_id")):
+        return True
+    if _same_external_id(candidate.get("tmdbId"), item.get("tmdb_id")):
+        return True
+    if _same_external_id(candidate.get("imdbId"), item.get("imdb_id")):
+        return True
+
+    if strict_ids and (item.get("tvdb_id") or item.get("tmdb_id") or item.get("imdb_id")):
+        return False
+
+    expected_title = _norm_title(item.get("title"))
+    candidate_title = _norm_title(candidate.get("title"))
+    if expected_title and candidate_title and expected_title == candidate_title:
+        item_year = item.get("year")
+        candidate_year = candidate.get("year")
+        return not item_year or not candidate_year or str(item_year) == str(candidate_year)
+    return False
+
+
+async def _lookup_series_candidates(base: str, headers: dict, term: str) -> list[dict]:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
                 f"{base}/api/v3/series/lookup",
-                params={"term": title},
+                params={"term": term},
                 headers=headers,
             )
             resp.raise_for_status()
-            results = resp.json()
-            if results:
-                return str(results[0].get("tvdbId"))
+            return resp.json()
     except Exception as e:
-        logger.warning(f"Sonarr lookup failed for '{title}': {e}")
+        logger.warning(f"Sonarr lookup failed for '{term}': {e}")
+    return []
+
+
+async def _search_tvdb_id(base: str, headers: dict, item: dict) -> str | None:
+    """Cherche un TVDB ID via le lookup Sonarr (fallback quand absent du flux/API)."""
+    for key, prefix in (("imdb_id", "imdb"), ("tmdb_id", "tmdb")):
+        value = _norm_external_id(item.get(key))
+        if not value:
+            continue
+        for candidate in await _lookup_series_candidates(base, headers, f"{prefix}:{value}"):
+            if _candidate_matches_item(candidate, item, strict_ids=True) and candidate.get("tvdbId"):
+                return str(candidate["tvdbId"])
+
+    title = item.get("title")
+    if not title:
+        return None
+    terms = [f"{title} {item['year']}"] if item.get("year") else []
+    terms.append(title)
+
+    seen_terms = set()
+    for term in terms:
+        if term in seen_terms:
+            continue
+        seen_terms.add(term)
+        for candidate in await _lookup_series_candidates(base, headers, term):
+            if _candidate_matches_item(candidate, item, strict_ids=True) and candidate.get("tvdbId"):
+                return str(candidate["tvdbId"])
+
+    if item.get("tmdb_id") or item.get("imdb_id"):
+        logger.warning(
+            "Sonarr lookup for '%s' returned no result matching external IDs "
+            "(tmdb=%s, imdb=%s); refusing ambiguous title match",
+            item.get("title"),
+            item.get("tmdb_id"),
+            item.get("imdb_id"),
+        )
+        return None
+
+    # Dernier filet pour les vieux flux sans identifiants : titre exact + année.
+    try:
+        for candidate in await _lookup_series_candidates(base, headers, terms[0]):
+            if _candidate_matches_item(candidate, item) and candidate.get("tvdbId"):
+                return str(candidate["tvdbId"])
+    except Exception as e:
+        logger.warning(f"Sonarr title fallback failed for '{title}': {e}")
     return None
 
 
@@ -110,6 +192,8 @@ async def lookup_series(
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
+    tmdb_id: str = None,
+    imdb_id: str = None,
     series_list: list[dict] | None = None,
 ) -> dict | None:
     """Recherche une série par arr_id (GET direct) ou par tvdb_id (scan de la liste).
@@ -128,15 +212,30 @@ async def lookup_series(
             if arr_id:
                 resp = await client.get(f"{base}/api/v3/series/{arr_id}", headers=headers)
                 if resp.status_code == 200:
-                    return resp.json()
-            if tvdb_id:
+                    data = resp.json()
+                    expected = {"tvdb_id": tvdb_id, "tmdb_id": tmdb_id, "imdb_id": imdb_id}
+                    if not any(expected.values()) or _candidate_matches_item(data, expected, strict_ids=True):
+                        return data
+                    logger.warning(
+                        "Sonarr arr_id %s points to '%s' but expected IDs are tvdb=%s, tmdb=%s, imdb=%s",
+                        arr_id,
+                        data.get("title"),
+                        tvdb_id,
+                        tmdb_id,
+                        imdb_id,
+                    )
+            if tvdb_id or tmdb_id or imdb_id:
                 series = series_list
                 if series is None:
                     resp = await client.get(f"{base}/api/v3/series", headers=headers)
                     resp.raise_for_status()
                     series = resp.json()
                 for s in series:
-                    if str(s.get("tvdbId")) == str(tvdb_id):
+                    if tvdb_id and str(s.get("tvdbId")) == str(tvdb_id):
+                        return s
+                    if tmdb_id and str(s.get("tmdbId")) == str(tmdb_id):
+                        return s
+                    if imdb_id and s.get("imdbId") == imdb_id:
                         return s
     except Exception as e:
         logger.warning(f"Sonarr lookup failed: {e}")
@@ -148,6 +247,8 @@ async def get_series_episode_stats(
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
+    tmdb_id: str = None,
+    imdb_id: str = None,
     series_list: list[dict] | None = None,
 ) -> dict | None:
     """Statistiques d'épisodes d'une série Sonarr, pour distinguer une disponibilité
@@ -159,7 +260,15 @@ async def get_series_episode_stats(
 
     Retourne None si la série n'est pas trouvée dans Sonarr.
     """
-    data = await lookup_series(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
+    data = await lookup_series(
+        sonarr_url,
+        api_key,
+        arr_id=arr_id,
+        tvdb_id=tvdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id=imdb_id,
+        series_list=series_list,
+    )
     if not data:
         return None
     stats = data.get("statistics", {})
@@ -177,6 +286,8 @@ async def is_series_available(
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
+    tmdb_id: str = None,
+    imdb_id: str = None,
     series_list: list[dict] | None = None,
 ) -> tuple[bool, int | None, str | None]:
     """Vérifie si une série a au moins un fichier épisode dans Sonarr.
@@ -184,10 +295,54 @@ async def is_series_available(
     Returns:
         (is_available, arr_id, title_slug)
     """
-    stats = await get_series_episode_stats(sonarr_url, api_key, arr_id=arr_id, tvdb_id=tvdb_id, series_list=series_list)
+    stats = await get_series_episode_stats(
+        sonarr_url,
+        api_key,
+        arr_id=arr_id,
+        tvdb_id=tvdb_id,
+        tmdb_id=tmdb_id,
+        imdb_id=imdb_id,
+        series_list=series_list,
+    )
     if not stats:
         return False, None, None
     return stats["episode_file_count"] > 0, stats["arr_id"], stats["title_slug"]
+
+
+async def series_exists(sonarr_url: str, api_key: str, arr_id: int) -> bool:
+    """Vérifie par GET direct si une série existe encore dans Sonarr.
+
+    Contrairement à `lookup_series`, ne catch PAS les erreurs réseau/HTTP : elles
+    remontent à l'appelant pour ne jamais être confondues avec un 404 confirmé
+    (Sonarr injoignable != série supprimée).
+    """
+    base = sonarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/v3/series/{arr_id}", headers={"X-Api-Key": api_key})
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        return True
+
+
+async def delete_series(sonarr_url: str, api_key: str, arr_id: int, delete_files: bool = False) -> tuple[bool, str]:
+    """Supprime une série de Sonarr (et ses fichiers si demandé).
+
+    Un 404 est traité comme un succès (déjà absente). Toute autre erreur (réseau,
+    timeout, 5xx) lève une exception — l'appelant ne doit jamais supprimer la
+    demande locale correspondante si cet appel échoue.
+    """
+    base = sonarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.delete(
+            f"{base}/api/v3/series/{arr_id}",
+            params={"deleteFiles": "true" if delete_files else "false", "addImportListExclusion": "false"},
+            headers={"X-Api-Key": api_key},
+        )
+        if resp.status_code == 404:
+            return True, "Déjà absente de Sonarr"
+        resp.raise_for_status()
+        return True, "Supprimée de Sonarr"
 
 
 async def search_series(sonarr_url: str, api_key: str, series_id: int) -> bool:
@@ -370,7 +525,7 @@ async def get_quality_profiles(sonarr_url: str, api_key: str) -> list[dict]:
         return [{"id": p["id"], "name": p["name"]} for p in resp.json()]
 
 
-async def get_root_folders(sonarr_url: str, api_key: str) -> list[str]:
+async def get_root_folders(sonarr_url: str, api_key: str) -> list[dict]:
     """Retourne les dossiers racine configurés dans Sonarr (pour le formulaire de config)."""
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -378,7 +533,14 @@ async def get_root_folders(sonarr_url: str, api_key: str) -> list[str]:
             headers={"X-Api-Key": api_key},
         )
         resp.raise_for_status()
-        return [f["path"] for f in resp.json()]
+        return [
+            {
+                "path": f["path"],
+                "free_bytes": f.get("freeSpace"),
+                "total_bytes": f.get("totalSpace"),
+            }
+            for f in resp.json()
+        ]
 
 
 async def get_tags(sonarr_url: str, api_key: str) -> list[dict]:

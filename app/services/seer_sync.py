@@ -39,6 +39,34 @@ def _parse_seer_dt(iso: str | None) -> datetime | None:
         return None
 
 
+def _merge_seer_only_user(db: Session, target: PlexUser, info: dict) -> bool:
+    """Fusionne l'ancien utilisateur synthetique seer:{id} dans le vrai PlexUser."""
+    synthetic_id = f"seer:{info['id']}"
+    seer_user = (
+        db.query(PlexUser)
+        .filter(PlexUser.plex_user_id == synthetic_id, PlexUser.id != target.id, PlexUser.source == "seer")
+        .first()
+    )
+    if not seer_user:
+        return False
+
+    if not target.plex_email and seer_user.plex_email:
+        target.plex_email = seer_user.plex_email
+    if not target.notification_email and seer_user.notification_email:
+        target.notification_email = seer_user.notification_email
+    if not target.custom_name and seer_user.custom_name:
+        target.custom_name = seer_user.custom_name
+
+    display_name = target.custom_name or target.display_name or target.plex_user_id
+    db.query(MediaRequest).filter(MediaRequest.plex_user_id == synthetic_id).update(
+        {"plex_user_id": target.plex_user_id, "plex_user": display_name},
+        synchronize_session=False,
+    )
+    db.delete(seer_user)
+    logger.info(f"Seer-only user fusionne : {synthetic_id} -> {target.plex_user_id}")
+    return True
+
+
 async def sync_seer_users():
     """Synchronise seer_user_id et seer_active sur chaque PlexUser.
 
@@ -56,7 +84,7 @@ async def sync_seer_users():
     db = _open_session()
     try:
         settings = db.query(Settings).first()
-        if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
+        if not settings or not settings.seer_url or not settings.seer_api_key:
             return
 
         seer_users = await seer_get_users(settings.seer_url, settings.seer_api_key)
@@ -79,6 +107,9 @@ async def sync_seer_users():
         all_plex_users = db.query(PlexUser).all()
 
         for user in all_plex_users:
+            if user.source == "seer":
+                continue
+
             info = None
             method = None
 
@@ -90,12 +121,18 @@ async def sync_seer_users():
 
             # 2. Match par plexUsername ↔ display_name (seulement si pas déjà lié)
             if not info and not user.seer_user_id:
-                name = (user.display_name or "").lower().strip()
-                if name and name in by_plex_username:
+                names = {
+                    (user.display_name or "").lower().strip(),
+                    (user.plex_user_id or "").lower().strip(),
+                }
+                for name in [n for n in names if n]:
+                    if name not in by_plex_username:
+                        continue
                     candidate = by_plex_username[name]
                     if candidate["id"] not in matched_seer_ids:
                         info = candidate
                         method = "plex_username"
+                        break
 
             if not info:
                 continue
@@ -111,6 +148,8 @@ async def sync_seer_users():
                 )
             if user.seer_active != active:
                 user.seer_active = active
+                changed = True
+            if info and user.source != "seer" and _merge_seer_only_user(db, user, info):
                 changed = True
             if changed:
                 updated += 1
@@ -221,7 +260,7 @@ async def sync_seer_requests():
     db = _open_session()
     try:
         settings = db.query(Settings).first()
-        if not settings or not settings.seer_enabled or not settings.seer_url or not settings.seer_api_key:
+        if not settings or not settings.seer_url or not settings.seer_api_key:
             return
 
         matched_users = db.query(PlexUser).filter(PlexUser.seer_user_id.isnot(None)).all()

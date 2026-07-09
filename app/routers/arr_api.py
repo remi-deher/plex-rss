@@ -99,11 +99,16 @@ def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str
         # Fallback de compatibilité avec settings globales
         settings = db.query(Settings).first()
         if arr_type == "sonarr" and settings and settings.sonarr_url:
-            return ArrInstance(url=settings.sonarr_url, api_key=settings.sonarr_api_key)
+            return ArrInstance(
+                url=settings.sonarr_url,
+                api_key=settings.sonarr_api_key,
+                root_folder=settings.sonarr_root_folder,
+            )
         elif arr_type == "radarr" and settings and settings.radarr_url:
             return ArrInstance(
                 url=settings.radarr_url,
                 api_key=settings.radarr_api_key,
+                root_folder=settings.radarr_root_folder,
                 minimum_availability=settings.radarr_minimum_availability or "released",
             )
         raise HTTPException(400, f"Aucune instance par défaut configurée pour {arr_type}")
@@ -125,9 +130,60 @@ async def _arr_call(
     return await coro_fn(inst.url, inst.api_key)
 
 
+async def _arr_folders(
+    url: Optional[str],
+    api_key: Optional[str],
+    instance_id: Optional[int],
+    arr_type: str,
+    db: Session,
+    coro_fn,
+):
+    default_root = None
+    if url and api_key:
+        folders = await coro_fn(url, api_key)
+    else:
+        inst = _resolve_arr_instance(db, instance_id, arr_type)
+        default_root = inst.root_folder
+        folders = await coro_fn(inst.url, inst.api_key)
+
+    out = []
+    for folder in folders:
+        data = {"path": folder} if isinstance(folder, str) else dict(folder)
+        path = data.get("path")
+        data["is_default"] = bool(default_root and path == default_root)
+        out.append(data)
+    return out
+
+
 @router.get("/arr-instances")
 def list_arr_instances(db: Session = Depends(get_db)):
     return db.query(ArrInstance).all()
+
+
+@router.get("/arr/capabilities")
+def arr_capabilities(db: Session = Depends(get_db)):
+    all_instances = db.query(ArrInstance).all()
+    enabled_instances = [i for i in all_instances if i.enabled]
+    configured_types = {i.arr_type for i in all_instances}
+    enabled_types = {i.arr_type for i in enabled_instances}
+    has_enabled_clients = db.query(DownloadClient).filter(DownloadClient.enabled).first() is not None
+    has_clients = db.query(DownloadClient).first() is not None
+    return {
+        "has_sonarr": "sonarr" in enabled_types,
+        "has_radarr": "radarr" in enabled_types,
+        "has_prowlarr": "prowlarr" in enabled_types,
+        "sonarr_configured": "sonarr" in configured_types,
+        "radarr_configured": "radarr" in configured_types,
+        "prowlarr_configured": "prowlarr" in configured_types,
+        "sonarr_disabled": "sonarr" in configured_types and "sonarr" not in enabled_types,
+        "radarr_disabled": "radarr" in configured_types and "radarr" not in enabled_types,
+        "prowlarr_disabled": "prowlarr" in configured_types and "prowlarr" not in enabled_types,
+        "has_arr_downloads": bool({"sonarr", "radarr"} & enabled_types),
+        "arr_downloads_disabled": bool({"sonarr", "radarr"} & configured_types) and not bool({"sonarr", "radarr"} & enabled_types),
+        "has_download_clients": has_enabled_clients,
+        "download_clients_configured": has_clients,
+        "download_clients_disabled": has_clients and not has_enabled_clients,
+    }
 
 
 @router.post("/arr-instances")
@@ -221,7 +277,7 @@ def list_download_clients(db: Session = Depends(get_db)):
 @router.post("/download-clients")
 def create_download_client(data: DownloadClientCreate, db: Session = Depends(get_db)):
     if data.is_default:
-        _set_single_default(db, DownloadClient, "client_type", data.client_type)
+        db.query(DownloadClient).update({"is_default": False})
     client = DownloadClient(**data.model_dump())
     db.add(client)
     db.commit()
@@ -233,7 +289,7 @@ def create_download_client(data: DownloadClientCreate, db: Session = Depends(get
 def update_download_client(client_id: int, data: DownloadClientCreate, db: Session = Depends(get_db)):
     client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
     if data.is_default:
-        _set_single_default(db, DownloadClient, "client_type", data.client_type, exclude_id=client_id)
+        db.query(DownloadClient).filter(DownloadClient.id != client_id).update({"is_default": False})
     for k, v in data.model_dump().items():
         setattr(client, k, v)
     db.commit()
@@ -520,7 +576,7 @@ async def sonarr_folders(
     api_key: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_root_folders)
+    return await _arr_folders(url, api_key, instance_id, "sonarr", db, sonarr.get_root_folders)
 
 
 @router.get("/radarr/profiles")
@@ -540,7 +596,7 @@ async def radarr_folders(
     api_key: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
+    return await _arr_folders(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
 
 
 @router.get("/sonarr/tags")

@@ -3,7 +3,7 @@
 {% block content %}
 
 <style>
-  .disc-hero { border:1px solid var(--pr-border); border-radius:10px; background:linear-gradient(135deg, rgba(229,160,13,.12), rgba(255,255,255,.025)); padding:18px 20px; margin-bottom:16px; }
+  .disc-hero { border-bottom:1px solid var(--pr-border); padding:10px 0 14px; margin-bottom:14px; }
   .disc-row-title { font-size:1.05rem; font-weight:700; margin:18px 0 10px; display:flex; align-items:center; gap:8px; }
   .disc-scroller { display:flex; gap:12px; overflow-x:auto; padding-bottom:8px; scroll-snap-type:x proximity; }
   .disc-scroller::-webkit-scrollbar { height:6px; }
@@ -15,19 +15,22 @@
   .disc-poster .ph { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--pr-text-muted); font-size:2rem; }
   .disc-badges { position:absolute; top:6px; left:6px; right:6px; display:flex; flex-wrap:wrap; gap:4px; }
   .disc-vote { position:absolute; bottom:6px; right:6px; background:rgba(0,0,0,.72); color:#fff; border-radius:6px; font-size:11px; padding:1px 6px; font-weight:600; }
-  .disc-req { position:absolute; bottom:6px; left:6px; }
   .disc-meta { padding:8px 9px; }
   .disc-meta .t { font-size:12.5px; font-weight:600; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:32px; }
   .disc-meta .y { font-size:11px; color:var(--pr-text-muted); }
+  .disc-modal-actions { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:10px; }
+  .disc-modal-field { min-width:180px; max-width:260px; flex:1 1 180px; }
+  .disc-modal-folder { min-width:220px; max-width:340px; flex:1 1 220px; }
+  .disc-modal-field label, .disc-modal-folder label { font-size:11px; color:var(--pr-text-muted); margin-bottom:3px; }
 </style>
 
 <div class="disc-hero">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
-    <div class="d-flex align-items-center gap-3">
-      <div class="library-hero-icon"><i class="bi bi-compass"></i></div>
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-compass text-warning fs-4"></i>
       <div>
-        <h2 class="mb-1 fw-bold" style="font-size:1.5rem">Découvrir</h2>
-        <div class="text-muted small">Catalogue TMDB — tendances, populaires, genres, recherche</div>
+        <h2 class="mb-0 fw-bold" style="font-size:1.35rem">Découvrir</h2>
+        <div class="text-muted small">Tendances, populaires, genres et recherche TMDB</div>
       </div>
     </div>
     <div class="flex-grow-1" style="max-width:420px;min-width:220px">
@@ -82,15 +85,35 @@
 {% block scripts %}
 <script>
 const TMDB_OK = {{ 'true' if tmdb_configured else 'false' }};
+const DISC_SEER_REQUESTS_ENABLED = {{ 'true' if seer_requests_enabled else 'false' }};
 let discType = 'movie';
 const discModal = document.getElementById('discModal') ? new bootstrap.Modal(document.getElementById('discModal')) : null;
 
 function escH(s){ return s==null?'':String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 
+const DISC_REQ_STATUS_META = {
+  pending: { cls: 'badge-pending', icon: 'bi-hourglass-split', label: 'En attente' },
+  sent_to_arr: { cls: 'badge-sent', icon: 'bi-hourglass-split', label: 'Demandé' },
+  failed: { cls: 'badge-failed', icon: 'bi-x-circle-fill', label: 'Echec' },
+};
 function statusBadge(it){
-  if (it.in_library || it.available) return '<span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>';
-  if (it.requested) return '<span class="badge badge-sent" style="font-size:9px"><i class="bi bi-hourglass-split me-1"></i>Demandé</span>';
+  if (it.in_library || it.available) {
+    let b = '<span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>';
+    if (it.has_vf === true) b += ' <span class="badge badge-available" style="font-size:9px"><i class="bi bi-translate me-1"></i>VF</span>';
+    else if (it.has_vf === false) b += ' <span class="badge badge-sent" style="font-size:9px"><i class="bi bi-translate me-1"></i>VF en attente</span>';
+    if (it.plex_anomaly) b += ' <span class="badge bg-danger" style="font-size:9px" title="Disponible cote *arr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie</span>';
+    return b;
+  }
+  if (it.requested) {
+    const meta = DISC_REQ_STATUS_META[it.request_status] || DISC_REQ_STATUS_META.sent_to_arr;
+    return `<span class="badge ${meta.cls}" style="font-size:9px"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span>`;
+  }
   return '';
+}
+function discFicheLink(it){
+  if (it.library_id != null) return `/library?open_library=${it.library_id}`;
+  if (it.request_id != null) return `/library?open_request=${it.request_id}`;
+  return null;
 }
 function typeBadge(it){
   return it.media_type === 'show'
@@ -102,15 +125,11 @@ function mediaCard(it){
   const poster = it.poster_url
     ? `<div class="disc-poster" style="background-image:url('${escH(it.poster_url)}')">`
     : `<div class="disc-poster"><span class="ph"><i class="bi bi-${it.media_type==='show'?'tv':'film'}"></i></span>`;
-  const canReq = !(it.in_library || it.available || it.requested);
-  const reqBtn = canReq
-    ? `<button class="btn btn-warning btn-sm disc-req py-0 px-2" title="Demander" onclick="event.stopPropagation();requestMedia(${it.tmdb_id}, '${it.media_type}', this)"><i class="bi bi-plus-lg"></i></button>`
-    : '';
   const vote = it.vote ? `<span class="disc-vote"><i class="bi bi-star-fill text-warning me-1" style="font-size:9px"></i>${it.vote}</span>` : '';
   return `<div class="disc-card" onclick="openDiscDetail(${it.tmdb_id}, '${it.media_type}')">
     ${poster}
       <div class="disc-badges">${typeBadge(it)}${statusBadge(it)}</div>
-      ${reqBtn}${vote}
+      ${vote}
     </div>
     <div class="disc-meta"><div class="t" title="${escH(it.title)}">${escH(it.title)}</div><div class="y">${it.year||'—'}</div></div>
   </div>`;
@@ -197,27 +216,99 @@ function onSearch(q){
   }).catch(e=> results.innerHTML = `<div class="alert alert-danger">${escH(e.message)}</div>`);
 }
 
-async function requestMedia(tmdbId, mediaType, btn){
-  if (btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm"></span>'; }
+// Utilisateurs (chargés une fois) — le demandeur se choisit dans la modale.
+let _discUsers = [];
+async function loadDiscUsers(){
+  try { _discUsers = (await fetch('/api/users').then(r=>r.ok?r.json():[])).filter(u=>u.enabled); }
+  catch(e){ _discUsers = []; }
+}
+function _savedRequester(){ try { return localStorage.getItem('disc_requester') || ''; } catch(e){ return ''; } }
+function _requesterOptions(){
+  const saved = _savedRequester();
+  return '<option value="">— Choisir un demandeur —</option>' +
+    _discUsers.map(u=>`<option value="${escH(u.plex_user_id)}" ${u.plex_user_id===saved?'selected':''}>${escH(u.custom_name||u.display_name||u.plex_user_id)}</option>`).join('');
+}
+function _savedRootFolder(mediaType){
+  const svc = mediaType === 'show' ? 'sonarr' : 'radarr';
+  try { return localStorage.getItem(`disc_root_folder_${svc}`) || ''; } catch(e){ return ''; }
+}
+function _folderPath(folder){
+  return typeof folder === 'string' ? folder : (folder?.path || '');
+}
+function _fmtBytes(bytes){
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To', 'Po'];
+  let value = n;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1){ value /= 1024; i++; }
+  const digits = value >= 100 || i === 0 ? 0 : (value >= 10 ? 1 : 2);
+  return `${value.toFixed(digits)} ${units[i]}`;
+}
+function _folderLabel(folder){
+  const path = _folderPath(folder);
+  const parts = [path];
+  const free = _fmtBytes(folder?.free_bytes ?? folder?.freeSpace);
+  const total = _fmtBytes(folder?.total_bytes ?? folder?.totalSpace);
+  if (free) parts.push(total ? `${free} libres / ${total}` : `${free} libres`);
+  if (folder?.is_default) parts.push('Défaut');
+  return parts.join(' · ');
+}
+async function loadModalFolders(mediaType){
+  const sel = document.getElementById('disc-modal-folder');
+  if (!sel) return;
+  const svc = mediaType === 'show' ? 'sonarr' : 'radarr';
+  const saved = _savedRootFolder(mediaType);
   try {
-    // Récupère les ids externes (tvdb/imdb) — indispensable pour Sonarr (séries).
+    const folders = await fetch(`/api/${svc}/folders`).then(r=>r.ok?r.json():[]);
+    const defaultPath = folders.find(f=>f?.is_default)?.path || '';
+    const selectedPath = saved || defaultPath;
+    sel.innerHTML = folders.length
+      ? folders.map(f=>{
+          const path = _folderPath(f);
+          return `<option value="${escH(path)}" ${path===selectedPath?'selected':''}>${escH(_folderLabel(f))}</option>`;
+        }).join('')
+      : '<option value="">Défaut de l\'instance</option>';
+  } catch(e){ sel.innerHTML = '<option value="">Défaut de l\'instance</option>'; }
+}
+async function doModalRequest(tmdbId, mediaType){
+  const reqSel = document.getElementById('disc-modal-requester');
+  const requester = reqSel && reqSel.value ? reqSel.value : null;
+  if (!requester){
+    showToast('Sélectionnez un demandeur', 'warning');
+    if (reqSel){ reqSel.classList.add('border-danger'); reqSel.focus(); }
+    return;
+  }
+  try { localStorage.setItem('disc_requester', requester); } catch(e){}
+  const folderSel = document.getElementById('disc-modal-folder');
+  const rootFolder = folderSel && folderSel.value ? folderSel.value : null;
+  if (rootFolder){
+    const svc = mediaType === 'show' ? 'sonarr' : 'radarr';
+    try { localStorage.setItem(`disc_root_folder_${svc}`, rootFolder); } catch(e){}
+  }
+  const btn = document.getElementById('disc-detail-req');
+  if (btn){ btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm me-1"></span>Envoi…'; }
+  try {
     const d = await api(`detail?media_type=${mediaType}&tmdb_id=${tmdbId}`);
     const r = await fetch('/api/media/add', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         title:d.title, year:d.year, media_type:mediaType,
         tmdb_id:tmdbId, tvdb_id:d.tvdb_id||null, imdb_id:d.imdb_id||null,
+        poster_url:d.poster_url||null, overview:d.overview||null,
+        plex_user_id: requester, root_folder: rootFolder,
+        auto_search: true,
       }),
     });
     const res = await r.json().catch(()=>({}));
     if (!r.ok) throw new Error(res.detail || 'Erreur');
-    showToast(`« ${d.title} » demandé (${res.via||'ok'})`, 'success');
-    if (btn){ btn.className='btn btn-success btn-sm disc-req py-0 px-2'; btn.innerHTML='<i class="bi bi-check-lg"></i>'; }
-    return true;
+    const searchInfo = res.search_triggered ? ' · recherche relancée' : '';
+    showToast(`« ${d.title} » demandé (${res.via||'ok'})${searchInfo}`, 'success');
+    const box = document.getElementById('disc-req-box');
+    if (box) box.innerHTML = '<span class="badge bg-success p-2"><i class="bi bi-check-lg me-1"></i>Demandé</span>';
   } catch(e){
     showToast('Erreur : ' + e.message, 'danger');
-    if (btn){ btn.disabled=false; btn.innerHTML='<i class="bi bi-plus-lg"></i>'; }
-    return false;
+    if (btn){ btn.disabled=false; btn.innerHTML='<i class="bi bi-plus-circle me-1"></i>Demander'; }
   }
 }
 
@@ -226,8 +317,10 @@ async function openDiscDetail(tmdbId, mediaType){
   document.getElementById('discModalBody').innerHTML = '<div class="text-center py-5"><span class="spinner-border text-warning"></span></div>';
   discModal.show();
   try {
+    if (!_discUsers.length) await loadDiscUsers();
     const d = await api(`detail?media_type=${mediaType}&tmdb_id=${tmdbId}`);
     renderDiscDetail(d, mediaType);
+    if (!DISC_SEER_REQUESTS_ENABLED) loadModalFolders(mediaType);
   } catch(e){
     document.getElementById('discModalBody').innerHTML = `<div class="p-4"><div class="alert alert-danger mb-0">${escH(e.message)}</div></div>`;
   }
@@ -235,11 +328,31 @@ async function openDiscDetail(tmdbId, mediaType){
 
 function renderDiscDetail(d, mediaType){
   const canReq = !(d.in_library || d.available || d.requested);
-  const status = d.in_library || d.available
-    ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>'
-    : (d.requested ? '<span class="badge badge-sent"><i class="bi bi-hourglass-split me-1"></i>Déjà demandé</span>' : '');
+  const status = statusBadge(d);
+  const requesters = (d.requesters || []).join(', ');
+  const ficheUrl = discFicheLink(d);
+  const ficheBtn = ficheUrl
+    ? `<a href="${ficheUrl}" class="btn btn-outline-warning btn-sm ms-1"><i class="bi bi-box-arrow-up-right me-1"></i>Voir la fiche &amp; recherche</a>`
+    : '';
+  const contextLine = (d.in_library || d.available || d.requested)
+    ? `<div class="text-white-50 small mt-1">${requesters ? 'Demandé par ' + escH(requesters) + (d.request_status ? ' · ' : '') : ''}${d.request_status && !d.in_library && !d.available ? (DISC_REQ_STATUS_META[d.request_status] || {label:d.request_status}).label : ''}${d.plex_anomaly ? ' · <span class="text-danger">Disponible côté Sonarr/Radarr mais introuvable dans Plex</span>' : ''}</div>`
+    : '';
   const reqBtn = canReq
-    ? `<button class="btn btn-warning" id="disc-detail-req" onclick="requestMedia(${d.tmdb_id}, '${mediaType}', null).then(ok=>{ if(ok){ document.getElementById('disc-detail-req').outerHTML='<span class=\\'badge bg-success p-2\\'><i class=\\'bi bi-check-lg me-1\\'></i>Demandé</span>'; }})"><i class="bi bi-plus-circle me-1"></i>Demander</button>`
+    ? `<div class="disc-modal-actions" id="disc-req-box">
+        <div class="disc-modal-field">
+          <label for="disc-modal-requester" class="d-block">Demandeur <span class="text-danger">*</span></label>
+          <select id="disc-modal-requester" class="form-select form-select-sm bg-dark border-secondary text-white" onchange="this.classList.remove('border-danger')">
+            ${_requesterOptions()}
+          </select>
+        </div>
+        <div class="disc-modal-folder" ${DISC_SEER_REQUESTS_ENABLED ? 'style="display:none"' : ''}>
+          <label for="disc-modal-folder" class="d-block">Dossier racine</label>
+          <select id="disc-modal-folder" class="form-select form-select-sm bg-dark border-secondary text-white">
+            <option value="">Chargement...</option>
+          </select>
+        </div>
+        <button class="btn btn-warning" id="disc-detail-req" onclick="doModalRequest(${d.tmdb_id}, '${mediaType}')"><i class="bi bi-plus-circle me-1"></i>Demander</button>
+      </div>`
     : '';
   const backdrop = d.backdrop_url ? `background:linear-gradient(to bottom, rgba(20,20,20,.55), var(--pr-surface)), url('${escH(d.backdrop_url)}') center/cover` : 'background:var(--pr-surface-2)';
   const poster = d.poster_url ? `<img src="${escH(d.poster_url)}" style="width:120px;border-radius:8px;flex-shrink:0">` : '';
@@ -253,9 +366,10 @@ function renderDiscDetail(d, mediaType){
         ${poster}
         <div class="flex-grow-1" style="min-width:0">
           <h4 class="fw-bold mb-1">${escH(d.title)} ${d.year?`<span class="text-white-50">(${d.year})</span>`:''}</h4>
-          <div class="mb-2">${typeBadge(d)} ${status} ${d.vote?`<span class="badge bg-dark"><i class="bi bi-star-fill text-warning me-1"></i>${d.vote}</span>`:''}</div>
+          <div class="mb-2">${typeBadge(d)} ${status} ${d.vote?`<span class="badge bg-dark"><i class="bi bi-star-fill text-warning me-1"></i>${d.vote}</span>`:''} ${ficheBtn}</div>
+          ${contextLine}
           <div class="mb-2">${genres}</div>
-          <div>${reqBtn}</div>
+          ${reqBtn}
         </div>
       </div>
     </div>

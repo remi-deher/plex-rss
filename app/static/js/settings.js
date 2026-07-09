@@ -448,6 +448,34 @@ async function loadProfiles(service) {
   }
 }
 
+function arrFolderPath(folder) {
+  return typeof folder === 'string' ? folder : (folder?.path || '');
+}
+
+function fmtBytes(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const units = ['o', 'Ko', 'Mo', 'Go', 'To', 'Po'];
+  let value = n;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  const digits = value >= 100 || i === 0 ? 0 : (value >= 10 ? 1 : 2);
+  return `${value.toFixed(digits)} ${units[i]}`;
+}
+
+function arrFolderLabel(folder, defaultPath = null) {
+  const path = arrFolderPath(folder);
+  const parts = [path];
+  const free = fmtBytes(folder?.free_bytes ?? folder?.freeSpace);
+  const total = fmtBytes(folder?.total_bytes ?? folder?.totalSpace);
+  if (free) parts.push(total ? `${free} libres / ${total}` : `${free} libres`);
+  if (folder?.is_default || (defaultPath && path === defaultPath)) parts.push('Défaut');
+  return parts.join(' · ');
+}
+
 async function loadFolders(service) {
   try {
     const r = await fetch(`/api/${service}/folders`);
@@ -455,8 +483,10 @@ async function loadFolders(service) {
     const folders = await r.json();
     const sel = document.getElementById(`${service}_folder`);
     const current = sel.value;
-    sel.innerHTML = folders.map(f =>
-      `<option value="${f}" ${f === current ? 'selected' : ''}>${f}</option>`
+    sel.innerHTML = folders.map(f => {
+      const path = arrFolderPath(f);
+      return `<option value="${_esc(path)}" ${path === current ? 'selected' : ''}>${_esc(arrFolderLabel(f))}</option>`;
+    }
     ).join('');
   } catch(e) {
     showToast(`Impossible de charger les dossiers ${service}`, 'danger');
@@ -1029,7 +1059,7 @@ async function loadArrInstances() {
     const r = await fetch('/api/arr-instances');
     _arrInstances = await r.json();
     if (!_arrInstances.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">Aucune instance configurée. Cliquez sur "Ajouter une instance".</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">Aucune instance configurée. Cliquez sur "Ajouter une instance".</td></tr>';
       return;
     }
     tbody.innerHTML = _arrInstances.map(inst => {
@@ -1046,11 +1076,15 @@ async function loadArrInstances() {
       const statusBadge = inst.enabled
         ? '<span class="badge bg-success">Actif</span>'
         : '<span class="badge bg-secondary">Désactivé</span>';
+      const rootFolder = (inst.arr_type === 'sonarr' || inst.arr_type === 'radarr') && inst.root_folder
+        ? `<code class="small text-muted">${_esc(inst.root_folder)}</code>${inst.is_default ? ' <span class="badge bg-secondary ms-1">Dossier par défaut</span>' : ''}`
+        : '<span class="text-muted">—</span>';
 
       return `<tr>
         <td><strong>${_esc(inst.name)}</strong></td>
         <td>${typeBadge}</td>
         <td><code class="small text-muted">${_esc(inst.url)}</code></td>
+        <td>${rootFolder}</td>
         <td>${defaultBadge}</td>
         <td>${statusBadge}</td>
         <td class="text-end">
@@ -1061,7 +1095,7 @@ async function loadArrInstances() {
       </tr>`;
     }).join('');
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
   }
 }
 
@@ -1133,9 +1167,10 @@ async function fetchInstFolders(selectedValue = null) {
     const r = await fetch(`/api/${type}/folders?url=${encodeURIComponent(url)}&api_key=${encodeURIComponent(apiKey)}`);
     if (!r.ok) throw new Error("Erreur serveur");
     const folders = await r.json();
-    sel.innerHTML = folders.map(f => 
-      `<option value="${f}" ${f === selectedValue ? 'selected' : ''}>${f}</option>`
-    ).join('');
+    sel.innerHTML = folders.map(f => {
+      const path = arrFolderPath(f);
+      return `<option value="${_esc(path)}" ${path === selectedValue ? 'selected' : ''}>${_esc(arrFolderLabel(f, selectedValue))}</option>`;
+    }).join('');
     showToast("Dossiers chargés !", "success");
   } catch (e) {
     sel.innerHTML = '<option value="">Erreur de chargement</option>';

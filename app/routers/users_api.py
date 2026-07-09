@@ -1,3 +1,4 @@
+import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import require_auth
 from ..models import MediaRequest, PlexUser, Settings
+from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
 from ..services.seer import get_users as seer_get_users, get_user_requests as seer_get_user_requests
 from ..utils import get_or_404
@@ -39,6 +41,164 @@ class UserCreate(BaseModel):
     radarr_instance_id: Optional[int] = None
 
 
+class UserEnabledUpdate(BaseModel):
+    enabled: bool
+
+
+def _user_source_label(user: PlexUser) -> str:
+    if user.source == "seer":
+        return "Seer only"
+    if user.source == "api" and user.seer_user_id:
+        return "Plex API + Seer"
+    if user.source == "api":
+        return "Plex API"
+    if user.seer_user_id:
+        return "RSS + Seer"
+    return "RSS"
+
+
+def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
+    settings = db.query(Settings).first()
+    seer_configured = bool(settings and settings.seer_url and settings.seer_api_key)
+    seer_requests_enabled = bool(settings and settings.seer_send_requests and settings.seer_url and settings.seer_api_key)
+    rss_configured = bool(settings and settings.plex_rss_url)
+    plex_api_configured = bool(settings and settings.plex_token)
+
+    co_request_count = 0
+    for (extra_requesters,) in db.query(MediaRequest.extra_requesters).filter(
+        MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]"
+    ):
+        try:
+            extras = json.loads(extra_requesters or "[]")
+        except Exception:
+            extras = []
+        if any(e.get("plex_user_id") == user.plex_user_id for e in extras):
+            co_request_count += 1
+
+    effects = [
+        {
+            "key": "discover",
+            "label": "Visible dans Discover",
+            "ok": bool(user.enabled),
+            "detail": "Propose dans le selecteur de demandeur" if user.enabled else "Masque tant que l'utilisateur est desactive",
+        },
+        {
+            "key": "automation",
+            "label": "Watchlist traitee",
+            "ok": bool(user.enabled),
+            "detail": "Les nouvelles demandes peuvent etre traitees" if user.enabled else "Les automatisations ignorent cet utilisateur",
+        },
+        {
+            "key": "seer_link",
+            "label": "Liaison Seer",
+            "ok": bool(user.seer_user_id),
+            "detail": f"Compte Seer #{user.seer_user_id}" if user.seer_user_id else "Aucune liaison Seer",
+        },
+        {
+            "key": "notifications",
+            "label": "Notifications",
+            "ok": bool(user.notification_email or user.plex_email or user.notify_admin),
+            "detail": "Email ou notification admin disponible"
+            if (user.notification_email or user.plex_email or user.notify_admin)
+            else "Aucun destinataire connu",
+        },
+    ]
+
+    warnings = []
+    actions = []
+    if not user.enabled:
+        warnings.append("Utilisateur desactive : absent de Discover et ignore par les automatisations.")
+        actions.append({"key": "enable", "label": "Activer", "style": "success"})
+    else:
+        actions.append({"key": "disable", "label": "Desactiver", "style": "outline-secondary"})
+    if seer_configured and not user.seer_user_id and user.source != "seer":
+        warnings.append("Seer est configure mais cet utilisateur n'est pas lie.")
+        actions.append({"key": "automatch_seer", "label": "Lier Seer automatiquement", "style": "outline-info"})
+    if user.seer_user_id and (not user.notification_email or not user.custom_name):
+        actions.append({"key": "complete_seer", "label": "Completer depuis Seer", "style": "outline-warning"})
+    if user.source == "seer":
+        warnings.append("Utilisateur Seer-only : pas encore associe a un utilisateur Plex/RSS/API.")
+    if not rss_configured and not plex_api_configured:
+        warnings.append("Aucune source Plex watchlist configuree : seules les donnees Seer/manual peuvent apparaitre.")
+
+    return {
+        "source_label": _user_source_label(user),
+        "discover_visible": bool(user.enabled),
+        "automation_enabled": bool(user.enabled),
+        "seer_configured": seer_configured,
+        "seer_requests_enabled": seer_requests_enabled,
+        "rss_configured": rss_configured,
+        "plex_api_configured": plex_api_configured,
+        "primary_request_count": stats.get("total", 0),
+        "co_request_count": co_request_count,
+        "effects": effects,
+        "warnings": warnings,
+        "actions": actions,
+    }
+
+
+def _activity_row(req: MediaRequest, role: str) -> dict:
+    return {
+        "id": req.id,
+        "title": req.title,
+        "year": req.year,
+        "media_type": req.media_type,
+        "status": request_status_value(req.status),
+        "source": req.source,
+        "role": role,
+        "requested_at": format_datetime(req.requested_at),
+        "available_at": format_datetime(req.available_at),
+        "poster_url": req.poster_url,
+        "details": {
+            "request_id": req.id,
+            "plex_user_id": req.plex_user_id,
+            "plex_user": req.plex_user,
+            "tmdb_id": req.tmdb_id,
+            "tvdb_id": req.tvdb_id,
+            "imdb_id": req.imdb_id,
+            "plex_guid": req.plex_guid,
+            "arr_id": req.arr_id,
+            "arr_slug": req.arr_slug,
+            "arr_instance_id": req.arr_instance_id,
+            "download_client_id": req.download_client_id,
+            "torrent_hash": req.torrent_hash,
+            "extra_requesters": req.extra_requesters,
+            "next_release_at": format_datetime(req.next_release_at),
+            "next_release_label": req.next_release_label,
+            "overview": req.overview,
+        },
+    }
+
+
+def _build_user_activity(user: PlexUser, db: Session, limit: int = 12) -> dict:
+    rows: dict[int, dict] = {}
+    primary = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.plex_user_id == user.plex_user_id)
+        .order_by(MediaRequest.requested_at.desc())
+        .limit(limit * 2)
+        .all()
+    )
+    for req in primary:
+        rows[req.id] = _activity_row(req, "primary")
+
+    co_candidates = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
+        .all()
+    )
+    for req in co_candidates:
+        try:
+            extras = json.loads(req.extra_requesters or "[]")
+        except Exception:
+            extras = []
+        if any(e.get("plex_user_id") == user.plex_user_id for e in extras):
+            rows.setdefault(req.id, _activity_row(req, "co_requester"))
+
+    recent = sorted(rows.values(), key=lambda r: r.get("requested_at") or "", reverse=True)[:limit]
+    return {"recent": recent, "limit": limit}
+
+
 @router.get("/users")
 def list_users(db: Session = Depends(get_db)):
     return db.query(PlexUser).all()
@@ -55,14 +215,20 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
     for status, req_at in rows:
         stats["total"] += 1
         s = status.value if hasattr(status, "value") else str(status)
-        if s in stats:
+        if s == "sent_to_arr":
+            stats["sent"] += 1
+        elif s in stats:
             stats[s] += 1
         if req_at and (stats["last_requested_at"] is None or req_at > stats["last_requested_at"]):
             stats["last_requested_at"] = req_at
 
     # Utilise le sérialiseur centralisé
-    from ..serializers import serialize_plex_user
-    return serialize_plex_user(user, stats)
+    diagnostic = _build_user_diagnostic(user, stats.copy(), db)
+    activity = _build_user_activity(user, db)
+    data = serialize_plex_user(user, stats)
+    data["diagnostic"] = diagnostic
+    data["activity"] = activity
+    return data
 
 
 @router.post("/users")
@@ -91,6 +257,15 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
     db.query(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).update({"plex_user": resolved})
     db.commit()
     return user
+
+
+@router.put("/users/{user_id}/enabled")
+def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: Session = Depends(get_db)):
+    user = get_or_404(db, PlexUser, user_id, "User not found")
+    user.enabled = data.enabled
+    db.commit()
+    db.refresh(user)
+    return {"status": "ok", "enabled": user.enabled}
 
 
 @router.delete("/users/{user_id}")
@@ -133,7 +308,7 @@ async def seer_sync():
 async def list_seer_users(db: Session = Depends(get_db)):
     """Retourne la liste des utilisateurs Seer avec leur statut de liaison."""
     s = db.query(Settings).first()
-    if not s or not s.seer_enabled or not s.seer_url or not s.seer_api_key:
+    if not s or not s.seer_url or not s.seer_api_key:
         return {"seer_users": [], "error": "Seer non configuré"}
 
     seer_users = await seer_get_users(s.seer_url, s.seer_api_key)

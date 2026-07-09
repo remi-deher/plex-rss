@@ -197,6 +197,42 @@ async def is_movie_available(
     return data.get("hasFile", False), data.get("id"), data.get("titleSlug")
 
 
+async def movie_exists(radarr_url: str, api_key: str, arr_id: int) -> bool:
+    """Vérifie par GET direct si un film existe encore dans Radarr.
+
+    Contrairement à `lookup_movie`, ne catch PAS les erreurs réseau/HTTP : elles
+    remontent à l'appelant pour ne jamais être confondues avec un 404 confirmé
+    (Radarr injoignable != film supprimé).
+    """
+    base = radarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/api/v3/movie/{arr_id}", headers={"X-Api-Key": api_key})
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        return True
+
+
+async def delete_movie(radarr_url: str, api_key: str, arr_id: int, delete_files: bool = False) -> tuple[bool, str]:
+    """Supprime un film de Radarr (et ses fichiers si demandé).
+
+    Un 404 est traité comme un succès (déjà absent). Toute autre erreur (réseau,
+    timeout, 5xx) lève une exception — l'appelant ne doit jamais supprimer la
+    demande locale correspondante si cet appel échoue.
+    """
+    base = radarr_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.delete(
+            f"{base}/api/v3/movie/{arr_id}",
+            params={"deleteFiles": "true" if delete_files else "false", "addImportExclusion": "false"},
+            headers={"X-Api-Key": api_key},
+        )
+        if resp.status_code == 404:
+            return True, "Déjà absent de Radarr"
+        resp.raise_for_status()
+        return True, "Supprimé de Radarr"
+
+
 async def search_movie(radarr_url: str, api_key: str, movie_id: int) -> bool:
     """Lance une recherche de fichier pour un film Radarr (commande MoviesSearch).
 
@@ -354,7 +390,7 @@ async def get_quality_profiles(radarr_url: str, api_key: str) -> list[dict]:
         return [{"id": p["id"], "name": p["name"]} for p in resp.json()]
 
 
-async def get_root_folders(radarr_url: str, api_key: str) -> list[str]:
+async def get_root_folders(radarr_url: str, api_key: str) -> list[dict]:
     """Retourne les dossiers racine configurés dans Radarr (pour le formulaire de config)."""
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -362,7 +398,14 @@ async def get_root_folders(radarr_url: str, api_key: str) -> list[str]:
             headers={"X-Api-Key": api_key},
         )
         resp.raise_for_status()
-        return [f["path"] for f in resp.json()]
+        return [
+            {
+                "path": f["path"],
+                "free_bytes": f.get("freeSpace"),
+                "total_bytes": f.get("totalSpace"),
+            }
+            for f in resp.json()
+        ]
 
 
 async def get_tags(radarr_url: str, api_key: str) -> list[dict]:

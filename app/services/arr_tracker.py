@@ -7,17 +7,33 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings
+from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
 from .download_clients import delete_torrent, get_torrent_status
 from .notification_orchestrator import _handle_show_progress_notification
-from .radarr import get_all_movies, is_movie_available
+from .radarr import get_all_movies, is_movie_available, movie_exists
 from .seer import is_request_available as seer_available
-from .sonarr import get_all_series, get_series_episode_stats, is_series_available
+from .sonarr import get_all_series, get_series_episode_stats, is_series_available, series_exists
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
 
 logger = logging.getLogger(__name__)
+
+
+def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines).
+
+    Doublon volontaire du helper de `app/routers/requests_api.py` : les deux modules
+    n'ont pas de dépendance commune vers les modèles sans risquer un import circulaire.
+    """
+    db.query(VfEpisodeStatus).filter(
+        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
+    ).delete()
+
+
+# Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
+# cycle planifié (toutes les 15 min) sur les mêmes demandes.
+_arr_status_lock = asyncio.Lock()
 
 
 async def check_arr_statuses():
@@ -38,14 +54,20 @@ async def check_arr_statuses():
     par tvdb_id/tmdb_id/imdb_id uniquement, car req.arr_id désigne alors l'ID
     Seer et non l'ID Sonarr/Radarr).
     """
+    if _arr_status_lock.locked():
+        logger.info("check_arr_statuses déjà en cours, cycle ignoré")
+        return
+
     logger.info("Checking arr statuses...")
     _check_start = time.monotonic()
     started_at = now_utc_naive()
     items_processed = 0
     newly_available = 0
+    deleted_count = 0
     errors_count = 0
-    error_detail = None
+    error_details: list[str] = []
     db = SessionLocal()
+    await _arr_status_lock.acquire()
     try:
         settings = db.query(Settings).first()
         if not settings:
@@ -115,12 +137,14 @@ async def check_arr_statuses():
                 except Exception as e:
                     logger.warning(f"Sonarr series prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
+                    error_details.append(f"[{inst.name}] prefetch Sonarr: {e}")
             elif inst.arr_type == "radarr":
                 try:
                     movies_list = await get_all_movies(inst.url, inst.api_key)
                 except Exception as e:
                     logger.warning(f"Radarr movies prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
+                    error_details.append(f"[{inst.name}] prefetch Radarr: {e}")
 
             for req in inst_candidates:
                 available = False
@@ -129,7 +153,7 @@ async def check_arr_statuses():
                 seer_checked = False
                 series_stats = None
                 try:
-                    if settings.seer_enabled and settings.seer_url:
+                    if req.source == "seer" and settings.seer_url and settings.seer_api_key:
                         seer_checked = True
                         available, new_arr_id, new_slug = await seer_available(
                             settings.seer_url,
@@ -142,6 +166,8 @@ async def check_arr_statuses():
                             inst.api_key,
                             arr_id=req.arr_id,
                             tvdb_id=req.tvdb_id,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
                             series_list=series_list,
                         )
                         if series_stats:
@@ -166,6 +192,8 @@ async def check_arr_statuses():
                                 inst.url,
                                 inst.api_key,
                                 tvdb_id=req.tvdb_id,
+                                tmdb_id=req.tmdb_id,
+                                imdb_id=req.imdb_id,
                                 series_list=series_list,
                             )
                             if series_stats:
@@ -185,7 +213,37 @@ async def check_arr_statuses():
                 except Exception as e:
                     logger.warning(f"Status check error for '{req.title}': {e}")
                     errors_count += 1
+                    error_details.append(f"{req.title}: {e}")
                     continue
+
+                # Détection "supprimé côté *arr" : id déjà connu, mais introuvable ce cycle
+                # (ni par id ni par tmdb/tvdb/imdb). is_movie_available/get_series_episode_stats
+                # avalent les erreurs réseau en "introuvable" en interne — ce None seul ne suffit
+                # donc PAS à distinguer un 404 confirmé d'un *arr injoignable. On vérifie
+                # explicitement via movie_exists/series_exists, qui eux ne catchent pas les
+                # erreurs réseau : toute exception ici est traitée comme "on ne sait pas",
+                # jamais comme une suppression.
+                if not seer_checked and req.arr_id and new_arr_id is None:
+                    try:
+                        if req.media_type == "movie" and inst.arr_type == "radarr":
+                            still_exists = await movie_exists(inst.url, inst.api_key, req.arr_id)
+                        elif req.media_type == "show" and inst.arr_type == "sonarr":
+                            still_exists = await series_exists(inst.url, inst.api_key, req.arr_id)
+                        else:
+                            still_exists = True
+                    except Exception as e:
+                        logger.warning(f"Impossible de confirmer la suppression *arr pour '{req.title}': {e}")
+                        still_exists = True  # doute => on ne supprime jamais
+
+                    if not still_exists:
+                        logger.info(
+                            f"'{req.title}' n'existe plus dans {inst.arr_type} (id={req.arr_id}) — suppression de la demande"
+                        )
+                        _delete_vf_episode_cache(db, req.id)
+                        db.delete(req)
+                        db.commit()
+                        deleted_count += 1
+                        continue
 
                 # Mettre à jour arr_id / arr_slug / arr_instance_id si on les découvre maintenant
                 if new_arr_id and not req.arr_id:
@@ -237,15 +295,19 @@ async def check_arr_statuses():
 
             asyncio.create_task(check_vf_statuses())
 
+        if deleted_count:
+            logger.info(f"{deleted_count} demande(s) supprimée(s) (média absent de *arr)")
+
         logger.info("Arr status check complete")
 
     except Exception as e:
         logger.error(f"check_arr_statuses error: {e}")
-        error_detail = str(e)
+        error_details.append(str(e))
         errors_count += 1
     finally:
-        # Persist PollHistory
+        # Persist PollHistory (concatène toutes les erreurs du cycle, pas seulement la dernière)
         duration_ms = int((time.monotonic() - _check_start) * 1000)
+        error_detail = "; ".join(error_details)[:2000] if error_details else None
         poll_db = SessionLocal()
         try:
             history = PollHistory(
@@ -266,6 +328,7 @@ async def check_arr_statuses():
             if poll_db is not db:
                 poll_db.close()
         db.close()
+        _arr_status_lock.release()
 
 
 async def check_torrent_statuses():

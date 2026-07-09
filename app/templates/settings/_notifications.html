@@ -133,6 +133,10 @@
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
                   <label class="form-check-label" for="email_av">Quand le média devient disponible</label>
                 </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_failure" id="email_fail" {% if s.email_on_failure %}checked{% endif %}>
+                  <label class="form-check-label" for="email_fail">Quand une demande echoue</label>
+                </div>
               </div>
             </div>
             <div class="col-md-8">
@@ -344,6 +348,15 @@
                 <span id="conn-badge-discord" class="conn-badge"></span>
               </div>
             </div>
+            <div class="col-md-4">
+              <label class="form-label">Evenements Discord</label>
+              <div class="d-flex flex-column gap-1 small">
+                <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="discord_enabled" {% if s.discord_enabled %}checked{% endif %}> <span class="form-check-label">Canal actif</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="discord_send_request" {% if s.discord_send_request %}checked{% endif %}> <span class="form-check-label">Nouvelles demandes</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="discord_send_available" {% if s.discord_send_available %}checked{% endif %}> <span class="form-check-label">Disponibilites et suivi VF</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="discord_send_failure" {% if s.discord_send_failure %}checked{% endif %}> <span class="form-check-label">Echecs</span></label>
+              </div>
+            </div>
             <div class="col-12 mt-2">
               <h6 class="text-muted mb-2"><i class="bi bi-telegram me-1"></i>Telegram</h6>
             </div>
@@ -361,6 +374,15 @@
             <div class="col-md-2 d-flex align-items-end gap-2">
               <button type="button" class="btn btn-outline-secondary" onclick="testConn('telegram')">Tester</button>
               <span id="conn-badge-telegram" class="conn-badge align-self-center"></span>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Evenements Telegram</label>
+              <div class="d-flex flex-column gap-1 small">
+                <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="telegram_enabled" {% if s.telegram_enabled %}checked{% endif %}> <span class="form-check-label">Canal actif</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="telegram_send_request" {% if s.telegram_send_request %}checked{% endif %}> <span class="form-check-label">Nouvelles demandes</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="telegram_send_available" {% if s.telegram_send_available %}checked{% endif %}> <span class="form-check-label">Disponibilites et suivi VF</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="telegram_send_failure" {% if s.telegram_send_failure %}checked{% endif %}> <span class="form-check-label">Echecs</span></label>
+              </div>
             </div>
             <div class="col-12">
               <div class="form-text">Créez un bot via @BotFather, ajoutez-le à votre canal/groupe et utilisez l'ID du chat.</div>
@@ -387,6 +409,15 @@
               <button type="button" class="btn btn-outline-secondary" onclick="testConn('ntfy')">Tester</button>
               <span id="conn-badge-ntfy" class="conn-badge align-self-center"></span>
             </div>
+            <div class="col-md-4">
+              <label class="form-label">Evenements ntfy</label>
+              <div class="d-flex flex-column gap-1 small">
+                <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="ntfy_enabled" {% if s.ntfy_enabled %}checked{% endif %}> <span class="form-check-label">Canal actif</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="ntfy_send_request" {% if s.ntfy_send_request %}checked{% endif %}> <span class="form-check-label">Nouvelles demandes</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="ntfy_send_available" {% if s.ntfy_send_available %}checked{% endif %}> <span class="form-check-label">Disponibilites et suivi VF</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="ntfy_send_failure" {% if s.ntfy_send_failure %}checked{% endif %}> <span class="form-check-label">Echecs</span></label>
+              </div>
+            </div>
 
             <!-- Gotify -->
             <div class="col-12 mt-2">
@@ -408,6 +439,15 @@
             <div class="col-md-3 d-flex align-items-end gap-2 pb-md-3">
               <button type="button" class="btn btn-outline-secondary" onclick="testConn('gotify')">Tester</button>
               <span id="conn-badge-gotify" class="conn-badge align-self-center"></span>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Evenements Gotify</label>
+              <div class="d-flex flex-column gap-1 small">
+                <label class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" name="gotify_enabled" {% if s.gotify_enabled %}checked{% endif %}> <span class="form-check-label">Canal actif</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="gotify_send_request" {% if s.gotify_send_request %}checked{% endif %}> <span class="form-check-label">Nouvelles demandes</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="gotify_send_available" {% if s.gotify_send_available %}checked{% endif %}> <span class="form-check-label">Disponibilites et suivi VF</span></label>
+                <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="gotify_send_failure" {% if s.gotify_send_failure %}checked{% endif %}> <span class="form-check-label">Echecs</span></label>
+              </div>
             </div>
           </div>
         </div>

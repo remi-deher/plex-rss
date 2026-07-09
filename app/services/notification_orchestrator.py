@@ -540,7 +540,12 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
     queued_event = event
     if event == "available" and req.has_vf is True:
         queued_event = "available_vf"
-    email_flag = settings.email_on_available if event == "available" else settings.email_on_request
+    if event in ("failed", "failure"):
+        email_flag = getattr(settings, "email_on_failure", True)
+    elif event == "request":
+        email_flag = settings.email_on_request
+    else:
+        email_flag = settings.email_on_available
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_recipients(user_obj, settings, event) if email_flag else []
     enqueue_notification(queued_event, req.id, recipients, reason)

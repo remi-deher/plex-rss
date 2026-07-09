@@ -189,7 +189,6 @@ plex-rss/
 │       ├── dashboard.html
 │       ├── library.html
 │       ├── calendar.html
-│       ├── search.html
 │       ├── users.html
 │       ├── logs.html
 │       ├── settings.html

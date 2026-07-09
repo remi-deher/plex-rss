@@ -74,6 +74,7 @@ class Settings(Base):
     admin_notification_email: Mapped[Optional[str]]
     email_on_request: Mapped[bool] = mapped_column(default=True)
     email_on_available: Mapped[bool] = mapped_column(default=True)
+    email_on_failure: Mapped[bool] = mapped_column(default=True)
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
     email_failure_template: Mapped[Optional[str]] = mapped_column(Text)
@@ -112,15 +113,31 @@ class Settings(Base):
     seer_fallback_arr: Mapped[bool] = mapped_column(default=True)
 
     # --- Notifications push (Discord / Telegram) ---
+    discord_enabled: Mapped[bool] = mapped_column(default=True)
     discord_webhook_url: Mapped[Optional[str]]
+    discord_send_request: Mapped[bool] = mapped_column(default=True)
+    discord_send_available: Mapped[bool] = mapped_column(default=True)
+    discord_send_failure: Mapped[bool] = mapped_column(default=True)
+    telegram_enabled: Mapped[bool] = mapped_column(default=True)
     telegram_bot_token: Mapped[Optional[str]]
     telegram_chat_id: Mapped[Optional[str]]
+    telegram_send_request: Mapped[bool] = mapped_column(default=True)
+    telegram_send_available: Mapped[bool] = mapped_column(default=True)
+    telegram_send_failure: Mapped[bool] = mapped_column(default=True)
 
     # --- Notifications push (ntfy / Gotify) ---
+    ntfy_enabled: Mapped[bool] = mapped_column(default=True)
     ntfy_url: Mapped[Optional[str]]
     ntfy_token: Mapped[Optional[str]]
+    ntfy_send_request: Mapped[bool] = mapped_column(default=True)
+    ntfy_send_available: Mapped[bool] = mapped_column(default=True)
+    ntfy_send_failure: Mapped[bool] = mapped_column(default=True)
+    gotify_enabled: Mapped[bool] = mapped_column(default=True)
     gotify_url: Mapped[Optional[str]]
     gotify_token: Mapped[Optional[str]]
+    gotify_send_request: Mapped[bool] = mapped_column(default=True)
+    gotify_send_available: Mapped[bool] = mapped_column(default=True)
+    gotify_send_failure: Mapped[bool] = mapped_column(default=True)
 
     # --- Poll history retention ---
     poll_history_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
@@ -269,6 +286,24 @@ class NotificationMilestone(Base):
     milestone_type: Mapped[str]
     season_number: Mapped[Optional[int]] = mapped_column(default=None)
     episode_number: Mapped[Optional[int]] = mapped_column(default=None)
+
+
+class PendingNotification(Base):
+    """Notification empilée dans la queue asyncio mais pas encore envoyée.
+
+    Persistée en base pour survivre à un redémarrage/crash de l'app : sans cela, toute
+    notification en vol au moment d'un arrêt (déploiement, `docker compose restart`) est
+    perdue silencieusement — la ligne est supprimée une fois le worker passé dessus.
+    """
+
+    __tablename__ = "pending_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc)
+    event: Mapped[str]
+    req_id: Mapped[int]
+    recipients: Mapped[str]  # JSON list[str]
+    reason: Mapped[str] = mapped_column(default="")
 
 
 class PollHistory(Base):
