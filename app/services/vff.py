@@ -553,18 +553,22 @@ def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict])
                         elif gid.startswith("imdb://"):
                             imdb_id = gid.split("imdb://")[-1]
 
-                    items.append({
-                        "title": m.title,
-                        "year": getattr(m, "year", None),
-                        "media_type": "show" if lib["kind"] in ("series", "anime") else "movie",
-                        "plex_guid": getattr(m, "guid", None),
-                        "tmdb_id": tmdb_id,
-                        "tvdb_id": tvdb_id,
-                        "imdb_id": imdb_id,
-                        "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}" if getattr(m, "thumb", None) else None,
-                        "overview": getattr(m, "summary", None),
-                        "added_at": getattr(m, "addedAt", None),
-                    })
+                    items.append(
+                        {
+                            "title": m.title,
+                            "year": getattr(m, "year", None),
+                            "media_type": "show" if lib["kind"] in ("series", "anime") else "movie",
+                            "plex_guid": getattr(m, "guid", None),
+                            "tmdb_id": tmdb_id,
+                            "tvdb_id": tvdb_id,
+                            "imdb_id": imdb_id,
+                            "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}"
+                            if getattr(m, "thumb", None)
+                            else None,
+                            "overview": getattr(m, "summary", None),
+                            "added_at": getattr(m, "addedAt", None),
+                        }
+                    )
                 except Exception as item_exc:
                     logger.warning(f"VFF sync : erreur lecture média '{getattr(m, 'title', '?')}' : {item_exc}")
         except Exception as lib_exc:

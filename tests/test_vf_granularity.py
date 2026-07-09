@@ -19,9 +19,7 @@ from app.scheduler import check_vf_statuses
 
 
 def _make_db():
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)()
 
@@ -30,7 +28,10 @@ def _make_db():
 async def test_check_vf_statuses_sets_episode_partial_granularity():
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Séries", "kind": "series"}]',
     )
     db.add(settings)
@@ -40,7 +41,10 @@ async def test_check_vf_statuses_sets_episode_partial_granularity():
     li_id = li.id
 
     scan_result = {
-        "id": li_id, "found": True, "has_vf": False, "category": "series",
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
         "episode_status": {1: {1: True, 2: False}, 2: {1: False}},
     }
     with (
@@ -59,7 +63,10 @@ async def test_check_vf_statuses_sets_episode_partial_granularity():
 async def test_check_vf_statuses_sets_season_partial_granularity():
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Séries", "kind": "series"}]',
     )
     db.add(settings)
@@ -69,7 +76,10 @@ async def test_check_vf_statuses_sets_season_partial_granularity():
     li_id = li.id
 
     scan_result = {
-        "id": li_id, "found": True, "has_vf": False, "category": "series",
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
         "episode_status": {1: {1: True, 2: True}, 2: {1: False, 2: False}},
     }
     with (
@@ -88,21 +98,32 @@ async def test_check_vf_statuses_sets_season_partial_granularity():
 async def test_check_vf_statuses_sets_full_granularity_on_complete_show():
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Séries", "kind": "series"}]',
         email_on_vf_available=True,
     )
     db.add(settings)
     req = MediaRequest(
-        plex_user_id="alice", title="Show", year=2020, media_type="show",
-        plex_guid="plex://show/abc", status=RequestStatus.available, has_vf=False,
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
     )
     db.add(req)
     db.commit()
     req_id = req.id
 
     scan_result = {
-        "id": req_id, "found": True, "has_vf": True, "category": "series",
+        "id": req_id,
+        "found": True,
+        "has_vf": True,
+        "category": "series",
         "episode_status": {1: {1: True, 2: True}},
     }
     with (
@@ -124,7 +145,10 @@ async def test_linked_request_shares_single_scan_with_library_item():
     dédié pour la demande — et elle reprend la granularité fraîchement calculée."""
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Séries", "kind": "series"}]',
     )
     db.add(settings)
@@ -134,16 +158,24 @@ async def test_linked_request_shares_single_scan_with_library_item():
     li_id = li.id
 
     req = MediaRequest(
-        plex_user_id="alice", title="Show", year=2020, media_type="show",
-        plex_guid="plex://show/abc", status=RequestStatus.available,
-        has_vf=False, library_item_id=li_id,
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+        library_item_id=li_id,
     )
     db.add(req)
     db.commit()
     req_id = req.id
 
     scan_result = {
-        "id": li_id, "found": True, "has_vf": False, "category": "series",
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
         "episode_status": {1: {1: True, 2: True}, 2: {1: False}},
     }
     with (

@@ -227,7 +227,7 @@ def _resolve_series_notify_mode(direction: str, settings: Settings, user_obj: Pl
 
 
 def _resolve_series_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
-    """"language" (VF/VO, historique) ou "simple" (épisodes/saisons, sans langue).
+    """ "language" (VF/VO, historique) ou "simple" (épisodes/saisons, sans langue).
 
     Réglage par utilisateur (PlexUser.series_tracking_mode) prioritaire sur le réglage
     global (Settings.series_tracking_mode) s'il est défini. Les deux modes sont
@@ -274,13 +274,15 @@ def _series_language_milestones(direction: str, mode: str, episode_status: dict 
             return True
         return has_vf if direction == "vf" else not has_vf
 
-    milestones = []
+    milestones: list[tuple[str, int | None, int | None]] = []
     mode = _valid_series_notify_mode(mode)
 
     if mode == "series_complete":
-        if (direction == "vf" and has_vf_full) or (status and direction in ("vo", "simple") and all(
-            matches(v) for eps in status.values() for v in eps.values()
-        )):
+        if (direction == "vf" and has_vf_full) or (
+            status
+            and direction in ("vo", "simple")
+            and all(matches(v) for eps in status.values() for v in eps.values())
+        ):
             milestones.append(("series_complete", None, None))
         return milestones
     if not status:
@@ -323,8 +325,16 @@ def _milestone_exists(db: Session, req: MediaRequest, direction: str, milestone_
         NotificationMilestone.direction == direction,
         NotificationMilestone.milestone_type == milestone_type,
     )
-    q = q.filter(NotificationMilestone.season_number.is_(None) if season is None else NotificationMilestone.season_number == season)
-    q = q.filter(NotificationMilestone.episode_number.is_(None) if episode is None else NotificationMilestone.episode_number == episode)
+    q = q.filter(
+        NotificationMilestone.season_number.is_(None)
+        if season is None
+        else NotificationMilestone.season_number == season
+    )
+    q = q.filter(
+        NotificationMilestone.episode_number.is_(None)
+        if episode is None
+        else NotificationMilestone.episode_number == episode
+    )
     return q.first() is not None
 
 
@@ -413,7 +423,9 @@ def _queue_language_progress_notifications(
     return count
 
 
-def _queue_episode_progress_notifications(settings: Settings, req: MediaRequest, db: Session, episode_status: dict | None) -> int:
+def _queue_episode_progress_notifications(
+    settings: Settings, req: MediaRequest, db: Session, episode_status: dict | None
+) -> int:
     """Équivalent de `_queue_language_progress_notifications` pour le mode "simple"
     (suivi épisode/saison indépendant de la langue, voir `_resolve_series_tracking_mode`).
     """
@@ -554,5 +566,3 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
 # ---------------------------------------------------------------------------
 # Jobs planifiés
 # ---------------------------------------------------------------------------
-
-

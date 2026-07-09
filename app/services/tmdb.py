@@ -145,6 +145,7 @@ def _norm_list(data: dict, forced_type: Optional[str] = None) -> list[dict]:
 
 # --- API publiques (consommées par le routeur discover) ---------------------
 
+
 async def trending(db: Session, media_type: str = "all", window: str = "week") -> list[dict]:
     mt = media_type if media_type in ("movie", "tv", "all") else "all"
     data = await _get(db, f"/trending/{mt}/{window}")
@@ -173,8 +174,9 @@ async def genres(db: Session, media_type: str) -> list[dict]:
     return data.get("genres", [])
 
 
-async def discover(db: Session, media_type: str, genre: Optional[int] = None,
-                   sort_by: str = "popularity.desc", page: int = 1) -> list[dict]:
+async def discover(
+    db: Session, media_type: str, genre: Optional[int] = None, sort_by: str = "popularity.desc", page: int = 1
+) -> list[dict]:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     params = {"page": page, "sort_by": sort_by, "region": REGION}
     if genre:
@@ -191,21 +193,24 @@ async def search(db: Session, query: str, page: int = 1) -> list[dict]:
 async def detail(db: Session, media_type: str, tmdb_id: int) -> dict:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(
-        db, f"/{mt}/{tmdb_id}",
+        db,
+        f"/{mt}/{tmdb_id}",
         {"append_to_response": "external_ids,recommendations,similar,credits"},
     )
     ext = data.get("external_ids") or {}
     base = _norm({**data, "media_type": mt}, mt) or {}
-    base.update({
-        "tvdb_id": ext.get("tvdb_id"),
-        "imdb_id": ext.get("imdb_id") or data.get("imdb_id"),
-        "genres": [g.get("name") for g in data.get("genres", [])],
-        "runtime": data.get("runtime") or (data.get("episode_run_time") or [None])[0],
-        "status": data.get("status"),
-        "number_of_seasons": data.get("number_of_seasons"),
-        "recommendations": _norm_list(data.get("recommendations") or {}, mt),
-        "similar": _norm_list(data.get("similar") or {}, mt),
-    })
+    base.update(
+        {
+            "tvdb_id": ext.get("tvdb_id"),
+            "imdb_id": ext.get("imdb_id") or data.get("imdb_id"),
+            "genres": [g.get("name") for g in data.get("genres", [])],
+            "runtime": data.get("runtime") or (data.get("episode_run_time") or [None])[0],
+            "status": data.get("status"),
+            "number_of_seasons": data.get("number_of_seasons"),
+            "recommendations": _norm_list(data.get("recommendations") or {}, mt),
+            "similar": _norm_list(data.get("similar") or {}, mt),
+        }
+    )
     return base
 
 

@@ -23,9 +23,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
+from app.dependencies import require_auth
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.dependencies import require_auth
 from app.routers import email_templates as email_templates_router
 from app.routers import pages as pages_router
 

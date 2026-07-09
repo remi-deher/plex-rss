@@ -148,6 +148,7 @@ async def get_request(request_id: int, db: Session = Depends(get_db)):
 
     # Utilise le sérialiseur centralisé pour les formats de dates
     from ..serializers import format_datetime
+
     d["requested_at"] = format_datetime(req.requested_at)
     d["available_at"] = format_datetime(req.available_at)
 

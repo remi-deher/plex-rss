@@ -59,8 +59,8 @@ EMAIL_SENDERS = {
     "available_vf": lambda settings, req, recipient, reason, display_name: send_available_vf_notification(
         settings, req, recipient, display_name
     ),
-    "available_vo_tracking": lambda settings, req, recipient, reason, display_name: send_available_vo_tracking_notification(
-        settings, req, recipient, display_name
+    "available_vo_tracking": lambda settings, req, recipient, reason, display_name: (
+        send_available_vo_tracking_notification(settings, req, recipient, display_name)
     ),
     "vo_only": lambda settings, req, recipient, reason, display_name: send_vo_only_notification(
         settings, req, recipient, display_name, reason

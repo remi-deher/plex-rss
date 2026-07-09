@@ -18,9 +18,7 @@ from app.scheduler import _handle_show_progress_notification, _resolve_partial_n
 
 
 def _make_db():
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)()
 
@@ -33,8 +31,12 @@ def _settings(**kwargs) -> Settings:
 
 def _show_request(**kwargs) -> MediaRequest:
     defaults = dict(
-        plex_user_id="alice", plex_user="alice", title="Breaking Bad", media_type="show",
-        status=RequestStatus.available, available_mail_sent=False,
+        plex_user_id="alice",
+        plex_user="alice",
+        title="Breaking Bad",
+        media_type="show",
+        status=RequestStatus.available,
+        available_mail_sent=False,
     )
     defaults.update(kwargs)
     return MediaRequest(**defaults)
@@ -72,7 +74,9 @@ def test_milestones_does_not_repeat_once_flagged():
     settings = _settings(partial_notify_frequency="milestones")
     db.add(settings)
     req = _show_request(
-        episodes_available_count=3, episodes_aired_count=5, episodes_total_count=10,
+        episodes_available_count=3,
+        episodes_aired_count=5,
+        episodes_total_count=10,
         partial_available_mail_sent=True,  # déjà notifié une 1ère fois
     )
     db.add(req)
@@ -89,7 +93,9 @@ def test_every_episode_notifies_on_each_increase():
     settings = _settings(partial_notify_frequency="every_episode")
     db.add(settings)
     req = _show_request(
-        episodes_available_count=3, episodes_aired_count=5, episodes_total_count=10,
+        episodes_available_count=3,
+        episodes_aired_count=5,
+        episodes_total_count=10,
         last_notified_episode_count=2,
     )
     db.add(req)
@@ -107,7 +113,9 @@ def test_every_episode_skips_when_count_unchanged():
     settings = _settings(partial_notify_frequency="every_episode")
     db.add(settings)
     req = _show_request(
-        episodes_available_count=3, episodes_aired_count=5, episodes_total_count=10,
+        episodes_available_count=3,
+        episodes_aired_count=5,
+        episodes_total_count=10,
         last_notified_episode_count=3,  # déjà notifié pour ce compte
     )
     db.add(req)
@@ -139,7 +147,9 @@ def test_complete_series_does_not_repeat_once_sent():
     settings = _settings(partial_notify_frequency="milestones")
     db.add(settings)
     req = _show_request(
-        episodes_available_count=10, episodes_aired_count=10, episodes_total_count=10,
+        episodes_available_count=10,
+        episodes_aired_count=10,
+        episodes_total_count=10,
         available_mail_sent=True,
     )
     db.add(req)

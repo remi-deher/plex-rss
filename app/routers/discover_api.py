@@ -137,7 +137,10 @@ async def get_detail(media_type: str, tmdb_id: int, db: Session = Depends(get_db
         if d.get("request_id"):
             req = db.query(MediaRequest).filter(MediaRequest.id == d["request_id"]).first()
             if req:
-                users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+                users = {
+                    u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id)
+                    for u in db.query(PlexUser).all()
+                }
                 d["requesters"] = serialize_media_request(req, users)["requesters"]
         d["recommendations"] = _annotate(db, d.get("recommendations", []))
         d["similar"] = _annotate(db, d.get("similar", []))

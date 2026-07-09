@@ -243,7 +243,9 @@ async def test_send_available_vo_tracking_uses_merged_template():
 async def test_send_vf_available_uses_episode_milestone_template():
     """Un jalon VF par épisode utilise le template dédié."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vf_available_notification(_settings(), _req(media_type="show"), "dest@example.com", reason="VF S01E02")
+        await send_vf_available_notification(
+            _settings(), _req(media_type="show"), "dest@example.com", reason="VF S01E02"
+        )
 
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception : nouvel épisode en VF sur Plex !"
@@ -269,7 +271,9 @@ async def test_send_vf_available_upgrade_uses_update_badge():
 async def test_send_vo_only_uses_season_start_milestone_template():
     """Un jalon VO début de saison utilise le template dédié."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vo_only_notification(_settings(), _req(media_type="show"), "dest@example.com", reason="VO saison 1 demarree")
+        await send_vo_only_notification(
+            _settings(), _req(media_type="show"), "dest@example.com", reason="VO saison 1 demarree"
+        )
 
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "[Plexarr] Inception : saison démarrée en VO sur Plex !"
@@ -287,8 +291,11 @@ async def test_send_vo_only_uses_season_start_milestone_template():
 async def test_send_partially_available_includes_episode_counts():
     """Email de disponibilité partielle : sujet + compteurs d'épisodes dans le corps."""
     req = _req(
-        media_type="show", title="Breaking Bad",
-        episodes_available_count=3, episodes_aired_count=5, episodes_total_count=10,
+        media_type="show",
+        title="Breaking Bad",
+        episodes_available_count=3,
+        episodes_aired_count=5,
+        episodes_total_count=10,
     )
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_partially_available_notification(_settings(), req, "dest@example.com", reason="3/5")

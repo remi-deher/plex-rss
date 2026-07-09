@@ -4,9 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db
+from app.dependencies import require_auth
 from app.main import app
 from app.models import ArrInstance
-from app.dependencies import require_auth
 from app.services.prowlarr import check_connection, get_download_clients, get_indexers, grab, search
 
 

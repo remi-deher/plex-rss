@@ -361,8 +361,11 @@ async def test_check_arr_show_becomes_available(db):
     db.commit()
 
     series_stats = {
-        "arr_id": 7, "title_slug": None,
-        "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 5,
+        "episode_count": 5,
+        "total_episode_count": 5,
     }
     with (
         _patch_session_arr(db),
@@ -426,7 +429,9 @@ async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
     with (
         _patch_session_arr(db),
         patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(True, 99, "inception"))) as mock_radarr,
+        patch(
+            "app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(True, 99, "inception"))
+        ) as mock_radarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -447,13 +452,18 @@ async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
     db.commit()
 
     series_stats = {
-        "arr_id": 7, "title_slug": None,
-        "episode_file_count": 5, "episode_count": 5, "total_episode_count": 5,
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 5,
+        "episode_count": 5,
+        "total_episode_count": 5,
     }
     with (
         _patch_session_arr(db),
         patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)) as mock_sonarr,
+        patch(
+            "app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)
+        ) as mock_sonarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()
@@ -475,7 +485,9 @@ async def test_check_arr_seer_unavailable_radarr_also_unavailable(db):
     with (
         _patch_session_arr(db),
         patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(False, None, None))),
-        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(False, None, None))) as mock_radarr,
+        patch(
+            "app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(False, None, None))
+        ) as mock_radarr,
         _patch_enqueue() as mock_enqueue,
     ):
         await check_arr_statuses()

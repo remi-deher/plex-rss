@@ -177,7 +177,12 @@ EVENTS: dict[str, NotificationEvent] = {
         subject_field="email_language_episode_subject",
         default_subject="[Plexarr] {{ title }} : nouvel épisode{% if language %} en {{ language }}{% endif %} sur Plex !",
         media_scope=("show",),
-        preview_context={"language": "VF", "language_lower": "vf", "language_reason": "VF S01E02", "language_milestone_type": "episode"},
+        preview_context={
+            "language": "VF",
+            "language_lower": "vf",
+            "language_reason": "VF S01E02",
+            "language_milestone_type": "episode",
+        },
     ),
     "language_season_start": NotificationEvent(
         key="language_season_start",

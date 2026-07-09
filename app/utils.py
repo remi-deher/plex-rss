@@ -51,7 +51,7 @@ def identity_keys(rec) -> list:
     Bibliothèque (rapprochement à l'affichage) et le scheduler (lien persistant
     MediaRequest.library_item_id) pour ne pas dupliquer cette logique à deux endroits.
     """
-    keys = []
+    keys: list[tuple] = []
     if getattr(rec, "plex_guid", None):
         keys.append(("guid", rec.plex_guid))
     if getattr(rec, "tmdb_id", None):
@@ -67,10 +67,12 @@ def identity_keys(rec) -> list:
 def now_utc() -> datetime:
     """Instant courant, aware UTC."""
     from datetime import timezone
+
     return datetime.now(timezone.utc)
 
 
 def now_utc_naive() -> datetime:
     """Instant courant UTC sans tzinfo (colonnes DB stockées en naïf-UTC)."""
     from datetime import timezone
+
     return datetime.now(timezone.utc).replace(tzinfo=None)

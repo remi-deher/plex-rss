@@ -155,8 +155,8 @@ async def _vf_detail_payload(db: Session, req):
     for sn in sorted(seasons):
         eps = [seasons[sn][en] for en in sorted(seasons[sn])]
         counts = {"vf": 0, "vo": 0, "present": 0, "absent": 0, "unknown": 0}
-        for e in eps:
-            counts[e["status"]] = counts.get(e["status"], 0) + 1
+        for ep_out in eps:
+            counts[ep_out["status"]] = counts.get(ep_out["status"], 0) + 1
         out_seasons.append({"season_number": sn, "counts": counts, "episodes": eps})
 
     return {
@@ -250,8 +250,15 @@ async def vff_scan_single_request(
 
         try:
             return vff_svc.scan_media_vf(
-                plex, req.media_type, movie_libs, show_libs,
-                req.title, req.year, req.tmdb_id, req.tvdb_id, req.imdb_id,
+                plex,
+                req.media_type,
+                movie_libs,
+                show_libs,
+                req.title,
+                req.year,
+                req.tmdb_id,
+                req.tvdb_id,
+                req.imdb_id,
                 plex_guid=req.plex_guid,
                 known_vf=known_vf,
             )
@@ -373,8 +380,15 @@ async def library_vff_scan(
             return {"found": False, "error": f"Plex connection error: {exc}"}
         try:
             return vff_svc.scan_media_vf(
-                plex, item.media_type, movie_libs, show_libs,
-                item.title, item.year, item.tmdb_id, item.tvdb_id, item.imdb_id,
+                plex,
+                item.media_type,
+                movie_libs,
+                show_libs,
+                item.title,
+                item.year,
+                item.tmdb_id,
+                item.tvdb_id,
+                item.imdb_id,
                 plex_guid=item.plex_guid,
                 known_vf=known_vf,
             )

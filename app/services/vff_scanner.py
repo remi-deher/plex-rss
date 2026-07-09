@@ -4,7 +4,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
@@ -25,22 +25,22 @@ from .sonarr import search_series
 
 logger = logging.getLogger(__name__)
 
-vff_scan_state = {
+vff_scan_state: dict[str, Any] = {
     "status": "idle",  # "idle" | "running" | "failed"
     "started_at": None,
     "finished_at": None,
     "items_scanned": 0,
     "total_items": 0,
-    "error": None
+    "error": None,
 }
 
-episode_scan_state = {
+episode_scan_state: dict[str, Any] = {
     "status": "idle",  # "idle" | "running" | "failed"
     "started_at": None,
     "finished_at": None,
     "items_scanned": 0,
     "total_items": 0,
-    "error": None
+    "error": None,
 }
 
 
@@ -74,9 +74,7 @@ def _parse_vff_libraries(settings: Settings) -> list[dict]:
     return out
 
 
-def _load_known_vf_episodes(
-    db: Session, source_type: str, source_ids: list[int]
-) -> dict[int, dict[int, set[int]]]:
+def _load_known_vf_episodes(db: Session, source_type: str, source_ids: list[int]) -> dict[int, dict[int, set[int]]]:
     """Charge le cache des épisodes déjà confirmés VF pour une liste de médias.
 
     Retourne {source_id: {season_number: {episode_number, ...}}}. Ne contient que les
@@ -213,8 +211,15 @@ def _scan_vf_blocking(
     for c in candidates:
         try:
             res = vff.scan_media_vf(
-                plex, c["media_type"], movie_libs, show_libs,
-                c["title"], c["year"], c["tmdb_id"], c["tvdb_id"], c["imdb_id"],
+                plex,
+                c["media_type"],
+                movie_libs,
+                show_libs,
+                c["title"],
+                c["year"],
+                c["tmdb_id"],
+                c["tvdb_id"],
+                c["imdb_id"],
                 plex_guid=c.get("plex_guid"),
                 known_vf=known_vf_by_id.get(c["id"]),
             )
@@ -332,9 +337,7 @@ async def check_vf_statuses():
             req.next_release_label = None
             db.commit()
             promoted += 1
-            logger.info(
-                f"VFF : '{req.title}' détecté disponible via la bibliothèque Plex (arr en retard/inconnu)"
-            )
+            logger.info(f"VFF : '{req.title}' détecté disponible via la bibliothèque Plex (arr en retard/inconnu)")
             # Pas de notification "available" ici : cette fonction ne tourne que si VFF est
             # actif (garde en tête de fonction), donc has_vf est encore None juste après la
             # promotion -> la demande retombe naturellement dans candidates_q ci-dessous et
@@ -351,11 +354,7 @@ async def check_vf_statuses():
             )
             .all()
         )
-        lib_q = (
-            db.query(LibraryItem)
-            .filter((LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False)))
-            .all()
-        )
+        lib_q = db.query(LibraryItem).filter((LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False))).all()
         if not candidates_q and not lib_q:
             vff_scan_state["status"] = "idle"
             vff_scan_state["finished_at"] = now_utc().isoformat()
@@ -455,7 +454,9 @@ async def check_vf_statuses():
             else:
                 # VO uniquement
                 req.has_vf = False
-                req.vf_granularity = granularity if granularity is not None else vff.compute_vf_granularity(episode_status)
+                req.vf_granularity = (
+                    granularity if granularity is not None else vff.compute_vf_granularity(episode_status)
+                )
                 if not was_tracking:
                     if not req.available_mail_sent:
                         # Première détection VO : la notification « VO » tient lieu
@@ -522,9 +523,7 @@ async def check_vf_statuses():
 
         # --- Demandes liées à un LibraryItem : propager son has_vf, pas de re-scan Plex ---
         linked_updated = 0
-        linked_episode_status = _load_episode_status_map(
-            db, "library_item", list({li.id for _, li in linked_pairs})
-        )
+        linked_episode_status = _load_episode_status_map(db, "library_item", list({li.id for _, li in linked_pairs}))
         for req, li in linked_pairs:
             if li.has_vf is None:
                 continue  # LibraryItem pas encore résolu ; réessaiera au prochain cycle
@@ -657,5 +656,3 @@ def trigger_vff_scan_background():
         loop.create_task(check_vf_statuses())
     except RuntimeError:
         pass
-
-

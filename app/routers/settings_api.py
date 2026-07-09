@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import get_settings_or_404, require_auth
 from ..models import Settings
-from ..scheduler import _send_digest, scheduler as _scheduler, update_poll_interval
+from ..scheduler import _send_digest, update_poll_interval
+from ..scheduler import scheduler as _scheduler
 from ..services import email_service, radarr, sonarr
 from ..services.notifications import send_gotify, send_ntfy
 from ..services.plex_api import check_connection as plex_test

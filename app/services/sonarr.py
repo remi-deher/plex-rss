@@ -388,9 +388,7 @@ def _normalize_release(r: dict) -> dict:
     }
 
 
-async def get_releases(
-    sonarr_url: str, api_key: str, series_id: int = None, episode_id: int = None
-) -> list[dict]:
+async def get_releases(sonarr_url: str, api_key: str, series_id: int = None, episode_id: int = None) -> list[dict]:
     """Recherche interactive Sonarr : releases scorées pour une série ou un épisode."""
     base = sonarr_url.rstrip("/")
     params = {}
@@ -402,9 +400,7 @@ async def get_releases(
         return []
     try:
         async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.get(
-                f"{base}/api/v3/release", params=params, headers={"X-Api-Key": api_key}
-            )
+            resp = await client.get(f"{base}/api/v3/release", params=params, headers={"X-Api-Key": api_key})
             resp.raise_for_status()
             return [_normalize_release(r) for r in resp.json()]
     except Exception as e:

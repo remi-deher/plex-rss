@@ -8,8 +8,8 @@ Create Date: 2026-07-07
 from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 revision: str = "0040_episode_tracking_mode"
 down_revision: Union[str, None] = "0039_email_templates_backup"
@@ -21,7 +21,9 @@ def upgrade() -> None:
     with op.batch_alter_table("settings") as batch_op:
         batch_op.add_column(sa.Column("series_tracking_mode", sa.String(), nullable=False, server_default="language"))
         batch_op.add_column(
-            sa.Column("series_episode_notify_mode", sa.String(), nullable=False, server_default="season_start_and_complete")
+            sa.Column(
+                "series_episode_notify_mode", sa.String(), nullable=False, server_default="season_start_and_complete"
+            )
         )
     with op.batch_alter_table("plex_users") as batch_op:
         batch_op.add_column(sa.Column("series_tracking_mode", sa.String(), nullable=True))

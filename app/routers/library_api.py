@@ -198,6 +198,7 @@ def get_library_item(item_id: int, db: Session = Depends(get_db)):
     """Détail d'un élément de bibliothèque (pour la modale : identité + lien *arr)."""
     item = get_or_404(db, LibraryItem, item_id, "Library item not found")
     from ..serializers import serialize_library_item
+
     return serialize_library_item(item)
 
 
@@ -211,8 +212,9 @@ async def media_detail(
     if not library_id and not request_id:
         raise HTTPException(400, "library_id or request_id is required")
 
-    selected_request = None
-    library_item = None
+    selected_request: Optional[MediaRequest] = None
+    library_item: Optional[LibraryItem] = None
+    media_obj: LibraryItem | MediaRequest
     if library_id:
         library_item = get_or_404(db, LibraryItem, library_id, "Library item not found")
         media_obj = library_item
@@ -227,7 +229,8 @@ async def media_detail(
         related_requests.insert(0, selected_request)
 
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
-    from ..serializers import serialize_media_request, format_datetime
+    from ..serializers import format_datetime, serialize_media_request
+
     request_payloads = [serialize_media_request(req, users) for req in related_requests]
     schedule = await _media_schedule_payload(db, media_obj)
 
@@ -235,7 +238,9 @@ async def media_detail(
         "media": {
             "kind": "library" if library_item else "request",
             "library_id": library_item.id if library_item else None,
-            "request_id": selected_request.id if selected_request else (related_requests[0].id if related_requests else None),
+            "request_id": selected_request.id
+            if selected_request
+            else (related_requests[0].id if related_requests else None),
             "vf_source_type": "library" if library_item else "request",
             "vf_source_id": library_item.id if library_item else (selected_request.id if selected_request else None),
             "title": media_obj.title,
@@ -286,7 +291,7 @@ async def recheck_plex(
         raise HTTPException(400, "request_id or library_id is required")
 
     if library_id:
-        media = get_or_404(db, LibraryItem, library_id, "Library item not found")
+        get_or_404(db, LibraryItem, library_id, "Library item not found")
         return {"found": True, "already_in_library": True, "library_id": library_id}
     media = get_or_404(db, MediaRequest, request_id, "Request not found")
 
@@ -305,8 +310,14 @@ async def recheck_plex(
     def _search():
         plex = connect(settings.plex_url, settings.plex_token)
         return find_item_in_libraries(
-            plex, lib_names, media.title, media.year,
-            media.tmdb_id, media.tvdb_id, media.imdb_id, plex_guid=media.plex_guid,
+            plex,
+            lib_names,
+            media.title,
+            media.year,
+            media.tmdb_id,
+            media.tvdb_id,
+            media.imdb_id,
+            plex_guid=media.plex_guid,
         )
 
     try:
@@ -348,7 +359,9 @@ async def recheck_plex(
             imdb_id=imdb_id,
             plex_guid=plex_guid,
             poster_url=(
-                f"{settings.plex_url.rstrip('/')}{thumb}?X-Plex-Token={settings.plex_token}" if thumb else media.poster_url
+                f"{settings.plex_url.rstrip('/')}{thumb}?X-Plex-Token={settings.plex_token}"
+                if thumb
+                else media.poster_url
             ),
             overview=getattr(found, "summary", None) or media.overview,
             added_at=added,

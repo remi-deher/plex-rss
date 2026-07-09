@@ -1,7 +1,7 @@
 import json as _json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -68,9 +68,7 @@ def _movie_release_events(movie: dict, start_dt: datetime, end_dt: datetime, now
         ("physical", "Sortie physique", movie.get("physicalRelease")),
     )
     parsed = [
-        (raw, rtype, label, dt)
-        for rtype, label, raw in specs
-        if raw and (dt := _parse_arr_date(raw)) is not None
+        (raw, rtype, label, dt) for rtype, label, raw in specs if raw and (dt := _parse_arr_date(raw)) is not None
     ]
     if not parsed:
         return []
@@ -134,10 +132,10 @@ async def unified_calendar(
 
     shows_by_tvdb: dict[str, dict] = {}
     movies_by_tmdb: dict[str, dict] = {}
-    library_items_by_id = {}
+    library_items_by_id: dict[int, dict[str, Any]] = {}
 
     for li in db.query(LibraryItem).all():
-        entry = {
+        entry: dict[str, Any] = {
             "in_library": True,
             "library_item_id": li.id,
             "request_id": None,
@@ -223,20 +221,22 @@ async def unified_calendar(
                     ):
                         continue
 
-                    events.append({
-                        "type": "episode",
-                        "release_type": "episode",
-                        "date": date,
-                        "title": series.get("title") or "",
-                        "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
-                        + (f" — {ep.get('title')}" if ep.get("title") else ""),
-                        "poster_url": (tracked or {}).get("poster_url") or _arr_poster(series),
-                        "has_file": bool(ep.get("hasFile")),
-                        "tracked": bool(tracked),
-                        "library_item_id": (tracked or {}).get("library_item_id"),
-                        "request_id": (tracked or {}).get("request_id"),
-                        "instance": inst.name,
-                    })
+                    events.append(
+                        {
+                            "type": "episode",
+                            "release_type": "episode",
+                            "date": date,
+                            "title": series.get("title") or "",
+                            "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
+                            + (f" — {ep.get('title')}" if ep.get("title") else ""),
+                            "poster_url": (tracked or {}).get("poster_url") or _arr_poster(series),
+                            "has_file": bool(ep.get("hasFile")),
+                            "tracked": bool(tracked),
+                            "library_item_id": (tracked or {}).get("library_item_id"),
+                            "request_id": (tracked or {}).get("request_id"),
+                            "instance": inst.name,
+                        }
+                    )
             else:
                 movies = await radarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
                 for m in movies:
@@ -265,19 +265,21 @@ async def unified_calendar(
 
                     poster = (tracked or {}).get("poster_url") or _arr_poster(m)
                     for rdate, rtype, rlabel in release_events:
-                        events.append({
-                            "type": "movie",
-                            "release_type": rtype,
-                            "date": rdate,
-                            "title": title,
-                            "subtitle": rlabel,
-                            "poster_url": poster,
-                            "has_file": bool(m.get("hasFile")),
-                            "tracked": bool(tracked),
-                            "library_item_id": (tracked or {}).get("library_item_id"),
-                            "request_id": (tracked or {}).get("request_id"),
-                            "instance": inst.name,
-                        })
+                        events.append(
+                            {
+                                "type": "movie",
+                                "release_type": rtype,
+                                "date": rdate,
+                                "title": title,
+                                "subtitle": rlabel,
+                                "poster_url": poster,
+                                "has_file": bool(m.get("hasFile")),
+                                "tracked": bool(tracked),
+                                "library_item_id": (tracked or {}).get("library_item_id"),
+                                "request_id": (tracked or {}).get("request_id"),
+                                "instance": inst.name,
+                            }
+                        )
         except Exception as e:
             logger.warning(f"Calendar fetch failed for '{inst.name}': {e}")
 

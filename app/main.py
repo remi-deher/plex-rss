@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 import itsdangerous
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from itsdangerous.exc import BadSignature
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -31,13 +32,13 @@ from .routers import (
     arr_api,
     auth,
     calendar_api,
+    discover_api,
     email_templates,
     importexport,
     library_api,
     maintenance,
     metrics_api,
     misc_api,
-    discover_api,
     notifications_api,
     pages,
     requests_api,
@@ -195,8 +196,6 @@ class DynamicSecureSessionMiddleware:
 
         await self.app(scope, receive, send_wrapper)
 
-
-from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan)
 

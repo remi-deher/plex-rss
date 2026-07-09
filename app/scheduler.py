@@ -91,7 +91,9 @@ def start_scheduler(poll_seconds: int = 300):
     with db_session(SessionLocal) as db:
         settings = db.query(Settings).first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
-        vff_interval = settings.vff_recheck_interval_minutes if settings and settings.vff_recheck_interval_minutes else 360
+        vff_interval = (
+            settings.vff_recheck_interval_minutes if settings and settings.vff_recheck_interval_minutes else 360
+        )
 
     # Poll watchlist : un premier passage ~15 s après le démarrage (rattrapage immédiat),
     # puis toutes les `poll_seconds`. coalesce + max_instances=1 évitent l'empilement si un
@@ -143,15 +145,18 @@ def update_poll_interval(seconds: int):
 
 # --- Wrappers de déclenchement des jobs planifiés ---
 
+
 async def check_arr_statuses():
     """Job planifié : vérification de la disponibilité des médias dans Sonarr/Radarr."""
     from .services.arr_tracker import check_arr_statuses as _check
+
     await _check()
 
 
 async def check_torrent_statuses():
     """Job planifié : suivi des téléchargements torrents actifs."""
     from .services.arr_tracker import check_torrent_statuses as _check
+
     await _check()
 
 

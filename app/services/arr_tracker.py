@@ -404,5 +404,3 @@ async def check_torrent_statuses():
         logger.error(f"Erreur check_torrent_statuses : {e}")
     finally:
         db.close()
-
-

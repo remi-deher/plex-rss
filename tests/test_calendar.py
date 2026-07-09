@@ -12,9 +12,7 @@ from app.routers.calendar_api import unified_calendar
 
 
 def _make_db():
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)()
 
@@ -26,11 +24,16 @@ async def test_calendar_marks_tracked_show_and_reuses_poster():
     db.add(LibraryItem(title="Breaking Bad", media_type="show", tvdb_id="81189", poster_url="http://poster/bb.jpg"))
     db.commit()
 
-    episodes = [{
-        "seasonNumber": 1, "episodeNumber": 1, "airDateUtc": "2026-07-10T00:00:00Z",
-        "title": "Pilot", "hasFile": False,
-        "series": {"title": "Breaking Bad", "tvdbId": 81189},
-    }]
+    episodes = [
+        {
+            "seasonNumber": 1,
+            "episodeNumber": 1,
+            "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Pilot",
+            "hasFile": False,
+            "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
     with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)):
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
@@ -76,8 +79,12 @@ async def test_calendar_falls_back_to_request_when_no_library_item():
     db.add(ArrInstance(id=2, name="Radarr", arr_type="radarr", url="http://radarr", api_key="key", enabled=True))
     db.add(
         MediaRequest(
-            plex_user_id="alice", title="Dune", media_type="movie", tmdb_id="438631",
-            status=RequestStatus.sent_to_arr, poster_url="http://poster/dune.jpg",
+            plex_user_id="alice",
+            title="Dune",
+            media_type="movie",
+            tmdb_id="438631",
+            status=RequestStatus.sent_to_arr,
+            poster_url="http://poster/dune.jpg",
         )
     )
     db.commit()
@@ -98,7 +105,9 @@ async def test_calendar_ignores_disabled_instances():
     db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=False))
     db.commit()
 
-    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=[{"foo": "bar"}])) as mock_cal:
+    with patch(
+        "app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=[{"foo": "bar"}])
+    ) as mock_cal:
         events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
 
     mock_cal.assert_not_called()
@@ -110,25 +119,46 @@ async def test_calendar_advanced_filtering():
     db = _make_db()
     db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=True))
     db.add(ArrInstance(id=2, name="Radarr", arr_type="radarr", url="http://radarr", api_key="key", enabled=True))
-    db.add(LibraryItem(id=10, title="Breaking Bad", media_type="show", tvdb_id="81189", has_vf=True, poster_url="http://poster/bb.jpg"))
+    db.add(
+        LibraryItem(
+            id=10,
+            title="Breaking Bad",
+            media_type="show",
+            tvdb_id="81189",
+            has_vf=True,
+            poster_url="http://poster/bb.jpg",
+        )
+    )
     db.add(
         MediaRequest(
-            id=50, plex_user_id="alice", title="Dune", media_type="movie", tmdb_id="438631",
-            status=RequestStatus.sent_to_arr, has_vf=False, poster_url="http://poster/dune.jpg"
+            id=50,
+            plex_user_id="alice",
+            title="Dune",
+            media_type="movie",
+            tmdb_id="438631",
+            status=RequestStatus.sent_to_arr,
+            has_vf=False,
+            poster_url="http://poster/dune.jpg",
         )
     )
     db.commit()
 
-    episodes = [{
-        "seasonNumber": 1, "episodeNumber": 1, "airDateUtc": "2026-07-10T00:00:00Z",
-        "title": "Pilot", "hasFile": False,
-        "series": {"title": "Breaking Bad", "tvdbId": 81189},
-    }]
+    episodes = [
+        {
+            "seasonNumber": 1,
+            "episodeNumber": 1,
+            "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Pilot",
+            "hasFile": False,
+            "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
     movies = [{"title": "Dune", "tmdbId": 438631, "hasFile": False, "inCinemas": "2026-07-20T00:00:00Z"}]
 
-    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)), \
-         patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)):
-
+    with (
+        patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)),
+        patch("app.routers.calendar_api.radarr.get_calendar", new=AsyncMock(return_value=movies)),
+    ):
         # 1. Filtre par type=movie
         evs = await unified_calendar(type="movie", db=db)
         assert len(evs) == 1
@@ -163,4 +193,3 @@ async def test_calendar_advanced_filtering():
         evs = await unified_calendar(vf="requested", db=db)
         assert len(evs) == 1
         assert evs[0]["title"] == "Dune"
-

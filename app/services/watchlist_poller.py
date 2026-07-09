@@ -696,5 +696,3 @@ async def poll_watchlists():
 def _clean_title(title: str) -> str:
     """Supprime les suffixes d'année entre parenthèses ajoutés par Plex ex: 'INVINCIBLE (2021)' → 'INVINCIBLE'."""
     return re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
-
-

@@ -1,8 +1,6 @@
 import json
 from datetime import datetime, timezone
 
-from ..utils import now_utc
-
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
@@ -10,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import require_auth
 from ..models import MediaRequest, PlexUser, Settings
-
+from ..utils import now_utc
 
 router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_auth)])
 

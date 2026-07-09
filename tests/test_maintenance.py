@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.dependencies import require_auth
+from app.main import app
 from app.routers.maintenance import (
     ACTIONS_META,
     MaintenanceRun,

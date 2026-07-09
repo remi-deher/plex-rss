@@ -8,8 +8,8 @@ Create Date: 2026-07-09
 from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 revision: str = "0043_notification_event_filters"
 down_revision: Union[str, None] = "0042_tmdb_api_key"
@@ -26,7 +26,9 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column("discord_send_failure", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch_op.add_column(sa.Column("telegram_enabled", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch_op.add_column(sa.Column("telegram_send_request", sa.Boolean(), nullable=False, server_default=sa.true()))
-        batch_op.add_column(sa.Column("telegram_send_available", sa.Boolean(), nullable=False, server_default=sa.true()))
+        batch_op.add_column(
+            sa.Column("telegram_send_available", sa.Boolean(), nullable=False, server_default=sa.true())
+        )
         batch_op.add_column(sa.Column("telegram_send_failure", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch_op.add_column(sa.Column("ntfy_enabled", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch_op.add_column(sa.Column("ntfy_send_request", sa.Boolean(), nullable=False, server_default=sa.true()))

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -16,13 +16,13 @@ from .vff_scanner import _invalidate_vf_cache, _parse_vff_libraries
 
 logger = logging.getLogger(__name__)
 
-plex_sync_state = {
+plex_sync_state: dict[str, Any] = {
     "status": "idle",  # "idle" | "running" | "failed"
     "started_at": None,
     "finished_at": None,
     "items_synced": 0,
     "total_items": 0,
-    "error": None
+    "error": None,
 }
 
 
@@ -72,7 +72,14 @@ def _find_library_item_by_ids(
 def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
     """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé."""
     return _find_library_item_by_ids(
-        db, item["plex_guid"], item["tmdb_id"], item["tvdb_id"], item["imdb_id"], item["title"], item["year"], item["media_type"]
+        db,
+        item["plex_guid"],
+        item["tmdb_id"],
+        item["tvdb_id"],
+        item["imdb_id"],
+        item["title"],
+        item["year"],
+        item["media_type"],
     )
 
 
@@ -274,5 +281,3 @@ async def sync_plex_media():
         plex_sync_state["error"] = str(e)
     finally:
         db.close()
-
-

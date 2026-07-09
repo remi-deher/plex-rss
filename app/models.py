@@ -11,10 +11,10 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from .utils import now_utc
-
 from sqlalchemy import Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from .utils import now_utc
 
 
 class Base(DeclarativeBase):

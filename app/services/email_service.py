@@ -98,13 +98,15 @@ def _status_box(accent: str, inner: str) -> str:
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>'
         f'<td style="background:#1c1c1c;border-left:3px solid {accent};padding:13px 15px;'
         f'color:#dddddd;font-size:14px;line-height:1.6">{inner}</td>'
-        '</tr></table></td></tr>'
+        "</tr></table></td></tr>"
     )
 
 
 def _note_row(inner: str) -> str:
     """Ligne de complément discrète (sous le bloc de statut)."""
-    return f'\n      <tr><td style="padding:9px 20px 2px;color:#999999;font-size:13px;line-height:1.6">{inner}</td></tr>'
+    return (
+        f'\n      <tr><td style="padding:9px 20px 2px;color:#999999;font-size:13px;line-height:1.6">{inner}</td></tr>'
+    )
 
 
 def _reason_sub(inner: str) -> str:
@@ -402,8 +404,12 @@ def _render_milestone_email(
         }
     )
     template_attr, subject_attr, default_template, default_subject = _language_milestone_defaults(milestone_type)
-    template = getattr(settings, template_attr, None) if isinstance(getattr(settings, template_attr, None), str) else None
-    subject_tmpl = getattr(settings, subject_attr, None) if isinstance(getattr(settings, subject_attr, None), str) else None
+    template = (
+        getattr(settings, template_attr, None) if isinstance(getattr(settings, template_attr, None), str) else None
+    )
+    subject_tmpl = (
+        getattr(settings, subject_attr, None) if isinstance(getattr(settings, subject_attr, None), str) else None
+    )
     html = render_template(template or default_template, ctx)
     subject = render_subject(subject_tmpl or default_subject, ctx, fallback=f"[Plexarr] {request.title} : {reason}")
     return subject, html
@@ -478,8 +484,16 @@ def _resolve_str_setting(settings, field):
 
 
 async def _send_templated(
-    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None, *,
-    template_field: str, default_template: str, subject_field: str, default_subject: str, subject_fallback: str,
+    settings: Settings,
+    request: MediaRequest,
+    recipient: str,
+    display_name: str | None = None,
+    *,
+    template_field: str,
+    default_template: str,
+    subject_field: str,
+    default_subject: str,
+    subject_fallback: str,
     extra_ctx: dict | None = None,
 ):
     ctx = _build_context(request, display_name)
@@ -497,7 +511,10 @@ async def send_request_notification(
 ):
     """Envoie l'email de confirmation de demande."""
     await _send_templated(
-        settings, request, recipient, display_name,
+        settings,
+        request,
+        recipient,
+        display_name,
         template_field="email_request_template",
         default_template=DEFAULT_REQUEST_TEMPLATE,
         subject_field="email_request_subject",
@@ -511,7 +528,10 @@ async def send_available_notification(
 ):
     """Envoie l'email de notification de disponibilité."""
     await _send_templated(
-        settings, request, recipient, display_name,
+        settings,
+        request,
+        recipient,
+        display_name,
         template_field="email_available_template",
         default_template=DEFAULT_AVAILABLE_TEMPLATE,
         subject_field="email_available_subject",
@@ -571,7 +591,10 @@ async def send_available_vf_notification(
 ):
     """Envoie un seul email quand la disponibilité initiale est déjà en VF."""
     await _send_templated(
-        settings, request, recipient, display_name,
+        settings,
+        request,
+        recipient,
+        display_name,
         template_field="email_available_vf_template",
         default_template=DEFAULT_AVAILABLE_VF_TEMPLATE,
         subject_field="email_available_vf_subject",
@@ -585,7 +608,10 @@ async def send_available_vo_tracking_notification(
 ):
     """Envoie un seul email quand la disponibilité initiale est VO avec suivi VF."""
     await _send_templated(
-        settings, request, recipient, display_name,
+        settings,
+        request,
+        recipient,
+        display_name,
         template_field="email_available_vo_tracking_template",
         default_template=DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
         subject_field="email_available_vo_tracking_subject",
@@ -618,7 +644,11 @@ async def send_partially_available_notification(
     ctx["episodes_aired"] = request.episodes_aired_count or 0
     ctx["episodes_total"] = request.episodes_total_count or 0
     html = render_template(DEFAULT_PARTIALLY_AVAILABLE_TEMPLATE, ctx)
-    subject = f"[Plexarr] Partiellement disponible : {request.title} ({reason})" if reason else f"[Plexarr] Partiellement disponible : {request.title}"
+    subject = (
+        f"[Plexarr] Partiellement disponible : {request.title} ({reason})"
+        if reason
+        else f"[Plexarr] Partiellement disponible : {request.title}"
+    )
     await _send(settings, recipient, subject, html)
 
 
@@ -660,7 +690,10 @@ async def send_failure_notification(
 ):
     """Envoie l'email d'échec de transmission."""
     await _send_templated(
-        settings, request, recipient, display_name,
+        settings,
+        request,
+        recipient,
+        display_name,
         template_field="email_failure_template",
         default_template=DEFAULT_FAILURE_TEMPLATE,
         subject_field="email_failure_subject",

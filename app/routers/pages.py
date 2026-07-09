@@ -298,8 +298,12 @@ def library_page(
     counts = {
         "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
         "vo": sum(1 for v in items if v["in_library"] and v["has_vf"] is False),
-        "season_partial": sum(1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"),
-        "episode_partial": sum(1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"),
+        "season_partial": sum(
+            1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"
+        ),
+        "episode_partial": sum(
+            1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"
+        ),
         "unchecked": sum(1 for v in items if v["in_library"] and v["has_vf"] is None),
         "requested": sum(1 for v in items if not v["in_library"]),
         "plex_anomaly": sum(1 for v in items if v["plex_anomaly"]),
@@ -331,9 +335,13 @@ def library_page(
     if vf == "vf":
         items = [v for v in items if v["in_library"] and v["has_vf"] is True]
     elif vf == "season_partial":
-        items = [v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"]
+        items = [
+            v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"
+        ]
     elif vf == "episode_partial":
-        items = [v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"]
+        items = [
+            v for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "episode_partial"
+        ]
     elif vf == "vo":
         items = [v for v in items if v["in_library"] and v["has_vf"] is False]
     elif vf == "unchecked":
@@ -528,22 +536,17 @@ def settings_page(request: Request, _: None = Depends(require_auth), db: Session
             "available_template": (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
             "failure_template": (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE,
             "available_vf_template": (s.email_available_vf_template if s else None) or DEFAULT_AVAILABLE_VF_TEMPLATE,
-            "available_vo_tracking_template": (
-                s.email_available_vo_tracking_template if s else None
-            ) or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
+            "available_vo_tracking_template": (s.email_available_vo_tracking_template if s else None)
+            or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
             "vf_upgrade_template": (s.email_vf_upgrade_template if s else None) or DEFAULT_VF_AVAILABLE_TEMPLATE,
-            "language_episode_template": (
-                s.email_language_episode_template if s else None
-            ) or DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
-            "language_season_start_template": (
-                s.email_language_season_start_template if s else None
-            ) or DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
-            "language_season_complete_template": (
-                s.email_language_season_complete_template if s else None
-            ) or DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
-            "language_series_complete_template": (
-                s.email_language_series_complete_template if s else None
-            ) or DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
+            "language_episode_template": (s.email_language_episode_template if s else None)
+            or DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
+            "language_season_start_template": (s.email_language_season_start_template if s else None)
+            or DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
+            "language_season_complete_template": (s.email_language_season_complete_template if s else None)
+            or DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
+            "language_series_complete_template": (s.email_language_series_complete_template if s else None)
+            or DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
             "request_subject": (s.email_request_subject if s else None) or "",
             "available_subject": (s.email_available_subject if s else None) or "",
             "failure_subject": (s.email_failure_subject if s else None) or "",

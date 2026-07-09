@@ -179,7 +179,8 @@ def arr_capabilities(db: Session = Depends(get_db)):
         "radarr_disabled": "radarr" in configured_types and "radarr" not in enabled_types,
         "prowlarr_disabled": "prowlarr" in configured_types and "prowlarr" not in enabled_types,
         "has_arr_downloads": bool({"sonarr", "radarr"} & enabled_types),
-        "arr_downloads_disabled": bool({"sonarr", "radarr"} & configured_types) and not bool({"sonarr", "radarr"} & enabled_types),
+        "arr_downloads_disabled": bool({"sonarr", "radarr"} & configured_types)
+        and not bool({"sonarr", "radarr"} & enabled_types),
         "has_download_clients": has_enabled_clients,
         "download_clients_configured": has_clients,
         "download_clients_disabled": has_clients and not has_enabled_clients,
@@ -506,7 +507,7 @@ async def arr_download_queue(db: Session = Depends(get_db)):
             rec["instance"] = inst.name
             rec["arr_type"] = inst.arr_type
             items.append(rec)
-    items.sort(key=lambda x: (x.get("progress") or 0))
+    items.sort(key=lambda x: x.get("progress") or 0)
     return items
 
 

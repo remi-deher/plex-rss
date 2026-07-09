@@ -3,14 +3,13 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from ..utils import now_utc
-
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 from ..notification_queue import enqueue as enqueue_notification
+from ..utils import now_utc
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = logging.getLogger(__name__)

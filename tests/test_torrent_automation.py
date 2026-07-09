@@ -94,7 +94,10 @@ async def test_watchlist_torrent_automation_fallback(db):
         patch("app.services.watchlist_poller.SessionLocal", return_value=db),
         patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=[watchlist_item])),
         patch("app.services.prowlarr.search", new=AsyncMock(return_value=mock_search_results)),
-        patch("app.services.watchlist_poller.add_torrent_to_client", new=AsyncMock(return_value=(True, "Added", "inception_hash"))),
+        patch(
+            "app.services.watchlist_poller.add_torrent_to_client",
+            new=AsyncMock(return_value=(True, "Added", "inception_hash")),
+        ),
         patch("app.services.notification_orchestrator._notify") as mock_notify,
     ):
         await poll_watchlists()

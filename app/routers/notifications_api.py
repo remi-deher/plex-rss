@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -40,7 +40,7 @@ def activity_log(db: Session = Depends(get_db)):
     )
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
 
-    events = []
+    events: list[dict[str, Any]] = []
 
     def add_event(req: MediaRequest, event_type: str, event_time, label: str, detail: str = ""):
         if not event_time:

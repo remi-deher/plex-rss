@@ -31,9 +31,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column("media_requests", sa.Column("library_item_id", sa.Integer(), nullable=True))
-    op.create_index(
-        "ix_media_requests_library_item_id", "media_requests", ["library_item_id"]
-    )
+    op.create_index("ix_media_requests_library_item_id", "media_requests", ["library_item_id"])
 
     # --- Backfill : relie les demandes existantes à leur LibraryItem par identité ---
     conn = op.get_bind()
@@ -52,19 +50,13 @@ def upgrade() -> None:
             ).fetchone()
             li_id = row[0] if row else None
         if li_id is None and r.tmdb_id:
-            row = conn.execute(
-                sa.text("SELECT id FROM library_items WHERE tmdb_id = :v"), {"v": r.tmdb_id}
-            ).fetchone()
+            row = conn.execute(sa.text("SELECT id FROM library_items WHERE tmdb_id = :v"), {"v": r.tmdb_id}).fetchone()
             li_id = row[0] if row else None
         if li_id is None and r.tvdb_id:
-            row = conn.execute(
-                sa.text("SELECT id FROM library_items WHERE tvdb_id = :v"), {"v": r.tvdb_id}
-            ).fetchone()
+            row = conn.execute(sa.text("SELECT id FROM library_items WHERE tvdb_id = :v"), {"v": r.tvdb_id}).fetchone()
             li_id = row[0] if row else None
         if li_id is None and r.imdb_id:
-            row = conn.execute(
-                sa.text("SELECT id FROM library_items WHERE imdb_id = :v"), {"v": r.imdb_id}
-            ).fetchone()
+            row = conn.execute(sa.text("SELECT id FROM library_items WHERE imdb_id = :v"), {"v": r.imdb_id}).fetchone()
             li_id = row[0] if row else None
         if li_id is None and r.title:
             row = conn.execute(

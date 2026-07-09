@@ -44,11 +44,11 @@ SAMPLE_CONTEXT = {
     "media_type_label": "Série",
     "media_type_label_cap": "La série",
     "overview": "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille.",
-   "genres": "Crime, Drame, Thriller",
-   "language_reason": "VF saison 1 complete",
-   "language": "VF",
-   "language_lower": "vf",
-   "language_milestone_type": "season_complete",
+    "genres": "Crime, Drame, Thriller",
+    "language_reason": "VF saison 1 complete",
+    "language": "VF",
+    "language_lower": "vf",
+    "language_milestone_type": "season_complete",
 }
 
 
@@ -118,7 +118,9 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
             fallback=f"[Plexarr] {event_def.label} : {ctx['title']}",
         )
     rendered_subject = render_subject(
-        body.subject, ctx, fallback=subject_fallbacks.get(body.type, f"[Plexarr] Échec de transmission : {ctx['title']}")
+        body.subject,
+        ctx,
+        fallback=subject_fallbacks.get(body.type, f"[Plexarr] Échec de transmission : {ctx['title']}"),
     )
 
     html = render_template(body.template, ctx)
@@ -247,7 +249,9 @@ class TestSendRequest(BaseModel):
 
 
 @router.post("/api/email-templates/test-send")
-async def test_send_email(body: TestSendRequest, db: Session = Depends(get_db), settings: Settings = Depends(get_settings_or_404)):
+async def test_send_email(
+    body: TestSendRequest, db: Session = Depends(get_db), settings: Settings = Depends(get_settings_or_404)
+):
     # Resolve recipient: settings.admin_notification_email or settings.smtp_from
     recipient = (settings.admin_notification_email or "").strip()
     if body.user_id:

@@ -5,9 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import get_db
+from app.dependencies import require_auth
 from app.main import app
 from app.models import PollHistory
-from app.dependencies import require_auth
 
 
 def _client_with_db(db):

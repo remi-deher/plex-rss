@@ -211,6 +211,7 @@ def get_poll_history(limit: int = 50, job: Optional[str] = None, db: Session = D
         q = q.filter(PollHistory.job == job)
     items = q.order_by(PollHistory.started_at.desc()).limit(limit).all()
     from ..serializers import format_datetime
+
     return [
         {
             "id": h.id,
@@ -381,7 +382,6 @@ def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
 @router.get("/disk-space")
 async def disk_space(db: Session = Depends(get_db)):
     """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin."""
-    s = db.query(Settings).first()
     volumes: dict[str, dict] = {}
 
     async def add(label: str, coro):

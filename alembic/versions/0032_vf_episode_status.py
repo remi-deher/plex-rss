@@ -33,13 +33,9 @@ def upgrade() -> None:
         sa.Column("has_vf", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("checked_at", sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "source_type", "source_id", "season_number", "episode_number", name="uq_vf_episode"
-        ),
+        sa.UniqueConstraint("source_type", "source_id", "season_number", "episode_number", name="uq_vf_episode"),
     )
-    op.create_index(
-        "ix_vf_episode_status_source", "vf_episode_status", ["source_type", "source_id"]
-    )
+    op.create_index("ix_vf_episode_status_source", "vf_episode_status", ["source_type", "source_id"])
 
 
 def downgrade() -> None:

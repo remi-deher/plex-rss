@@ -1,4 +1,4 @@
-﻿import json as _json
+import json as _json
 import os as _os
 from collections import defaultdict
 from typing import Optional

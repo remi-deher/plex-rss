@@ -8,8 +8,8 @@ Create Date: 2026-07-07
 from typing import Union
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 revision: str = "0038_language_milestone_templates"
 down_revision: Union[str, None] = "0037_language_email_templates"

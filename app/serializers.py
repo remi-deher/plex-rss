@@ -1,7 +1,8 @@
 import json as _json
 from datetime import datetime, timezone
-from typing import Optional, Any
-from .models import MediaRequest, LibraryItem, PlexUser
+from typing import Any, Optional
+
+from .models import LibraryItem, MediaRequest, PlexUser
 
 
 def format_datetime(dt: Optional[datetime]) -> Optional[str]:

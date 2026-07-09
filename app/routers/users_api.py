@@ -10,13 +10,14 @@ from ..dependencies import require_auth
 from ..models import MediaRequest, PlexUser, Settings
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
-from ..services.seer import get_users as seer_get_users, get_user_requests as seer_get_user_requests
+from ..services.seer import get_user_requests as seer_get_user_requests
+from ..services.seer import get_users as seer_get_users
 from ..utils import get_or_404
-
-router = APIRouter(prefix="/api", tags=["users"], dependencies=[Depends(require_auth)])
 
 # Réutilise la validation du mode de notification définie dans settings_api
 from .settings_api import _validate_series_notify_modes
+
+router = APIRouter(prefix="/api", tags=["users"], dependencies=[Depends(require_auth)])
 
 
 class UserCreate(BaseModel):
@@ -60,7 +61,9 @@ def _user_source_label(user: PlexUser) -> str:
 def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
     settings = db.query(Settings).first()
     seer_configured = bool(settings and settings.seer_url and settings.seer_api_key)
-    seer_requests_enabled = bool(settings and settings.seer_send_requests and settings.seer_url and settings.seer_api_key)
+    seer_requests_enabled = bool(
+        settings and settings.seer_send_requests and settings.seer_url and settings.seer_api_key
+    )
     rss_configured = bool(settings and settings.plex_rss_url)
     plex_api_configured = bool(settings and settings.plex_token)
 
@@ -80,13 +83,17 @@ def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
             "key": "discover",
             "label": "Visible dans Discover",
             "ok": bool(user.enabled),
-            "detail": "Propose dans le selecteur de demandeur" if user.enabled else "Masque tant que l'utilisateur est desactive",
+            "detail": "Propose dans le selecteur de demandeur"
+            if user.enabled
+            else "Masque tant que l'utilisateur est desactive",
         },
         {
             "key": "automation",
             "label": "Watchlist traitee",
             "ok": bool(user.enabled),
-            "detail": "Les nouvelles demandes peuvent etre traitees" if user.enabled else "Les automatisations ignorent cet utilisateur",
+            "detail": "Les nouvelles demandes peuvent etre traitees"
+            if user.enabled
+            else "Les automatisations ignorent cet utilisateur",
         },
         {
             "key": "seer_link",
@@ -208,9 +215,11 @@ def list_users(db: Session = Depends(get_db)):
 def get_user(user_id: int, db: Session = Depends(get_db)):
     """Détail complet d'un utilisateur + ses stats de demandes (pour la modale hub)."""
     user = get_or_404(db, PlexUser, user_id, "User not found")
-    rows = db.query(MediaRequest.status, MediaRequest.requested_at).filter(
-        MediaRequest.plex_user_id == user.plex_user_id
-    ).all()
+    rows = (
+        db.query(MediaRequest.status, MediaRequest.requested_at)
+        .filter(MediaRequest.plex_user_id == user.plex_user_id)
+        .all()
+    )
     stats = {"total": 0, "available": 0, "failed": 0, "sent": 0, "pending": 0, "last_requested_at": None}
     for status, req_at in rows:
         stats["total"] += 1
@@ -399,9 +408,11 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
                 info, method = cand, "plex_username"
 
     if not info:
-        rows = db.query(MediaRequest.tmdb_id).filter(
-            MediaRequest.plex_user_id == user.plex_user_id, MediaRequest.tmdb_id.isnot(None)
-        ).all()
+        rows = (
+            db.query(MediaRequest.tmdb_id)
+            .filter(MediaRequest.plex_user_id == user.plex_user_id, MediaRequest.tmdb_id.isnot(None))
+            .all()
+        )
         user_tmdb_ids = {r[0] for r in rows}
         if len(user_tmdb_ids) >= 2:
             best_count = 0

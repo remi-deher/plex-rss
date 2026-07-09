@@ -17,9 +17,7 @@ from app.scheduler import _link_request_to_library_item, check_vf_statuses
 
 
 def _make_db():
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine)()
 
@@ -31,8 +29,12 @@ def test_link_by_plex_guid():
     db.commit()
 
     req = MediaRequest(
-        plex_user_id="u1", title="Dune", year=2021, media_type="movie",
-        plex_guid="plex://movie/abc", status=RequestStatus.available,
+        plex_user_id="u1",
+        title="Dune",
+        year=2021,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
     )
     db.add(req)
     db.commit()
@@ -50,8 +52,12 @@ def test_link_by_tmdb_id_fallback():
     db.commit()
 
     req = MediaRequest(
-        plex_user_id="u1", title="Dune (2021)", year=2021, media_type="movie",
-        tmdb_id="438631", status=RequestStatus.available,
+        plex_user_id="u1",
+        title="Dune (2021)",
+        year=2021,
+        media_type="movie",
+        tmdb_id="438631",
+        status=RequestStatus.available,
     )
     db.add(req)
     db.commit()
@@ -68,7 +74,10 @@ def test_link_by_title_year_type_fallback():
     db.commit()
 
     req = MediaRequest(
-        plex_user_id="u1", title="Arrival", year=2016, media_type="movie",
+        plex_user_id="u1",
+        title="Arrival",
+        year=2016,
+        media_type="movie",
         status=RequestStatus.available,
     )
     db.add(req)
@@ -82,7 +91,10 @@ def test_link_by_title_year_type_fallback():
 def test_no_match_returns_none():
     db = _make_db()
     req = MediaRequest(
-        plex_user_id="u1", title="Unreleased Movie", year=2099, media_type="movie",
+        plex_user_id="u1",
+        title="Unreleased Movie",
+        year=2099,
+        media_type="movie",
         status=RequestStatus.pending,
     )
     db.add(req)
@@ -101,8 +113,12 @@ def test_orphaned_link_is_relinked():
     old_id = li_old.id
 
     req = MediaRequest(
-        plex_user_id="u1", title="New Title", year=2020, media_type="movie",
-        status=RequestStatus.available, library_item_id=old_id,
+        plex_user_id="u1",
+        title="New Title",
+        year=2020,
+        media_type="movie",
+        status=RequestStatus.available,
+        library_item_id=old_id,
     )
     db.add(req)
     db.commit()
@@ -125,7 +141,10 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     et notifiée SANS déclencher de scan Plex indépendant pour cette demande."""
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Films", "kind": "movie"}]',
         email_on_vf_available=True,
     )
@@ -136,8 +155,12 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     db.commit()
 
     req = MediaRequest(
-        plex_user_id="u1", title="Dune", year=2021, media_type="movie",
-        plex_guid="plex://movie/abc", status=RequestStatus.available,
+        plex_user_id="u1",
+        title="Dune",
+        year=2021,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
         has_vf=False,  # suivi VO au passage précédent -> transition attendue vers VF
         library_item_id=li.id,
     )
@@ -168,7 +191,10 @@ async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     ensuite le même traitement VF que les demandes déjà disponibles."""
     db = _make_db()
     settings = Settings(
-        id=1, plex_url="http://plex", plex_token="tok", vff_enabled=True,
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
         vff_libraries='[{"name": "Films", "kind": "movie"}]',
     )
     db.add(settings)
@@ -179,8 +205,12 @@ async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     li_id = li.id
 
     req = MediaRequest(
-        plex_user_id="u1", title="Dune", year=2021, media_type="movie",
-        plex_guid="plex://movie/abc", status=RequestStatus.sent_to_arr,
+        plex_user_id="u1",
+        title="Dune",
+        year=2021,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.sent_to_arr,
     )
     db.add(req)
     db.commit()

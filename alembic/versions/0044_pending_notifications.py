@@ -8,6 +8,7 @@ Create Date: 2026-07-09
 from typing import Union
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0044_pending_notifications"

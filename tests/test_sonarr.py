@@ -253,8 +253,12 @@ async def test_connection_failure():
 async def test_get_calendar_success():
     episodes = [
         {
-            "seasonNumber": 2, "episodeNumber": 5, "airDateUtc": "2026-07-10T00:00:00Z",
-            "title": "Episode Title", "hasFile": False, "monitored": True,
+            "seasonNumber": 2,
+            "episodeNumber": 5,
+            "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Episode Title",
+            "hasFile": False,
+            "monitored": True,
             "series": {"title": "Breaking Bad", "tvdbId": 81189},
         }
     ]

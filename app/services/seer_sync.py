@@ -374,5 +374,3 @@ async def _seer_full_sync():
     """Job planifié : sync utilisateurs puis demandes Seer."""
     await sync_seer_users()
     await sync_seer_requests()
-
-

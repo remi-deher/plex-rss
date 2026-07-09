@@ -13,14 +13,13 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ..utils import now_utc, now_utc_naive
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import SessionLocal
-from ..models import ArrInstance, Settings
 from ..dependencies import require_auth
+from ..models import ArrInstance, Settings
+from ..utils import now_utc, now_utc_naive
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 
@@ -227,7 +226,7 @@ async def _run_health_check(run: MaintenanceRun):
             emit.warn("Aucun paramètre configuré.")
             return
 
-        services = []
+        services: list[tuple[str, "str | ArrInstance"]] = []
         if settings.plex_url and settings.plex_token:
             services.append(("Plex API", "plex"))
         if settings.plex_rss_url:
