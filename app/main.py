@@ -46,6 +46,7 @@ from .routers import (
     notifications_api,
     pages,
     requests_api,
+    security_api,
     settings_api,
     users_api,
     vff_api,
@@ -123,12 +124,19 @@ class SessionSyncMiddleware(BaseHTTPMiddleware):
                     if u:
                         request.session["role"] = u.role or "user"
                         request.session["is_owner"] = (u.role == "admin")
+                        request.session["user_id"] = u.id
                 else:
                     username = request.session.get("username")
-                    s = db.query(Settings).first()
-                    if s and s.auth_username and username == s.auth_username:
-                        request.session["role"] = "admin"
-                        request.session["is_owner"] = True
+                    u = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+                    if u:
+                        request.session["role"] = u.role or "user"
+                        request.session["is_owner"] = (u.role == "admin")
+                        request.session["user_id"] = u.id
+                    else:
+                        s = db.query(Settings).first()
+                        if s and s.auth_username and username == s.auth_username:
+                            request.session["role"] = "admin"
+                            request.session["is_owner"] = True
             except Exception:
                 pass
             finally:
@@ -259,6 +267,7 @@ app.include_router(pages.router)
 app.include_router(settings_api.router)
 app.include_router(arr_api.router)
 app.include_router(users_api.router)
+app.include_router(security_api.router)
 app.include_router(requests_api.router)
 app.include_router(calendar_api.router)
 app.include_router(library_api.router)

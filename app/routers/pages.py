@@ -585,3 +585,21 @@ def settings_page(request: Request, _: None = Depends(require_admin), db: Sessio
             "language_series_complete_subject": (s.email_language_series_complete_subject if s else None) or "",
         },
     )
+
+
+@router.get("/profile", response_class=HTMLResponse)
+def profile_page(request: Request, db: Session = Depends(get_db)):
+    """Affiche la page de profil et de sécurité de l'utilisateur connecté."""
+    require_auth(request)
+    username = request.session.get("username")
+    plex_user_id = request.session.get("plex_user_id")
+
+    if plex_user_id:
+        user = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+    else:
+        user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+
+    return templates.TemplateResponse(request, "profile.html", {"user": user})

@@ -184,9 +184,9 @@
         style="background:rgba(128,128,128,.12);border:1px solid var(--pr-border);color:var(--pr-text-muted);border-radius:8px;padding:5px 10px;">
         <i class="bi bi-moon-stars"></i>
       </button>
-      <span class="text-secondary d-none d-sm-inline" style="font-size:.85rem;">
+      <a href="/profile" class="text-secondary d-none d-sm-inline-flex align-items-center gap-1 text-decoration-none" style="font-size:.85rem; padding: 5px 10px; background: rgba(128,128,128,.12); border: 1px solid var(--pr-border); border-radius: 8px;" title="Mon Profil">
         <i class="bi bi-person-circle me-1"></i>{{ request.session['username'] }}
-      </span>
+      </a>
       <a href="/logout" class="btn btn-sm" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:8px;font-size:.8rem;padding:5px 12px;transition:all .2s;"
          onmouseover="this.style.borderColor='#dc3545';this.style.color='#f87171';"
          onmouseout="this.style.borderColor='rgba(255,255,255,.1)';this.style.color='#aaa';">

@@ -10,19 +10,29 @@ Trois routes :
 """
 
 import hmac
+import json
+import logging
+from base64 import b64decode, b64encode
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from webauthn import (
+    generate_authentication_options,
+    verify_authentication_response,
+)
+from webauthn.helpers import options_to_json
 
 from ..database import get_db
-from ..models import LoginAttempt, PlexUser, Settings
+from ..models import LoginAttempt, PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
 from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
 from ..services.totp import verify_code
 from ..utils import now_utc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
@@ -134,6 +144,32 @@ async def login_post(
     if not s or not s.auth_username or not s.auth_password_hash:
         return RedirectResponse("/setup", status_code=302)
 
+    # 1. Vérifier dans la table PlexUser si l'utilisateur existe localement
+    user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+    if user and user.password_hash:
+        if not user.enabled or not user.can_login:
+            return error("Ce compte n'est pas autorisé à se connecter.")
+
+        if not verify_password(password, user.password_hash):
+            _record_login_attempt(db, ip, username, False, "bad_credentials")
+            return error("Identifiants incorrects.")
+
+        if user.totp_enabled and not verify_code(user.totp_secret, otp_code):
+            _record_login_attempt(db, ip, username, False, "bad_totp")
+            return error("Code 2FA incorrect.")
+
+        request.session["authenticated"] = True
+        request.session["username"] = user.plex_user_id
+        request.session["is_owner"] = (user.role == "admin")
+        request.session["role"] = user.role or "user"
+        request.session["plex_user_id"] = user.plex_user_id if user.source == "plex_sso" else None
+        request.session["user_id"] = user.id
+        _record_login_attempt(db, ip, username, True)
+
+        safe_next = next if next and next.startswith("/") else "/"
+        return RedirectResponse(safe_next, status_code=302)
+
+    # 2. Repli historique (Settings global admin)
     if not hmac.compare_digest(username, s.auth_username) or not verify_password(password, s.auth_password_hash):
         _record_login_attempt(db, ip, username, False, "bad_credentials")
         return error("Identifiants incorrects.")
@@ -142,13 +178,16 @@ async def login_post(
         _record_login_attempt(db, ip, username, False, "bad_totp")
         return error("Code 2FA incorrect.")
 
+    admin_user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+    user_id = admin_user.id if admin_user else None
+
     request.session["authenticated"] = True
     request.session["username"] = username
     request.session["is_owner"] = True
     request.session["role"] = "admin"
+    request.session["user_id"] = user_id
     _record_login_attempt(db, ip, username, True)
 
-    # Rediriger vers la page demandée initialement (paramètre ?next=)
     safe_next = next if next and next.startswith("/") else "/"
     return RedirectResponse(safe_next, status_code=302)
 
@@ -251,6 +290,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
     request.session["role"] = user.role or "user"
     request.session["plex_user_id"] = user.plex_user_id
     request.session["username"] = user.custom_name or user.display_name or user.plex_user_id
+    request.session["user_id"] = user.id
     return {"authenticated": True, "role": user.role or "user"}
 
 
@@ -259,3 +299,74 @@ def logout(request: Request):
     """Détruit la session et redirige vers /login."""
     request.session.clear()
     return RedirectResponse("/login", status_code=302)
+
+
+@router.post("/api/webauthn/login/options")
+async def webauthn_login_options(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    rp_id = request.url.hostname
+    if rp_id == "127.0.0.1":
+        rp_id = "localhost"
+
+    options = generate_authentication_options(
+        rp_id=rp_id,
+    )
+
+    request.session["auth_challenge"] = b64encode(options.challenge).decode("utf-8")
+    return json.loads(options_to_json(options))
+
+
+@router.post("/api/webauthn/login/verify")
+async def webauthn_login_verify(
+    request: Request,
+    credential: dict,
+    db: Session = Depends(get_db),
+):
+    challenge = request.session.pop("auth_challenge", None)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Défi d'authentification expiré ou invalide.")
+
+    rp_id = request.url.hostname
+    if rp_id == "127.0.0.1":
+        rp_id = "localhost"
+
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    expected_origin = f"{scheme}://{host}"
+
+    cred_id_str = credential.get("id")
+    db_cred = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == cred_id_str).first()
+    if not db_cred:
+        raise HTTPException(status_code=401, detail="Passkey non reconnue.")
+
+    user = db.query(PlexUser).filter(PlexUser.id == db_cred.user_id).first()
+    if not user or not user.enabled or not user.can_login:
+        raise HTTPException(status_code=403, detail="Ce compte n'est pas autorisé à se connecter.")
+
+    try:
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=b64decode(challenge),
+            expected_origin=expected_origin,
+            expected_rp_id=rp_id,
+            credential_public_key=db_cred.public_key,
+            credential_current_sign_count=db_cred.sign_count,
+            require_user_verification=False,
+        )
+    except Exception as e:
+        logger.error(f"WebAuthn assertion failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Échec de la validation de la Passkey: {e}")
+
+    db_cred.sign_count = verification.new_sign_count
+    db.commit()
+
+    request.session["authenticated"] = True
+    request.session["username"] = user.plex_user_id
+    request.session["is_owner"] = (user.role == "admin")
+    request.session["role"] = user.role or "user"
+    request.session["plex_user_id"] = user.plex_user_id if user.source == "plex_sso" else None
+    request.session["user_id"] = user.id
+
+    return {"success": True}

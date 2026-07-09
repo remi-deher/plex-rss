@@ -68,6 +68,7 @@ def seed_defaults():
     dès le départ, sans étape manuelle.
     """
     import secrets
+    from .models import Settings, PlexUser
 
     db = SessionLocal()
     try:
@@ -78,6 +79,32 @@ def seed_defaults():
             db.flush()
         if not s.webhook_secret:
             s.webhook_secret = secrets.token_urlsafe(32)
+
+        # Seed local admin PlexUser row
+        if s.auth_username:
+            admin_user = db.query(PlexUser).filter(PlexUser.plex_user_id == s.auth_username).first()
+            if not admin_user:
+                admin_user = PlexUser(
+                    plex_user_id=s.auth_username,
+                    display_name="Administrateur",
+                    role="admin",
+                    can_login=True,
+                    enabled=True,
+                    source="local",
+                    password_hash=s.auth_password_hash,
+                    totp_secret=s.totp_secret,
+                    totp_enabled=s.totp_enabled
+                )
+                db.add(admin_user)
+            else:
+                # Sync credentials from Settings table if updated
+                if admin_user.password_hash != s.auth_password_hash:
+                    admin_user.password_hash = s.auth_password_hash
+                if admin_user.totp_secret != s.totp_secret:
+                    admin_user.totp_secret = s.totp_secret
+                if admin_user.totp_enabled != s.totp_enabled:
+                    admin_user.totp_enabled = s.totp_enabled
+
         db.commit()
     finally:
         db.close()

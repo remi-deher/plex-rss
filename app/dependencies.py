@@ -49,13 +49,14 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> dict | None
     """
     if request.session.get("authenticated"):
         return {
+            "id": request.session.get("user_id"),
             "is_owner": bool(request.session.get("is_owner")),
             "role": request.session.get("role") or "admin",
             "plex_user_id": request.session.get("plex_user_id"),
             "username": request.session.get("username"),
         }
     if _valid_api_key(request, db):
-        return {"is_owner": True, "role": "admin", "plex_user_id": None, "username": "api"}
+        return {"id": None, "is_owner": True, "role": "admin", "plex_user_id": None, "username": "api"}
     return None
 
 

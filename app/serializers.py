@@ -72,6 +72,9 @@ def serialize_library_item(item: LibraryItem) -> dict:
 
 def serialize_plex_user(user: PlexUser, stats: dict) -> dict:
     data = {c.name: getattr(user, c.name) for c in user.__table__.columns}
+    data.pop("password_hash", None)
+    data.pop("totp_secret", None)
+    data["has_local_password"] = bool(user.password_hash)
     data["last_requested_at"] = format_datetime(stats.pop("last_requested_at", None))
     data["stats"] = stats
     return data

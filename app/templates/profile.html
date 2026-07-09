@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+{% set page = "profile" %}
+{% block content %}
+<section class="profile-shell mb-3">
+  <div>
+    <div class="text-warning small text-uppercase fw-semibold mb-1" style="letter-spacing:.06em">Mon Compte</div>
+    <h2><i class="bi bi-person-circle me-2"></i>Mon Profil</h2>
+    <div class="text-muted">
+      Gérez les informations de votre profil et la sécurité de votre compte (mot de passe local, double authentification et passkeys).
+    </div>
+  </div>
+</section>
+
+<div class="row g-3">
+  <!-- Colonne Profil -->
+  <div class="col-md-5">
+    <div class="card bg-dark border-secondary h-100">
+      <div class="card-body">
+        <h5 class="card-title fw-bold text-light mb-3"><i class="bi bi-person me-2"></i>Informations</h5>
+        
+        <div class="d-flex align-items-center gap-3 mb-4">
+          <div class="rounded-circle d-flex align-items-center justify-content-center bg-warning bg-opacity-10 text-warning"
+               style="width:60px; height:60px; font-weight:600; font-size:24px">
+            {{ ((user.custom_name or user.display_name or user.plex_user_id)[:1] | upper) }}
+          </div>
+          <div>
+            <div class="fw-bold text-light" style="font-size:18px">{{ user.custom_name or user.display_name or user.plex_user_id }}</div>
+            <div class="text-muted small">Rôle : <span class="badge bg-secondary">{{ user.role }}</span></div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label text-muted small">ID utilisateur</label>
+          <input type="text" class="form-control bg-dark text-light border-secondary" readonly value="{{ user.plex_user_id }}">
+        </div>
+
+        {% if user.display_name %}
+        <div class="mb-3">
+          <label class="form-label text-muted small">Nom affiché</label>
+          <input type="text" class="form-control bg-dark text-light border-secondary" readonly value="{{ user.display_name }}">
+        </div>
+        {% endif %}
+
+        {% if user.plex_email %}
+        <div class="mb-3">
+          <label class="form-label text-muted small">Email Plex</label>
+          <input type="email" class="form-control bg-dark text-light border-secondary" readonly value="{{ user.plex_email }}">
+        </div>
+        {% endif %}
+
+        <div class="mb-3">
+          <label class="form-label text-muted small">Type de compte</label>
+          <div>
+            {% if user.source == 'plex_sso' or user.plex_account_uuid %}
+            <span class="badge bg-primary"><i class="bi bi-cloud-fill me-1"></i>Plex SSO</span>
+            {% else %}
+            <span class="badge bg-info text-dark"><i class="bi bi-person-fill-lock me-1"></i>Compte local</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Colonne Sécurité -->
+  <div class="col-md-7">
+    <div class="card bg-dark border-secondary mb-3">
+      <div class="card-body">
+        <h5 class="card-title fw-bold text-light mb-3"><i class="bi bi-shield-lock me-2"></i>Sécurité</h5>
+        
+        <!-- Mot de passe local -->
+        <h6 class="text-light mb-2"><i class="bi bi-key me-1"></i>Mot de passe local</h6>
+        {% if user.source == 'plex_sso' or user.plex_account_uuid %}
+        <div class="alert alert-info py-2 px-3 mb-4 small">
+          <i class="bi bi-info-circle-fill me-2"></i>Compte géré par Plex (Plex SSO). Le mot de passe ne peut pas être modifié localement.
+        </div>
+        {% else %}
+        <p class="text-muted small">Modifiez votre mot de passe local pour vous connecter directement via le formulaire de connexion.</p>
+        <div class="mb-3">
+          <label class="form-label small text-muted">Nouveau mot de passe</label>
+          <input type="password" class="form-control form-control-sm bg-dark text-light border-secondary" id="sec-new-password" placeholder="••••••••">
+        </div>
+        <button type="button" class="btn btn-sm btn-warning mb-4" onclick="changeUserPassword()"><i class="bi bi-save me-1"></i>Enregistrer le mot de passe</button>
+        {% endif %}
+
+        <hr class="border-secondary">
+
+        <!-- Double authentification (2FA) -->
+        <h6 class="text-light mb-2"><i class="bi bi-shield-check me-1"></i>Double authentification (2FA)</h6>
+        <div id="sec-totp-status" class="mb-3 small">
+          {% if user.totp_enabled %}
+          <span class="text-success fw-bold"><i class="bi bi-shield-fill-check me-1"></i>Double authentification activée</span>
+          {% else %}
+          <span class="text-muted"><i class="bi bi-shield-slash me-1"></i>Double authentification désactivée</span>
+          {% endif %}
+        </div>
+        <div id="sec-totp-actions" class="mb-3">
+          {% if user.totp_enabled %}
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="disableSecTotp()"><i class="bi bi-shield-slash me-1"></i>Désactiver la 2FA</button>
+          {% else %}
+          <button type="button" class="btn btn-sm btn-warning" onclick="startSecTotpSetup()"><i class="bi bi-shield-check me-1"></i>Activer la 2FA</button>
+          {% endif %}
+        </div>
+
+        <!-- Setup 2FA UI -->
+        <div id="sec-totp-setup-container" style="display:none;" class="mt-3 border rounded p-3 border-secondary bg-black bg-opacity-25 mb-4">
+          <div class="row g-3">
+            <div class="col-sm-4 text-center">
+              <div style="width: 120px; height: 120px; background: rgba(255,255,255,0.05);" class="mx-auto rounded d-flex align-items-center justify-content-center">
+                <img id="sec-totp-qr-image" src="" alt="Code QR 2FA" style="width: 100%; height: 100%; display: none;">
+                <span id="sec-totp-qr-loading" class="spinner-border text-warning"></span>
+              </div>
+            </div>
+            <div class="col-sm-8">
+              <p class="small text-muted mb-2">Scannez ce code QR avec votre application 2FA ou utilisez la clé ci-dessous :</p>
+              <div class="input-group input-group-sm mb-3" style="max-width: 320px;">
+                <input type="text" class="form-control font-monospace text-light bg-dark border-secondary" id="sec-totp-secret-key" readonly>
+                <button type="button" class="btn btn-outline-warning" onclick="copyEl('sec-totp-secret-key')"><i class="bi bi-clipboard"></i></button>
+              </div>
+              <div class="mb-3" style="max-width: 200px;">
+                <label for="sec-totp-code" class="form-label small text-muted">Entrez le code à 6 chiffres</label>
+                <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="sec-totp-code" placeholder="000000" maxlength="6">
+              </div>
+              <button type="button" class="btn btn-sm btn-warning" onclick="confirmSecTotp()"><i class="bi bi-check-circle me-1"></i>Activer</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelSecTotpSetup()">Annuler</button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-secondary">
+
+        <!-- Passkeys -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="text-light mb-0"><i class="bi bi-fingerprint me-1"></i>Passkeys (Clés d'accès)</h6>
+          <button type="button" class="btn btn-sm btn-outline-warning" onclick="registerPasskey()"><i class="bi bi-plus-circle me-1"></i>Ajouter une Passkey</button>
+        </div>
+        <p class="text-muted small">Les Passkeys vous permettent de vous connecter en toute sécurité à l'aide de vos identifiants biométriques ou de votre clé matérielle.</p>
+        <div id="sec-passkeys-list" class="list-group list-group-flush border-top border-secondary">
+          <!-- Chargé dynamiquement -->
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const profileUserId = {{ user.id }};
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSecPasskeys(profileUserId);
+});
+
+function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
+
+async function changeUserPassword() {
+  const pwd = document.getElementById('sec-new-password').value.trim();
+  if (!pwd) return showToast("Veuillez entrer un mot de passe.", "danger");
+  try {
+    const r = await fetch(`/api/users/${profileUserId}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || "Erreur");
+    showToast("Mot de passe enregistré avec succès !", "success");
+    document.getElementById('sec-new-password').value = '';
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function startSecTotpSetup() {
+  const setupContainer = document.getElementById('sec-totp-setup-container');
+  const qrLoading = document.getElementById('sec-totp-qr-loading');
+  const qrImage = document.getElementById('sec-totp-qr-image');
+  const secretKeyInput = document.getElementById('sec-totp-secret-key');
+
+  setupContainer.style.display = 'block';
+  qrLoading.style.display = 'inline-block';
+  qrImage.style.display = 'none';
+
+  try {
+    const r = await fetch(`/api/users/${profileUserId}/totp/setup`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur lors de la configuration');
+
+    secretKeyInput.value = d.secret;
+    qrImage.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(d.uri);
+    qrImage.onload = () => {
+      qrLoading.style.display = 'none';
+      qrImage.style.display = 'block';
+    };
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    setupContainer.style.display = 'none';
+  }
+}
+
+function cancelSecTotpSetup() {
+  document.getElementById('sec-totp-setup-container').style.display = 'none';
+  document.getElementById('sec-totp-code').value = '';
+}
+
+async function confirmSecTotp() {
+  const code = document.getElementById('sec-totp-code').value.trim();
+  if (!code || code.length !== 6) return showToast("Veuillez entrer un code à 6 chiffres.", "danger");
+
+  try {
+    const r = await fetch(`/api/users/${profileUserId}/totp/enable`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur de validation');
+
+    showToast("2FA activée avec succès !", "success");
+    location.reload();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function disableSecTotp() {
+  if (!confirm("Désactiver la double authentification pour votre compte ?")) return;
+  try {
+    const r = await fetch(`/api/users/${profileUserId}/totp`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast("2FA désactivée avec succès.", "success");
+    location.reload();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function loadSecPasskeys(userId) {
+  const listEl = document.getElementById('sec-passkeys-list');
+  listEl.innerHTML = '<div class="text-center py-2 text-muted"><span class="spinner-border spinner-border-sm"></span></div>';
+  try {
+    const keys = await fetch(`/api/users/${userId}/passkeys`).then(r => r.json());
+    if (keys.length === 0) {
+      listEl.innerHTML = '<div class="text-muted small py-3 text-center">Aucune Passkey enregistrée.</div>';
+      return;
+    }
+    listEl.innerHTML = keys.map(k => `
+      <div class="list-group-item bg-transparent border-secondary d-flex justify-content-between align-items-center px-0 py-2">
+        <div>
+          <div class="fw-semibold text-light small"><i class="bi bi-key-fill me-1 text-warning"></i>${escHtml(k.name)}</div>
+          <div class="text-muted" style="font-size:11px">Enregistrée le ${new Date(k.created_at).toLocaleDateString()}</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="deleteSecPasskey('${escHtml(k.credential_id)}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>`).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="text-danger small py-3">Erreur de chargement.</div>';
+  }
+}
+
+async function deleteSecPasskey(credentialId) {
+  if (!confirm("Supprimer cette Passkey ? Elle ne pourra plus être utilisée pour se connecter.")) return;
+  try {
+    const r = await fetch(`/api/users/${profileUserId}/passkeys/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast("Passkey supprimée !", "success");
+    loadSecPasskeys(profileUserId);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+function registerPasskey() {
+  const name = prompt("Donnez un nom à cette clé d'accès (ex: Mon Téléphone, Yubikey) :", "Passkey");
+  if (!name) return;
+  const btn = event.currentTarget;
+  const origText = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enregistrement…';
+  
+  fetch('/api/users/webauthn/register/options', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: profileUserId })
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(err => { throw new Error(err.detail || "Erreur serveur") });
+    return r.json();
+  })
+  .then(options => {
+    options.challenge = bufferDecode(options.challenge);
+    options.user.id = bufferDecode(options.user.id);
+    if (options.excludeCredentials) {
+      for (let i = 0; i < options.excludeCredentials.length; i++) {
+        options.excludeCredentials[i].id = bufferDecode(options.excludeCredentials[i].id);
+      }
+    }
+    return navigator.credentials.create({ publicKey: options });
+  })
+  .then(credential => {
+    const credentialForServer = {
+      id: credential.id,
+      rawId: bufferEncode(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+        attestationObject: bufferEncode(credential.response.attestationObject),
+        transports: credential.response.getTransports ? credential.response.getTransports() : []
+      }
+    };
+    return fetch('/api/users/webauthn/register/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: profileUserId,
+        credential: credentialForServer,
+        name: name
+      })
+    });
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(err => { throw new Error(err.detail || "Vérification échouée") });
+    return r.json();
+  })
+  .then(() => {
+    showToast("Passkey enregistrée avec succès !", "success");
+    loadSecPasskeys(profileUserId);
+  })
+  .catch(e => {
+    showToast("Erreur : " + e.message, "danger");
+  })
+  .finally(() => {
+    btn.disabled = false; btn.innerHTML = origText;
+  });
+}
+
+function bufferDecode(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = base64.length % 4;
+  const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function bufferEncode(value) {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+</script>
+{% endblock %}

@@ -11,7 +11,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Text, UniqueConstraint
+from sqlalchemy import Text, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .crypto import EncryptedText
@@ -275,6 +275,23 @@ class PlexUser(Base):
     # (épisodes en cours de diffusion). None = hérite du réglage global
     # (Settings.partial_notify_frequency). Valeurs : "milestones" | "every_episode".
     partial_notify_frequency: Mapped[Optional[str]] = mapped_column(default=None)
+
+    # --- Authentification locale & 2FA ---
+    password_hash: Mapped[Optional[str]] = mapped_column(default=None)
+    totp_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
+    totp_enabled: Mapped[bool] = mapped_column(default=False)
+
+
+class PasskeyCredential(Base):
+    __tablename__ = "passkey_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("plex_users.id", ondelete="CASCADE"), nullable=False)
+    credential_id: Mapped[str] = mapped_column(unique=True, nullable=False)
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    name: Mapped[str] = mapped_column(default="Passkey")
+    created_at: Mapped[datetime] = mapped_column(default=now_utc)
 
 
 class NotificationLog(Base):

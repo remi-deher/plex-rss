@@ -22,10 +22,12 @@
 </section>
 
 <div class="row g-2 mb-3">
-  <div class="col-6 col-lg-3"><div class="user-stat"><span>Total</span><strong>{{ user_summary.total }}</strong></div></div>
-  <div class="col-6 col-lg-3"><div class="user-stat"><span>Actifs</span><strong class="text-success">{{ user_summary.enabled }}</strong></div></div>
-  <div class="col-6 col-lg-3"><div class="user-stat"><span>Desactives</span><strong class="text-secondary">{{ user_summary.disabled }}</strong></div></div>
-  <div class="col-6 col-lg-3"><div class="user-stat"><span>Lies a Seer</span><strong class="text-info">{{ user_summary.seer_linked }}</strong></div></div>
+  <div class="col-6 {% if seer_enabled %}col-lg-3{% else %}col-lg-4{% endif %}"><div class="user-stat"><span>Total</span><strong>{{ user_summary.total }}</strong></div></div>
+  <div class="col-6 {% if seer_enabled %}col-lg-3{% else %}col-lg-4{% endif %}"><div class="user-stat"><span>Actifs</span><strong class="text-success">{{ user_summary.enabled }}</strong></div></div>
+  <div class="col-6 {% if seer_enabled %}col-lg-3{% else %}col-lg-4{% endif %}"><div class="user-stat"><span>Désactivés</span><strong class="text-secondary">{{ user_summary.disabled }}</strong></div></div>
+  {% if seer_enabled %}
+  <div class="col-6 col-lg-3"><div class="user-stat"><span>Liés à Seer</span><strong class="text-info">{{ user_summary.seer_linked }}</strong></div></div>
+  {% endif %}
 </div>
 
 <div class="users-toolbar d-flex flex-column flex-xl-row gap-2 align-items-stretch align-items-xl-center justify-content-between mb-3">
@@ -43,8 +45,10 @@
       <option value="">Toutes les sources</option>
       <option value="rss">RSS</option>
       <option value="api">Plex API</option>
+      {% if seer_enabled %}
       <option value="linked">Plex + Seer</option>
       <option value="seer">Seer only</option>
+      {% endif %}
     </select>
     <select class="form-select form-select-sm bg-dark border-secondary text-light user-filter" id="userSort" onchange="sortUsers()">
       <option value="name">Nom</option>
@@ -137,8 +141,11 @@
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#hub-tab-profil" type="button"><i class="bi bi-person me-1"></i>Profil</button></li>
           <li class="nav-item" id="hub-tabli-diagnostic"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-diagnostic" type="button"><i class="bi bi-clipboard-pulse me-1"></i>Diagnostic</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-notif" type="button"><i class="bi bi-bell me-1"></i>Notifications</button></li>
+          {% if seer_enabled %}
           <li class="nav-item" id="hub-tabli-seer"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-seer" type="button"><i class="bi bi-intersect me-1"></i>Seer</button></li>
+          {% endif %}
           <li class="nav-item" id="hub-tabli-activity"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-activity" type="button"><i class="bi bi-graph-up me-1"></i>Activité</button></li>
+          <li class="nav-item" id="hub-tabli-security"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hub-tab-security" type="button"><i class="bi bi-shield-lock me-1"></i>Sécurité</button></li>
         </ul>
         <div class="tab-content">
 
@@ -360,6 +367,77 @@
             </div>
           </div>
 
+          <!-- Sécurité -->
+          <div class="tab-pane fade" id="hub-tab-security">
+            <h5 class="mb-3 text-warning"><i class="bi bi-shield-lock me-2"></i>Sécurité du compte</h5>
+            
+            <!-- Section mot de passe (local uniquement) -->
+            <div class="card bg-dark border-secondary mb-3">
+              <div class="card-body">
+                <h6 class="card-title fw-bold text-light mb-2"><i class="bi bi-key me-2"></i>Mot de passe local</h6>
+                <div id="security-pwd-plex-notice" style="display:none;" class="alert alert-info py-2 px-3 mb-0 small">
+                  <i class="bi bi-info-circle-fill me-2"></i>Compte géré par Plex (Plex SSO). Le mot de passe ne peut pas être modifié localement.
+                </div>
+                <div id="security-pwd-local-form" style="display:none;">
+                  <p class="text-muted small">Définissez un mot de passe local pour vous connecter directement via le formulaire sans passer par Plex SSO.</p>
+                  <div class="mb-3">
+                    <label class="form-label small text-muted">Nouveau mot de passe</label>
+                    <input type="password" class="form-control form-control-sm bg-dark text-light border-secondary" id="sec-new-password" placeholder="••••••••">
+                  </div>
+                  <button type="button" class="btn btn-sm btn-warning" onclick="changeUserPassword()"><i class="bi bi-save me-1"></i>Enregistrer le mot de passe</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 2FA / TOTP -->
+            <div class="card bg-dark border-secondary mb-3">
+              <div class="card-body">
+                <h6 class="card-title fw-bold text-light mb-2"><i class="bi bi-shield-check me-2"></i>Double authentification (2FA)</h6>
+                <div id="sec-totp-status" class="mb-3 small"></div>
+                <div id="sec-totp-actions"></div>
+
+                <!-- Setup 2FA UI -->
+                <div id="sec-totp-setup-container" style="display:none;" class="mt-3 border rounded p-3 border-secondary bg-black bg-opacity-25">
+                  <div class="row g-3">
+                    <div class="col-sm-4 text-center">
+                      <div style="width: 130px; height: 130px; background: rgba(255,255,255,0.05);" class="mx-auto rounded d-flex align-items-center justify-content-center">
+                        <img id="sec-totp-qr-image" src="" alt="Code QR 2FA" style="width: 100%; height: 100%; display: none;">
+                        <span id="sec-totp-qr-loading" class="spinner-border text-warning"></span>
+                      </div>
+                    </div>
+                    <div class="col-sm-8">
+                      <p class="small text-muted mb-2">Scannez ce code QR avec votre application 2FA ou utilisez la clé ci-dessous :</p>
+                      <div class="input-group input-group-sm mb-3" style="max-width: 320px;">
+                        <input type="text" class="form-control font-monospace text-light bg-dark border-secondary" id="sec-totp-secret-key" readonly>
+                        <button type="button" class="btn btn-outline-warning" onclick="copyEl('sec-totp-secret-key')"><i class="bi bi-clipboard"></i></button>
+                      </div>
+                      <div class="mb-3" style="max-width: 200px;">
+                        <label for="sec-totp-code" class="form-label small text-muted">Entrez le code à 6 chiffres</label>
+                        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="sec-totp-code" placeholder="000000" maxlength="6">
+                      </div>
+                      <button type="button" class="btn btn-sm btn-warning" onclick="confirmSecTotp()"><i class="bi bi-check-circle me-1"></i>Activer</button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelSecTotpSetup()">Annuler</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section Passkeys -->
+            <div class="card bg-dark border-secondary">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="card-title fw-bold text-light mb-0"><i class="bi bi-fingerprint me-2"></i>Passkeys (Clés d'accès)</h6>
+                  <button type="button" class="btn btn-sm btn-outline-warning" onclick="registerPasskey()"><i class="bi bi-plus-circle me-1"></i>Ajouter une Passkey</button>
+                </div>
+                <p class="text-muted small">Les Passkeys vous permettent de vous connecter de manière sécurisée sans mot de passe à l'aide de vos empreintes digitales, reconnaissance faciale ou code PIN.</p>
+                <div id="sec-passkeys-list" class="list-group list-group-flush border-top border-secondary">
+                  <!-- Chargé dynamiquement -->
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
       <div class="modal-footer border-secondary justify-content-between">
@@ -551,9 +629,11 @@ let _seerById = {};
 let _activityById = {};
 const hubModal = new bootstrap.Modal(document.getElementById('userHubModal'));
 
-document.addEventListener('DOMContentLoaded', () => { loadSeerUsers(); filterUsers(); });
+const SEER_ENABLED = {{ 'true' if seer_enabled else 'false' }};
+document.addEventListener('DOMContentLoaded', () => { if (SEER_ENABLED) loadSeerUsers(); filterUsers(); });
 
 async function loadSeerUsers() {
+  if (!SEER_ENABLED) return;
   try {
     const r = await fetch('/api/seer/users');
     const data = await r.json();
@@ -630,18 +710,20 @@ function openAdd() {
   document.getElementById('editId').value = '';
   document.getElementById('btn-test-email').style.display = 'none';
   document.getElementById('btn-delete-user').style.display = 'none';
-  document.getElementById('hub-tabli-seer').style.display = 'none';
+  if (SEER_ENABLED) document.getElementById('hub-tabli-seer').style.display = 'none';
   document.getElementById('hub-tabli-activity').style.display = 'none';
   document.getElementById('hub-tabli-diagnostic').style.display = 'none';
+  document.getElementById('hub-tabli-security').style.display = 'none';
   _showTab('#hub-tab-profil');
   hubModal.show();
 }
 
 async function openUserHub(id) {
   editingId = id;
-  document.getElementById('hub-tabli-seer').style.display = '';
+  if (SEER_ENABLED) document.getElementById('hub-tabli-seer').style.display = '';
   document.getElementById('hub-tabli-activity').style.display = '';
   document.getElementById('hub-tabli-diagnostic').style.display = '';
+  document.getElementById('hub-tabli-security').style.display = '';
   document.getElementById('btn-test-email').style.display = '';
   document.getElementById('btn-delete-user').style.display = '';
   document.getElementById('fUserId').readOnly = true;
@@ -657,8 +739,9 @@ async function openUserHub(id) {
     document.getElementById('hubTitle').textContent = u.custom_name || u.display_name || u.plex_user_id;
     _setFields(u);
     renderHubDiagnostic(u);
-    renderHubSeer(id, u.seer_user_id || null, u.source);
+    if (SEER_ENABLED) renderHubSeer(id, u.seer_user_id || null, u.source);
     renderHubActivity(u);
+    renderHubSecurity(u);
   } catch(e) {
     document.getElementById('hubTitle').textContent = 'Erreur';
     showToast('Erreur de chargement : ' + e.message, 'danger');
@@ -693,8 +776,8 @@ function renderHubDiagnostic(u) {
         </div>
         <div class="d-flex flex-wrap gap-1">
           <span class="badge ${u.enabled !== false ? 'bg-success' : 'bg-secondary'}">${u.enabled !== false ? 'Actif' : 'Desactive'}</span>
-          ${u.seer_user_id ? '<span class="badge bg-info text-dark">Seer lie</span>' : '<span class="badge bg-secondary">Seer non lie</span>'}
-          ${d.seer_requests_enabled ? '<span class="badge bg-primary">Demandes via Seer</span>' : '<span class="badge bg-dark border border-secondary">ARR direct/global</span>'}
+          ${SEER_ENABLED ? (u.seer_user_id ? '<span class="badge bg-info text-dark">Seer lié</span>' : '<span class="badge bg-secondary">Seer non lié</span>') : ''}
+          ${SEER_ENABLED && d.seer_requests_enabled ? '<span class="badge bg-primary">Demandes via Seer</span>' : (SEER_ENABLED ? '<span class="badge bg-dark border border-secondary">ARR direct/global</span>' : '')}
         </div>
       </div>
       <div class="row g-2 mt-3">
@@ -935,7 +1018,7 @@ async function refreshHub(id) {
     _setFields(u);
     document.getElementById('hubTitle').textContent = u.custom_name || u.display_name || u.plex_user_id;
     renderHubDiagnostic(u);
-    renderHubSeer(id, u.seer_user_id || null, u.source);
+    if (SEER_ENABLED) renderHubSeer(id, u.seer_user_id || null, u.source);
     renderHubActivity(u);
     updateUserCard(id, u);
   } catch(e) {}
@@ -1193,6 +1276,239 @@ async function syncSeer() {
     setTimeout(() => location.reload(), 800);
   } catch(e) { showToast('Erreur Seer : ' + e.message, 'danger'); }
   finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-arrow-down me-1"></i>Sync Seer'; }
+}
+
+function renderHubSecurity(u) {
+  // Mot de passe
+  if (u.has_local_password || u.source === 'local') {
+    document.getElementById('security-pwd-plex-notice').style.display = 'none';
+    document.getElementById('security-pwd-local-form').style.display = 'block';
+  } else {
+    document.getElementById('security-pwd-plex-notice').style.display = 'block';
+    document.getElementById('security-pwd-local-form').style.display = 'none';
+  }
+  document.getElementById('sec-new-password').value = '';
+
+  // TOTP
+  const statusEl = document.getElementById('sec-totp-status');
+  const actionsEl = document.getElementById('sec-totp-actions');
+  document.getElementById('sec-totp-setup-container').style.display = 'none';
+  document.getElementById('sec-totp-code').value = '';
+
+  if (u.totp_enabled) {
+    statusEl.innerHTML = '<span class="text-success fw-bold"><i class="bi bi-shield-fill-check me-1"></i>Double authentification activée</span>';
+    actionsEl.innerHTML = '<button type="button" class="btn btn-sm btn-outline-danger" onclick="disableSecTotp()"><i class="bi bi-shield-slash me-1"></i>Désactiver la 2FA</button>';
+  } else {
+    statusEl.innerHTML = '<span class="text-muted"><i class="bi bi-shield-slash me-1"></i>Double authentification désactivée</span>';
+    actionsEl.innerHTML = '<button type="button" class="btn btn-sm btn-warning" onclick="startSecTotpSetup()"><i class="bi bi-shield-check me-1"></i>Activer la 2FA</button>';
+  }
+
+  // Passkeys
+  loadSecPasskeys(u.id);
+}
+
+async function changeUserPassword() {
+  const pwd = document.getElementById('sec-new-password').value.trim();
+  if (!pwd) return showToast("Veuillez entrer un mot de passe.", "danger");
+  try {
+    const r = await fetch(`/api/users/${editingId}/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || "Erreur");
+    showToast("Mot de passe enregistré avec succès !", "success");
+    document.getElementById('sec-new-password').value = '';
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function startSecTotpSetup() {
+  const setupContainer = document.getElementById('sec-totp-setup-container');
+  const qrLoading = document.getElementById('sec-totp-qr-loading');
+  const qrImage = document.getElementById('sec-totp-qr-image');
+  const secretKeyInput = document.getElementById('sec-totp-secret-key');
+
+  setupContainer.style.display = 'block';
+  qrLoading.style.display = 'inline-block';
+  qrImage.style.display = 'none';
+
+  try {
+    const r = await fetch(`/api/users/${editingId}/totp/setup`, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur lors de la configuration');
+
+    secretKeyInput.value = d.secret;
+    qrImage.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(d.uri);
+    qrImage.onload = () => {
+      qrLoading.style.display = 'none';
+      qrImage.style.display = 'block';
+    };
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    setupContainer.style.display = 'none';
+  }
+}
+
+function cancelSecTotpSetup() {
+  document.getElementById('sec-totp-setup-container').style.display = 'none';
+  document.getElementById('sec-totp-code').value = '';
+}
+
+async function confirmSecTotp() {
+  const code = document.getElementById('sec-totp-code').value.trim();
+  if (!code || code.length !== 6) return showToast("Veuillez entrer un code à 6 chiffres.", "danger");
+
+  try {
+    const r = await fetch(`/api/users/${editingId}/totp/enable`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erreur de validation');
+
+    showToast("2FA activée avec succès !", "success");
+    const u = await fetch(`/api/users/${editingId}`).then(r => r.json());
+    renderHubSecurity(u);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function disableSecTotp() {
+  if (!confirm("Désactiver la double authentification pour cet utilisateur ?")) return;
+  try {
+    const r = await fetch(`/api/users/${editingId}/totp`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast("2FA désactivée avec succès.", "success");
+    const u = await fetch(`/api/users/${editingId}`).then(r => r.json());
+    renderHubSecurity(u);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function loadSecPasskeys(userId) {
+  const listEl = document.getElementById('sec-passkeys-list');
+  listEl.innerHTML = '<div class="text-center py-2 text-muted"><span class="spinner-border spinner-border-sm"></span></div>';
+  try {
+    const keys = await fetch(`/api/users/${userId}/passkeys`).then(r => r.json());
+    if (keys.length === 0) {
+      listEl.innerHTML = '<div class="text-muted small py-3 text-center">Aucune Passkey enregistrée.</div>';
+      return;
+    }
+    listEl.innerHTML = keys.map(k => `
+      <div class="list-group-item bg-transparent border-secondary d-flex justify-content-between align-items-center px-0 py-2">
+        <div>
+          <div class="fw-semibold text-light small"><i class="bi bi-key-fill me-1 text-warning"></i>${escHtml(k.name)}</div>
+          <div class="text-muted" style="font-size:11px">Enregistrée le ${new Date(k.created_at).toLocaleDateString()}</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="deleteSecPasskey('${escHtml(k.credential_id)}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>`).join('');
+  } catch (e) {
+    listEl.innerHTML = '<div class="text-danger small py-3">Erreur de chargement.</div>';
+  }
+}
+
+async function deleteSecPasskey(credentialId) {
+  if (!confirm("Supprimer cette Passkey ? Elle ne pourra plus être utilisée pour se connecter.")) return;
+  try {
+    const r = await fetch(`/api/users/${editingId}/passkeys/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    showToast("Passkey supprimée !", "success");
+    loadSecPasskeys(editingId);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+function registerPasskey() {
+  const name = prompt("Donnez un nom à cette clé d'accès (ex: Mon Téléphone, Yubikey) :", "Passkey");
+  if (!name) return;
+  const btn = event.currentTarget;
+  const origText = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Enregistrement…';
+  
+  fetch('/api/users/webauthn/register/options', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: editingId })
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(err => { throw new Error(err.detail || "Erreur serveur") });
+    return r.json();
+  })
+  .then(options => {
+    options.challenge = bufferDecode(options.challenge);
+    options.user.id = bufferDecode(options.user.id);
+    if (options.excludeCredentials) {
+      for (let i = 0; i < options.excludeCredentials.length; i++) {
+        options.excludeCredentials[i].id = bufferDecode(options.excludeCredentials[i].id);
+      }
+    }
+    return navigator.credentials.create({ publicKey: options });
+  })
+  .then(credential => {
+    const credentialForServer = {
+      id: credential.id,
+      rawId: bufferEncode(credential.rawId),
+      type: credential.type,
+      response: {
+        clientDataJSON: bufferEncode(credential.response.clientDataJSON),
+        attestationObject: bufferEncode(credential.response.attestationObject),
+        transports: credential.response.getTransports ? credential.response.getTransports() : []
+      }
+    };
+    return fetch('/api/users/webauthn/register/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: editingId,
+        credential: credentialForServer,
+        name: name
+      })
+    });
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(err => { throw new Error(err.detail || "Vérification échouée") });
+    return r.json();
+  })
+  .then(() => {
+    showToast("Passkey enregistrée avec succès !", "success");
+    loadSecPasskeys(editingId);
+  })
+  .catch(e => {
+    showToast("Erreur : " + e.message, "danger");
+  })
+  .finally(() => {
+    btn.disabled = false; btn.innerHTML = origText;
+  });
+}
+
+function bufferDecode(value) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = base64.length % 4;
+  const padded = pad ? base64 + "=".repeat(4 - pad) : base64;
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function bufferEncode(value) {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 </script>
 {% endblock %}
