@@ -406,6 +406,7 @@ async def recheck_plex(
     request_id: Optional[int] = None,
     library_id: Optional[int] = None,
     db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
 ):
     """Revérifie si un média (souvent une « anomalie Plex ») est désormais indexé par Plex.
 

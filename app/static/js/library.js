@@ -2,6 +2,13 @@ const LIBRARY_CONFIG = window.PLEXARR_LIBRARY || {};
 const VFF_ENABLED = !!LIBRARY_CONFIG.vffEnabled;
 const ACTIVE_VIEW = LIBRARY_CONFIG.activeView || 'all';
 const LIBRARY_FILTERS = LIBRARY_CONFIG.filters || {};
+// Profil portail : un utilisateur non-admin consulte la bibliothèque en lecture seule
+// (aucune action *arr / VFF / suppression) et ne peut qu'annuler ses propres demandes.
+const IS_ADMIN = !!LIBRARY_CONFIG.isAdmin;
+const CURRENT_UID = LIBRARY_CONFIG.currentUid || null;
+function _isOwnRequest(r) {
+  return !!(CURRENT_UID && _reqIds(r).includes(CURRENT_UID));
+}
 const mediaModal = new bootstrap.Modal(document.getElementById('mediaModal'));
 let currentMediaDetail = null;
 
@@ -99,17 +106,17 @@ function renderMediaModal(d) {
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-requests" type="button"><i class="bi bi-inbox me-1"></i>Demandes <span class="badge bg-secondary ms-1">${d.requests.length}</span></button></li>
       <li class="nav-item"><button class="nav-link" id="tab-vf-btn" data-bs-toggle="tab" data-bs-target="#tab-vf" type="button"><i class="bi bi-translate me-1"></i>${m.media_type === 'show' ? 'Episodes' : 'Pistes audio'}</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-calendar" type="button"><i class="bi bi-calendar3 me-1"></i>Calendrier</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button"><i class="bi bi-search me-1"></i>Recherche</button></li>
+      ${IS_ADMIN ? '<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button"><i class="bi bi-search me-1"></i>Recherche</button></li>' : ''}
     </ul>
     <div class="tab-content">
       <div class="tab-pane fade show active" id="tab-summary">${renderSummary(d)}</div>
       <div class="tab-pane fade" id="tab-requests">${renderRequestsTab(d.requests)}</div>
       <div class="tab-pane fade" id="tab-vf"><div id="vf-tab-body">${VFF_ENABLED || m.media_type === 'show' ? '<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-warning"></span></div>' : '<div class="text-muted small">Suivi VFF desactive.</div>'}</div></div>
       <div class="tab-pane fade" id="tab-calendar">${renderCalendarTab(d)}</div>
-      <div class="tab-pane fade" id="tab-search"><div id="search-tab-body"><div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div></div></div>
+      ${IS_ADMIN ? '<div class="tab-pane fade" id="tab-search"><div id="search-tab-body"><div class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div></div></div>' : ''}
     </div>`;
   loadVfDetail(d.media);
-  loadSearchTab(m);
+  if (IS_ADMIN) loadSearchTab(m);
 }
 
 async function recheckPlex(btn, requestId, libraryId) {
@@ -168,7 +175,7 @@ function renderSummary(d) {
         ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : (isDownloading ? '<span class="badge bg-info text-dark ms-1"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>' : (isAnomaly ? '<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>'))}
         <span class="ms-1">${vfBadge(m.has_vf, m.in_library, m.vf_granularity)}</span>
       </div>
-      ${!m.in_library ? `<div class="mb-2">
+      ${IS_ADMIN && !m.in_library ? `<div class="mb-2">
         <button class="btn btn-sm btn-outline-danger d-inline-flex align-items-center gap-1"
                 onclick="recheckPlex(this, ${m.request_id == null ? 'null' : m.request_id}, ${m.library_id == null ? 'null' : m.library_id})">
           <i class="bi bi-arrow-repeat"></i> RevÃ©rifier dans Plex
@@ -224,20 +231,26 @@ function renderRequestsTab(requests) {
   if (!requests.length) return '<div class="text-muted small py-3">Aucune demande liee a ce media.</div>';
   return requests.map(r => {
     const error = r.overview && r.overview.includes('[ERREUR]') ? `<div class="text-danger small mt-2"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(r.overview.split('[ERREUR]').pop().trim())}</div>` : '';
+    const adminActions = `
+          ${(r.status === 'failed' || r.status === 'pending') ? `<button class="btn btn-sm btn-outline-warning" onclick="retryRequest(${r.id}, this)"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>` : ''}
+          ${!r.request_mail_sent ? `<button class="btn btn-sm btn-outline-secondary" onclick="markProcessed(${r.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Mail demande</button>` : ''}
+          ${r.status !== 'available' ? `<button class="btn btn-sm btn-outline-success" onclick="markProcessed(${r.id}, this, 'available')"><i class="bi bi-check-all me-1"></i>Cloturer</button>` : ''}
+          <button class="btn btn-sm btn-outline-danger" onclick='deleteRequest(${r.id}, ${JSON.stringify(!!r.arr_id && !(r.arr_slug || "").startsWith("prowlarr:"))})'><i class="bi bi-trash"></i></button>`;
+    // Non-admin : uniquement « Annuler ma demande », et seulement sur ses propres demandes.
+    const cancelAction = (!IS_ADMIN && _isOwnRequest(r) && r.status !== 'available')
+      ? `<button class="btn btn-sm btn-outline-danger" onclick="cancelOwnRequest(${r.id}, this)"><i class="bi bi-x-circle me-1"></i>Annuler ma demande</button>`
+      : '';
     return `<div class="border rounded p-3 mb-2" style="border-color:var(--pr-border)!important;background:var(--pr-surface-2)">
       <div class="d-flex flex-wrap justify-content-between gap-2">
         <div>
           <div class="fw-semibold">${statusBadge(r.status)} <span class="badge bg-secondary ms-1">${escHtml(r.source || '?')}</span></div>
-          ${requesterEditor(r)}
+          ${IS_ADMIN ? requesterEditor(r) : ''}
           <div class="text-muted small">Demandee le ${fmtDateTime(r.requested_at)}${r.available_at ? ' Â· Disponible le ' + fmtDateTime(r.available_at) : ''}</div>
-          <div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} Â· Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>
+          ${IS_ADMIN ? `<div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} Â· Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>` : ''}
           ${error}
         </div>
         <div class="d-flex flex-wrap gap-1 align-self-start">
-          ${(r.status === 'failed' || r.status === 'pending') ? `<button class="btn btn-sm btn-outline-warning" onclick="retryRequest(${r.id}, this)"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>` : ''}
-          ${!r.request_mail_sent ? `<button class="btn btn-sm btn-outline-secondary" onclick="markProcessed(${r.id}, this, 'request')"><i class="bi bi-envelope me-1"></i>Mail demande</button>` : ''}
-          ${r.status !== 'available' ? `<button class="btn btn-sm btn-outline-success" onclick="markProcessed(${r.id}, this, 'available')"><i class="bi bi-check-all me-1"></i>Cloturer</button>` : ''}
-          <button class="btn btn-sm btn-outline-danger" onclick='deleteRequest(${r.id}, ${JSON.stringify(!!r.arr_id && !(r.arr_slug || "").startsWith("prowlarr:"))})'><i class="bi bi-trash"></i></button>
+          ${IS_ADMIN ? adminActions : cancelAction}
         </div>
       </div>
     </div>`;
@@ -400,7 +413,7 @@ async function loadVfDetail(m) {
   const path = sourcePath(m.vf_source_type);
   try {
     const d = await fetch(`/api/${path}/${m.vf_source_id}/vf-detail`).then(r => r.json());
-    const actions = VFF_ENABLED ? vfActionsBar(m) : '';
+    const actions = (VFF_ENABLED && IS_ADMIN) ? vfActionsBar(m) : '';
     body.innerHTML = actions + (m.media_type === 'show' ? renderVfSeasons(d, m) : renderVfTracks(d));
   } catch (e) {
     body.innerHTML = `<div class="text-danger small">${escHtml(e.message)}</div>`;
@@ -551,6 +564,23 @@ async function deleteRequest(id, hasArr) {
     showToast('Demande supprimee', 'success');
     setTimeout(() => location.reload(), 800);
   } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
+}
+// Profil portail : annulation de SA propre demande (jamais de suppression cote *arr/Plex).
+async function cancelOwnRequest(id, btn) {
+  if (!await confirmAction({ title:'Annuler ma demande', body:'Annuler votre demande pour ce media ?', okLabel:'Annuler la demande', danger:true })) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Annulation...';
+  try {
+    const r = await fetch(`/api/requests/${id}/cancel`, { method:'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
+    showToast('Demande annulee', 'success');
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
 }
 async function bulkRetry() {
   const ids = getSelectedIds(); if (!ids.length) return;

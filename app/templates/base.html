@@ -217,13 +217,16 @@
 
       {# Bascule Films / Séries : conserve les filtres actifs quand on est déjà sur la bibliothèque. #}
       {% set lib_qs %}{% if page=='library' %}{% for k, v in request.query_params.items() %}{% if k not in ['type', 'page'] %}&{{ k }}={{ v }}{% endif %}{% endfor %}{% endif %}{% endset %}
-      {% if is_admin %}
       <div class="sidebar-section">Bibliothèque</div>
-      <a href="/library?type=movie{{ lib_qs }}" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('type')!='show' %}active{% endif %}" title="Films">
+      <a href="/library?type=movie{{ lib_qs }}" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('type')!='show' and request.query_params.get('view')!='requests' %}active{% endif %}" title="Films">
         <i class="bi bi-film me-2"></i><span class="nav-label">Films</span>
       </a>
-      <a href="/library?type=show{{ lib_qs }}" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('type')=='show' %}active{% endif %}" title="Séries">
+      <a href="/library?type=show{{ lib_qs }}" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('type')=='show' and request.query_params.get('view')!='requests' %}active{% endif %}" title="Séries">
         <i class="bi bi-tv me-2"></i><span class="nav-label">Séries</span>
+      </a>
+      {% if not is_admin %}
+      <a href="/library?view=requests" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}" title="Mes demandes">
+        <i class="bi bi-inbox me-2"></i><span class="nav-label">Mes demandes</span>
       </a>
       {% endif %}
       <a href="/calendar" class="nav-link d-flex align-items-center {% if page=='calendar' %}active{% endif %}" {% if page=='calendar' %}aria-current="page"{% endif %} title="Calendrier">
@@ -281,12 +284,15 @@
   <a href="/discover" class="{% if page=='discover' %}active{% endif %}">
     <i class="bi bi-compass"></i>Découvrir
   </a>
-  {% if is_admin %}
-  <a href="/library?type=movie{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')!='show' %}active{% endif %}">
+  <a href="/library?type=movie{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')!='show' and request.query_params.get('view')!='requests' %}active{% endif %}">
     <i class="bi bi-film"></i>Films
   </a>
-  <a href="/library?type=show{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')=='show' %}active{% endif %}">
+  <a href="/library?type=show{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')=='show' and request.query_params.get('view')!='requests' %}active{% endif %}">
     <i class="bi bi-tv"></i>Séries
+  </a>
+  {% if not is_admin %}
+  <a href="/library?view=requests" class="{% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}">
+    <i class="bi bi-inbox"></i>Demandes
   </a>
   {% endif %}
   <a href="/calendar" class="{% if page=='calendar' %}active{% endif %}">

@@ -428,6 +428,70 @@ async def delete_request(
     return {"status": "deleted"}
 
 
+@router.post("/requests/{request_id}/cancel")
+def cancel_own_request(request_id: int, request: Request, db: Session = Depends(get_db)):
+    """Annulation par l'utilisateur de SA propre demande (profil portail).
+
+    Retire l'appelant de la liste des demandeurs. S'il en était le seul, la demande
+    est annulée **localement** ; jamais de suppression du média côté Sonarr/Radarr/Plex
+    (action réservée aux admins via DELETE). Un admin peut aussi retirer sa propre
+    participation via ce point.
+    """
+    caller = current_user(request, db)
+    if not caller:
+        raise HTTPException(status_code=401, detail="Non authentifié")
+
+    # Identité robuste : la session peut ne pas porter plex_user_id (login mot de passe).
+    uid = caller.get("plex_user_id")
+    if not uid and caller.get("id"):
+        u = db.query(PlexUser).filter(PlexUser.id == caller["id"]).first()
+        uid = u.plex_user_id if u else None
+    is_admin = bool(caller.get("is_owner") or caller.get("role") == "admin")
+    if not uid and not is_admin:
+        raise HTTPException(status_code=403, detail="Impossible d'identifier le compte demandeur.")
+
+    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+    except Exception:
+        extras = []
+    requester_ids = ([req.plex_user_id] if req.plex_user_id else []) + [
+        e.get("plex_user_id") for e in extras if e.get("plex_user_id")
+    ]
+
+    # Un non-admin ne peut annuler que s'il figure parmi les demandeurs (sinon 404, on ne
+    # révèle pas l'existence de la demande).
+    if not is_admin and uid not in requester_ids:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    target = uid if uid in requester_ids else None
+    remaining = [rid for rid in requester_ids if rid != target] if target else []
+
+    if not remaining:
+        # Seul demandeur (ou admin annulant) : on annule la demande localement.
+        _delete_vf_episode_cache(db, req.id)
+        db.delete(req)
+        db.commit()
+        return {"status": "cancelled", "removed": True}
+
+    # D'autres demandeurs subsistent : on reconstruit primaire + additionnels sans l'appelant.
+    users = {u.plex_user_id: u for u in db.query(PlexUser).all()}
+
+    def _name(x: str) -> str:
+        u = users.get(x)
+        return (u.display_name or u.plex_user_id) if u else x
+
+    req.plex_user_id = remaining[0]
+    req.plex_user = _name(remaining[0])
+    req.extra_requesters = _json.dumps(
+        [{"plex_user_id": x, "display_name": _name(x)} for x in remaining[1:]],
+        ensure_ascii=False,
+    )
+    db.commit()
+    return {"status": "cancelled", "removed": False}
+
+
 @router.post("/requests/{request_id}/mark-processed")
 def mark_request_processed(
     request_id: int,

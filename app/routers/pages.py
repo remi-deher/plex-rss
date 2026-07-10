@@ -203,13 +203,29 @@ def library_page(
     per_page: int = 60,
     sort: str = "date",
     order: str = "desc",
-    _: None = Depends(require_admin),
+    _: None = Depends(require_auth),
     db: Session = Depends(get_db),
 ):
     """Bibliothèque : union des médias présents dans Plex (library_items) et des
     demandes non encore en bibliothèque, avec état VF/VFF. Films et Séries sont
     deux entrées distinctes ; par défaut on affiche les Films. Seule la recherche
-    globale de demandes (view=requests) reste transversale aux deux types."""
+    globale de demandes (view=requests) reste transversale aux deux types.
+
+    Ouverte au profil portail (utilisateur) en **lecture seule** : les actions
+    (recherche/grab *arr, VFF, suppression…) sont masquées côté template et
+    verrouillées côté API. La vue « Mes demandes » (view=requests) est scopée
+    aux demandes de l'utilisateur ; il ne peut qu'annuler les siennes."""
+    is_admin = _is_admin_session(request)
+    # Identité robuste du demandeur (la session peut ne pas porter plex_user_id
+    # pour un login mot de passe : repli sur l'enregistrement PlexUser via user_id).
+    current_uid = request.session.get("plex_user_id")
+    if not current_uid and request.session.get("user_id"):
+        _u = db.query(PlexUser).filter(PlexUser.id == request.session["user_id"]).first()
+        current_uid = _u.plex_user_id if _u else None
+    # « Mes demandes » : un non-admin ne voit que les siennes (on ignore un ?user= forgé).
+    if not is_admin and view == "requests":
+        user = current_uid
+
     settings = db.query(Settings).first()
 
     # Séparation complète Films / Séries : hors recherche globale, un type est
@@ -407,6 +423,8 @@ def library_page(
         {
             "page": "library",
             "settings": settings,
+            "is_admin": is_admin,
+            "current_uid": current_uid,
             "items": page_items,
             "active_view": view or "all",
             "active_type": type or "",

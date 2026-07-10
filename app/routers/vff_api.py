@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_auth
+from ..dependencies import require_admin, require_auth
 from ..models import LibraryItem, MediaRequest, RequestStatus, Settings
 from ..scheduler import (
     _invalidate_vf_cache,
@@ -181,7 +181,7 @@ def vff_counts(db: Session = Depends(get_db)):
     return {"vo_pending": vo_pending, "vf_available": vf_available, "unchecked": unchecked}
 
 
-@router.post("/vff/scan")
+@router.post("/vff/scan", dependencies=[Depends(require_admin)])
 async def vff_scan_all():
     """Déclenche immédiatement le scan global VFF en arrière-plan."""
     from ..scheduler import trigger_vff_scan_background
@@ -196,7 +196,7 @@ def get_vff_scan_status():
     return vff_scan_state
 
 
-@router.post("/vff/sync-plex")
+@router.post("/vff/sync-plex", dependencies=[Depends(require_admin)])
 async def vff_sync_plex():
     """Déclenche immédiatement la synchronisation de la bibliothèque Plex en arrière-plan."""
     if plex_sync_state["status"] == "running":
@@ -212,7 +212,7 @@ def get_vff_sync_status():
     return plex_sync_state
 
 
-@router.post("/requests/{request_id}/vff-scan")
+@router.post("/requests/{request_id}/vff-scan", dependencies=[Depends(require_admin)])
 async def vff_scan_single_request(
     request_id: int,
     force: bool = False,
@@ -323,7 +323,7 @@ async def vff_scan_single_request(
     }
 
 
-@router.post("/requests/{request_id}/vff-ignore")
+@router.post("/requests/{request_id}/vff-ignore", dependencies=[Depends(require_admin)])
 async def vff_ignore_request(request_id: int, db: Session = Depends(get_db)):
     """Arrête manuellement le suivi VFF pour une demande spécifique."""
     req = get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -346,7 +346,7 @@ async def library_vf_detail(item_id: int, db: Session = Depends(get_db)):
     return await _vf_detail_payload(db, item)
 
 
-@router.post("/library/{item_id}/vff-scan")
+@router.post("/library/{item_id}/vff-scan", dependencies=[Depends(require_admin)])
 async def library_vff_scan(
     item_id: int,
     force: bool = False,
@@ -415,7 +415,7 @@ async def library_vff_scan(
     return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
 
 
-@router.post("/library/{item_id}/vff-ignore")
+@router.post("/library/{item_id}/vff-ignore", dependencies=[Depends(require_admin)])
 async def library_vff_ignore(item_id: int, db: Session = Depends(get_db)):
     """Arrête le suivi VFF d'un élément de bibliothèque (force has_vf = True)."""
     item = get_or_404(db, LibraryItem, item_id, "Library item not found")

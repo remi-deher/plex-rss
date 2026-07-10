@@ -195,12 +195,14 @@
 </div>
 {% endif %}
 </div>
+{% if is_admin %}
 <div id="bulk-actions-bar" class="bg-dark border border-secondary rounded p-2 mb-3 align-items-center gap-2" style="display:none!important">
   <span class="text-white small ms-2"><strong id="bulk-select-count">0</strong> selectionne(s)</span>
   <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkRetry()"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>
   <button type="button" class="btn btn-sm btn-outline-success" onclick="bulkMarkProcessed()"><i class="bi bi-check-all me-1"></i>Marquer traite</button>
   <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="bulkDelete()"><i class="bi bi-trash me-1"></i>Supprimer</button>
 </div>
+{% endif %}
 {% if active_view == 'calendar' %}
 <div class="text-center mb-3">
   <button type="button" class="btn btn-sm btn-outline-secondary" id="cal-prev-month-btn" onclick="loadGlobalCalendar(true)">
@@ -216,7 +218,7 @@
   <div class="col lib-item request-item" data-title="{{ it.title | lower }}" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}">
     <div class="card position-relative overflow-hidden request-card h-100" style="min-height:340px;border-radius:8px;border:1px solid var(--pr-border);cursor:pointer"
          onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
-      {% if it.primary_request_id %}
+      {% if is_admin and it.primary_request_id %}
       <div class="position-absolute" style="top:6px;left:6px;z-index:20" onclick="event.stopPropagation()">
         <input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()" style="width:18px;height:18px;cursor:pointer;opacity:.9" data-grid-check>
       </div>
@@ -229,7 +231,7 @@
         <i class="bi bi-{% if it.media_type == 'show' %}tv{% else %}camera-video{% endif %} opacity-25" style="font-size:3rem"></i>
       </div>
       {% endif %}
-      <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start z-3" style="max-width:62%;{% if it.primary_request_id %}padding-left:24px{% endif %}">
+      <div class="position-absolute top-0 start-0 m-2 d-flex flex-column gap-1 align-items-start z-3" style="max-width:62%;{% if is_admin and it.primary_request_id %}padding-left:24px{% endif %}">
         <span class="badge {% if it.media_type == 'show' %}bg-info text-dark{% else %}bg-primary{% endif %}" style="font-size:10px">{% if it.media_type == 'show' %}Serie{% else %}Film{% endif %}</span>
         {{ vf_badge(it.has_vf, it.in_library, it.vf_granularity) }}
         {% if it.request_count %}<span class="badge bg-secondary" style="font-size:9px"><i class="bi bi-inbox me-1"></i>{{ it.request_count }}</span>{% endif %}
@@ -271,20 +273,20 @@
     <div class="table-responsive">
       <table class="table table-dark table-hover mb-0 align-middle">
         <thead><tr>
-          <th style="width:36px"><input type="checkbox" id="selectAll" class="form-check-input" onclick="toggleSelectAll(this)"></th>
+          {% if is_admin %}<th style="width:36px"><input type="checkbox" id="selectAll" class="form-check-input" onclick="toggleSelectAll(this)"></th>{% endif %}
           <th style="width:56px">Poster</th><th>Titre</th><th>Type</th><th>Statut</th><th>VF</th><th>Demandes</th><th></th>
         </tr></thead>
         <tbody>
         {% for it in items %}
           <tr class="request-item" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}" role="button" onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
-            <td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()">{% endif %}</td>
+            {% if is_admin %}<td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()">{% endif %}</td>{% endif %}
             <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
             <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
             <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
             <td>{{ status_badge(it.request_status, it.media_type) }}{% if it.is_downloading %} <span class="badge bg-info text-dark" title="Téléchargement/import en cours côté Sonarr/Radarr"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>{% elif it.plex_anomaly %} <span class="badge bg-danger" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>{% endif %}</td>
             <td>{{ vf_badge(it.has_vf, it.in_library, it.vf_granularity) }}</td>
             <td class="small">{{ it.requested_by or '-' }}</td>
-            <td>{% if it.request_status in ('failed','pending') and it.primary_request_id %}<button class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();retryRequest({{ it.primary_request_id }}, this)"><i class="bi bi-arrow-clockwise"></i></button>{% endif %}</td>
+            <td>{% if is_admin and it.request_status in ('failed','pending') and it.primary_request_id %}<button class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();retryRequest({{ it.primary_request_id }}, this)"><i class="bi bi-arrow-clockwise"></i></button>{% endif %}</td>
           </tr>
         {% endfor %}
         </tbody>
@@ -329,6 +331,8 @@
 <script>
 window.PLEXARR_LIBRARY = {
   vffEnabled: {{ 'true' if vff_enabled else 'false' }},
+  isAdmin: {{ 'true' if is_admin else 'false' }},
+  currentUid: {{ (current_uid or '')|tojson }},
   activeView: {{ active_view|tojson }},
   filters: {
     {% if active_type %}type: {{ active_type|tojson }},{% endif %}
@@ -340,7 +344,7 @@ window.PLEXARR_LIBRARY = {
   }
 };
 </script>
-<script src="/static/js/library.js"></script>
+<script src="/static/js/library.js?v=portal-20260710"></script>
 <style>
 .hover-card { transition: transform .12s, box-shadow .12s; }
 .hover-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
