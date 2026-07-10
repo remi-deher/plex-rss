@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 PLEX_TV_BASE = "https://plex.tv"
 DISCOVER_BASE = "https://discover.provider.plex.tv"
-CLIENT_IDENTIFIER = "plex-rss-monitor-sso-id"
+CLIENT_IDENTIFIER = "1c8e19c3-8824-4f2b-8a8b-3e5f2ea129a6"
 
 
 async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
@@ -130,7 +130,7 @@ async def check_auth_pin(pin_id: int) -> Optional[str]:
         Le Plex Token s'il est disponible, None sinon.
     """
     logger.info("SSO: checking PIN status for pin_id: %s", pin_id)
-    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"}
+    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": CLIENT_IDENTIFIER}
     async with httpx.AsyncClient(timeout=10) as client:
         # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
         resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
@@ -239,7 +239,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
     headers = {
         "Accept": "application/json",
         "X-Plex-Product": "Plexarr",
-        "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id",
+        "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(f"{PLEX_TV_BASE}/api/v2/pins", headers=headers)
@@ -251,7 +251,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
         forward = "https://app.plex.tv"
         encoded_forward = urllib.parse.quote(forward, safe="")
         auth_url = (
-            f"https://app.plex.tv/auth#?clientID=plex-rss-monitor-sso-id"
+            f"https://app.plex.tv/auth#?clientID={CLIENT_IDENTIFIER}"
             f"&code={code}"
             f"&context%5Bdevice%5D%5Bproduct%5D=Plex%20RSS%20Monitor"
             f"&forwardUrl={encoded_forward}"
@@ -265,7 +265,7 @@ async def check_auth_pin(pin_id: int) -> Optional[str]:
     Returns:
         Le Plex Token s'il est disponible, None sinon.
     """
-    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"}
+    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": CLIENT_IDENTIFIER}
     async with httpx.AsyncClient(timeout=10) as client:
         # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
         resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
