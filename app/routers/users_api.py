@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import require_admin
-from ..models import MediaRequest, PlexUser, Settings
+from ..models import MediaIssue, MediaRequest, NotificationMilestone, PasskeyCredential, PlexUser, Settings
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
 from ..services.seer import get_user_requests as seer_get_user_requests
@@ -451,38 +451,147 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
     return {"matched": False, "method": None}
 
 
-@router.post("/users/{seer_only_id}/merge-into/{target_id}")
-def merge_seer_only_into_rss(seer_only_id: int, target_id: int, db: Session = Depends(get_db)):
-    """Fusionne un utilisateur Seer-only vers un utilisateur RSS existant."""
-    seer_user = get_or_404(db, PlexUser, seer_only_id, "Utilisateur Seer-only introuvable")
-    if seer_user.source != "seer":
-        raise HTTPException(400, "Cet utilisateur n'est pas un utilisateur Seer-only")
+# Champs de profil consolidés sur le keeper : on comble uniquement ses trous depuis la source
+# (on ne remplace jamais une valeur déjà présente côté keeper).
+_MERGE_FILL_FIELDS = [
+    "notification_email",
+    "plex_email",
+    "plex_account_uuid",
+    "discord_webhook_url",
+    "telegram_chat_id",
+    "custom_name",
+    "display_name",
+    "avatar_url",
+    "locale",
+    "seer_user_id",
+    "sonarr_instance_id",
+    "radarr_instance_id",
+    "last_login_at",
+]
 
-    target = get_or_404(db, PlexUser, target_id, "Utilisateur cible introuvable")
-    if target.source == "seer":
-        raise HTTPException(400, "La cible ne peut pas être un utilisateur Seer-only")
 
-    target.seer_user_id = seer_user.seer_user_id
-    target.seer_active = seer_user.seer_active
+def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
+    """Fusionne `source` dans `keeper` : déplace toutes les données rattachées puis
+    supprime `source`. Conserve proprement les données des deux comptes dans le keeper.
 
-    old_pid = seer_user.plex_user_id
-    new_pid = target.plex_user_id
-    new_name = target.custom_name or target.display_name or new_pid
+    Appelée dans une transaction : l'appelant commit (ou rollback en cas d'erreur).
+    """
+    if source.id == keeper.id:
+        raise HTTPException(400, "Impossible de fusionner un utilisateur avec lui-même.")
+
+    old = source.plex_user_id
+    new = keeper.plex_user_id
+    new_name = keeper.custom_name or keeper.display_name or new
+
+    # 1. Demandes : demandeur principal + nom affiché.
     requests_moved = (
         db.query(MediaRequest)
-        .filter(MediaRequest.plex_user_id == old_pid)
-        .update({"plex_user_id": new_pid, "plex_user": new_name})
+        .filter(MediaRequest.plex_user_id == old)
+        .update({"plex_user_id": new, "plex_user": new_name}, synchronize_session=False)
     )
 
-    db.delete(seer_user)
-    db.commit()
+    # 2. Demandes approuvées par la source (approbation admin).
+    db.query(MediaRequest).filter(MediaRequest.approved_by == old).update(
+        {"approved_by": new}, synchronize_session=False
+    )
+
+    # 3. Co-demandeurs (extra_requesters JSON) : remap old→new, puis dédoublonnage et
+    #    retrait de l'entrée si elle correspond désormais au demandeur principal.
+    extras_updated = 0
+    for req in db.query(MediaRequest).filter(MediaRequest.extra_requesters.like(f"%{old}%")).all():
+        try:
+            extras = json.loads(req.extra_requesters or "[]")
+        except Exception:
+            extras = []
+        if not extras:
+            continue
+        seen, rebuilt, changed = set(), [], False
+        for e in extras:
+            uid = e.get("plex_user_id")
+            if uid == old:
+                uid, e, changed = new, {"plex_user_id": new, "display_name": new_name}, True
+            if uid == req.plex_user_id or uid in seen:  # déjà demandeur principal ou déjà listé
+                changed = True
+                continue
+            seen.add(uid)
+            rebuilt.append(e)
+        if changed:
+            req.extra_requesters = json.dumps(rebuilt, ensure_ascii=False)
+            extras_updated += 1
+
+    # 4. Jalons de notification : réassignation avec respect de la contrainte unique
+    #    (req_id, plex_user_id, direction, milestone_type, season_number, episode_number).
+    keeper_keys = {
+        (m.req_id, m.direction, m.milestone_type, m.season_number, m.episode_number)
+        for m in db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == new)
+    }
+    milestones_moved = 0
+    for m in db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == old).all():
+        key = (m.req_id, m.direction, m.milestone_type, m.season_number, m.episode_number)
+        if key in keeper_keys:
+            db.delete(m)  # déjà couvert par le keeper → on jette le doublon
+        else:
+            m.plex_user_id = new
+            keeper_keys.add(key)
+            milestones_moved += 1
+
+    # 5. Signalements de média.
+    db.query(MediaIssue).filter(MediaIssue.reporter_plex_user_id == old).update(
+        {"reporter_plex_user_id": new}, synchronize_session=False
+    )
+
+    # 6. Passkeys (référencées par PlexUser.id).
+    db.query(PasskeyCredential).filter(PasskeyCredential.user_id == source.id).update(
+        {"user_id": keeper.id}, synchronize_session=False
+    )
+
+    # 7. Consolidation du profil : combler les trous du keeper depuis la source.
+    for field in _MERGE_FILL_FIELDS:
+        if not getattr(keeper, field, None) and getattr(source, field, None):
+            setattr(keeper, field, getattr(source, field))
+    if source.seer_active and not keeper.seer_active:
+        keeper.seer_active = True
+    if source.role == "admin" and keeper.role != "admin":
+        keeper.role = "admin"
+    if source.can_login and not keeper.can_login:
+        keeper.can_login = True
+    if source.auto_approve and not keeper.auto_approve:
+        keeper.auto_approve = True
+    # Un keeper « Plex API » qui récupère un lien Seer devient « Plex API + Seer » via seer_user_id ;
+    # on ne renseigne source que s'il était vide côté keeper.
+    if not keeper.source and source.source:
+        keeper.source = source.source
+
+    db.delete(source)
 
     return {
         "status": "merged",
+        "keeper_id": keeper.id,
+        "keeper_plex_user_id": new,
         "requests_moved": requests_moved,
-        "target_plex_user_id": new_pid,
-        "seer_user_id": target.seer_user_id,
+        "extra_requesters_updated": extras_updated,
+        "milestones_moved": milestones_moved,
+        "seer_user_id": keeper.seer_user_id,
     }
+
+
+@router.post("/users/{source_id}/merge-into/{keeper_id}")
+def merge_users_endpoint(source_id: int, keeper_id: int, db: Session = Depends(get_db)):
+    """Fusionne l'utilisateur `source_id` dans `keeper_id` (le keeper est conservé, la
+    source supprimée). Fusion générale : fonctionne pour n'importe quels deux comptes
+    (Seer-only, Plex API, RSS…), en préservant les données des deux côtés."""
+    source = get_or_404(db, PlexUser, source_id, "Utilisateur source introuvable")
+    keeper = get_or_404(db, PlexUser, keeper_id, "Utilisateur à conserver introuvable")
+    try:
+        result = _merge_users(db, source, keeper)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Échec de la fusion : {e}")
+    return result
 
 
 @router.put("/users/{user_id}/custom-name")

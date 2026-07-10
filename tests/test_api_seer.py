@@ -273,7 +273,7 @@ def test_merge_seer_only_into_rss_transfers_requests(client, db):
     body = r.json()
     assert body["status"] == "merged"
     assert body["requests_moved"] == 2
-    assert body["target_plex_user_id"] == "abc123"
+    assert body["keeper_plex_user_id"] == "abc123"
     assert body["seer_user_id"] == 99
 
 
@@ -312,21 +312,31 @@ def test_merge_seer_only_requests_now_belong_to_rss_user(client, db):
     assert rows[0].plex_user_id == "abc123"
 
 
-def test_merge_seer_only_fails_if_source_not_seer(client, db):
-    """Un user RSS ne peut pas être la source d'une fusion (source != 'seer')."""
+def test_merge_general_allows_two_rss_users(client, db):
+    """Fusion générale : n'importe quels deux comptes peuvent être fusionnés (source RSS)."""
     rss_user1 = _user(db, plex_user_id="abc123")
     rss_user2 = _user(db, plex_user_id="def456")
+    _req(db, plex_user_id="abc123")
 
     r = client.post(f"/api/users/{rss_user1.id}/merge-into/{rss_user2.id}")
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert db.query(PlexUser).filter_by(plex_user_id="abc123").first() is None
+    assert db.query(MediaRequest).first().plex_user_id == "def456"
 
 
-def test_merge_seer_only_fails_if_target_is_seer(client, db):
-    """La cible ne peut pas être un user seer-only."""
+def test_merge_general_allows_seer_target(client, db):
+    """Fusion générale : la cible peut désormais être n'importe quel compte, seer inclus."""
     seer1 = _seer_only_user(db, seer_id=1)
     seer2 = _seer_only_user(db, seer_id=2)
 
     r = client.post(f"/api/users/{seer1.id}/merge-into/{seer2.id}")
+    assert r.status_code == 200
+
+
+def test_merge_fails_on_self_merge(client, db):
+    """On ne peut pas fusionner un utilisateur avec lui-même."""
+    u = _user(db, plex_user_id="abc123")
+    r = client.post(f"/api/users/{u.id}/merge-into/{u.id}")
     assert r.status_code == 400
 
 

@@ -451,6 +451,7 @@
       <div class="modal-footer border-secondary justify-content-between">
         <div class="d-flex gap-2">
           <button class="btn btn-sm btn-outline-info" id="btn-test-email" onclick="sendTestEmail()" style="display:none"><i class="bi bi-envelope me-1"></i>Test</button>
+          <button class="btn btn-sm btn-outline-primary" id="btn-merge-user" onclick="openMergeUsers()" style="display:none"><i class="bi bi-arrow-left-right me-1"></i>Fusionner</button>
           <button class="btn btn-sm btn-outline-danger" id="btn-delete-user" onclick="deleteUserFromHub()" style="display:none"><i class="bi bi-trash me-1"></i>Supprimer</button>
         </div>
         <div class="d-flex gap-2">
@@ -515,6 +516,43 @@
       <div class="modal-footer border-secondary">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
         <button class="btn btn-info text-dark" id="mergeSeerConfirmBtn" onclick="doMergeSeerOnly()" disabled><i class="bi bi-arrow-left-right me-1"></i>Fusionner</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal fusion générale de deux utilisateurs -->
+<div class="modal fade" id="mergeUsersModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--pr-surface);border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Fusionner deux utilisateurs</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Les données des deux comptes (demandes, co-demandeurs, notifications, signalements, liaison Seer, profil…) sont réunies sur l'utilisateur <strong>conservé</strong> ; l'autre est supprimé. Action irréversible.</p>
+        <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em">Utilisateur courant</label>
+        <div class="mb-3 fw-semibold" id="mergeCurrentName">—</div>
+        <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em">Fusionner avec</label>
+        <select class="form-select mb-3" id="mergeOtherSelect" style="background:var(--pr-surface-2);color:var(--bs-body-color);border-color:var(--pr-border)">
+          <option value="">— Choisir un utilisateur —</option>
+        </select>
+        <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em">Compte à conserver</label>
+        <div class="d-flex gap-4 mb-3">
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="mergeKeeper" id="keepCurrent" value="current" checked>
+            <label class="form-check-label" for="keepCurrent" id="keepCurrentLabel">Courant</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="mergeKeeper" id="keepOther" value="other">
+            <label class="form-check-label" for="keepOther" id="keepOtherLabel">Autre</label>
+          </div>
+        </div>
+        <div class="alert alert-secondary small py-2 mb-0" id="mergeUsersRecap">Choisissez l'autre utilisateur.</div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" id="mergeUsersConfirmBtn" onclick="doMergeUsers()" disabled><i class="bi bi-arrow-left-right me-1"></i>Fusionner</button>
       </div>
     </div>
   </div>
@@ -727,6 +765,7 @@ function openAdd() {
   document.getElementById('fUserId').readOnly = false;
   document.getElementById('editId').value = '';
   document.getElementById('btn-test-email').style.display = 'none';
+  document.getElementById('btn-merge-user').style.display = 'none';
   document.getElementById('btn-delete-user').style.display = 'none';
   if (SEER_ENABLED) document.getElementById('hub-tabli-seer').style.display = 'none';
   document.getElementById('hub-tabli-activity').style.display = 'none';
@@ -743,6 +782,7 @@ async function openUserHub(id) {
   document.getElementById('hub-tabli-diagnostic').style.display = '';
   document.getElementById('hub-tabli-security').style.display = '';
   document.getElementById('btn-test-email').style.display = '';
+  document.getElementById('btn-merge-user').style.display = '';
   document.getElementById('btn-delete-user').style.display = '';
   document.getElementById('fUserId').readOnly = true;
   document.getElementById('hub-diagnostic').innerHTML = '<div class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm"></span></div>';
@@ -1183,6 +1223,72 @@ async function doMergeSeerOnly() {
     showToast(`Fusion effectuée — ${data.requests_moved} demande(s) transférée(s)`, 'success');
     setTimeout(() => location.reload(), 900);
   } catch(e) { showToast('Erreur : ' + e.message, 'danger'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-left-right me-1"></i>Fusionner'; }
+}
+
+// ── Fusion générale de deux utilisateurs ──────────────────────────────────────
+let _mergeCurrentId = null;
+let _mergeUsersModalInst = null;
+function _mergeUsersModal() {
+  if (!_mergeUsersModalInst) _mergeUsersModalInst = new bootstrap.Modal(document.getElementById('mergeUsersModal'));
+  return _mergeUsersModalInst;
+}
+function openMergeUsers() {
+  if (!editingId) return;
+  _mergeCurrentId = editingId;
+  const currentName = document.getElementById('hubTitle').textContent.trim();
+  document.getElementById('mergeCurrentName').textContent = currentName;
+  document.getElementById('keepCurrentLabel').textContent = currentName;
+  const select = document.getElementById('mergeOtherSelect');
+  select.innerHTML = '<option value="">— Choisir un utilisateur —</option>';
+  document.querySelectorAll('.card[data-user-id]').forEach(card => {
+    const uid = parseInt(card.dataset.userId);
+    if (uid === editingId) return;
+    const name = card.querySelector('.fw-semibold')?.textContent.trim() || `#${uid}`;
+    select.appendChild(new Option(name, uid));
+  });
+  document.getElementById('keepCurrent').checked = true;
+  document.getElementById('keepOtherLabel').textContent = 'Autre';
+  document.getElementById('mergeUsersConfirmBtn').disabled = true;
+  document.getElementById('mergeUsersRecap').textContent = "Choisissez l'autre utilisateur.";
+  select.onchange = _updateMergeUsersRecap;
+  document.querySelectorAll('input[name="mergeKeeper"]').forEach(r => { r.onchange = _updateMergeUsersRecap; });
+  hubModal.hide();
+  _mergeUsersModal().show();
+}
+function _updateMergeUsersRecap() {
+  const select = document.getElementById('mergeOtherSelect');
+  const btn = document.getElementById('mergeUsersConfirmBtn');
+  const recap = document.getElementById('mergeUsersRecap');
+  if (!select.value) { btn.disabled = true; recap.textContent = "Choisissez l'autre utilisateur."; return; }
+  const otherName = select.options[select.selectedIndex].textContent;
+  document.getElementById('keepOtherLabel').textContent = otherName;
+  const keepCurrent = document.getElementById('keepCurrent').checked;
+  const currentName = document.getElementById('mergeCurrentName').textContent;
+  const keeper = keepCurrent ? currentName : otherName;
+  const removed = keepCurrent ? otherName : currentName;
+  recap.innerHTML = `<i class="bi bi-info-circle me-1"></i>On conserve <strong>${escHtml(keeper)}</strong> et on y fusionne <strong>${escHtml(removed)}</strong>, qui sera supprimé.`;
+  btn.disabled = false;
+}
+async function doMergeUsers() {
+  const select = document.getElementById('mergeOtherSelect');
+  const otherId = parseInt(select.value);
+  if (!otherId || !_mergeCurrentId) return;
+  const keepCurrent = document.getElementById('keepCurrent').checked;
+  const keeperId = keepCurrent ? _mergeCurrentId : otherId;
+  const sourceId = keepCurrent ? otherId : _mergeCurrentId;
+  if (sourceId === keeperId) return;
+  const btn = document.getElementById('mergeUsersConfirmBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Fusion…';
+  try {
+    const r = await fetch(`/api/users/${sourceId}/merge-into/${keeperId}`, { method: 'POST' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Erreur');
+    const d = await r.json();
+    showToast(`Fusion effectuée — ${d.requests_moved} demande(s) transférée(s)`, 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-left-right me-1"></i>Fusionner';
+  }
 }
 
 // ── Enregistrement / suppression / test ───────────────────────────────────────
