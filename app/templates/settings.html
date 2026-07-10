@@ -140,70 +140,82 @@
               <button type="button" class="btn btn-outline-secondary" onclick="togglePass('instApiKey')"><i class="bi bi-eye"></i></button>
             </div>
           </div>
-          
-          <!-- Sonarr / Radarr Specific Fields -->
-          <div class="col-md-6 arr-only">
-            <label class="form-label">Profil qualité</label>
-            <div class="input-group">
-              <select class="form-select bg-dark text-light border-secondary" id="instQualityProfile">
-                <option value="">Sélectionnez un profil</option>
-              </select>
-              <button type="button" class="btn btn-outline-secondary" onclick="fetchInstProfiles()">Charger</button>
-            </div>
-          </div>
-          <div class="col-md-6 arr-only">
-            <label class="form-label">Dossier racine par défaut</label>
-            <div class="input-group">
-              <select class="form-select bg-dark text-light border-secondary" id="instRootFolder">
-                <option value="">Sélectionnez un dossier</option>
-              </select>
-              <button type="button" class="btn btn-outline-secondary" onclick="fetchInstFolders()">Charger</button>
-            </div>
+
+          <!-- Étape 1 : tester la connexion avant de révéler le reste -->
+          <div class="col-12">
+            <button type="button" class="btn btn-warning w-100" id="instTestBtn" onclick="testInstConn()">
+              <i class="bi bi-plug me-1"></i>Tester la connexion
+            </button>
+            <div id="instTestStatus" class="small mt-2"></div>
           </div>
 
-          <!-- Radarr Specific Fields -->
-          <div class="col-12 radarr-only">
-            <label class="form-label">Disponibilité minimale</label>
-            <select class="form-select bg-dark text-light border-secondary" id="instMinAvailability">
-              <option value="announced">Annoncé</option>
-              <option value="inCinemas">En salle</option>
-              <option value="released" selected>Sorti (recommandé)</option>
-              <option value="tba">À annoncer</option>
-            </select>
-          </div>
+          <!-- Étape 2 : révélée après une connexion réussie (ou en édition) -->
+          <div class="col-12" id="instStep2" style="display:none">
+            <div class="row g-3">
+              <div class="col-md-6 arr-only">
+                <label class="form-label">Profil qualité</label>
+                <div class="input-group">
+                  <select class="form-select bg-dark text-light border-secondary" id="instQualityProfile">
+                    <option value="">Sélectionnez un profil</option>
+                  </select>
+                  <button type="button" class="btn btn-outline-secondary" onclick="fetchInstProfiles()">Recharger</button>
+                </div>
+              </div>
+              <div class="col-md-6 arr-only">
+                <label class="form-label">Dossier racine par défaut</label>
+                <div class="input-group">
+                  <select class="form-select bg-dark text-light border-secondary" id="instRootFolder">
+                    <option value="">Sélectionnez un dossier</option>
+                  </select>
+                  <button type="button" class="btn btn-outline-secondary" onclick="fetchInstFolders()">Recharger</button>
+                </div>
+              </div>
 
-          <!-- Prowlarr Specific Fields -->
-          <div class="col-12 prowlarr-only" style="display:none">
-            <label class="form-label">Indexeurs à utiliser (multi-sélectionnable)</label>
-            <div class="input-group mb-2">
-              <select class="form-select bg-dark text-light border-secondary" id="instIndexers" multiple style="height:120px">
-              </select>
-              <button type="button" class="btn btn-outline-secondary align-self-start" onclick="fetchProwlarrIndexers()">Charger</button>
-            </div>
-            <div class="form-text text-muted">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs indexeurs. Si aucun n'est sélectionné, tous les indexeurs configurés dans Prowlarr seront utilisés.</div>
-          </div>
-
-          <!-- Flags -->
-          <div class="col-md-6 d-flex align-items-center">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="instEnabled" checked>
-              <label class="form-check-label" for="instEnabled">Instance activée</label>
-            </div>
-          </div>
-          <div class="col-md-6 d-flex align-items-center">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="instIsDefault">
-              <label class="form-check-label" for="instIsDefault">Instance par défaut pour ce type</label>
+              <div class="col-12">
+                <a class="small text-warning" data-bs-toggle="collapse" href="#instAdvanced" role="button" aria-expanded="false">
+                  <i class="bi bi-sliders me-1"></i>Options avancées
+                </a>
+              </div>
+              <div class="col-12 collapse" id="instAdvanced">
+                <div class="row g-3">
+                  <div class="col-12 radarr-only">
+                    <label class="form-label">Disponibilité minimale</label>
+                    <select class="form-select bg-dark text-light border-secondary" id="instMinAvailability">
+                      <option value="announced">Annoncé</option>
+                      <option value="inCinemas">En salle</option>
+                      <option value="released" selected>Sorti (recommandé)</option>
+                      <option value="tba">À annoncer</option>
+                    </select>
+                  </div>
+                  <div class="col-12 prowlarr-only" style="display:none">
+                    <label class="form-label">Indexeurs à utiliser (multi-sélectionnable)</label>
+                    <div class="input-group mb-2">
+                      <select class="form-select bg-dark text-light border-secondary" id="instIndexers" multiple style="height:120px"></select>
+                      <button type="button" class="btn btn-outline-secondary align-self-start" onclick="fetchProwlarrIndexers()">Charger</button>
+                    </div>
+                    <div class="form-text text-muted">Maintenez Ctrl (ou Cmd) pour sélectionner plusieurs indexeurs. Si aucun n'est sélectionné, tous les indexeurs configurés dans Prowlarr seront utilisés.</div>
+                  </div>
+                  <div class="col-md-6 d-flex align-items-center">
+                    <div class="form-check form-switch">
+                      <input class="form-check-input" type="checkbox" id="instEnabled" checked>
+                      <label class="form-check-label" for="instEnabled">Instance activée</label>
+                    </div>
+                  </div>
+                  <div class="col-md-6 d-flex align-items-center">
+                    <div class="form-check form-switch">
+                      <input class="form-check-input" type="checkbox" id="instIsDefault">
+                      <label class="form-check-label" for="instIsDefault">Instance par défaut pour ce type</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <div class="modal-footer border-secondary justify-content-between">
-        <button type="button" class="btn btn-outline-warning" onclick="testInstConn()">Tester la connexion</button>
-        <div class="d-flex gap-2">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-          <button type="button" class="btn btn-warning" onclick="saveArrInstance()">Enregistrer</button>
-        </div>
+      <div class="modal-footer border-secondary justify-content-end">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-warning" onclick="saveArrInstance()">Enregistrer</button>
       </div>
     </div>
   </div>
@@ -296,7 +308,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/settings.js?v=templates-20260708"></script>
+<script src="/static/js/settings.js?v=conn-hub-20260710"></script>
 
 <!-- CodeMirror pour l'onglet Templates -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">

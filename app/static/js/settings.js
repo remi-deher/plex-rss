@@ -30,6 +30,40 @@ function restoreConnBadges() {
   });
 }
 
+// ── Connexions : hub de cartes de statut ─────────────────────────────────────
+// prepArrAdd mémorise le type de la carte cliquée pour pré-remplir « Ajouter une instance ».
+let _arrPreferredType = null;
+function prepArrAdd(type) { _arrPreferredType = type; }
+
+function _setHub(name, state, text, ok) {
+  const el = document.getElementById('hub-st-' + name);
+  if (!el) return;
+  el.className = 'hub-pill ' + state;
+  el.innerHTML = (ok ? '<i class="bi bi-check-circle-fill"></i> ' : '') + text;
+}
+// Recalcule les pastilles d'état depuis le formulaire + les listes chargées.
+// Appelée après les chargements / sur saisie — jamais avant que _arrInstances soit déclaré (TDZ).
+function refreshConnHub() {
+  const val = n => (document.querySelector(`[name="${n}"]`)?.value || '').trim();
+  const plexOk = !!(val('plex_url') && val('plex_token'));
+  _setHub('plex', plexOk ? 'ok' : 'off', plexOk ? 'Configuré' : 'Non configuré', plexOk);
+  const seerOk = !!(val('seer_url') && val('seer_api_key'));
+  _setHub('seer', seerOk ? 'ok' : 'opt', seerOk ? 'Configuré' : 'Optionnel · non configuré', seerOk);
+  const insts = _arrInstances || [];
+  ['sonarr', 'radarr', 'prowlarr'].forEach(t => {
+    const n = insts.filter(i => i.arr_type === t).length;
+    const optional = t === 'prowlarr';
+    const label = n ? `${n} instance${n > 1 ? 's' : ''}` : (optional ? 'Optionnel · non configuré' : 'Non configuré');
+    _setHub(t, n ? 'ok' : (optional ? 'opt' : 'off'), label, n > 0);
+  });
+  const nc = (_downloadClients || []).length;
+  _setHub('torrent', nc ? 'ok' : 'off', nc ? `${nc} client${nc > 1 ? 's' : ''}` : 'Non configuré', nc > 0);
+  const tmdbOk = !!val('tmdb_api_key');
+  _setHub('tmdb', tmdbOk ? 'ok' : 'opt', tmdbOk ? 'Configuré' : 'Optionnel · non configuré', tmdbOk);
+}
+// Met à jour les pastilles « valeur » (Plex/Seer/TMDB) en direct à la saisie.
+document.getElementById('settings-form').addEventListener('input', () => { try { refreshConnHub(); } catch (e) {} });
+
 // ── Seer → dim Sonarr/Radarr ────────────────────────────────────────────
 function updateSeerMode() {
   const sendReq = document.getElementById('seer_send_requests')?.checked;
@@ -1097,13 +1131,15 @@ async function loadArrInstances() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="7" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
   }
+  try { refreshConnHub(); } catch (e) {}
 }
 
 function openArrInstanceModal() {
   document.getElementById('instId').value = '';
   document.getElementById('arrInstanceModalTitle').textContent = 'Ajouter une instance';
   document.getElementById('instName').value = '';
-  document.getElementById('instType').value = 'sonarr';
+  document.getElementById('instType').value = _arrPreferredType || 'sonarr';
+  _arrPreferredType = null;
   document.getElementById('instUrl').value = '';
   document.getElementById('instApiKey').value = '';
   document.getElementById('instQualityProfile').innerHTML = '<option value="">Sélectionnez un profil (chargez d\'abord)</option>';
@@ -1112,9 +1148,13 @@ function openArrInstanceModal() {
   document.getElementById('instIndexers').innerHTML = '';
   document.getElementById('instEnabled').checked = true;
   document.getElementById('instIsDefault').checked = false;
-  
+
+  // Divulgation progressive : on masque l'étape 2 tant que la connexion n'est pas validée.
+  document.getElementById('instStep2').style.display = 'none';
+  document.getElementById('instTestStatus').innerHTML = '';
+
   onInstTypeChange();
-  
+
   new bootstrap.Modal(document.getElementById('arrInstanceModal')).show();
 }
 
@@ -1203,15 +1243,31 @@ async function fetchProwlarrIndexers(selectedIds = []) {
   }
 }
 
+// Révèle l'étape 2 du modal et charge les options adaptées au type d'instance.
+function revealInstStep2(type) {
+  document.getElementById('instStep2').style.display = '';
+  onInstTypeChange();
+  if (type === 'sonarr' || type === 'radarr') {
+    fetchInstProfiles(document.getElementById('instQualityProfile').value || null);
+    fetchInstFolders(document.getElementById('instRootFolder').value || null);
+  } else if (type === 'prowlarr') {
+    fetchProwlarrIndexers();
+  }
+}
+
 async function testInstConn() {
   const type = document.getElementById('instType').value;
   const url = document.getElementById('instUrl').value.trim();
   const apiKey = document.getElementById('instApiKey').value.trim();
+  const status = document.getElementById('instTestStatus');
   if (!url || !apiKey) {
-    return showToast("URL et clé API requises", "warning");
+    status.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>URL et clé API requises.</span>';
+    return;
   }
-  
-  showToast("Test de connexion...", "secondary");
+  const btn = document.getElementById('instTestBtn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Test…';
   try {
     const r = await fetch('/api/test/arr-instance', {
       method: 'POST',
@@ -1220,12 +1276,16 @@ async function testInstConn() {
     });
     const d = await r.json();
     if (d.success) {
-      showToast(d.message || "Connexion réussie !", "success");
+      status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${_esc(d.message || 'Connecté')}</span>`;
+      revealInstStep2(type);
     } else {
-      showToast(d.message || "Échec de connexion", "danger");
+      status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${_esc(d.message || 'Échec de connexion')}</span>`;
     }
   } catch (e) {
-    showToast("Erreur : " + e.message, "danger");
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Erreur : ${_esc(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
 }
 
@@ -1298,7 +1358,12 @@ function editArrInstance(id) {
   
   document.getElementById('instEnabled').checked = inst.enabled;
   document.getElementById('instIsDefault').checked = inst.is_default;
-  
+
+  // Édition : les valeurs existent déjà, on affiche directement l'étape 2.
+  document.getElementById('instStep2').style.display = '';
+  document.getElementById('instTestStatus').innerHTML =
+    '<span class="text-muted"><i class="bi bi-info-circle me-1"></i>Instance existante — testez à nouveau si vous changez l\'URL ou la clé.</span>';
+
   new bootstrap.Modal(document.getElementById('arrInstanceModal')).show();
 }
 
@@ -1415,6 +1480,7 @@ async function loadDownloadClients() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="7" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
   }
+  try { refreshConnHub(); } catch (e) {}
 }
 
 function openDlClientModal() {
@@ -2013,6 +2079,7 @@ async function retryIssueSearch(id, btn) {
 
 // Check open issues on load to display badge
 document.addEventListener('DOMContentLoaded', async () => {
+  try { refreshConnHub(); } catch (e) {}
   const badge = document.getElementById('issues-badge');
   if (badge) {
     try {
