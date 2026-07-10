@@ -54,6 +54,85 @@ def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_a
     return {"steps": steps, "complete": all(s["done"] for s in steps if not s.get("optional"))}
 
 
+@router.get("/onboarding/context")
+def onboarding_context(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    """Snapshot de la configuration actuelle pour pré-remplir l'assistant.
+
+    Les secrets ne sont jamais renvoyés en clair : on expose seulement un booléen
+    `*_set` indiquant qu'une valeur est déjà enregistrée. Le wizard s'appuie dessus
+    pour ne réécrire un secret que si l'utilisateur en saisit un nouveau (sinon le
+    champ reste vide côté client → non transmis → non écrasé côté serveur).
+    """
+    s = db.query(Settings).first()
+
+    def val(attr):
+        return getattr(s, attr, None) if s else None
+
+    def is_set(attr):
+        return bool(getattr(s, attr, None)) if s else False
+
+    instances = db.query(ArrInstance).all()
+    return {
+        "has_account": bool(s and s.auth_username),
+        "plex": {
+            "url": val("plex_url"),
+            "rss_url": val("plex_rss_url"),
+            "verify_ssl": val("plex_verify_ssl"),
+            "token_set": is_set("plex_token"),
+        },
+        "arr_instances": [
+            {
+                "id": i.id,
+                "name": i.name,
+                "arr_type": i.arr_type,
+                "url": i.url,
+                "quality_profile_id": i.quality_profile_id,
+                "root_folder": i.root_folder,
+                "minimum_availability": i.minimum_availability,
+                "enabled": i.enabled,
+                "is_default": i.is_default,
+            }
+            for i in instances
+        ],
+        "seer": {
+            "enabled": bool(val("seer_send_requests") or val("seer_enabled")),
+            "url": val("seer_url"),
+            "send_requests": val("seer_send_requests"),
+            "fallback_arr": val("seer_fallback_arr"),
+            "api_key_set": is_set("seer_api_key"),
+        },
+        "vff": {
+            "enabled": val("vff_enabled"),
+            "libraries": val("vff_libraries"),
+            "recheck_interval_minutes": val("vff_recheck_interval_minutes"),
+            "auto_search": val("vff_auto_search"),
+        },
+        "smtp": {
+            "host": val("smtp_host"),
+            "port": val("smtp_port"),
+            "user": val("smtp_user"),
+            "from": val("smtp_from"),
+            "tls": val("smtp_tls"),
+            "admin_email": val("admin_notification_email"),
+            "password_set": is_set("smtp_password"),
+        },
+        "discord": {"enabled": val("discord_enabled"), "webhook_set": is_set("discord_webhook_url")},
+        "telegram": {
+            "enabled": val("telegram_enabled"),
+            "chat_id": val("telegram_chat_id"),
+            "bot_token_set": is_set("telegram_bot_token"),
+        },
+        "ntfy": {
+            "enabled": val("ntfy_enabled"),
+            "url": val("ntfy_url"),
+            "topic": val("ntfy_topic"),
+            "token_set": is_set("ntfy_token"),
+        },
+        "gotify": {"enabled": val("gotify_enabled"), "url": val("gotify_url"), "token_set": is_set("gotify_token")},
+        "tmdb": {"api_key_set": is_set("tmdb_api_key")},
+    }
+
+
 @router.post("/plex/sso/pin")
 async def plex_sso_pin(request: Request, _: None = Depends(require_admin)):
     """CrÃ©e une demande de PIN Plex SSO et retourne l'URL d'authentification."""

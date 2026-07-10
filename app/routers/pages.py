@@ -550,6 +550,19 @@ def logs_page(request: Request, _: None = Depends(require_admin)):
     return templates.TemplateResponse(request, "logs.html")
 
 
+@router.get("/setup/wizard", response_class=HTMLResponse)
+def setup_wizard_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+    """Assistant de configuration rapide, adaptatif et rejouable.
+
+    Accessible aux admins à tout moment (bouton dans /settings) et affiché
+    automatiquement juste après la création du compte (`?first=1`). Toute la
+    logique est côté client : il orchestre les endpoints de test et de
+    sauvegarde existants sans dupliquer de logique métier.
+    """
+    first = request.query_params.get("first") == "1"
+    return templates.TemplateResponse(request, "wizard.html", {"first_run": first})
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
     """Page de configuration globale de l'application."""

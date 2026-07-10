@@ -108,7 +108,8 @@ async def setup_post(
     request.session["username"] = username
     request.session["is_owner"] = True
     request.session["role"] = "admin"
-    return RedirectResponse("/", status_code=302)
+    # Enchaîner sur l'assistant de configuration adaptatif (Plex, *arr, notifications…)
+    return RedirectResponse("/setup/wizard?first=1", status_code=302)
 
 
 @router.get("/login", response_class=HTMLResponse)

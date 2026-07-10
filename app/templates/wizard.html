@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="fr" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistant de configuration — Plexarr</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23e5a00d'/%3E%3Cpolygon points='13,9 25,16 13,23' fill='%23141414'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; font-family: 'Inter', sans-serif;
+      background: #0d0d0d; display: flex; align-items: flex-start; justify-content: center;
+      padding: 40px 20px; position: relative; overflow-x: hidden; color: #ddd;
+    }
+    .bg-blob { position: fixed; border-radius: 50%; filter: blur(80px); opacity: .12;
+      animation: drift 14s ease-in-out infinite alternate; pointer-events: none; z-index: 0; }
+    .bg-blob-1 { width: 700px; height: 700px; background: radial-gradient(circle, #e5a00d, transparent 70%);
+      top: -250px; right: -200px; animation-duration: 16s; }
+    .bg-blob-2 { width: 500px; height: 500px; background: radial-gradient(circle, #198754, transparent 70%);
+      bottom: -150px; left: -150px; animation-duration: 12s; animation-delay: -6s; }
+    @keyframes drift { from { transform: translate(0,0) scale(1); } to { transform: translate(25px,15px) scale(1.04); } }
+    body::before { content: ''; position: fixed; inset: 0;
+      background-image: linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.015) 1px, transparent 1px);
+      background-size: 40px 40px; pointer-events: none; z-index: 0; }
+
+    .wiz-wrapper { position: relative; z-index: 1; width: 100%; max-width: 620px; animation: fadeUp .5s ease both; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+
+    .brand-logo { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; }
+    .brand-logo .logo-icon { width: 44px; height: 44px; background: linear-gradient(135deg, #e5a00d, #c8860d);
+      border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px;
+      box-shadow: 0 4px 16px rgba(229,160,13,.35); }
+    .brand-logo .logo-text { font-size: 1.3rem; font-weight: 700; color: #fff; letter-spacing: -.3px; }
+    .brand-logo .logo-text span { color: #e5a00d; }
+
+    /* Progress bar */
+    .steps-bar { display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 28px; flex-wrap: wrap; }
+    .step-dot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: .78rem; font-weight: 700; transition: all .3s; position: relative; z-index: 1; }
+    .step-dot.active { background: linear-gradient(135deg, #e5a00d, #c8860d); color: #111; box-shadow: 0 0 0 4px rgba(229,160,13,.2); }
+    .step-dot.done { background: rgba(25,135,84,.85); color: #fff; }
+    .step-dot.upcoming { background: rgba(255,255,255,.07); color: #444; border: 1px solid rgba(255,255,255,.1); }
+    .step-line { flex: 1; height: 2px; max-width: 42px; background: rgba(255,255,255,.08); }
+    .step-line.done { background: rgba(25,135,84,.5); }
+
+    .wiz-card { background: rgba(30,30,30,.75); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,.08); border-radius: 20px; padding: 36px 34px;
+      box-shadow: 0 0 0 1px rgba(229,160,13,.06), 0 24px 60px rgba(0,0,0,.6); }
+
+    .step-panel { display: none; }
+    .step-panel.active { display: block; animation: fadeIn .3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+
+    .step-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+    .step-heading .step-emoji { font-size: 26px; }
+    .step-heading h3 { font-size: 1.1rem; font-weight: 700; color: #fff; margin: 0; }
+    .step-sub { color: #777; font-size: .85rem; margin: 0 0 22px; }
+
+    .form-label { font-size: .74rem; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 6px; display: block; }
+    .form-control, .form-select {
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 10px;
+      color: #fff; padding: 10px 13px; font-size: .92rem; font-family: 'Inter', sans-serif; width: 100%;
+      transition: border-color .2s, background .2s, box-shadow .2s; margin-bottom: 14px; }
+    .form-control:focus, .form-select:focus { background: rgba(255,255,255,.07); border-color: #e5a00d;
+      box-shadow: 0 0 0 3px rgba(229,160,13,.15); outline: none; color: #fff; }
+    .form-control::placeholder { color: #555; }
+    .secret-hint { font-size: .72rem; color: #6c8; margin: -10px 0 12px; display: flex; align-items: center; gap: 5px; }
+
+    .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+    .choice { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; cursor: pointer;
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08); transition: all .18s; user-select: none; }
+    .choice:hover { border-color: rgba(229,160,13,.4); }
+    .choice.selected { border-color: #e5a00d; background: rgba(229,160,13,.08); box-shadow: 0 0 0 1px rgba(229,160,13,.3); }
+    .choice input { display: none; }
+    .choice .choice-ico { font-size: 22px; color: #e5a00d; width: 26px; text-align: center; }
+    .choice .choice-txt strong { display: block; color: #eee; font-size: .9rem; }
+    .choice .choice-txt small { color: #777; font-size: .76rem; }
+
+    .subform { border-left: 2px solid rgba(229,160,13,.35); padding-left: 16px; margin: 14px 0 4px; }
+    .subform-title { font-size: .8rem; font-weight: 700; color: #e5a00d; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 7px; }
+
+    .btn-test { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.15); color: #ccc;
+      border-radius: 9px; padding: 7px 14px; font-size: .82rem; font-weight: 600; cursor: pointer;
+      transition: all .18s; display: inline-flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+    .btn-test:hover { border-color: #e5a00d; color: #e5a00d; }
+    .btn-test:disabled { opacity: .5; cursor: not-allowed; }
+    .test-result { font-size: .8rem; margin: -6px 0 12px; min-height: 18px; }
+    .test-result.ok { color: #4ade80; }
+    .test-result.err { color: #f87171; }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .nav-btns { display: flex; gap: 10px; margin-top: 26px; }
+    .btn-next, .btn-skip, .btn-back {
+      flex: 1; padding: 12px; border-radius: 10px; font-weight: 700; font-size: .9rem;
+      font-family: 'Inter', sans-serif; cursor: pointer; transition: all .18s; border: none; }
+    .btn-next { background: linear-gradient(135deg, #e5a00d, #c8860d); color: #111; box-shadow: 0 4px 20px rgba(229,160,13,.3); }
+    .btn-next:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(229,160,13,.4); }
+    .btn-next:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-back { background: transparent; border: 1px solid rgba(255,255,255,.12); color: #999; flex: 0 0 auto; padding: 12px 20px; }
+    .btn-back:hover { border-color: rgba(255,255,255,.25); color: #ddd; }
+    .btn-skip { background: transparent; border: 1px dashed rgba(255,255,255,.14); color: #777; }
+    .btn-skip:hover { color: #bbb; border-color: rgba(255,255,255,.3); }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0;
+      border-bottom: 1px solid rgba(255,255,255,.06); }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-row .tr-label strong { display: block; color: #eee; font-size: .9rem; }
+    .toggle-row .tr-label small { color: #777; font-size: .76rem; }
+    .form-check-input { cursor: pointer; }
+
+    .lib-list { max-height: 220px; overflow-y: auto; border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 6px; }
+    .lib-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+    .lib-item:hover { background: rgba(255,255,255,.04); }
+    .lib-item input { width: 17px; height: 17px; }
+
+    .recap-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px; border-radius: 10px;
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); margin-bottom: 8px; font-size: .88rem; }
+    .recap-item.done { color: #cfe; } .recap-item.done i { color: #4ade80; }
+    .recap-item.todo { color: #999; } .recap-item.todo i { color: #555; }
+
+    .welcome-icon { width: 72px; height: 72px; background: linear-gradient(135deg, rgba(229,160,13,.15), rgba(229,160,13,.05));
+      border: 1px solid rgba(229,160,13,.2); border-radius: 20px; display: flex; align-items: center; justify-content: center;
+      font-size: 32px; margin: 0 auto 20px; box-shadow: 0 0 40px rgba(229,160,13,.08); }
+    .muted { color: #777; font-size: .82rem; }
+    .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #e5a00d; border-radius: 50%; animation: sp .7s linear infinite; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+    a.exit-link { position: fixed; top: 18px; right: 22px; z-index: 5; color: #888; text-decoration: none; font-size: .84rem; }
+    a.exit-link:hover { color: #e5a00d; }
+    @media (max-width: 560px) { .choice-grid, .row2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="bg-blob bg-blob-1"></div>
+  <div class="bg-blob bg-blob-2"></div>
+  <a href="/settings" class="exit-link"><i class="bi bi-x-lg"></i> Quitter</a>
+
+  <div class="wiz-wrapper">
+    <div class="brand-logo">
+      <div class="logo-icon"><i class="bi bi-collection-play-fill" style="color:#141414"></i></div>
+      <div class="logo-text">Plex<span>arr</span></div>
+    </div>
+
+    <div class="steps-bar" id="steps-bar"></div>
+
+    <div class="wiz-card">
+
+      <!-- ============ WELCOME ============ -->
+      <div class="step-panel active" data-step="welcome">
+        <div style="text-align:center;">
+          <div class="welcome-icon">🧭</div>
+          <h3 style="color:#fff;font-weight:700;margin-bottom:6px;">Assistant de configuration</h3>
+          <p class="step-sub" id="welcome-sub">Quelques questions pour configurer toute votre stack.
+            Chaque étape s'adapte à vos réponses — passez celles qui ne vous concernent pas.</p>
+        </div>
+        <p class="muted" style="text-align:center;margin-top:14px;">
+          <i class="bi bi-shield-check"></i> Vos réglages existants sont pré-remplis et jamais écrasés tant que vous ne les modifiez pas.
+        </p>
+      </div>
+
+      <!-- ============ PLEX ============ -->
+      <div class="step-panel" data-step="plex">
+        <div class="step-heading"><span class="step-emoji">🎬</span><h3>Serveur Plex</h3></div>
+        <p class="step-sub">La base : l'URL de votre serveur, un token, et le flux RSS de votre watchlist.</p>
+
+        <label class="form-label">URL du serveur Plex</label>
+        <input class="form-control" id="plex_url" placeholder="http://192.168.1.10:32400">
+
+        <label class="form-label">Token Plex</label>
+        <input class="form-control" id="plex_token" type="password" placeholder="X-Plex-Token">
+        <div class="secret-hint" id="plex_token_hint" hidden><i class="bi bi-check-circle-fill"></i> Déjà configuré — laissez vide pour conserver</div>
+
+        <label class="form-label">URL du flux RSS de la watchlist</label>
+        <input class="form-control" id="plex_rss_url" placeholder="https://rss.plex.tv/...">
+
+        <div class="d-flex gap-2">
+          <button class="btn-test" onclick="testPlexApi(this)"><i class="bi bi-plug"></i> Tester la connexion</button>
+          <button class="btn-test" onclick="testPlexRss(this)"><i class="bi bi-rss"></i> Tester le RSS</button>
+        </div>
+        <div class="test-result" id="plex_test"></div>
+      </div>
+
+      <!-- ============ ARR ============ -->
+      <div class="step-panel" data-step="arr">
+        <div class="step-heading"><span class="step-emoji">📥</span><h3>Sonarr &amp; Radarr</h3></div>
+        <p class="step-sub">Utilisez-vous des gestionnaires *arr ? Cochez ceux qui vous concernent.</p>
+
+        <div class="choice-grid">
+          <label class="choice" id="choice-sonarr">
+            <input type="checkbox" id="use_sonarr" onchange="toggleArr('sonarr')">
+            <span class="choice-ico"><i class="bi bi-tv"></i></span>
+            <span class="choice-txt"><strong>Sonarr</strong><small>Séries</small></span>
+          </label>
+          <label class="choice" id="choice-radarr">
+            <input type="checkbox" id="use_radarr" onchange="toggleArr('radarr')">
+            <span class="choice-ico"><i class="bi bi-film"></i></span>
+            <span class="choice-txt"><strong>Radarr</strong><small>Films</small></span>
+          </label>
+        </div>
+
+        <div class="subform" id="form-sonarr" hidden>
+          <div class="subform-title"><i class="bi bi-tv"></i> Sonarr</div>
+          <div class="row2">
+            <div><label class="form-label">URL</label><input class="form-control" id="sonarr_url" placeholder="http://sonarr:8989"></div>
+            <div><label class="form-label">Clé API</label><input class="form-control" id="sonarr_api_key" type="password" placeholder="API key"></div>
+          </div>
+          <div class="secret-hint" id="sonarr_key_hint" hidden><i class="bi bi-check-circle-fill"></i> Clé déjà enregistrée — ressaisissez-la seulement pour la modifier</div>
+          <button class="btn-test" onclick="testArr('sonarr', this)"><i class="bi bi-plug"></i> Tester &amp; charger les profils</button>
+          <div class="test-result" id="sonarr_test"></div>
+          <div class="row2" id="sonarr_extra" hidden>
+            <div><label class="form-label">Profil de qualité</label><select class="form-select" id="sonarr_profile"></select></div>
+            <div><label class="form-label">Dossier racine</label><select class="form-select" id="sonarr_folder"></select></div>
+          </div>
+        </div>
+
+        <div class="subform" id="form-radarr" hidden>
+          <div class="subform-title"><i class="bi bi-film"></i> Radarr</div>
+          <div class="row2">
+            <div><label class="form-label">URL</label><input class="form-control" id="radarr_url" placeholder="http://radarr:7878"></div>
+            <div><label class="form-label">Clé API</label><input class="form-control" id="radarr_api_key" type="password" placeholder="API key"></div>
+          </div>
+          <div class="secret-hint" id="radarr_key_hint" hidden><i class="bi bi-check-circle-fill"></i> Clé déjà enregistrée — ressaisissez-la seulement pour la modifier</div>
+          <button class="btn-test" onclick="testArr('radarr', this)"><i class="bi bi-plug"></i> Tester &amp; charger les profils</button>
+          <div class="test-result" id="radarr_test"></div>
+          <div class="row2" id="radarr_extra" hidden>
+            <div><label class="form-label">Profil de qualité</label><select class="form-select" id="radarr_profile"></select></div>
+            <div><label class="form-label">Dossier racine</label><select class="form-select" id="radarr_folder"></select></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ SEER ============ -->
+      <div class="step-panel" data-step="seer">
+        <div class="step-heading"><span class="step-emoji">🗂️</span><h3>Passerelle de demandes</h3></div>
+        <p class="step-sub">Utilisez-vous Overseerr / Jellyseerr comme source de demandes ?</p>
+
+        <div class="choice-grid" style="grid-template-columns:1fr;">
+          <label class="choice" id="choice-seer">
+            <input type="checkbox" id="use_seer" onchange="toggleSeer()">
+            <span class="choice-ico"><i class="bi bi-diagram-3"></i></span>
+            <span class="choice-txt"><strong>Oui, j'utilise Overseerr / Jellyseerr</strong><small>Importer les demandes et statuts</small></span>
+          </label>
+        </div>
+
+        <div class="subform" id="form-seer" hidden>
+          <label class="form-label">URL</label>
+          <input class="form-control" id="seer_url" placeholder="http://overseerr:5055">
+          <label class="form-label">Clé API</label>
+          <input class="form-control" id="seer_api_key" type="password" placeholder="API key">
+          <div class="secret-hint" id="seer_key_hint" hidden><i class="bi bi-check-circle-fill"></i> Déjà configuré — laissez vide pour conserver</div>
+          <div class="toggle-row">
+            <span class="tr-label"><strong>Repli vers *arr</strong><small>Si la passerelle échoue, envoyer la demande directement à Sonarr/Radarr</small></span>
+            <input class="form-check-input" type="checkbox" id="seer_fallback" checked>
+          </div>
+          <button class="btn-test" onclick="testSeer(this)"><i class="bi bi-plug"></i> Tester la connexion</button>
+          <div class="test-result" id="seer_test"></div>
+        </div>
+      </div>
+
+      <!-- ============ VFF ============ -->
+      <div class="step-panel" data-step="vff">
+        <div class="step-heading"><span class="step-emoji">🇫🇷</span><h3>Suivi VF (VFF)</h3></div>
+        <p class="step-sub">Le différenciateur Plexarr : être prévenu quand la version française d'un média dispo en VO arrive.</p>
+
+        <div class="choice-grid" style="grid-template-columns:1fr;">
+          <label class="choice" id="choice-vff">
+            <input type="checkbox" id="use_vff" onchange="toggleVff()">
+            <span class="choice-ico"><i class="bi bi-badge-vo"></i></span>
+            <span class="choice-txt"><strong>Activer le suivi des versions françaises</strong><small>Analyse des pistes audio de vos bibliothèques Plex</small></span>
+          </label>
+        </div>
+
+        <div class="subform" id="form-vff" hidden>
+          <label class="form-label">Bibliothèques Plex à surveiller</label>
+          <div class="lib-list" id="vff_libs"><div class="muted" style="padding:10px;">Chargement des bibliothèques…</div></div>
+          <label class="form-label" style="margin-top:14px;">Intervalle de ré-analyse (minutes)</label>
+          <input class="form-control" id="vff_interval" type="number" min="30" placeholder="360">
+        </div>
+      </div>
+
+      <!-- ============ NOTIFICATIONS ============ -->
+      <div class="step-panel" data-step="notifs">
+        <div class="step-heading"><span class="step-emoji">🔔</span><h3>Notifications</h3></div>
+        <p class="step-sub">Comment souhaitez-vous être prévenu ? Cochez un ou plusieurs canaux.</p>
+
+        <div class="choice-grid">
+          <label class="choice" id="choice-email"><input type="checkbox" id="use_email" onchange="toggleNotif('email')">
+            <span class="choice-ico"><i class="bi bi-envelope"></i></span><span class="choice-txt"><strong>Email</strong><small>SMTP</small></span></label>
+          <label class="choice" id="choice-discord"><input type="checkbox" id="use_discord" onchange="toggleNotif('discord')">
+            <span class="choice-ico"><i class="bi bi-discord"></i></span><span class="choice-txt"><strong>Discord</strong><small>Webhook</small></span></label>
+          <label class="choice" id="choice-telegram"><input type="checkbox" id="use_telegram" onchange="toggleNotif('telegram')">
+            <span class="choice-ico"><i class="bi bi-telegram"></i></span><span class="choice-txt"><strong>Telegram</strong><small>Bot</small></span></label>
+          <label class="choice" id="choice-ntfy"><input type="checkbox" id="use_ntfy" onchange="toggleNotif('ntfy')">
+            <span class="choice-ico"><i class="bi bi-broadcast"></i></span><span class="choice-txt"><strong>ntfy</strong><small>Push</small></span></label>
+          <label class="choice" id="choice-gotify"><input type="checkbox" id="use_gotify" onchange="toggleNotif('gotify')">
+            <span class="choice-ico"><i class="bi bi-bell"></i></span><span class="choice-txt"><strong>Gotify</strong><small>Push</small></span></label>
+        </div>
+
+        <div class="subform" id="form-email" hidden>
+          <div class="subform-title"><i class="bi bi-envelope"></i> Email (SMTP)</div>
+          <div class="row2">
+            <div><label class="form-label">Serveur SMTP</label><input class="form-control" id="smtp_host" placeholder="smtp.gmail.com"></div>
+            <div><label class="form-label">Port</label><input class="form-control" id="smtp_port" type="number" placeholder="587"></div>
+          </div>
+          <div class="row2">
+            <div><label class="form-label">Utilisateur</label><input class="form-control" id="smtp_user" placeholder="vous@exemple.com"></div>
+            <div><label class="form-label">Mot de passe</label><input class="form-control" id="smtp_password" type="password" placeholder="••••••••"></div>
+          </div>
+          <div class="secret-hint" id="smtp_pw_hint" hidden><i class="bi bi-check-circle-fill"></i> Déjà configuré — laissez vide pour conserver</div>
+          <div class="row2">
+            <div><label class="form-label">Adresse d'expédition</label><input class="form-control" id="smtp_from" placeholder="plexarr@exemple.com"></div>
+            <div><label class="form-label">Email admin (tests)</label><input class="form-control" id="smtp_admin" placeholder="admin@exemple.com"></div>
+          </div>
+          <div class="toggle-row"><span class="tr-label"><strong>TLS / STARTTLS</strong></span><input class="form-check-input" type="checkbox" id="smtp_tls" checked></div>
+          <button class="btn-test" onclick="testSmtp(this)"><i class="bi bi-send"></i> Envoyer un email de test</button>
+          <div class="test-result" id="email_test"></div>
+        </div>
+
+        <div class="subform" id="form-discord" hidden>
+          <div class="subform-title"><i class="bi bi-discord"></i> Discord</div>
+          <label class="form-label">URL du webhook</label>
+          <input class="form-control" id="discord_webhook_url" type="password" placeholder="https://discord.com/api/webhooks/...">
+          <div class="secret-hint" id="discord_hint" hidden><i class="bi bi-check-circle-fill"></i> Déjà configuré — laissez vide pour conserver</div>
+          <button class="btn-test" onclick="testChannel('discord', this)"><i class="bi bi-send"></i> Envoyer un test</button>
+          <div class="test-result" id="discord_test"></div>
+        </div>
+
+        <div class="subform" id="form-telegram" hidden>
+          <div class="subform-title"><i class="bi bi-telegram"></i> Telegram</div>
+          <div class="row2">
+            <div><label class="form-label">Token du bot</label><input class="form-control" id="telegram_bot_token" type="password" placeholder="123:ABC"></div>
+            <div><label class="form-label">Chat ID</label><input class="form-control" id="telegram_chat_id" placeholder="-1001234"></div>
+          </div>
+          <div class="secret-hint" id="telegram_hint" hidden><i class="bi bi-check-circle-fill"></i> Token déjà enregistré — laissez vide pour conserver</div>
+          <button class="btn-test" onclick="testChannel('telegram', this)"><i class="bi bi-send"></i> Envoyer un test</button>
+          <div class="test-result" id="telegram_test"></div>
+        </div>
+
+        <div class="subform" id="form-ntfy" hidden>
+          <div class="subform-title"><i class="bi bi-broadcast"></i> ntfy</div>
+          <div class="row2">
+            <div><label class="form-label">URL du serveur</label><input class="form-control" id="ntfy_url" placeholder="https://ntfy.sh"></div>
+            <div><label class="form-label">Sujet (topic)</label><input class="form-control" id="ntfy_topic" placeholder="plexarr"></div>
+          </div>
+          <label class="form-label">Token (optionnel)</label>
+          <input class="form-control" id="ntfy_token" type="password" placeholder="tk_...">
+          <div class="secret-hint" id="ntfy_hint" hidden><i class="bi bi-check-circle-fill"></i> Token déjà enregistré — laissez vide pour conserver</div>
+          <button class="btn-test" onclick="testChannel('ntfy', this)"><i class="bi bi-send"></i> Envoyer un test</button>
+          <div class="test-result" id="ntfy_test"></div>
+        </div>
+
+        <div class="subform" id="form-gotify" hidden>
+          <div class="subform-title"><i class="bi bi-bell"></i> Gotify</div>
+          <label class="form-label">URL du serveur</label>
+          <input class="form-control" id="gotify_url" placeholder="https://gotify.exemple.com">
+          <label class="form-label">Token de l'application</label>
+          <input class="form-control" id="gotify_token" type="password" placeholder="A...">
+          <div class="secret-hint" id="gotify_hint" hidden><i class="bi bi-check-circle-fill"></i> Token déjà enregistré — laissez vide pour conserver</div>
+          <button class="btn-test" onclick="testChannel('gotify', this)"><i class="bi bi-send"></i> Envoyer un test</button>
+          <div class="test-result" id="gotify_test"></div>
+        </div>
+      </div>
+
+      <!-- ============ RECAP ============ -->
+      <div class="step-panel" data-step="recap">
+        <div class="step-heading"><span class="step-emoji">✅</span><h3>Récapitulatif</h3></div>
+        <p class="step-sub">État de votre configuration. Vous pourrez revenir à cet assistant à tout moment.</p>
+        <div id="recap-list"><div class="muted">Chargement…</div></div>
+      </div>
+
+      <!-- ============ NAV ============ -->
+      <div class="nav-btns">
+        <button class="btn-back" id="btn-back" onclick="prevStep()"><i class="bi bi-arrow-left"></i></button>
+        <button class="btn-skip" id="btn-skip" onclick="skipStep()">Passer</button>
+        <button class="btn-next" id="btn-next" onclick="nextStep()">Continuer <i class="bi bi-arrow-right ms-1"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const FIRST_RUN = {{ 'true' if first_run else 'false' }};
+    // Ordre des étapes ; "welcome" et "recap" ne sont pas passables/sauvables.
+    const STEPS = ['welcome', 'plex', 'arr', 'seer', 'vff', 'notifs', 'recap'];
+    const SAVEABLE = { plex: savePlex, arr: saveArr, seer: saveSeer, vff: saveVff, notifs: saveNotifs };
+    let idx = 0;
+    let ctx = {};                 // snapshot renvoyé par /api/onboarding/context
+    let plexLibs = null;          // sections Plex (chargées à la demande)
+
+    const $ = id => document.getElementById(id);
+    const setVal = (id, v) => { const e = $(id); if (e && v !== null && v !== undefined) e.value = v; };
+    const trimVal = id => ($(id) ? $(id).value.trim() : '');
+    async function api(method, url, body) {
+      const opt = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body !== undefined) opt.body = JSON.stringify(body);
+      const r = await fetch(url, opt);
+      let data = null; try { data = await r.json(); } catch (e) {}
+      return { ok: r.ok, status: r.status, data };
+    }
+    // PUT partiel : on retire les champs vides/undefined pour ne jamais écraser un secret non modifié.
+    function putSettings(obj) {
+      const clean = {};
+      for (const [k, v] of Object.entries(obj)) {
+        if (v === undefined || v === null || v === '') continue;
+        clean[k] = v;
+      }
+      return api('PUT', '/api/settings', clean);
+    }
+    function showResult(id, ok, msg) {
+      const e = $(id); if (!e) return;
+      e.className = 'test-result ' + (ok ? 'ok' : 'err');
+      e.innerHTML = (ok ? '<i class="bi bi-check-circle-fill"></i> ' : '<i class="bi bi-x-circle-fill"></i> ') + msg;
+    }
+    function busy(btn, on, label) {
+      if (on) { btn.dataset.html = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spin"></span> ' + (label || 'Test…'); }
+      else { btn.disabled = false; btn.innerHTML = btn.dataset.html; }
+    }
+
+    // ---------- Rendu de la barre d'étapes ----------
+    function renderStepsBar() {
+      const bar = $('steps-bar'); bar.innerHTML = '';
+      STEPS.forEach((s, i) => {
+        const dot = document.createElement('div');
+        dot.className = 'step-dot ' + (i < idx ? 'done' : i === idx ? 'active' : 'upcoming');
+        dot.innerHTML = i < idx ? '<i class="bi bi-check-lg"></i>' : (i + 1);
+        bar.appendChild(dot);
+        if (i < STEPS.length - 1) {
+          const line = document.createElement('div');
+          line.className = 'step-line ' + (i < idx ? 'done' : '');
+          bar.appendChild(line);
+        }
+      });
+    }
+    function showStep() {
+      document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
+      const step = STEPS[idx];
+      document.querySelector(`.step-panel[data-step="${step}"]`).classList.add('active');
+      $('btn-back').style.visibility = idx === 0 ? 'hidden' : 'visible';
+      const noSkip = (step === 'welcome' || step === 'recap');
+      $('btn-skip').style.display = noSkip ? 'none' : '';
+      $('btn-next').innerHTML = (idx === STEPS.length - 1)
+        ? '<i class="bi bi-check-lg me-1"></i> Terminer'
+        : (step === 'welcome' ? 'Commencer <i class="bi bi-arrow-right ms-1"></i>' : 'Continuer <i class="bi bi-arrow-right ms-1"></i>');
+      if (step === 'vff') ensurePlexLibs();
+      if (step === 'recap') loadRecap();
+      renderStepsBar();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function nextStep() {
+      const step = STEPS[idx];
+      if (SAVEABLE[step]) {
+        const btn = $('btn-next'); busy(btn, true, 'Enregistrement…');
+        try { const okSave = await SAVEABLE[step](); if (!okSave) { busy(btn, false); return; } }
+        catch (e) { busy(btn, false); alert('Erreur : ' + e); return; }
+        busy(btn, false);
+      }
+      if (idx === STEPS.length - 1) { window.location = FIRST_RUN ? '/' : '/settings'; return; }
+      idx++; showStep();
+    }
+    function skipStep() { if (idx < STEPS.length - 1) { idx++; showStep(); } }
+    function prevStep() { if (idx > 0) { idx--; showStep(); } }
+
+    // ---------- Chargement du contexte ----------
+    async function loadContext() {
+      const r = await api('GET', '/api/onboarding/context');
+      if (!r.ok) return;
+      ctx = r.data;
+      // Plex
+      setVal('plex_url', ctx.plex.url); setVal('plex_rss_url', ctx.plex.rss_url);
+      if (ctx.plex.token_set) $('plex_token_hint').hidden = false;
+      // Arr : pré-cocher les types déjà configurés
+      ['sonarr', 'radarr'].forEach(t => {
+        const inst = (ctx.arr_instances || []).find(i => i.arr_type === t);
+        if (inst) {
+          $('use_' + t).checked = true; toggleArr(t);
+          setVal(t + '_url', inst.url);
+          $(t + '_key_hint').hidden = false;
+          // profil / dossier connus : les afficher même sans re-test
+          $(t + '_extra').hidden = false;
+          const prof = $(t + '_profile'); prof.innerHTML = '';
+          if (inst.quality_profile_id) prof.add(new Option('Profil actuel (#' + inst.quality_profile_id + ')', inst.quality_profile_id, true, true));
+          prof.add(new Option('— inchangé —', '', !inst.quality_profile_id, !inst.quality_profile_id));
+          const fold = $(t + '_folder'); fold.innerHTML = '';
+          if (inst.root_folder) fold.add(new Option(inst.root_folder, inst.root_folder, true, true));
+          fold.add(new Option('— inchangé —', '', !inst.root_folder, !inst.root_folder));
+        }
+      });
+      // Seer
+      if (ctx.seer.enabled) { $('use_seer').checked = true; toggleSeer(); }
+      setVal('seer_url', ctx.seer.url);
+      $('seer_fallback').checked = ctx.seer.fallback_arr !== false;
+      if (ctx.seer.api_key_set) $('seer_key_hint').hidden = false;
+      // VFF
+      if (ctx.vff.enabled) { $('use_vff').checked = true; toggleVff(); }
+      setVal('vff_interval', ctx.vff.recheck_interval_minutes || 360);
+      // Notifs — email
+      if (ctx.smtp.host) { $('use_email').checked = true; toggleNotif('email'); }
+      setVal('smtp_host', ctx.smtp.host); setVal('smtp_port', ctx.smtp.port || 587);
+      setVal('smtp_user', ctx.smtp.user); setVal('smtp_from', ctx.smtp.from); setVal('smtp_admin', ctx.smtp.admin_email);
+      $('smtp_tls').checked = ctx.smtp.tls !== false;
+      if (ctx.smtp.password_set) $('smtp_pw_hint').hidden = false;
+      // discord
+      if (ctx.discord.webhook_set) { $('use_discord').checked = true; toggleNotif('discord'); $('discord_hint').hidden = false; }
+      // telegram
+      if (ctx.telegram.bot_token_set) { $('use_telegram').checked = true; toggleNotif('telegram'); $('telegram_hint').hidden = false; }
+      setVal('telegram_chat_id', ctx.telegram.chat_id);
+      // ntfy
+      if (ctx.ntfy.url || ctx.ntfy.token_set) { $('use_ntfy').checked = true; toggleNotif('ntfy'); }
+      setVal('ntfy_url', ctx.ntfy.url); setVal('ntfy_topic', ctx.ntfy.topic);
+      if (ctx.ntfy.token_set) $('ntfy_hint').hidden = false;
+      // gotify
+      if (ctx.gotify.url || ctx.gotify.token_set) { $('use_gotify').checked = true; toggleNotif('gotify'); }
+      setVal('gotify_url', ctx.gotify.url);
+      if (ctx.gotify.token_set) $('gotify_hint').hidden = false;
+    }
+
+    // ---------- Toggles ----------
+    function syncChoice(choiceId, checked) { const c = $(choiceId); if (c) c.classList.toggle('selected', checked); }
+    function toggleArr(t) { const on = $('use_' + t).checked; $('form-' + t).hidden = !on; syncChoice('choice-' + t, on); }
+    function toggleSeer() { const on = $('use_seer').checked; $('form-seer').hidden = !on; syncChoice('choice-seer', on); }
+    function toggleVff() { const on = $('use_vff').checked; $('form-vff').hidden = !on; syncChoice('choice-vff', on); if (on) ensurePlexLibs(); }
+    function toggleNotif(c) { const on = $('use_' + c).checked; $('form-' + c).hidden = !on; syncChoice('choice-' + c, on); }
+
+    // ---------- Tests live ----------
+    // Les endpoints /test/plex-* testent la config ENREGISTRÉE → on persiste d'abord les valeurs saisies.
+    async function testPlexApi(btn) {
+      busy(btn, true); await savePlex();
+      const r = await api('POST', '/api/test/plex-api', {});
+      busy(btn, false);
+      showResult('plex_test', !!(r.data && r.data.success), (r.data && r.data.message) || 'Échec de la connexion');
+    }
+    async function testPlexRss(btn) {
+      busy(btn, true); await savePlex();
+      const r = await api('POST', '/api/test/plex-rss', {});
+      busy(btn, false);
+      showResult('plex_test', !!(r.data && r.data.success), (r.data && r.data.message) || 'Flux RSS invalide');
+    }
+    async function testArr(t, btn) {
+      const url = trimVal(t + '_url'), key = trimVal(t + '_api_key');
+      if (!url || !key) { showResult(t + '_test', false, 'URL et clé API requises pour tester.'); return; }
+      busy(btn, true);
+      const r = await api('POST', '/api/test/arr-instance', { url, api_key: key, arr_type: t });
+      busy(btn, false);
+      const ok = r.ok && r.data && r.data.success;
+      showResult(t + '_test', ok, (r.data && r.data.message) || (ok ? 'Connecté' : 'Échec'));
+      if (ok) await loadArrOptions(t, url, key);
+    }
+    async function loadArrOptions(t, url, key) {
+      const q = `?url=${encodeURIComponent(url)}&api_key=${encodeURIComponent(key)}`;
+      const [prof, fold] = await Promise.all([
+        api('GET', `/api/${t}/profiles${q}`), api('GET', `/api/${t}/folders${q}`)
+      ]);
+      const cur = ctx.arr_instances && ctx.arr_instances.find(i => i.arr_type === t);
+      const ps = $(t + '_profile'); ps.innerHTML = '';
+      (prof.data || []).forEach(p => ps.add(new Option(p.name, p.id, false, cur && cur.quality_profile_id === p.id)));
+      const fs = $(t + '_folder'); fs.innerHTML = '';
+      (fold.data || []).forEach(f => { const path = f.path || f; fs.add(new Option(path, path, false, cur && cur.root_folder === path)); });
+      $(t + '_extra').hidden = false;
+    }
+    async function testSeer(btn) {
+      busy(btn, true); await saveSeer();     // /test/seer teste la config enregistrée
+      const r = await api('POST', '/api/test/seer', {});
+      busy(btn, false);
+      showResult('seer_test', !!(r.data && r.data.success), (r.data && r.data.message) || 'Échec de la connexion');
+    }
+    async function testSmtp(btn) {
+      const to = trimVal('smtp_admin') || trimVal('smtp_from') || trimVal('smtp_user');
+      if (!to) { showResult('email_test', false, 'Renseignez une adresse pour le test.'); return; }
+      // On enregistre d'abord la config SMTP pour que le test utilise les valeurs saisies.
+      busy(btn, true); await saveEmail();
+      const r = await api('POST', '/api/test/smtp', { recipient: to });
+      busy(btn, false);
+      showResult('email_test', r.ok && r.data && r.data.success !== false, (r.data && (r.data.message || r.data.detail)) || (r.ok ? 'Email envoyé' : 'Échec'));
+    }
+    async function testChannel(c, btn) {
+      busy(btn, true); await saveNotifs();     // persiste la config avant le test live
+      const r = await api('POST', '/api/test/' + c, {});
+      busy(btn, false);
+      showResult(c + '_test', r.ok && r.data && r.data.success !== false, (r.data && (r.data.message || r.data.detail)) || (r.ok ? 'Envoyé' : 'Échec'));
+    }
+
+    // ---------- Bibliothèques Plex (étape VFF) ----------
+    async function ensurePlexLibs() {
+      if (plexLibs !== null) return;
+      const r = await api('GET', '/api/plex/sections');
+      plexLibs = (r.ok && Array.isArray(r.data)) ? r.data : [];
+      const box = $('vff_libs');
+      if (!plexLibs.length) {
+        box.innerHTML = '<div class="muted" style="padding:10px;">Aucune bibliothèque trouvée. Configurez et testez d\'abord Plex.</div>';
+        return;
+      }
+      // Format attendu par le scanner : [{name, kind}] avec kind ∈ movie|series|anime.
+      const saved = {};
+      try { JSON.parse(ctx.vff.libraries || '[]').forEach(e => { if (e.name) saved[e.name.toLowerCase()] = e.kind; }); } catch (e) {}
+      box.innerHTML = '';
+      plexLibs.forEach(sec => {
+        const isMovie = sec.type === 'movie';
+        const cur = saved[(sec.name || '').toLowerCase()] || '';
+        const opts = isMovie
+          ? '<option value="">Ignorer</option><option value="movie">Film</option>'
+          : '<option value="">Ignorer</option><option value="series">Série</option><option value="anime">Anime</option>';
+        const row = document.createElement('div'); row.className = 'lib-item';
+        row.innerHTML = `<span style="flex:1;"><i class="bi ${isMovie ? 'bi-film' : 'bi-tv'} me-2 muted"></i>
+          <strong style="color:#ddd;">${sec.name}</strong> <small class="muted">(${sec.type})</small></span>
+          <select class="form-select" style="width:auto;margin:0;" data-name="${sec.name}">${opts}</select>`;
+        row.querySelector('select').value = cur;
+        box.appendChild(row);
+      });
+    }
+    function vffLibsJson() {
+      const libs = [];
+      $('vff_libs').querySelectorAll('select').forEach(sel => { if (sel.value) libs.push({ name: sel.dataset.name, kind: sel.value }); });
+      return JSON.stringify(libs);
+    }
+
+    // ---------- Sauvegardes ----------
+    async function savePlex() {
+      const payload = { plex_url: trimVal('plex_url'), plex_rss_url: trimVal('plex_rss_url') };
+      const tok = trimVal('plex_token'); if (tok) payload.plex_token = tok;
+      const r = await putSettings(payload);
+      if (!r.ok) { showResult('plex_test', false, 'Échec de l\'enregistrement.'); return false; }
+      return true;
+    }
+    async function saveArr() {
+      for (const t of ['sonarr', 'radarr']) {
+        if (!$('use_' + t).checked) continue;
+        const url = trimVal(t + '_url'), key = trimVal(t + '_api_key');
+        const existing = (ctx.arr_instances || []).find(i => i.arr_type === t);
+        const profSel = $(t + '_profile').value, foldSel = $(t + '_folder').value;
+        if (existing) {
+          // Instance déjà présente : on ne la ré-écrit que si l'utilisateur fournit une nouvelle clé.
+          if (!key) {
+            // Mise à jour éventuelle du profil/dossier seulement (nécessite la clé) — sinon on laisse tel quel.
+            continue;
+          }
+          const body = {
+            name: existing.name || (t === 'sonarr' ? 'Sonarr' : 'Radarr'),
+            arr_type: t, url: url || existing.url, api_key: key,
+            quality_profile_id: profSel ? parseInt(profSel) : existing.quality_profile_id,
+            root_folder: foldSel || existing.root_folder,
+            minimum_availability: existing.minimum_availability || 'released',
+            enabled: true, is_default: existing.is_default,
+          };
+          const r = await api('PUT', '/api/arr-instances/' + existing.id, body);
+          if (!r.ok) { showResult(t + '_test', false, 'Échec de l\'enregistrement.'); return false; }
+        } else {
+          if (!url || !key) { showResult(t + '_test', false, 'URL et clé API requises pour ' + t + '.'); return false; }
+          const body = {
+            name: t === 'sonarr' ? 'Sonarr' : 'Radarr', arr_type: t, url, api_key: key,
+            quality_profile_id: profSel ? parseInt(profSel) : null,
+            root_folder: foldSel || null, minimum_availability: 'released',
+            enabled: true, is_default: true,
+          };
+          const r = await api('POST', '/api/arr-instances', body);
+          if (!r.ok) { showResult(t + '_test', false, 'Échec de la création.'); return false; }
+        }
+      }
+      return true;
+    }
+    async function saveSeer() {
+      // On envoie les booléens directement (putSettings supprimerait un false) ; les secrets/URL
+      // ne sont ajoutés que si l'utilisateur les a renseignés → jamais d'écrasement involontaire.
+      const on = $('use_seer').checked;
+      const clean = { seer_send_requests: on, seer_enabled: on, seer_fallback_arr: $('seer_fallback').checked };
+      if (on) {
+        if (trimVal('seer_url')) clean.seer_url = trimVal('seer_url');
+        const k = trimVal('seer_api_key'); if (k) clean.seer_api_key = k;
+      }
+      const r = await api('PUT', '/api/settings', clean);
+      if (!r.ok) { showResult('seer_test', false, 'Échec de l\'enregistrement.'); return false; }
+      return true;
+    }
+    async function saveVff() {
+      const on = $('use_vff').checked;
+      const clean = { vff_enabled: on };
+      if (on) {
+        clean.vff_libraries = vffLibsJson();
+        const iv = parseInt(trimVal('vff_interval')); if (iv) clean.vff_recheck_interval_minutes = iv;
+      }
+      const r = await api('PUT', '/api/settings', clean);
+      if (!r.ok) return false;
+      return true;
+    }
+    async function saveEmail() {
+      const on = $('use_email').checked;
+      const clean = { email_on_request: on, email_on_available: on };
+      if (on) {
+        if (trimVal('smtp_host')) clean.smtp_host = trimVal('smtp_host');
+        const port = parseInt(trimVal('smtp_port')); if (port) clean.smtp_port = port;
+        if (trimVal('smtp_user')) clean.smtp_user = trimVal('smtp_user');
+        const pw = trimVal('smtp_password'); if (pw) clean.smtp_password = pw;
+        if (trimVal('smtp_from')) clean.smtp_from = trimVal('smtp_from');
+        if (trimVal('smtp_admin')) clean.admin_notification_email = trimVal('smtp_admin');
+        clean.smtp_tls = $('smtp_tls').checked;
+      }
+      const r = await api('PUT', '/api/settings', clean);
+      return r.ok;
+    }
+    async function saveNotifs() {
+      let ok = await saveEmail();
+      const clean = {
+        discord_enabled: $('use_discord').checked,
+        telegram_enabled: $('use_telegram').checked,
+        ntfy_enabled: $('use_ntfy').checked,
+        gotify_enabled: $('use_gotify').checked,
+      };
+      if ($('use_discord').checked) { const v = trimVal('discord_webhook_url'); if (v) clean.discord_webhook_url = v; }
+      if ($('use_telegram').checked) {
+        const v = trimVal('telegram_bot_token'); if (v) clean.telegram_bot_token = v;
+        if (trimVal('telegram_chat_id')) clean.telegram_chat_id = trimVal('telegram_chat_id');
+      }
+      if ($('use_ntfy').checked) {
+        if (trimVal('ntfy_url')) clean.ntfy_url = trimVal('ntfy_url');
+        if (trimVal('ntfy_topic')) clean.ntfy_topic = trimVal('ntfy_topic');
+        const v = trimVal('ntfy_token'); if (v) clean.ntfy_token = v;
+      }
+      if ($('use_gotify').checked) {
+        if (trimVal('gotify_url')) clean.gotify_url = trimVal('gotify_url');
+        const v = trimVal('gotify_token'); if (v) clean.gotify_token = v;
+      }
+      const r = await api('PUT', '/api/settings', clean);
+      return ok && r.ok;
+    }
+    // ---------- Récapitulatif ----------
+    async function loadRecap() {
+      const r = await api('GET', '/api/onboarding');
+      const box = $('recap-list');
+      if (!r.ok) { box.innerHTML = '<div class="muted">Impossible de charger l\'état.</div>'; return; }
+      box.innerHTML = '';
+      (r.data.steps || []).forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'recap-item ' + (s.done ? 'done' : 'todo');
+        div.innerHTML = `<i class="bi ${s.done ? 'bi-check-circle-fill' : 'bi-circle'}"></i>
+          <span>${s.label}${s.optional ? ' <small class="muted">(optionnel)</small>' : ''}</span>`;
+        box.appendChild(div);
+      });
+    }
+
+    // notifs step uses saveNotifs directly
+    SAVEABLE.notifs = saveNotifs;
+
+    // Init
+    (async () => { await loadContext(); showStep(); })();
+  </script>
+</body>
+</html>
