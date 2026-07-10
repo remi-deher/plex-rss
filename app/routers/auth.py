@@ -218,41 +218,58 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
     """
     from ..services.plex_api import check_auth_pin
 
+    logger.info("SSO Login check: pin_id=%s", pin_id)
     try:
         token = await check_auth_pin(pin_id)
     except Exception as e:
+        logger.error("SSO Login check error calling check_auth_pin: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
     if not token:
+        logger.info("SSO Login check: token not ready yet for pin_id=%s", pin_id)
         return {"authenticated": False}
 
+    logger.info("SSO Login check: token obtained successfully! Resolving Plex account...")
     account = await get_plex_account(token)
     if not account:
+        logger.error("SSO Login check: failed to resolve Plex account from token.")
         raise HTTPException(status_code=502, detail="Impossible de résoudre le compte Plex.")
+
+    logger.info("SSO Login check: resolved Plex account: %s", account)
 
     # Rattachement : uuid stable en priorité, sinon username (users legacy RSS/API).
     user = None
     if account["uuid"]:
         user = db.query(PlexUser).filter(PlexUser.plex_account_uuid == account["uuid"]).first()
+        if user:
+            logger.info("SSO Login check: matched existing user by UUID: id=%s, plex_user_id=%s", user.id, user.plex_user_id)
     if not user:
         user = db.query(PlexUser).filter(PlexUser.plex_user_id == account["username"]).first()
+        if user:
+            logger.info("SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id)
+            
     s = db.query(Settings).first()
     is_admin_username = bool(s and s.auth_username and account["username"] == s.auth_username)
+    logger.info("SSO Login check: is_admin_username check: %s (auth_username: %s)", is_admin_username, s.auth_username if s else "None")
 
     if s and s.plex_token:
+        logger.info("SSO Login check: checking server access via admin token...")
         has_access = await has_server_access(
             admin_token=s.plex_token,
             user_username=account["username"],
             user_email=account.get("email"),
             user_uuid=account["uuid"],
         )
+        logger.info("SSO Login check: server access result: %s", has_access)
         if not has_access:
+            logger.warning("SSO Login check: access denied. User %s has no access to Plex server.", account["username"])
             raise HTTPException(
                 status_code=403,
                 detail="Ce compte Plex n'a pas accès au serveur Plex de l'application."
             )
 
     if not user:
+        logger.info("SSO Login check: user does not exist in DB, creating new PlexUser for %s", account["username"])
         user = PlexUser(
             plex_user_id=account["username"],
             display_name=account["username"],
@@ -266,8 +283,10 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
         )
         db.add(user)
         db.flush()
+        logger.info("SSO Login check: new user created with id=%s, role=%s", user.id, user.role)
     else:
         # Enrichit / met à jour l'enregistrement existant sans écraser les choix admin.
+        logger.info("SSO Login check: enriching existing user id=%s", user.id)
         if account["uuid"] and not user.plex_account_uuid:
             user.plex_account_uuid = account["uuid"]
         if account.get("thumb"):
@@ -278,6 +297,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
             user.role = "admin"
 
     if not user.enabled or not user.can_login:
+        logger.warning("SSO Login check: user found but is disabled/cannot login (enabled=%s, can_login=%s)", user.enabled, user.can_login)
         db.commit()
         raise HTTPException(
             status_code=403, detail="Ce compte n'est pas autorisé à se connecter. Contactez l'administrateur."
