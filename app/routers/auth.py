@@ -355,7 +355,10 @@ async def webauthn_login_verify(
 
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.url.netloc)
-    expected_origin = f"{scheme}://{host}"
+    expected_origin = [
+        f"https://{host}",
+        f"http://{host}"
+    ]
 
     cred_id_str = credential.get("id")
     db_cred = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == cred_id_str).first()

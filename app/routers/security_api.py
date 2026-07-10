@@ -203,7 +203,10 @@ async def register_verify(
 
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.url.netloc)
-    expected_origin = f"{scheme}://{host}"
+    expected_origin = [
+        f"https://{host}",
+        f"http://{host}"
+    ]
 
     try:
         verification = verify_registration_response(
