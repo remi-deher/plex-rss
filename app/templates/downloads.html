@@ -242,6 +242,7 @@ function configCallout(title, body, actionLabel = 'Configurer'){
 }
 
 async function loadQueue(){
+  if (document.hidden) return;
   try {
     const [caps, arrq, direct] = await Promise.all([
       fetch('/api/arr/capabilities').then(r => r.ok ? r.json() : {}),
@@ -290,6 +291,7 @@ function fmtAgo(iso){
 }
 
 async function loadHistory(){
+  if (document.hidden) return;
   const el = document.getElementById('dl-history-container');
   try {
     const rows = await fetch('/api/downloads/history?limit=30').then(r => { if (!r.ok) throw new Error('Historique inaccessible'); return r.json(); });

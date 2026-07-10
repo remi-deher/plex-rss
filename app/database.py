@@ -8,12 +8,15 @@ Couche d'accès à la base de données SQLite via SQLAlchemy.
   de verrou entre le moteur SQLAlchemy de l'app et le moteur interne d'Alembic.
 """
 
+import logging
 import os
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from .models import Settings
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -31,17 +34,27 @@ if DATABASE_URL.startswith("sqlite"):
 
     @event.listens_for(engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):
-        """Applique busy_timeout sur chaque connexion SQLite.
+        """Applique busy_timeout + tente le mode WAL sur chaque connexion SQLite.
 
         Sous contention (ex. synchro Plex de milliers d'items en tâche de fond),
         une lecture attend jusqu'à 5 s la libération du verrou au lieu d'échouer
-        immédiatement en "database is locked". On NE force PAS le mode WAL : sa
-        mémoire partagée (-shm, mmap) n'est pas supportée sur les bind-mounts
-        Windows/Docker et provoque "unable to open database file". La réactivité
-        est assurée par l'intégration en thread + commits par lots (voir plex_sync).
+        immédiatement en "database is locked". Le mode WAL réduit cette contention
+        (lecteurs et writer ne se bloquent plus mutuellement), mais sa mémoire
+        partagée (-shm, mmap) n'est pas supportée sur certains bind-mounts
+        Windows/Docker ("unable to open database file"). On tente donc WAL et on
+        vérifie le mode réellement appliqué : en cas d'échec, on retombe
+        silencieusement sur le mode par défaut (comportement identique à avant),
+        avec juste un log d'avertissement pour le diagnostic.
         """
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA busy_timeout=5000")
+        try:
+            cur.execute("PRAGMA journal_mode=WAL")
+            mode = cur.fetchone()
+            if not mode or str(mode[0]).lower() != "wal":
+                logger.warning(f"Mode WAL non actif (retour: {mode}), mode journal par défaut conservé")
+        except Exception as e:
+            logger.warning(f"Mode WAL indisponible ({e}), mode journal par défaut conservé")
         cur.close()
 
 

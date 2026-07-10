@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import Optional
 
@@ -17,6 +18,13 @@ from ..services.download_clients import (
 from ..utils import get_or_404
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
+
+# Cache mémoire très court (secondes) pour absorber le polling fréquent (sidebar + page
+# Downloads pollent toutes les 5s en parallèle) sans multiplier les appels réseau réels
+# vers Sonarr/Radarr/qBittorrent à chaque requête entrante.
+_QUEUE_CACHE_TTL = 4.0
+_queue_cache: dict = {"data": None, "ts": 0.0}
+_direct_cache: dict = {"data": None, "ts": 0.0}
 
 
 def _set_single_default(db: Session, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:
@@ -494,6 +502,10 @@ async def arr_grab_release(body: ArrGrabRequest, db: Session = Depends(get_db)):
 @router.get("/arr/queue")
 async def arr_download_queue(db: Session = Depends(get_db)):
     """File d'attente de téléchargement unifiée : agrège les queues de toutes les instances Sonarr/Radarr actives."""
+    now = time.monotonic()
+    if _queue_cache["data"] is not None and now - _queue_cache["ts"] < _QUEUE_CACHE_TTL:
+        return _queue_cache["data"]
+
     instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
 
     # Pré-charge les demandes/items bibliothèque par (arr_instance_id, arr_id) pour lier
@@ -527,6 +539,8 @@ async def arr_download_queue(db: Session = Depends(get_db)):
             rec["request_id"] = req.id if (req and not li) else None
             items.append(rec)
     items.sort(key=lambda x: x.get("progress") or 0)
+    _queue_cache["data"] = items
+    _queue_cache["ts"] = now
     return items
 
 
@@ -556,23 +570,31 @@ async def direct_downloads(db: Session = Depends(get_db)):
     """Torrents poussés en direct-client (hors *arr), suivis via download_client_id + torrent_hash sur les demandes."""
     from ..services.download_clients import get_torrent_status
 
+    now = time.monotonic()
+    if _direct_cache["data"] is not None and now - _direct_cache["ts"] < _QUEUE_CACHE_TTL:
+        return _direct_cache["data"]
+
     reqs = (
         db.query(MediaRequest)
         .filter(MediaRequest.torrent_hash.isnot(None), MediaRequest.download_client_id.isnot(None))
         .all()
     )
     clients = {c.id: c for c in db.query(DownloadClient).all()}
-    out = []
-    for req in reqs:
-        client = clients.get(req.download_client_id)
-        if not client or not client.enabled:
-            continue
+    tracked = [(req, clients.get(req.download_client_id)) for req in reqs]
+    tracked = [(req, client) for req, client in tracked if client and client.enabled]
+
+    async def _status(req, client):
         try:
-            st = await get_torrent_status(
+            return await get_torrent_status(
                 client.client_type, client.url, client.username, client.password, req.torrent_hash
             )
         except Exception:
-            st = None
+            return None
+
+    statuses = await asyncio.gather(*[_status(req, client) for req, client in tracked])
+
+    out = []
+    for (req, client), st in zip(tracked, statuses):
         if not st:
             continue
         progress = round(st.get("progress") or 0, 1)
@@ -599,6 +621,8 @@ async def direct_downloads(db: Session = Depends(get_db)):
                 "library_id": req.library_item_id,
             }
         )
+    _direct_cache["data"] = out
+    _direct_cache["ts"] = now
     return out
 
 

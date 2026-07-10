@@ -397,7 +397,8 @@ function showToast(msg, type = 'success') {
   setTimeout(() => document.getElementById(id)?.remove(), 4000);
 }
 
-(async function loadGlobalStats() {
+async function loadGlobalStats() {
+  if (document.hidden) return;
   try {
     const d = await fetch('/api/stats/counts').then(r => r.json());
     // Badges ventilés par type (Films / Séries)
@@ -424,9 +425,14 @@ function showToast(msg, type = 'success') {
     ]);
     const active = [...q, ...dir].filter(x => (x.progress || 0) < 100).length;
     const dlBadge = document.getElementById('sidebar-badge-dl');
-    if (dlBadge && active > 0) { dlBadge.textContent = active; dlBadge.style.display = ''; }
+    if (dlBadge) {
+      if (active > 0) { dlBadge.textContent = active; dlBadge.style.display = ''; }
+      else { dlBadge.style.display = 'none'; }
+    }
   } catch(e) {}
-})();
+}
+loadGlobalStats();
+setInterval(loadGlobalStats, 5000);
 
 // Sidebar repliable (persistée dans localStorage ; pré-appliquée dans <head>).
 function toggleSidebar() {

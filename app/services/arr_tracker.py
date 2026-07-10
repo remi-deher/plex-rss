@@ -376,8 +376,9 @@ async def check_torrent_statuses():
             .all()
         )
 
+        clients = {c.id: c for c in db.query(DownloadClient).all()}
         for req in requests:
-            client = db.query(DownloadClient).filter(DownloadClient.id == req.download_client_id).first()
+            client = clients.get(req.download_client_id)
             if not client or not client.enabled:
                 continue
 

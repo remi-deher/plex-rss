@@ -309,8 +309,8 @@ class NotificationLog(Base):
     __tablename__ = "notification_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    sent_at: Mapped[datetime] = mapped_column(default=now_utc)
-    event: Mapped[str]
+    sent_at: Mapped[datetime] = mapped_column(default=now_utc, index=True)
+    event: Mapped[str] = mapped_column(index=True)
     recipient: Mapped[str]
     is_admin: Mapped[bool] = mapped_column(default=False)
     media_title: Mapped[Optional[str]]
@@ -357,7 +357,7 @@ class PendingNotification(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(default=now_utc)
     event: Mapped[str]
-    req_id: Mapped[int]
+    req_id: Mapped[int] = mapped_column(index=True)
     recipients: Mapped[str]  # JSON list[str]
     reason: Mapped[str] = mapped_column(default="")
 
@@ -434,18 +434,18 @@ class MediaRequest(Base):
     __tablename__ = "media_requests"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    plex_user_id: Mapped[str]
+    plex_user_id: Mapped[str] = mapped_column(index=True)
     plex_user: Mapped[Optional[str]]
     title: Mapped[str]
     year: Mapped[Optional[int]]
     media_type: Mapped[str]
 
-    tmdb_id: Mapped[Optional[str]]
-    tvdb_id: Mapped[Optional[str]]
+    tmdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(index=True)
     imdb_id: Mapped[Optional[str]]
     plex_guid: Mapped[Optional[str]]
 
-    status: Mapped[str] = mapped_column(default=RequestStatus.pending)
+    status: Mapped[str] = mapped_column(default=RequestStatus.pending, index=True)
     source: Mapped[Optional[str]]
     arr_id: Mapped[Optional[int]]
     arr_slug: Mapped[Optional[str]]
@@ -471,13 +471,13 @@ class MediaRequest(Base):
     rejected_reason: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Instance tracking
-    arr_instance_id: Mapped[Optional[int]]
+    arr_instance_id: Mapped[Optional[int]] = mapped_column(index=True)
     download_client_id: Mapped[Optional[int]]
-    torrent_hash: Mapped[Optional[str]]
+    torrent_hash: Mapped[Optional[str]] = mapped_column(index=True)
 
     # --- VFF : état de la piste française au moment de la disponibilité ---
     # None = pas encore analysé ; True = VF présente ; False = VO uniquement (suivi actif)
-    has_vf: Mapped[Optional[bool]] = mapped_column(default=None)
+    has_vf: Mapped[Optional[bool]] = mapped_column(default=None, index=True)
     # Catégorie VFF ("movie" | "series" | "anime") déterminée par la bibliothèque Plex
     vf_category: Mapped[Optional[str]] = mapped_column(default=None)
     vf_checked_at: Mapped[Optional[datetime]]
@@ -496,7 +496,7 @@ class MediaRequest(Base):
     # contrainte FK, convention du reste du modèle). Une fois lié, has_vf n'est plus
     # scanné indépendamment : il est propagé depuis le LibraryItem (source de vérité
     # unique), pour éviter deux scans Plex divergents du même média.
-    library_item_id: Mapped[Optional[int]]
+    library_item_id: Mapped[Optional[int]] = mapped_column(index=True)
 
     # --- Disponibilité partielle (séries en cours de diffusion, Sonarr uniquement) ---
     # episodes_available_count : épisodes avec un fichier sur disque (episodeFileCount)

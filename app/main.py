@@ -7,6 +7,7 @@ Responsabilités :
 - Montage de tous les routers (pages HTML, API REST, webhook, import/export, templates email)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -111,36 +112,40 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
+    """Corps synchrone de la résolution de rôle (exécuté hors event loop via to_thread)."""
+    from .database import SessionLocal
+    from .models import Settings, PlexUser
+
+    db = SessionLocal()
+    try:
+        if plex_user_id:
+            u = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+            if u:
+                return {"role": u.role or "user", "is_owner": u.role == "admin", "user_id": u.id}
+        else:
+            u = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+            if u:
+                return {"role": u.role or "user", "is_owner": u.role == "admin", "user_id": u.id}
+            s = db.query(Settings).first()
+            if s and s.auth_username and username == s.auth_username:
+                return {"role": "admin", "is_owner": True}
+        return None
+    finally:
+        db.close()
+
+
 class SessionSyncMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.session.get("authenticated"):
-            from .database import SessionLocal
-            from .models import Settings, PlexUser
-            db = SessionLocal()
             try:
-                plex_user_id = request.session.get("plex_user_id")
-                if plex_user_id:
-                    u = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
-                    if u:
-                        request.session["role"] = u.role or "user"
-                        request.session["is_owner"] = (u.role == "admin")
-                        request.session["user_id"] = u.id
-                else:
-                    username = request.session.get("username")
-                    u = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
-                    if u:
-                        request.session["role"] = u.role or "user"
-                        request.session["is_owner"] = (u.role == "admin")
-                        request.session["user_id"] = u.id
-                    else:
-                        s = db.query(Settings).first()
-                        if s and s.auth_username and username == s.auth_username:
-                            request.session["role"] = "admin"
-                            request.session["is_owner"] = True
+                result = await asyncio.to_thread(
+                    _sync_session_role, request.session.get("plex_user_id"), request.session.get("username")
+                )
+                if result:
+                    request.session.update(result)
             except Exception:
                 pass
-            finally:
-                db.close()
         return await call_next(request)
 
 

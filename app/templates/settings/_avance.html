@@ -6,8 +6,20 @@
           <h5 class="mb-3"><i class="bi bi-arrow-down-up text-info me-2"></i>Import / Export</h5>
           <div class="row g-3">
             <div class="col-md-6">
-              <p class="text-muted mb-2">Exporte tous les paramètres, utilisateurs et demandes dans un fichier JSON.</p>
-              <a href="/api/export" class="btn btn-outline-info" download>
+              <p class="text-muted mb-2">
+                Exporte les paramètres, utilisateurs, demandes, instances Sonarr/Radarr, clients de
+                téléchargement et passkeys dans un fichier JSON lisible (les journaux/historiques sont
+                inclus pour référence mais ne sont pas réimportés automatiquement).
+              </p>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="exportIncludeSecrets" onchange="_toggleExportSecretsWarning()">
+                <label class="form-check-label" for="exportIncludeSecrets">Inclure les identifiants et clés API</label>
+              </div>
+              <div id="exportSecretsWarning" class="alert alert-warning py-2 px-3 mb-2 d-none" style="font-size:13px">
+                <i class="bi bi-exclamation-triangle me-1"></i>Le fichier contiendra vos tokens/clés en clair
+                (Plex, Sonarr/Radarr, SMTP, TMDB, Discord/Telegram/ntfy/Gotify, secret 2FA...) — à ne jamais partager.
+              </div>
+              <a href="/api/export" id="exportLink" class="btn btn-outline-info" download>
                 <i class="bi bi-download me-1"></i>Exporter les données
               </a>
             </div>
@@ -22,8 +34,28 @@
               <div id="importResult" class="mt-2"></div>
             </div>
           </div>
+          <hr class="border-secondary my-3">
+          <p class="text-muted mb-2">
+            <strong>Backup complet (fichier .db)</strong> — copie binaire fidèle de toute la base de données,
+            y compris pendant que l'app tourne (mode WAL). Restauration manuelle uniquement : arrêter l'app,
+            remplacer <code>data/plex_rss.db</code> par le fichier téléchargé, redémarrer.
+          </p>
+          <div class="alert alert-warning py-2 px-3 mb-2" style="font-size:13px">
+            <i class="bi bi-exclamation-triangle me-1"></i>Ce fichier contient <strong>tous vos identifiants en clair</strong>
+            (sauf si une clé de chiffrement <code>PLEXARR_ENCRYPTION_KEY</code> est configurée) — à conserver en lieu sûr.
+          </div>
+          <a href="/api/backup/db" class="btn btn-outline-danger" download>
+            <i class="bi bi-hdd me-1"></i>Télécharger un backup complet (.db)
+          </a>
         </div>
       </div>
+      <script>
+        function _toggleExportSecretsWarning() {
+          const checked = document.getElementById('exportIncludeSecrets').checked;
+          document.getElementById('exportSecretsWarning').classList.toggle('d-none', !checked);
+          document.getElementById('exportLink').href = checked ? '/api/export?include_secrets=true' : '/api/export';
+        }
+      </script>
       <!-- Webhooks -->
       <div class="col-12">
         <div class="card border-warning">

@@ -338,6 +338,7 @@ async function rejectApproval(id, btn) {
 }
 
 async function loadHealth(manual = false) {
+  if (!manual && document.hidden) return;
   const btn = document.getElementById('health-refresh');
   if (manual && btn) { btn.disabled = true; btn.querySelector('i').classList.add('spin'); }
   try {
@@ -657,6 +658,7 @@ function sourceLabel(source) {
 }
 
 async function loadActivity() {
+  if (document.hidden) return;
   try {
     const events = await fetch('/api/activity').then(r => r.json());
     const el = document.getElementById('activity-log');

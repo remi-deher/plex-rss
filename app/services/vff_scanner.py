@@ -642,7 +642,6 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
             req.available_at = now_reconcile
             req.next_release_at = None
             req.next_release_label = None
-            db.commit()
             promoted += 1
             logger.info(f"VFF : '{req.title}' détecté disponible via la bibliothèque Plex (arr en retard/inconnu)")
             # Pas de notification "available" ici : cette fonction ne tourne que si VFF est
@@ -651,6 +650,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
             # reçoit "available" (VF présente) ou "vo_only" (VO) selon le résultat du scan,
             # sans jamais doubler la notification.
         if promoted:
+            db.commit()
             logger.info(f"VFF ({label}) : {promoted} demande(s) promue(s) 'disponible' via la bibliothèque Plex")
 
         req_has_vf_filter = (

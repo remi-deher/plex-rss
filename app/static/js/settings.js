@@ -568,9 +568,21 @@ async function importData() {
     const r = await fetch('/api/import', {method: 'POST', body: form});
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Erreur');
-    res.innerHTML = `<span class="text-success">Import réussi — ${d.stats.users_upserted} utilisateur(s), ${d.stats.requests_upserted} demande(s)</span>`;
-    showToast('Import terminé ! Rechargement...', 'success');
-    setTimeout(() => location.reload(), 1500);
+    const s = d.stats;
+    const parts = [
+      `${s.users_upserted} utilisateur(s)`, `${s.requests_upserted} demande(s)`,
+      `${s.arr_instances_upserted} instance(s) Arr`, `${s.download_clients_upserted} client(s) DL`,
+      `${s.passkeys_upserted} passkey(s)`,
+    ];
+    const errors = d.errors || [];
+    let html = `<span class="text-success">Import réussi — ${parts.join(', ')}</span>`;
+    if (errors.length) {
+      const rows = errors.map(e => `<li><code>${_esc(e.table)}</code> — ${_esc(e.item)} : ${_esc(e.error)}</li>`).join('');
+      html += `<div class="text-warning mt-1"><i class="bi bi-exclamation-triangle me-1"></i>${errors.length} élément(s) ignoré(s) :</div><ul class="small mb-0">${rows}</ul>`;
+    }
+    res.innerHTML = html;
+    showToast(errors.length ? `Import terminé avec ${errors.length} erreur(s)` : 'Import terminé ! Rechargement...', errors.length ? 'warning' : 'success');
+    if (!errors.length) setTimeout(() => location.reload(), 1500);
   } catch(e) {
     res.innerHTML = `<span class="text-danger">${e.message}</span>`;
     showToast('Erreur import : ' + e.message, 'danger');
