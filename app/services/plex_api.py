@@ -242,7 +242,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
         "X-Plex-Client-Identifier": CLIENT_IDENTIFIER,
     }
     async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(f"{PLEX_TV_BASE}/api/v2/pins", headers=headers)
+        resp = await client.post(f"{PLEX_TV_BASE}/api/v2/pins?strong=true", headers=headers)
         resp.raise_for_status()
         data = resp.json()
         pin_id = data.get("id")
