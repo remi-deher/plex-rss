@@ -64,7 +64,7 @@ async def get_friends_watchlist(plex_url: str, plex_token: str) -> list[dict]:
 
 
 async def get_admin_watchlist(plex_url: str, plex_token: str) -> list[dict]:
-    """RÃ©cupÃ¨re uniquement la watchlist du compte propriÃ©taire du token Plex."""
+    """Récupère uniquement la watchlist du compte propriétaire du token Plex."""
     headers = {
         "X-Plex-Token": plex_token,
         "Accept": "application/json",

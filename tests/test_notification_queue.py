@@ -149,7 +149,7 @@ async def test_process_available_all_ok_sets_flag():
 
 @pytest.mark.asyncio
 async def test_process_available_vf_uses_merged_notification_and_sets_available_flag():
-    """event=available_vf â†’ template fusionnÃ© + available_mail_sent=True."""
+    """event=available_vf → template fusionné + available_mail_sent=True."""
     settings = _make_settings()
     req = _make_req()
     db = _make_db(settings, req, user=None)
@@ -173,7 +173,7 @@ async def test_process_available_vf_uses_merged_notification_and_sets_available_
 
 @pytest.mark.asyncio
 async def test_process_available_vo_tracking_sets_available_and_vo_flags():
-    """event=available_vo_tracking â†’ un seul mail, mais les deux flags sont marquÃ©s."""
+    """event=available_vo_tracking → un seul mail, mais les deux flags sont marqués."""
     settings = _make_settings()
     req = _make_req()
     req.vo_only_mail_sent = False

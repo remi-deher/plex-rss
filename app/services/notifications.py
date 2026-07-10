@@ -37,10 +37,10 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
         title = f"Disponible — {request.title}{year}"
         body = f"{type_label} maintenant disponible sur Plex !"
     elif event == "available_vf":
-        title = f"Disponible en VF â€” {request.title}{year}"
-        body = f"{type_label} disponible sur Plex avec une piste audio franÃ§aise."
+        title = f"Disponible en VF — {request.title}{year}"
+        body = f"{type_label} disponible sur Plex avec une piste audio française."
     elif event == "available_vo_tracking":
-        title = f"Disponible en VO â€” {request.title}{year}"
+        title = f"Disponible en VO — {request.title}{year}"
         body = f"{type_label} disponible sur Plex en VO. Le suivi VF reste actif."
     elif event == "vo_only":
         title = f"Disponible en VO — {request.title}{year}"

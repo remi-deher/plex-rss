@@ -216,7 +216,7 @@ async def test_send_available_uses_custom_template():
 
 @pytest.mark.asyncio
 async def test_send_available_vf_uses_merged_template():
-    """DisponibilitÃ© initiale VF : un template fusionnÃ© est envoyÃ©."""
+    """Disponibilité initiale VF : un template fusionné est envoyé."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_available_vf_notification(_settings(), _req(), "dest@example.com")
 
@@ -228,7 +228,7 @@ async def test_send_available_vf_uses_merged_template():
 
 @pytest.mark.asyncio
 async def test_send_available_vo_tracking_uses_merged_template():
-    """DisponibilitÃ© initiale VO : un template unique annonce le suivi VF."""
+    """Disponibilité initiale VO : un template unique annonce le suivi VF."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_available_vo_tracking_notification(_settings(), _req(), "dest@example.com")
 

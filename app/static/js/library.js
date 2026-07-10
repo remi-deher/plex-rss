@@ -49,7 +49,7 @@ function setViewMode(v) {
 }
 if (ACTIVE_VIEW !== 'calendar') document.addEventListener('DOMContentLoaded', () => setViewMode(currentViewMode));
 
-// Ouverture directe de la fiche depuis un lien externe (ex: DÃ©couvrir), via
+// Ouverture directe de la fiche depuis un lien externe (ex: Découvrir), via
 // /library?open_library=<id> ou /library?open_request=<id>.
 (function _openFromQuery() {
   const params = new URLSearchParams(window.location.search);
@@ -122,7 +122,7 @@ function renderMediaModal(d) {
 async function recheckPlex(btn, requestId, libraryId) {
   const orig = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>VÃ©rification...';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vérification...';
   try {
     const params = new URLSearchParams();
     if (libraryId != null) params.set('library_id', libraryId);
@@ -131,7 +131,7 @@ async function recheckPlex(btn, requestId, libraryId) {
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.detail || 'Erreur');
     if (d.found) {
-      showToast('MÃ©dia trouvÃ© dans Plex â€” bibliothÃ¨que mise Ã  jour', 'success');
+      showToast('Média trouvé dans Plex — bibliothèque mise à jour', 'success');
       setTimeout(() => location.reload(), 1200);
     } else {
       showToast('Toujours introuvable dans Plex', 'warning');
@@ -153,10 +153,10 @@ function renderSummary(d) {
   const requestStatus = d.requests.length ? d.requests.map(r => statusBadge(r.status)).join(' ') : '<span class="badge bg-secondary">Aucune demande</span>';
   const requesterNames = [...new Set(d.requests.flatMap(r => r.requesters || []))].join(', ') || '-';
   const openIssueCount = (d.issues || []).filter(i => i.status !== 'closed').length;
-  // En cours de tÃ©lÃ©chargement : au moins une demande a un item actif dans la file *arr.
+  // En cours de téléchargement : au moins une demande a un item actif dans la file *arr.
   const isDownloading = !m.in_library && d.requests.some(r => r.is_downloading);
-  // Anomalie Plex : traitÃ©/disponible cÃ´tÃ© *arr mais introuvable dans la bibliothÃ¨que Plex
-  // (et pas simplement en cours de tÃ©lÃ©chargement/import).
+  // Anomalie Plex : traité/disponible côté *arr mais introuvable dans la bibliothèque Plex
+  // (et pas simplement en cours de téléchargement/import).
   const isAnomaly = !isDownloading && !m.in_library && d.requests.some(r => r.status === 'available');
   const scheduleRows = m.media_type === 'show'
     ? `
@@ -178,11 +178,11 @@ function renderSummary(d) {
       ${IS_ADMIN && !m.in_library ? `<div class="mb-2">
         <button class="btn btn-sm btn-outline-danger d-inline-flex align-items-center gap-1"
                 onclick="recheckPlex(this, ${m.request_id == null ? 'null' : m.request_id}, ${m.library_id == null ? 'null' : m.library_id})">
-          <i class="bi bi-arrow-repeat"></i> RevÃ©rifier dans Plex
+          <i class="bi bi-arrow-repeat"></i> Revérifier dans Plex
         </button>
         <div class="text-muted small mt-1">${isAnomaly
-          ? 'TraitÃ© par Sonarr/Radarr mais introuvable dans Plex. Relance une recherche ciblÃ©e dans les bibliothÃ¨ques Plex configurÃ©es.'
-          : "VÃ©rifie si le mÃ©dia est dÃ©sormais prÃ©sent dans les bibliothÃ¨ques Plex configurÃ©es."}</div>
+          ? 'Traité par Sonarr/Radarr mais introuvable dans Plex. Relance une recherche ciblée dans les bibliothèques Plex configurées.'
+          : "Vérifie si le média est désormais présent dans les bibliothèques Plex configurées."}</div>
       </div>` : ''}
       <div class="mb-2 d-flex flex-wrap align-items-center gap-2">
         <button class="btn btn-sm btn-outline-warning d-inline-flex align-items-center gap-1"
@@ -195,7 +195,7 @@ function renderSummary(d) {
         <tr><td class="text-muted" style="width:150px">Demandes</td><td>${requestStatus}</td></tr>
         <tr><td class="text-muted">Demandeurs</td><td>${escHtml(requesterNames)}</td></tr>
         ${scheduleRows}
-        <tr><td class="text-muted">TMDB / TVDB / IMDB</td><td>${[m.tmdb_id && 'TMDB '+m.tmdb_id, m.tvdb_id && 'TVDB '+m.tvdb_id, m.imdb_id && 'IMDB '+m.imdb_id].filter(Boolean).map(escHtml).join(' Â· ') || '-'}</td></tr>
+        <tr><td class="text-muted">TMDB / TVDB / IMDB</td><td>${[m.tmdb_id && 'TMDB '+m.tmdb_id, m.tvdb_id && 'TVDB '+m.tvdb_id, m.imdb_id && 'IMDB '+m.imdb_id].filter(Boolean).map(escHtml).join(' · ') || '-'}</td></tr>
       </table>
     </div>
     ${m.overview ? `<div class="col-12"><p class="text-muted small mb-0" style="line-height:1.6">${escHtml(m.overview)}</p></div>` : ''}
@@ -245,8 +245,8 @@ function renderRequestsTab(requests) {
         <div>
           <div class="fw-semibold">${statusBadge(r.status)} <span class="badge bg-secondary ms-1">${escHtml(r.source || '?')}</span></div>
           ${IS_ADMIN ? requesterEditor(r) : ''}
-          <div class="text-muted small">Demandee le ${fmtDateTime(r.requested_at)}${r.available_at ? ' Â· Disponible le ' + fmtDateTime(r.available_at) : ''}</div>
-          ${IS_ADMIN ? `<div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} Â· Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>` : ''}
+          <div class="text-muted small">Demandee le ${fmtDateTime(r.requested_at)}${r.available_at ? ' · Disponible le ' + fmtDateTime(r.available_at) : ''}</div>
+          ${IS_ADMIN ? `<div class="text-muted small">Email demande: ${r.request_mail_sent ? 'envoye' : 'non envoye'} · Email dispo: ${r.available_mail_sent ? 'envoye' : 'non envoye'}</div>` : ''}
           ${error}
         </div>
         <div class="d-flex flex-wrap gap-1 align-self-start">
@@ -271,7 +271,7 @@ function requesterEditor(r) {
   ).join('');
   const avail = (_addUsers || []).filter(u => u.enabled && !ids.includes(u.plex_user_id));
   const opts = avail.map(u => `<option value="${escHtml(u.plex_user_id)}">${escHtml(u.custom_name || u.display_name || u.plex_user_id)}</option>`).join('');
-  const add = avail.length ? `<select class="form-select form-select-sm" style="width:auto" onchange="addRequester(${r.id}, this.value)"><option value="">+ Ajouterâ€¦</option>${opts}</select>` : '';
+  const add = avail.length ? `<select class="form-select form-select-sm" style="width:auto" onchange="addRequester(${r.id}, this.value)"><option value="">+ Ajouter…</option>${opts}</select>` : '';
   return `<div class="d-flex flex-wrap align-items-center gap-1 mt-1"><i class="bi bi-people me-1 text-muted" title="Demandeurs"></i>${chips}${add}</div>`;
 }
 function _findReq(reqId) { return ((currentMediaDetail && currentMediaDetail.requests) || []).find(x => x.id === reqId); }
@@ -295,7 +295,7 @@ async function _saveRequesters(reqId, ids) {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requester_ids: ids })
     });
     if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || 'Erreur'); }
-    showToast('Demandeurs mis Ã  jour', 'success');
+    showToast('Demandeurs mis à jour', 'success');
     const m = currentMediaDetail && currentMediaDetail.media;
     openMediaDetail(m ? m.library_id : null, m ? m.request_id : null);
   } catch (e) { showToast('Erreur : ' + e.message, 'danger'); }
@@ -309,7 +309,7 @@ function renderCalendarTab(d) {
       <span class="badge ${e.type === 'episode' ? 'bg-info text-dark' : 'bg-primary'}">${e.type === 'episode' ? 'Episode' : 'Film'}</span>
       <div class="flex-grow-1">
         <div class="fw-semibold">${escHtml(e.subtitle || e.title)}</div>
-        <div class="text-muted small">${fmtDateTime(e.date)}${e.instance ? ' Â· ' + escHtml(e.instance) : ''}</div>
+        <div class="text-muted small">${fmtDateTime(e.date)}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div>
       </div>
       ${e.has_file ? '<span class="badge badge-available">Disponible</span>' : '<span class="badge bg-secondary">A venir</span>'}
     </div>`).join('')}
@@ -327,7 +327,7 @@ function renderSearchTab(m) {
 
 // Priorite : si le media est lie a une instance Sonarr/Radarr (arr_id present), on utilise
 // leur recherche interactive native (renderSearchTab, inchange). Sinon (aucun Sonarr/Radarr
-// pour ce media), on retombe sur une recherche directe Prowlarr + client torrent â€” mais
+// pour ce media), on retombe sur une recherche directe Prowlarr + client torrent — mais
 // seulement si ce secours est reellement configure, sinon on l'indique clairement.
 async function loadSearchTab(m) {
   const body = document.getElementById('search-tab-body');
@@ -351,7 +351,7 @@ async function loadSearchTab(m) {
 function renderProwlarrSearchTab(m) {
   const reqId = m.request_id == null ? 'null' : m.request_id;
   const query = escHtml(`${m.title || ''}${m.year ? ' ' + m.year : ''}`);
-  return `<div class="text-muted small mb-2">Aucune instance Sonarr/Radarr liee a ce media â€” recherche directe via Prowlarr (mecanisme de secours).</div>
+  return `<div class="text-muted small mb-2">Aucune instance Sonarr/Radarr liee a ce media — recherche directe via Prowlarr (mecanisme de secours).</div>
   <div class="input-group input-group-sm mb-2">
     <input type="text" id="prowlarr-search-query" class="form-control" value="${query}">
     <button class="btn btn-outline-primary" onclick="loadProwlarrSearch('${m.media_type}', ${reqId})"><i class="bi bi-search me-1"></i>Rechercher</button>
@@ -444,7 +444,7 @@ function renderVfSeasons(d, m) {
   const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
   return `<div class="accordion mt-2" id="${accId}">${d.seasons.map((s, i) => {
     const c = s.counts || {};
-    const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} inconnus`, c.absent && `${c.absent} absents`].filter(Boolean).join(' Â· ');
+    const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} inconnus`, c.absent && `${c.absent} absents`].filter(Boolean).join(' · ');
     // Meme principe que le badge serie, applique a l'echelle de la saison : entierement
     // en VF, partiellement (episodes VF et VO melanges), ou rien de special sinon.
     let seasonBadge = '';
@@ -502,7 +502,7 @@ function renderArrReleases(rels, mediaType, instanceId, requestId) {
   const req = requestId == null ? 'null' : requestId;
   const rows = rels.map(r => {
     const vf = r.is_french ? '<span class="badge badge-available me-1">VF</span>' : '';
-    return `<tr ${r.is_french ? 'style="background:rgba(229,160,13,.08)"' : ''}><td><div class="small">${vf}${escHtml(r.title)}${r.rejected ? '<i class="bi bi-exclamation-triangle text-warning ms-1"></i>' : ''}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} Â· ${escHtml(r.quality||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+    return `<tr ${r.is_french ? 'style="background:rgba(229,160,13,.08)"' : ''}><td><div class="small">${vf}${escHtml(r.title)}${r.rejected ? '<i class="bi bi-exclamation-triangle text-warning ms-1"></i>' : ''}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
   }).join('');
   return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -606,17 +606,17 @@ async function bulkDelete() {
   if (r.ok) setTimeout(() => location.reload(), 900);
 }
 
-// Utilisateurs (rÃ©utilisÃ©s par l'Ã©diteur de demandeurs de la modale dÃ©tail).
+// Utilisateurs (réutilisés par l'éditeur de demandeurs de la modale détail).
 let _addUsers = [];
 (async function _loadUsers() {
   try { const r = await fetch('/api/users'); _addUsers = r.ok ? await r.json() : []; } catch (e) { _addUsers = []; }
 })();
 
-// Code couleur par type de sortie (cinÃ©ma / digitale / physique / Ã©pisode).
+// Code couleur par type de sortie (cinéma / digitale / physique / épisode).
 function calReleaseMeta(e) {
-  if (e.type === 'episode') return { color: '#0dcaf0', icon: 'bi-tv', label: 'SÃ©rie', dark: true };
+  if (e.type === 'episode') return { color: '#0dcaf0', icon: 'bi-tv', label: 'Série', dark: true };
   switch (e.release_type) {
-    case 'cinema':   return { color: '#e5a00d', icon: 'bi-camera-reels', label: 'CinÃ©ma',   dark: true };
+    case 'cinema':   return { color: '#e5a00d', icon: 'bi-camera-reels', label: 'Cinéma',   dark: true };
     case 'digital':  return { color: '#0d6efd', icon: 'bi-laptop',       label: 'Digital',  dark: false };
     case 'physical': return { color: '#6f42c1', icon: 'bi-disc',         label: 'Physique', dark: false };
     default:         return { color: '#0d6efd', icon: 'bi-film',         label: 'Film',     dark: false };
@@ -636,12 +636,12 @@ function renderGlobalCalendar(events) {
     const time = e.type === 'episode'
       ? `<span class="text-muted small text-nowrap ms-1"><i class="bi bi-clock me-1"></i>${new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>`
       : '';
-    return `<div class="d-flex align-items-center gap-2 py-2 ps-2 pe-1" style="border-bottom:1px solid var(--pr-border);border-left:3px solid ${m.color}">${poster}<div class="flex-grow-1" style="min-width:0"><strong class="text-truncate d-block">${escHtml(e.title)}</strong><div class="text-muted small text-truncate">${escHtml(e.subtitle || '')}${e.instance ? ' Â· ' + escHtml(e.instance) : ''}</div></div>${badge}${e.has_file ? '<span class="badge badge-available">Disponible</span>' : ''}${time}</div>`;
+    return `<div class="d-flex align-items-center gap-2 py-2 ps-2 pe-1" style="border-bottom:1px solid var(--pr-border);border-left:3px solid ${m.color}">${poster}<div class="flex-grow-1" style="min-width:0"><strong class="text-truncate d-block">${escHtml(e.title)}</strong><div class="text-muted small text-truncate">${escHtml(e.subtitle || '')}${e.instance ? ' · ' + escHtml(e.instance) : ''}</div></div>${badge}${e.has_file ? '<span class="badge badge-available">Disponible</span>' : ''}${time}</div>`;
   }).join('')}</div></div>`).join('');
 }
-// Le calendrier est calÃ© sur aujourd'hui par dÃ©faut (pas de jours passÃ©s affichÃ©s).
-// "Voir le mois prÃ©cÃ©dent" recule le dÃ©but de la plage d'un mois Ã  chaque clic,
-// pour ne remonter dans le passÃ© que sur demande plutÃ´t que de tout charger d'un coup.
+// Le calendrier est calé sur aujourd'hui par défaut (pas de jours passés affichés).
+// "Voir le mois précédent" recule le début de la plage d'un mois à chaque clic,
+// pour ne remonter dans le passé que sur demande plutôt que de tout charger d'un coup.
 let calendarRangeStart = null;
 
 function _todayMidnight() {

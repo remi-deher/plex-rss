@@ -25,7 +25,7 @@ def i18n_catalog(request: Request, db: Session = Depends(get_db), user: PlexUser
 
 
 def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
-    """Purge le cache VF par Ã©pisode d'une demande supprimÃ©e (Ã©vite les lignes orphelines)."""
+    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
     db.query(VfEpisodeStatus).filter(
         VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
     ).delete()
@@ -33,20 +33,20 @@ def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
 
 @router.get("/onboarding")
 def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    """Retourne l'Ã©tat d'avancement de la configuration initiale (checklist)."""
+    """Retourne l'état d'avancement de la configuration initiale (checklist)."""
     s = db.query(Settings).first()
     users_count = db.query(PlexUser).count()
     has_sonarr = db.query(ArrInstance).filter(ArrInstance.arr_type == "sonarr", ArrInstance.enabled).first() is not None
     has_radarr = db.query(ArrInstance).filter(ArrInstance.arr_type == "radarr", ArrInstance.enabled).first() is not None
     steps = [
-        {"id": "rss", "label": "Flux RSS Plex configurÃ©", "done": bool(s and s.plex_rss_url)},
-        {"id": "sonarr", "label": "Sonarr configurÃ©", "done": has_sonarr},
-        {"id": "radarr", "label": "Radarr configurÃ©", "done": has_radarr},
-        {"id": "smtp", "label": "Email (SMTP) configurÃ©", "done": bool(s and s.smtp_host)},
-        {"id": "users", "label": "Au moins un utilisateur dÃ©tectÃ©", "done": users_count > 0},
+        {"id": "rss", "label": "Flux RSS Plex configuré", "done": bool(s and s.plex_rss_url)},
+        {"id": "sonarr", "label": "Sonarr configuré", "done": has_sonarr},
+        {"id": "radarr", "label": "Radarr configuré", "done": has_radarr},
+        {"id": "smtp", "label": "Email (SMTP) configuré", "done": bool(s and s.smtp_host)},
+        {"id": "users", "label": "Au moins un utilisateur détecté", "done": users_count > 0},
         {
             "id": "webhooks",
-            "label": "Webhooks Sonarr/Radarr configurÃ©s",
+            "label": "Webhooks Sonarr/Radarr configurés",
             "done": has_sonarr or has_radarr,
             "optional": True,
         },
@@ -135,7 +135,7 @@ def onboarding_context(db: Session = Depends(get_db), _: None = Depends(require_
 
 @router.post("/plex/sso/pin")
 async def plex_sso_pin(request: Request, _: None = Depends(require_admin)):
-    """CrÃ©e une demande de PIN Plex SSO et retourne l'URL d'authentification."""
+    """Crée une demande de PIN Plex SSO et retourne l'URL d'authentification."""
     from ..services.plex_api import get_auth_pin
 
     try:
@@ -149,7 +149,7 @@ async def plex_sso_pin(request: Request, _: None = Depends(require_admin)):
 
 @router.get("/plex/sso/check/{pin_id}")
 async def plex_sso_check(pin_id: int, _: None = Depends(require_admin)):
-    """VÃ©rifie si le PIN Plex a Ã©tÃ© validÃ© et retourne le token."""
+    """Vérifie si le PIN Plex a été validé et retourne le token."""
     from ..services.plex_api import check_auth_pin
 
     try:
@@ -160,7 +160,7 @@ async def plex_sso_check(pin_id: int, _: None = Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
-# Conflits et Nettoyage de base de donnÃ©es
+# Conflits et Nettoyage de base de données
 # ---------------------------------------------------------------------------
 
 _IGNORED_FILE = "data/ignored_conflicts.json"
@@ -222,7 +222,7 @@ def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db):
 
 @router.get("/conflicts")
 def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    """Retourne tous les conflits dÃ©tectÃ©s, filtrÃ©s des ignorÃ©s."""
+    """Retourne tous les conflits détectés, filtrés des ignorés."""
     ignored = _load_ignored()
     all_reqs = db.query(MediaRequest).all()
     known_user_ids = {u.plex_user_id for u in db.query(PlexUser).all()}
@@ -291,7 +291,7 @@ def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depend
         raise HTTPException(400, "keep_id et delete_ids requis")
     keeper = db.get(MediaRequest, keep_id)
     if not keeper:
-        raise HTTPException(404, f"EntrÃ©e {keep_id} introuvable")
+        raise HTTPException(404, f"Entrée {keep_id} introuvable")
     for del_id in delete_ids:
         dup = db.get(MediaRequest, del_id)
         if dup:
@@ -302,7 +302,7 @@ def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depend
 
 @router.post("/conflicts/auto-resolve")
 def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    """RÃ©sout automatiquement tous les conflits tmdb : garde l'entrÃ©e Seer."""
+    """Résout automatiquement tous les conflits tmdb : garde l'entrée Seer."""
     all_reqs = db.query(MediaRequest).all()
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
     for r in all_reqs:
@@ -327,7 +327,7 @@ def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(requ
 
 @router.post("/conflicts/ignore")
 def ignore_conflict(body: dict, _: None = Depends(require_admin)):
-    """Marque un conflit comme ignorÃ© (ne rÃ©apparaÃ®tra plus)."""
+    """Marque un conflit comme ignoré (ne réapparaîtra plus)."""
     key: str = body.get("key")
     if not key:
         raise HTTPException(400, "key requis")
@@ -339,7 +339,7 @@ def ignore_conflict(body: dict, _: None = Depends(require_admin)):
 
 @router.delete("/conflicts/ignore/{key:path}")
 def unignore_conflict(key: str, _: None = Depends(require_admin)):
-    """Retire un conflit de la liste des ignorÃ©s."""
+    """Retire un conflit de la liste des ignorés."""
     ignored = _load_ignored()
     ignored.discard(key)
     _save_ignored(ignored)
@@ -350,9 +350,9 @@ def unignore_conflict(key: str, _: None = Depends(require_admin)):
 def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     req = db.get(MediaRequest, request_id)
     if not req:
-        raise HTTPException(404, "EntrÃ©e introuvable")
+        raise HTTPException(404, "Entrée introuvable")
     if req.tmdb_id:
-        raise HTTPException(400, "Cette entrÃ©e a un tmdb_id â€” utilisez /conflicts/resolve")
+        raise HTTPException(400, "Cette entrée a un tmdb_id — utilisez /conflicts/resolve")
     _delete_vf_episode_cache(db, req.id)
     db.delete(req)
     db.commit()
@@ -363,7 +363,7 @@ def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Dep
 def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     req = db.get(MediaRequest, request_id)
     if not req:
-        raise HTTPException(404, "EntrÃ©e introuvable")
+        raise HTTPException(404, "Entrée introuvable")
     _delete_vf_episode_cache(db, req.id)
     db.delete(req)
     db.commit()
