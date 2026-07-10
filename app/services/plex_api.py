@@ -93,6 +93,7 @@ async def get_plex_account(token: str) -> Optional[dict]:
     Returns un dict {uuid, username, email, thumb} ou None si le token est invalide.
     L'uuid est l'identifiant stable du compte (indépendant du username, qui peut changer).
     """
+    logger.info("SSO: get_plex_account called with token %s...", token[:6] + "..." if token else "None")
     headers = {
         "X-Plex-Token": token,
         "Accept": "application/json",
@@ -101,20 +102,44 @@ async def get_plex_account(token: str) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{PLEX_TV_BASE}/api/v2/user", headers=headers)
+            logger.info("SSO: Plex user API status: %s", resp.status_code)
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPError as e:
-        logger.warning(f"Could not resolve Plex account from token: {e}")
+        logger.warning(f"SSO: Could not resolve Plex account from token: {e}")
         return None
     username = data.get("username") or data.get("title") or data.get("email")
     if not username:
+        logger.warning("SSO: No username found in Plex user data")
         return None
+    logger.info("SSO: Plex account resolved for username: %s, uuid: %s", username, data.get("uuid"))
     return {
         "uuid": data.get("uuid") or str(data.get("id") or ""),
         "username": username,
         "email": data.get("email"),
         "thumb": data.get("thumb"),
     }
+
+
+
+
+async def check_auth_pin(pin_id: int) -> Optional[str]:
+    """Vérifie si le code PIN a été validé par l'utilisateur sur Plex.
+
+    Returns:
+        Le Plex Token s'il est disponible, None sinon.
+    """
+    logger.info("SSO: checking PIN status for pin_id: %s", pin_id)
+    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": "plex-rss-monitor-sso-id"}
+    async with httpx.AsyncClient(timeout=10) as client:
+        # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
+        resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
+        logger.info("SSO: Plex pins API status: %s", resp.status_code)
+        resp.raise_for_status()
+        data = resp.json()
+        token = data.get("authToken")
+        logger.info("SSO: PIN status check result - token found: %s", bool(token))
+        return token
 
 
 async def _get_user_watchlist(
@@ -226,7 +251,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
         forward = "https://app.plex.tv"
         encoded_forward = urllib.parse.quote(forward, safe="")
         auth_url = (
-            f"https://app.plex.tv/auth/#!?clientID=plex-rss-monitor-sso-id"
+            f"https://app.plex.tv/auth#?clientID=plex-rss-monitor-sso-id"
             f"&code={code}"
             f"&context%5Bdevice%5D%5Bproduct%5D=Plex%20RSS%20Monitor"
             f"&forwardUrl={encoded_forward}"
