@@ -372,7 +372,7 @@ async def webauthn_login_verify(
             expected_challenge=b64decode(challenge),
             expected_origin=expected_origin,
             expected_rp_id=rp_id,
-            credential_public_key=db_cred.public_key,
+            credential_public_key=b64decode(db_cred.public_key),
             credential_current_sign_count=db_cred.sign_count,
             require_user_verification=False,
         )
