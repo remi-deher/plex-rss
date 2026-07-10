@@ -38,8 +38,11 @@ def _validate_series_notify_modes(payload: dict):
         if value is not None and value not in SERIES_NOTIFY_MODES:
             raise HTTPException(status_code=400, detail=f"Mode de notification invalide: {value}")
     tracking_mode = payload.get("series_tracking_mode")
-    if tracking_mode is not None and tracking_mode not in ("language", "simple"):
+    if tracking_mode is not None and tracking_mode not in ("language", "simple", "classic"):
         raise HTTPException(status_code=400, detail=f"Mode de suivi invalide: {tracking_mode}")
+    movie_tracking_mode = payload.get("movie_tracking_mode")
+    if movie_tracking_mode is not None and movie_tracking_mode not in ("classic",):
+        raise HTTPException(status_code=400, detail=f"Mode de suivi film invalide: {movie_tracking_mode}")
 
 
 class SettingsUpdate(BaseModel):

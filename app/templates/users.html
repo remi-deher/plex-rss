@@ -260,6 +260,13 @@
             <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
             <div class="row g-2 mb-3">
               <div class="col-md-6">
+                <label class="form-label small mb-1">Mode de suivi des films</label>
+                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieTrackingMode" onchange="onMovieTrackingModeChange()">
+                  <option value="">Par langue (VF / VO) — reglage par defaut</option>
+                  <option value="classic">Classique (pas de distinction VO/VF)</option>
+                </select>
+              </div>
+              <div class="col-md-6" id="fMovieVoNotifyWrap">
                 <label class="form-label small mb-1">Films VO</label>
                 <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVoNotify">
                   <option value="">Reglage global</option>
@@ -267,7 +274,7 @@
                   <option value="false">Ne pas notifier</option>
                 </select>
               </div>
-              <div class="col-md-6">
+              <div class="col-md-6" id="fMovieVfNotifyWrap">
                 <label class="form-label small mb-1">Films upgrade VF</label>
                 <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVfNotify">
                   <option value="">Reglage global</option>
@@ -281,6 +288,7 @@
                   <option value="">Reglage global</option>
                   <option value="language">Par langue (VF / VO)</option>
                   <option value="simple">Simple (episodes, sans distinction de langue)</option>
+                  <option value="classic">Classique (pas de distinction VO/VF)</option>
                 </select>
               </div>
               <div class="col-md-6" id="fSeriesEpisodeNotifyModeWrap" style="display:none">
@@ -647,10 +655,18 @@ async function loadSeerUsers() {
 function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 
 function onSeriesTrackingModeChange() {
-  const simple = document.getElementById('fSeriesTrackingMode').value === 'simple';
+  const mode = document.getElementById('fSeriesTrackingMode').value;
+  const simple = mode === 'simple';
+  const language = mode === '' || mode === 'language';
   document.getElementById('fSeriesEpisodeNotifyModeWrap').style.display = simple ? '' : 'none';
-  document.getElementById('fSeriesVoNotifyModeWrap').style.display = simple ? 'none' : '';
-  document.getElementById('fSeriesVfNotifyModeWrap').style.display = simple ? 'none' : '';
+  document.getElementById('fSeriesVoNotifyModeWrap').style.display = language ? '' : 'none';
+  document.getElementById('fSeriesVfNotifyModeWrap').style.display = language ? '' : 'none';
+}
+
+function onMovieTrackingModeChange() {
+  const classic = document.getElementById('fMovieTrackingMode').value === 'classic';
+  document.getElementById('fMovieVoNotifyWrap').style.display = classic ? 'none' : '';
+  document.getElementById('fMovieVfNotifyWrap').style.display = classic ? 'none' : '';
 }
 
 // ── Ouverture de la modale hub ────────────────────────────────────────────────
@@ -683,6 +699,8 @@ function _setFields(u) {
   document.getElementById('fNotifyVfAnime').checked = !!u.notify_vf_anime;
   setNullableBoolSelect('fMovieVoNotify', u.movie_vo_notify);
   setNullableBoolSelect('fMovieVfNotify', u.movie_vf_notify);
+  document.getElementById('fMovieTrackingMode').value = u.movie_tracking_mode || '';
+  onMovieTrackingModeChange();
   document.getElementById('fSeriesVoNotifyMode').value = u.series_vo_notify_mode || '';
   document.getElementById('fSeriesVfNotifyMode').value = u.series_vf_notify_mode || '';
   document.getElementById('fSeriesTrackingMode').value = u.series_tracking_mode || '';
@@ -1188,6 +1206,7 @@ async function saveUser() {
     notify_vf_anime: document.getElementById('fNotifyVfAnime').checked,
     movie_vo_notify: nullableBoolSelect('fMovieVoNotify'),
     movie_vf_notify: nullableBoolSelect('fMovieVfNotify'),
+    movie_tracking_mode: document.getElementById('fMovieTrackingMode').value || null,
     series_vo_notify_mode: document.getElementById('fSeriesVoNotifyMode').value || null,
     series_vf_notify_mode: document.getElementById('fSeriesVfNotifyMode').value || null,
     series_tracking_mode: document.getElementById('fSeriesTrackingMode').value || null,

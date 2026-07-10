@@ -237,6 +237,8 @@
       <div class="position-absolute top-0 end-0 m-2 z-3 d-flex flex-column gap-1 align-items-end" style="max-width:38%">
         {% if it.in_library %}
           <span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Plex</span>
+        {% elif it.is_downloading %}
+          <span class="badge bg-info text-dark" style="font-size:9px;white-space:normal;text-align:right;line-height:1.25" title="Téléchargement/import en cours côté Sonarr/Radarr"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>
         {% elif it.plex_anomaly %}
           <span class="badge bg-danger" style="font-size:9px;white-space:normal;text-align:right;line-height:1.25" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>
         {% else %}
@@ -279,7 +281,7 @@
             <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
             <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
             <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
-            <td>{{ status_badge(it.request_status, it.media_type) }}{% if it.plex_anomaly %} <span class="badge bg-danger" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>{% endif %}</td>
+            <td>{{ status_badge(it.request_status, it.media_type) }}{% if it.is_downloading %} <span class="badge bg-info text-dark" title="Téléchargement/import en cours côté Sonarr/Radarr"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>{% elif it.plex_anomaly %} <span class="badge bg-danger" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>{% endif %}</td>
             <td>{{ vf_badge(it.has_vf, it.in_library, it.vf_granularity) }}</td>
             <td class="small">{{ it.requested_by or '-' }}</td>
             <td>{% if it.request_status in ('failed','pending') and it.primary_request_id %}<button class="btn btn-sm btn-outline-warning py-0" onclick="event.stopPropagation();retryRequest({{ it.primary_request_id }}, this)"><i class="bi bi-arrow-clockwise"></i></button>{% endif %}</td>

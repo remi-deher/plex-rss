@@ -323,6 +323,8 @@ def _normalize_queue_record(r: dict, title: str) -> dict:
     sizeleft = r.get("sizeleft") or 0
     progress = round((size - sizeleft) / size * 100, 1) if size else 0
     return {
+        "queue_id": r.get("id"),
+        "arr_media_id": r.get("movieId"),
         "title": title,
         "status": r.get("status"),  # queued / downloading / completed / paused / failed / warning
         "tracked_state": r.get("trackedDownloadState"),
@@ -360,6 +362,54 @@ async def get_queue(radarr_url: str, api_key: str) -> list[dict]:
     return out
 
 
+async def delete_queue_item(
+    radarr_url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
+) -> tuple[bool, str]:
+    """Supprime un item de la file d'attente Radarr, avec blocklist et relance de recherche optionnelles."""
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.delete(
+                f"{base}/api/v3/queue/{queue_id}",
+                params={
+                    "removeFromClient": "true",
+                    "blocklist": "true" if blocklist else "false",
+                    "skipRedownload": "false" if search else "true",
+                },
+                headers={"X-Api-Key": api_key},
+            )
+            if resp.status_code in (200, 204):
+                return True, "Item supprimé de la file Radarr"
+            resp.raise_for_status()
+            return True, "Item supprimé de la file Radarr"
+    except Exception as e:
+        logger.warning(f"Radarr delete_queue_item échec (queue {queue_id}): {e}")
+        return False, str(e)
+
+
+async def get_queue_movie_ids(radarr_url: str, api_key: str) -> set[int]:
+    """IDs des films ayant au moins un item actif dans la file de téléchargement Radarr.
+
+    Utilisé pour distinguer une vraie anomalie Plex (fichier importé mais introuvable dans
+    Plex) d'un film encore en cours de téléchargement (ex: upgrade de qualité en file alors
+    qu'un fichier de moindre qualité est déjà présent sur disque).
+    """
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/queue",
+                params={"pageSize": 200},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+    except Exception as e:
+        logger.warning(f"Radarr get_queue_movie_ids échec: {e}")
+        return set()
+    return {r["movieId"] for r in records if r.get("movieId")}
+
+
 async def check_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Radarr.
 
@@ -375,6 +425,58 @@ async def check_connection(radarr_url: str, api_key: str) -> tuple[bool, str]:
             resp.raise_for_status()
             data = resp.json()
             return True, f"Radarr v{data.get('version', '?')} connecté"
+    except Exception as e:
+        return False, str(e)
+
+
+async def get_notifications(radarr_url: str, api_key: str) -> list[dict]:
+    """Retourne les connecteurs de notification configurés dans Radarr (Settings → Connect)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{radarr_url.rstrip('/')}/api/v3/notification",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+def find_webhook_notification(notifications: list[dict], webhook_path: str) -> dict | None:
+    """Trouve, parmi les connecteurs Radarr, celui de type Webhook pointant vers notre endpoint."""
+    for notif in notifications:
+        if notif.get("implementation") != "Webhook":
+            continue
+        for field in notif.get("fields", []):
+            if field.get("name") == "url" and webhook_path in str(field.get("value", "")):
+                return notif
+    return None
+
+
+async def test_notification(radarr_url: str, api_key: str, notification: dict) -> tuple[bool, str]:
+    """Déclenche depuis Radarr un test réel du connecteur Webhook (round-trip vers notre endpoint).
+
+    Réutilise l'endpoint /api/v3/notification/test de Radarr, qui envoie une notification de
+    test avec la configuration fournie sans la re-sauvegarder.
+    """
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/notification/test",
+                json=notification,
+                headers={"X-Api-Key": api_key},
+            )
+            if resp.status_code in (200, 204):
+                return True, "Test envoyé et accepté par Radarr"
+            try:
+                errors = resp.json()
+                msg = (
+                    "; ".join(e.get("errorMessage", str(e)) for e in errors)
+                    if isinstance(errors, list)
+                    else str(errors)
+                )
+            except Exception:
+                msg = resp.text
+            return False, msg or f"HTTP {resp.status_code}"
     except Exception as e:
         return False, str(e)
 

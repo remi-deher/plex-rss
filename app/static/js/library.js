@@ -65,8 +65,8 @@ function vfBadge(hasVf, inLibrary = true, vfGranularity = null) {
   if (!inLibrary) return '<span class="badge bg-secondary"><i class="bi bi-inbox me-1"></i>Hors Plex</span>';
   if (hasVf === true) return '<span class="badge badge-available"><i class="bi bi-translate me-1"></i>VF</span>';
   if (hasVf === false) {
-    if (vfGranularity === 'season_partial') return '<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entiÃ¨re est en VF, mais la sÃ©rie n\'est pas totalement en VF"><i class="bi bi-translate me-1"></i>VF partielle Â· saisons</span>';
-    if (vfGranularity === 'episode_partial') return '<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Seulement quelques Ã©pisodes sont en VF (aucune saison complÃ¨te)"><i class="bi bi-translate me-1"></i>VF partielle Â· Ã©pisodes</span>';
+    if (vfGranularity === 'season_partial') return '<span class="badge bg-warning text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Au moins une saison entière est en VF, mais la série n\'est pas totalement en VF"><i class="bi bi-translate me-1"></i>VF partielle · saisons</span>';
+    if (vfGranularity === 'episode_partial') return '<span class="badge bg-info text-dark" style="white-space:normal;text-align:left;line-height:1.3" title="Seulement quelques épisodes sont en VF (aucune saison complète)"><i class="bi bi-translate me-1"></i>VF partielle · épisodes</span>';
     return '<span class="badge badge-sent"><i class="bi bi-translate me-1"></i>VF en attente</span>';
   }
   return '<span class="badge badge-pending"><i class="bi bi-translate me-1"></i>Non analyse</span>';
@@ -97,7 +97,7 @@ function renderMediaModal(d) {
     <ul class="nav nav-tabs mb-3" role="tablist">
       <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button"><i class="bi bi-info-circle me-1"></i>Resume</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-requests" type="button"><i class="bi bi-inbox me-1"></i>Demandes <span class="badge bg-secondary ms-1">${d.requests.length}</span></button></li>
-      <li class="nav-item"><button class="nav-link" id="tab-vf-btn" data-bs-toggle="tab" data-bs-target="#tab-vf" type="button"><i class="bi bi-translate me-1"></i>${m.media_type === 'show' ? 'VF / Episodes' : 'Pistes audio'}</button></li>
+      <li class="nav-item"><button class="nav-link" id="tab-vf-btn" data-bs-toggle="tab" data-bs-target="#tab-vf" type="button"><i class="bi bi-translate me-1"></i>${m.media_type === 'show' ? 'Episodes' : 'Pistes audio'}</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-calendar" type="button"><i class="bi bi-calendar3 me-1"></i>Calendrier</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-search" type="button"><i class="bi bi-search me-1"></i>Recherche</button></li>
     </ul>
@@ -146,8 +146,11 @@ function renderSummary(d) {
   const requestStatus = d.requests.length ? d.requests.map(r => statusBadge(r.status)).join(' ') : '<span class="badge bg-secondary">Aucune demande</span>';
   const requesterNames = [...new Set(d.requests.flatMap(r => r.requesters || []))].join(', ') || '-';
   const openIssueCount = (d.issues || []).filter(i => i.status !== 'closed').length;
-  // Anomalie Plex : traitÃ©/disponible cÃ´tÃ© *arr mais introuvable dans la bibliothÃ¨que Plex.
-  const isAnomaly = !m.in_library && d.requests.some(r => r.status === 'available');
+  // En cours de tÃ©lÃ©chargement : au moins une demande a un item actif dans la file *arr.
+  const isDownloading = !m.in_library && d.requests.some(r => r.is_downloading);
+  // Anomalie Plex : traitÃ©/disponible cÃ´tÃ© *arr mais introuvable dans la bibliothÃ¨que Plex
+  // (et pas simplement en cours de tÃ©lÃ©chargement/import).
+  const isAnomaly = !isDownloading && !m.in_library && d.requests.some(r => r.status === 'available');
   const scheduleRows = m.media_type === 'show'
     ? `
       <tr><td class="text-muted">Premiere diffusion</td><td>${fmtDate(t.first_aired)}</td></tr>
@@ -162,7 +165,7 @@ function renderSummary(d) {
     <div class="col">
       <div class="mb-2">
         <span class="badge ${m.media_type === 'show' ? 'bg-info text-dark' : 'bg-primary'}">${typeLabel(m.media_type)}</span>
-        ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : (isAnomaly ? '<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>')}
+        ${m.in_library ? '<span class="badge bg-success ms-1">Plex</span>' : (isDownloading ? '<span class="badge bg-info text-dark ms-1"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>' : (isAnomaly ? '<span class="badge bg-danger ms-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>' : '<span class="badge bg-secondary ms-1">Demande hors Plex</span>'))}
         <span class="ms-1">${vfBadge(m.has_vf, m.in_library, m.vf_granularity)}</span>
       </div>
       ${!m.in_library ? `<div class="mb-2">

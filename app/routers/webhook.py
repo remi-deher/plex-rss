@@ -8,12 +8,18 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
-from ..models import MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..notification_queue import enqueue as enqueue_notification
+from ..services import radarr, sonarr
+from ..services.download_history import record_completed
 from ..utils import now_utc
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = logging.getLogger(__name__)
+
+# Stockage en mémoire des derniers tests reçus (réinitialisé au redémarrage).
+# Structure : {"sonarr": datetime | None, "radarr": datetime | None, "plex": datetime | None}
+_last_webhook_test: dict[str, datetime | None] = {"sonarr": None, "radarr": None, "plex": None}
 
 
 def _check_webhook_secret(request: Request, settings: Settings | None) -> None:
@@ -94,6 +100,8 @@ def _mark_available_and_notify(
     tvdb_id: int | str | None = None,
     imdb_id: str | None = None,
     instance_id: int | None = None,
+    source: str = "arr",
+    instance_name: str | None = None,
 ):
     """Trouve les demandes correspondantes, les marque disponibles, empile les notifications."""
     q = _arr_event_query(
@@ -112,11 +120,22 @@ def _mark_available_and_notify(
             continue
         req.status = RequestStatus.available
         req.available_at = now_utc()
+        req.is_downloading = False
         if arr_id and not req.arr_id:
             req.arr_id = int(arr_id)
         if instance_id and not req.arr_instance_id:
             req.arr_instance_id = instance_id
         db.commit()
+        record_completed(
+            db,
+            title=req.title,
+            year=req.year,
+            media_type=req.media_type,
+            source=source,
+            instance_name=instance_name,
+            poster_url=req.poster_url,
+            request_id=req.id,
+        )
         if settings and settings.email_on_available and not req.available_mail_sent:
             user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
             recipients = _get_recipients(user_obj, settings)
@@ -162,9 +181,16 @@ def _query_instance_id(request: Request) -> int | None:
         return None
 
 
+def _instance_name(db: Session, instance_id: int | None) -> str | None:
+    if not instance_id:
+        return None
+    inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id).first()
+    return inst.name if inst else None
+
+
 @router.post("/sonarr")
 async def sonarr_webhook(request: Request):
-    """Receives Sonarr OnImport/OnDownload webhook events."""
+    """Receives Sonarr OnImport/OnDownload/Test webhook events."""
     db: Session = SessionLocal()
     try:
         settings = db.query(Settings).first()
@@ -173,6 +199,11 @@ async def sonarr_webhook(request: Request):
         data = await request.json()
         event = data.get("eventType", "")
         logger.info(f"Sonarr webhook: {event}")
+
+        if event == "Test":
+            _last_webhook_test["sonarr"] = datetime.now(timezone.utc)
+            logger.info("Sonarr webhook test reçu avec succès")
+            return {"status": "ok", "event": "Test", "message": "Webhook Sonarr opérationnel"}
 
         if event in ("SeriesDelete", "EpisodeFileDelete"):
             series = data.get("series", {})
@@ -194,6 +225,7 @@ async def sonarr_webhook(request: Request):
         sonarr_id = series.get("id")
         tvdb_id = series.get("tvdbId")
 
+        instance_id = _query_instance_id(request)
         matched = _mark_available_and_notify(
             title,
             "show",
@@ -201,7 +233,9 @@ async def sonarr_webhook(request: Request):
             db,
             settings,
             tvdb_id=tvdb_id,
-            instance_id=_query_instance_id(request),
+            instance_id=instance_id,
+            source="sonarr",
+            instance_name=_instance_name(db, instance_id),
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -210,7 +244,7 @@ async def sonarr_webhook(request: Request):
 
 @router.post("/radarr")
 async def radarr_webhook(request: Request):
-    """Receives Radarr OnDownload/OnImport webhook events."""
+    """Receives Radarr OnDownload/OnImport/Test webhook events."""
     db: Session = SessionLocal()
     try:
         settings = db.query(Settings).first()
@@ -219,6 +253,11 @@ async def radarr_webhook(request: Request):
         data = await request.json()
         event = data.get("eventType", "")
         logger.info(f"Radarr webhook: {event}")
+
+        if event == "Test":
+            _last_webhook_test["radarr"] = datetime.now(timezone.utc)
+            logger.info("Radarr webhook test reçu avec succès")
+            return {"status": "ok", "event": "Test", "message": "Webhook Radarr opérationnel"}
 
         if event in ("MovieDelete", "MovieFileDelete"):
             movie = data.get("movie", {})
@@ -242,6 +281,7 @@ async def radarr_webhook(request: Request):
         tmdb_id = movie.get("tmdbId")
         imdb_id = movie.get("imdbId")
 
+        instance_id = _query_instance_id(request)
         matched = _mark_available_and_notify(
             title,
             "movie",
@@ -250,7 +290,9 @@ async def radarr_webhook(request: Request):
             settings,
             tmdb_id=tmdb_id,
             imdb_id=imdb_id,
-            instance_id=_query_instance_id(request),
+            instance_id=instance_id,
+            source="radarr",
+            instance_name=_instance_name(db, instance_id),
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -292,7 +334,16 @@ async def plex_webhook(request: Request):
     event = data.get("event", "")
     logger.info(f"Plex webhook: {event}")
 
+    if event == "media.play" and data.get("Metadata") is None:
+        # Plex envoie un event vide pour tester la connectivité
+        _last_webhook_test["plex"] = datetime.now(timezone.utc)
+        logger.info("Plex webhook test reçu avec succès")
+        return {"status": "ok", "event": "Test", "message": "Webhook Plex opérationnel"}
+
     if event not in ("library.new", "media.scrobble"):
+        if event in ("media.play", "media.pause", "media.resume", "media.stop", "media.rate"):
+            # Ces events Plex ne contiennent pas de Guid → on les ignore silencieusement
+            return {"status": "ignored", "event": event}
         return {"status": "ignored", "event": event}
 
     metadata = data.get("Metadata", {})
@@ -344,13 +395,111 @@ async def plex_webhook(request: Request):
         for req in requests:
             req.status = RequestStatus.available
             req.available_at = now_utc()
+            req.is_downloading = False
             db.commit()
             logger.info(f"Plex webhook: '{req.title}' marqué disponible")
+            record_completed(
+                db,
+                title=req.title,
+                year=req.year,
+                media_type=req.media_type,
+                source="plex",
+                poster_url=req.poster_url,
+                request_id=req.id,
+            )
             if settings and settings.email_on_available and not req.available_mail_sent:
                 user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
                 recipients = _get_recipients(user_obj, settings)
                 enqueue_notification("available", req.id, recipients)
 
         return {"status": "ok", "event": event, "matched": len(requests), "title": title}
+    finally:
+        db.close()
+
+
+@router.get("/status")
+def webhook_status():
+    """Retourne le statut des derniers tests reçus pour chaque webhook."""
+    def _fmt(dt: datetime | None) -> dict:
+        if dt is None:
+            return {"received": False, "at": None, "ago_seconds": None}
+        ago = (datetime.now(timezone.utc) - dt).total_seconds()
+        return {"received": True, "at": dt.isoformat(), "ago_seconds": int(ago)}
+
+    return {
+        "sonarr": _fmt(_last_webhook_test["sonarr"]),
+        "radarr": _fmt(_last_webhook_test["radarr"]),
+        "plex": _fmt(_last_webhook_test["plex"]),
+    }
+
+
+@router.post("/check-live/{service}")
+async def check_live_webhook(service: str, instance_id: int | None = None):
+    """Déclenche depuis Sonarr/Radarr un test réel du connecteur Webhook pointant vers cette app.
+
+    Contrairement à /webhook/status (qui attend passivement un événement Test), cet endpoint
+    interroge l'API Sonarr/Radarr pour retrouver le connecteur Webhook configuré (Settings →
+    Connect) et lui fait déclencher lui-même un envoi de test, confirmant en direct que la
+    notification temps réel fonctionnera bien à la disponibilité d'un média.
+    """
+    if service not in ("sonarr", "radarr"):
+        raise HTTPException(status_code=400, detail="service doit être 'sonarr' ou 'radarr'")
+
+    client = sonarr if service == "sonarr" else radarr
+    webhook_path = f"/webhook/{service}"
+
+    db: Session = SessionLocal()
+    try:
+        if instance_id is not None:
+            inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+            if not inst:
+                raise HTTPException(status_code=404, detail="Instance introuvable")
+            instances = [inst]
+        else:
+            instances = db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled).all()
+            if not instances:
+                settings = db.query(Settings).first()
+                url = getattr(settings, f"{service}_url", None) if settings else None
+                api_key = getattr(settings, f"{service}_api_key", None) if settings else None
+                if url and api_key:
+                    instances = [ArrInstance(name=service.capitalize(), arr_type=service, url=url, api_key=api_key)]
+
+        if not instances:
+            return {"results": [{"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}]}
+
+        results = []
+        for inst in instances:
+            entry = {"instance": inst.name, "instance_id": inst.id, "url": inst.url}
+            try:
+                notifications = await client.get_notifications(inst.url, inst.api_key)
+            except Exception as e:
+                entry.update(
+                    {"configured": False, "success": False, "message": f"Connexion à {service.capitalize()} impossible : {e}"}
+                )
+                results.append(entry)
+                continue
+
+            match = client.find_webhook_notification(notifications, webhook_path)
+            if not match:
+                entry.update(
+                    {
+                        "configured": False,
+                        "success": False,
+                        "message": (
+                            f"Aucun connecteur Webhook pointant vers {webhook_path} trouvé dans "
+                            f"{service.capitalize()} → Connexions"
+                        ),
+                    }
+                )
+                results.append(entry)
+                continue
+
+            ok, msg = await client.test_notification(inst.url, inst.api_key, match)
+            entry.update({"configured": True, "success": ok, "message": msg})
+            if ok:
+                _last_webhook_test[service] = datetime.now(timezone.utc)
+            results.append(entry)
+
+        return {"results": results}
     finally:
         db.close()

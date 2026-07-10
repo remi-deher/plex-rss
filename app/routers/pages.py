@@ -110,6 +110,7 @@ def _request_summary(req: MediaRequest, users_map: dict[str, str]) -> dict:
         "arr_slug": req.arr_slug,
         "arr_instance_id": req.arr_instance_id,
         "has_vf": req.has_vf,
+        "is_downloading": req.is_downloading,
     }
 
 
@@ -305,9 +306,14 @@ def library_page(
         statuses = sorted({r["status"] for r in reqs}, key=lambda s: status_priority.get(s, 99))
         vm["request_statuses"] = statuses
         vm["request_status"] = statuses[0] if statuses else None
+        # En cours de téléchargement : au moins un item actif dans la file *arr au dernier
+        # cycle de poll (ex: série avec d'autres épisodes encore en téléchargement pendant
+        # qu'un premier épisode est déjà disponible). Prioritaire sur l'anomalie Plex.
+        vm["is_downloading"] = any(r["is_downloading"] for r in reqs)
         # Anomalie Plex : *arr a traité la demande (statut disponible) mais le média
-        # reste introuvable dans la bibliothèque Plex synchronisée (bug d'indexation Plex).
-        vm["plex_anomaly"] = (not vm["in_library"]) and ("available" in statuses)
+        # reste introuvable dans la bibliothèque Plex synchronisée (bug d'indexation Plex),
+        # à condition qu'il ne soit pas encore en cours de téléchargement/import.
+        vm["plex_anomaly"] = (not vm["in_library"]) and ("available" in statuses) and not vm["is_downloading"]
         vm["request_sources"] = sorted({r["source"] for r in reqs if r["source"]})
         names = []
         for req in reqs:

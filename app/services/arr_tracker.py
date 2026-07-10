@@ -11,10 +11,11 @@ from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, Req
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
 from .download_clients import delete_torrent, get_torrent_status
+from .download_history import record_completed
 from .notification_orchestrator import _handle_show_progress_notification
-from .radarr import get_all_movies, is_movie_available, movie_exists
+from .radarr import get_all_movies, get_queue_movie_ids, is_movie_available, movie_exists
 from .seer import is_request_available as seer_available
-from .sonarr import get_all_series, get_series_episode_stats, is_series_available, series_exists
+from .sonarr import get_all_series, get_queue_series_ids, get_series_episode_stats, is_series_available, series_exists
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
 
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ async def check_arr_statuses():
             # Prefetch list for the instance
             series_list = None
             movies_list = None
+            queue_ids: set[int] = set()
             if inst.arr_type == "sonarr":
                 try:
                     series_list = await get_all_series(inst.url, inst.api_key)
@@ -138,6 +140,7 @@ async def check_arr_statuses():
                     logger.warning(f"Sonarr series prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
                     error_details.append(f"[{inst.name}] prefetch Sonarr: {e}")
+                queue_ids = await get_queue_series_ids(inst.url, inst.api_key)
             elif inst.arr_type == "radarr":
                 try:
                     movies_list = await get_all_movies(inst.url, inst.api_key)
@@ -145,6 +148,7 @@ async def check_arr_statuses():
                     logger.warning(f"Radarr movies prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
                     error_details.append(f"[{inst.name}] prefetch Radarr: {e}")
+                queue_ids = await get_queue_movie_ids(inst.url, inst.api_key)
 
             for req in inst_candidates:
                 available = False
@@ -258,6 +262,13 @@ async def check_arr_statuses():
                     req.episodes_aired_count = series_stats["episode_count"]
                     req.episodes_total_count = series_stats["total_episode_count"]
 
+                # Reflète la présence (ou non) d'un item actif dans la file de téléchargement
+                # *arr pour ce média. Permet de distinguer, côté UI, une vraie anomalie Plex
+                # (fichier importé mais introuvable dans Plex) d'un média encore en cours de
+                # téléchargement/import (ex: série avec d'autres épisodes en cours de téléchargement).
+                effective_arr_id = None if seer_checked else (new_arr_id or req.arr_id)
+                req.is_downloading = bool(effective_arr_id and effective_arr_id in queue_ids)
+
                 was_already_available = req.status == RequestStatus.available
                 if available:
                     if not was_already_available:
@@ -267,7 +278,19 @@ async def check_arr_statuses():
                         req.next_release_label = None
                         newly_available += 1
                         logger.info(f"'{req.title}' is now available")
-                    db.commit()
+                        db.commit()
+                        record_completed(
+                            db,
+                            title=req.title,
+                            year=req.year,
+                            media_type=req.media_type,
+                            source=inst.arr_type,
+                            instance_name=inst.name,
+                            poster_url=req.poster_url,
+                            request_id=req.id,
+                        )
+                    else:
+                        db.commit()
 
                     if req.media_type == "show":
                         # Gère la disponibilité partielle (série en cours de diffusion) :
@@ -371,6 +394,16 @@ async def check_torrent_statuses():
                     req.status = RequestStatus.available
                     req.available_at = now_utc_naive()
                     db.commit()
+                    record_completed(
+                        db,
+                        title=req.title,
+                        year=req.year,
+                        media_type=req.media_type,
+                        source="torrent",
+                        instance_name=client.name,
+                        poster_url=req.poster_url,
+                        request_id=req.id,
+                    )
                     notification_orchestrator._notify("available", settings, req, db)
                     logger.info(f"Torrent '{req.title}' terminé et marqué comme disponible !")
 

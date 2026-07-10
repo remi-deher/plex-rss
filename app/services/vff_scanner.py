@@ -21,7 +21,7 @@ from .notification_orchestrator import (
     _resolve_series_tracking_mode,
 )
 from .radarr import search_movie
-from .sonarr import search_series
+from .sonarr import get_season_aired_episode_counts, search_series
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +249,29 @@ def _resolve_vf_arr_instance(db: Session, req: MediaRequest, arr_type: str) -> A
     )
 
 
+async def _prefetch_season_aired_counts(db: Session, requests: list[MediaRequest]) -> dict[int, dict[int, int]]:
+    """Précharge, pour chaque série Sonarr, le nombre d'épisodes déjà diffusés par saison.
+
+    Référence utilisée par `_series_language_milestones` pour ne pas confondre "tous les
+    épisodes déjà repérés dans Plex correspondent" avec "la saison est réellement complète"
+    (voir docstring de `sonarr.get_season_aired_episode_counts`). Best-effort : une série
+    dont Sonarr est injoignable ou introuvable retombe sur l'ancien comportement (pas de
+    référence disponible).
+    """
+    counts: dict[int, dict[int, int]] = {}
+    for req in requests:
+        if req.media_type != "show" or not req.arr_id or req.source == "seer" or req.id in counts:
+            continue
+        inst = _resolve_vf_arr_instance(db, req, "sonarr")
+        if not inst:
+            continue
+        try:
+            counts[req.id] = await get_season_aired_episode_counts(inst.url, inst.api_key, req.arr_id)
+        except Exception as e:
+            logger.warning(f"VFF : compteurs saison Sonarr indisponibles pour '{req.title}': {e}")
+    return counts
+
+
 async def _trigger_vf_search(db: Session, settings: Settings, req: MediaRequest) -> None:
     """Relance une recherche Sonarr/Radarr pour un média détecté en VO seule (auto-search VFF).
 
@@ -411,6 +434,10 @@ async def check_vf_statuses():
             if any(r.get("episode_status") for r in results):
                 db.commit()
 
+        season_counts_by_req_id = await _prefetch_season_aired_counts(
+            db, unlinked_candidates_q + [req for req, _ in linked_pairs]
+        )
+
         newly_vo = 0
         newly_vf = 0
         newly_fallback = 0
@@ -443,7 +470,13 @@ async def check_vf_statuses():
                     req.vf_available_at = now
                     db.commit()
                     newly_vf += _queue_language_progress_notifications(
-                        "vf", settings, req, db, episode_status=episode_status, has_vf_full=True
+                        "vf",
+                        settings,
+                        req,
+                        db,
+                        episode_status=episode_status,
+                        has_vf_full=True,
+                        season_aired_counts=season_counts_by_req_id.get(req.id),
                     )
                     logger.info(f"VFF : '{req.title}' est désormais disponible en VF")
                 else:
@@ -465,7 +498,13 @@ async def check_vf_statuses():
                         req.available_mail_sent = True
                         db.commit()
                         newly_vo += _queue_language_progress_notifications(
-                            "vo", settings, req, db, episode_status=episode_status, has_vf_full=False
+                            "vo",
+                            settings,
+                            req,
+                            db,
+                            episode_status=episode_status,
+                            has_vf_full=False,
+                            season_aired_counts=season_counts_by_req_id.get(req.id),
                         )
                         logger.info(f"VFF : '{req.title}' disponible en VO uniquement — suivi VF activé")
                     else:
@@ -475,7 +514,13 @@ async def check_vf_statuses():
                 else:
                     db.commit()
                     newly_vf += _queue_language_progress_notifications(
-                        "vf", settings, req, db, episode_status=episode_status, has_vf_full=False
+                        "vf",
+                        settings,
+                        req,
+                        db,
+                        episode_status=episode_status,
+                        has_vf_full=False,
+                        season_aired_counts=season_counts_by_req_id.get(req.id),
                     )
             return trigger_search
 
@@ -625,6 +670,7 @@ async def check_episode_tracking():
         now = now_utc_naive()
         results = await asyncio.to_thread(_scan_vf_blocking, settings.plex_url, settings.plex_token, candidates, libs)
         results_by_id = {r["id"]: r for r in results}
+        season_counts_by_req_id = await _prefetch_season_aired_counts(db, candidates_q)
 
         notified = 0
         for req in candidates_q:
@@ -635,7 +681,9 @@ async def check_episode_tracking():
             if episode_status:
                 _persist_episode_status(db, "request", req.id, episode_status, now)
                 db.commit()
-            notified += _queue_episode_progress_notifications(settings, req, db, episode_status)
+            notified += _queue_episode_progress_notifications(
+                settings, req, db, episode_status, season_aired_counts=season_counts_by_req_id.get(req.id)
+            )
 
         logger.info(f"Suivi épisode : analyse terminée ({notified} notification(s) déclenchée(s))")
         episode_scan_state["status"] = "idle"

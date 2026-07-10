@@ -13,8 +13,33 @@
   </div>
 </div>
 
+<div id="dl-summary" class="row g-2 mb-3"></div>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3" id="dl-filters" style="display:none !important">
+  <input type="text" class="form-control form-control-sm" id="dl-search" placeholder="Rechercher un titre..." style="max-width:220px" oninput="renderFiltered()">
+  <select class="form-select form-select-sm" id="dl-filter-instance" style="max-width:180px" onchange="renderFiltered()">
+    <option value="">Toutes les instances</option>
+  </select>
+  <select class="form-select form-select-sm" id="dl-filter-status" style="max-width:160px" onchange="renderFiltered()">
+    <option value="">Tous les statuts</option>
+    <option value="error">Erreur</option>
+    <option value="downloading">En cours</option>
+    <option value="queued">En file</option>
+    <option value="paused">En pause</option>
+    <option value="completed">Terminé</option>
+  </select>
+</div>
+
 <div id="dl-container">
   <div class="text-center text-muted py-5"><span class="spinner-border text-warning"></span></div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+  <h5 class="mb-0"><i class="bi bi-clock-history me-2 text-info"></i>Historique récent</h5>
+  <button class="btn btn-sm btn-outline-secondary" onclick="loadHistory()"><i class="bi bi-arrow-clockwise"></i></button>
+</div>
+<div id="dl-history-container">
+  <div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm text-info"></span></div>
 </div>
 
 {% endblock %}
@@ -23,50 +48,190 @@
 <script>
 function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 function fmtBytes(b){ if(!b) return '—'; const k=1024, s=['B','Ko','Mo','Go','To']; const i=Math.floor(Math.log(b)/Math.log(k)); return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i]; }
+function fmtSpeed(bps){ if(!bps || bps <= 0) return null; return fmtBytes(bps) + '/s'; }
+
+function itemKey(rec){
+  return (rec.instance_id != null ? rec.instance_id : rec.instance) + ':' + (rec.queue_id != null ? rec.queue_id : (rec.request_id != null ? rec.request_id : rec.title));
+}
+
+function mediaLink(rec){
+  if (rec.library_id != null) return `/library?open_library=${rec.library_id}`;
+  if (rec.request_id != null) return `/library?open_request=${rec.request_id}`;
+  return null;
+}
 
 function statusMeta(rec){
   const st = (rec.status || '').toLowerCase();
   if (rec.error || rec.tracked_status === 'warning' || st === 'failed' || st === 'warning')
-    return { cls: 'bg-danger', bar: 'bg-danger', label: rec.error ? 'Erreur' : 'Attention' };
-  if (st === 'completed') return { cls: 'badge-available', bar: 'bg-success', label: 'Terminé' };
-  if (st === 'paused') return { cls: 'bg-secondary', bar: 'bg-secondary', label: 'En pause' };
-  if (st === 'queued' || st === 'delay') return { cls: 'badge-pending', bar: 'bg-warning', label: 'En file' };
-  return { cls: 'badge-sent', bar: 'bg-warning progress-bar-striped progress-bar-animated', label: 'En cours' };
+    return { key: 'error', cls: 'bg-danger', bar: 'bg-danger', label: rec.error ? 'Erreur' : 'Attention' };
+  if (st === 'completed') return { key: 'completed', cls: 'badge-available', bar: 'bg-success', label: 'Terminé' };
+  if (st === 'paused') return { key: 'paused', cls: 'bg-secondary', bar: 'bg-secondary', label: 'En pause' };
+  if (st === 'queued' || st === 'delay') return { key: 'queued', cls: 'badge-pending', bar: 'bg-warning', label: 'En file' };
+  return { key: 'downloading', cls: 'badge-sent', bar: 'bg-warning progress-bar-striped progress-bar-animated', label: 'En cours' };
+}
+
+// ---- Vitesse instantanée : delta de sizeleft entre deux polls (5s) ----
+let _prevSnapshot = {};
+function computeSpeed(rec){
+  const key = itemKey(rec);
+  const prev = _prevSnapshot[key];
+  let speed = null;
+  if (prev && prev.sizeleft != null && rec.sizeleft != null && prev.t) {
+    const dt = (Date.now() - prev.t) / 1000;
+    const delta = prev.sizeleft - rec.sizeleft;
+    if (dt > 0 && delta > 0) speed = delta / dt;
+  }
+  return speed;
+}
+function saveSnapshot(items){
+  const next = {};
+  for (const rec of items) next[itemKey(rec)] = { sizeleft: rec.sizeleft, t: Date.now() };
+  _prevSnapshot = next;
+}
+
+// ---- Toast sur nouvelle erreur détectée entre deux polls ----
+let _knownErrors = new Set();
+function notifyNewErrors(items){
+  const currentErrors = new Set();
+  for (const rec of items) {
+    const m = statusMeta(rec);
+    if (m.key !== 'error') continue;
+    const key = itemKey(rec);
+    currentErrors.add(key);
+    if (!_knownErrors.has(key)) {
+      showToast(`<i class="bi bi-exclamation-triangle-fill me-1"></i>Erreur de téléchargement : ${escHtml(rec.title)}`, 'danger');
+    }
+  }
+  _knownErrors = currentErrors;
+}
+
+let _allItems = [];
+
+function renderSummary(items){
+  const counts = { error: 0, downloading: 0, queued: 0, paused: 0 };
+  let totalSpeed = 0;
+  for (const rec of items) {
+    const m = statusMeta(rec);
+    if (counts[m.key] != null) counts[m.key]++;
+    const sp = computeSpeed(rec);
+    if (sp) totalSpeed += sp;
+  }
+  const tiles = [
+    { label: 'En cours', val: counts.downloading, cls: 'text-warning', icon: 'bi-cloud-arrow-down-fill' },
+    { label: 'En file', val: counts.queued, cls: 'text-secondary', icon: 'bi-hourglass-split' },
+    { label: 'En pause', val: counts.paused, cls: 'text-secondary', icon: 'bi-pause-circle' },
+    { label: 'En erreur', val: counts.error, cls: 'text-danger', icon: 'bi-exclamation-triangle-fill' },
+  ];
+  const speedTile = totalSpeed > 0
+    ? `<div class="col-auto"><div class="card px-3 py-2 text-center"><div class="fw-bold text-info">${fmtSpeed(totalSpeed)}</div><div class="text-muted" style="font-size:11px">Débit cumulé</div></div></div>`
+    : '';
+  document.getElementById('dl-summary').innerHTML = tiles.map(t => `
+    <div class="col-auto"><div class="card px-3 py-2 text-center">
+      <div class="fw-bold ${t.cls}"><i class="bi ${t.icon} me-1"></i>${t.val}</div>
+      <div class="text-muted" style="font-size:11px">${t.label}</div>
+    </div></div>`).join('') + speedTile;
+}
+
+function populateInstanceFilter(items){
+  const sel = document.getElementById('dl-filter-instance');
+  const current = sel.value;
+  const names = [...new Set(items.map(r => r.instance).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Toutes les instances</option>' + names.map(n => `<option value="${escHtml(n)}">${escHtml(n)}</option>`).join('');
+  sel.value = names.includes(current) ? current : '';
+}
+
+function groupLabel(key){
+  return { error: 'Erreurs', downloading: 'En cours', queued: 'En file', paused: 'En pause', completed: 'Terminés' }[key] || key;
+}
+
+function renderRow(rec){
+  const m = statusMeta(rec);
+  const badgeMap = {
+    sonarr: ['bg-info text-dark', 'Sonarr'],
+    radarr: ['bg-primary', 'Radarr'],
+    direct: ['bg-secondary', 'Direct (hors *arr)'],
+  };
+  const [bCls, bLabel] = badgeMap[rec.arr_type] || ['bg-primary', 'Radarr'];
+  const arrBadge = `<span class="badge ${bCls}" style="font-size:9px">${bLabel}</span>`;
+  const err = rec.error ? `<div class="text-danger" style="font-size:11px"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(rec.error)}</div>` : '';
+  const link = mediaLink(rec);
+  const titleHtml = link
+    ? `<a href="${link}" class="text-decoration-none text-white-50" style="border-bottom:1px dotted"><span class="text-white">${escHtml(rec.title)}</span></a>`
+    : `<span class="text-white">${escHtml(rec.title)}</span>`;
+  const speed = computeSpeed(rec);
+  const speedHtml = speed ? `<div class="text-info" style="font-size:11px">${fmtSpeed(speed)}</div>` : '';
+  const canAct = rec.instance_id != null && rec.queue_id != null;
+  const actions = canAct ? `
+    <div class="d-flex gap-1">
+      <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Blocklister et relancer une recherche" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, true, true, this)"><i class="bi bi-arrow-repeat"></i></button>
+      <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Retirer de la file" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, false, false, this)"><i class="bi bi-x-lg"></i></button>
+    </div>` : '';
+  return `<tr>
+    <td style="min-width:240px">
+      <div class="small">${arrBadge} ${titleHtml}</div>
+      <div class="text-muted" style="font-size:11px">${escHtml(rec.download_client||'')}${rec.indexer ? ' · ' + escHtml(rec.indexer) : ''}${rec.instance ? ' · ' + escHtml(rec.instance) : ''}</div>
+      ${err}
+    </td>
+    <td style="min-width:160px">
+      <div class="progress" style="height:14px">
+        <div class="progress-bar ${m.bar}" style="width:${rec.progress}%">${rec.progress}%</div>
+      </div>
+      ${speedHtml}
+    </td>
+    <td class="text-nowrap small">${fmtBytes(rec.size)}</td>
+    <td class="text-nowrap small">${rec.timeleft || '—'}</td>
+    <td><span class="badge ${m.cls}">${m.label}</span></td>
+    <td>${actions}</td>
+  </tr>`;
 }
 
 function render(items){
   if (!items.length) {
     return `<div class="text-center text-muted py-5"><i class="bi bi-check2-circle fs-1 d-block mb-2 opacity-25"></i><p class="small">Aucun téléchargement en cours.</p></div>`;
   }
-  const rows = items.map(rec => {
-    const m = statusMeta(rec);
-    const badgeMap = {
-      sonarr: ['bg-info text-dark', 'Sonarr'],
-      radarr: ['bg-primary', 'Radarr'],
-      direct: ['bg-secondary', 'Direct (hors *arr)'],
-    };
-    const [bCls, bLabel] = badgeMap[rec.arr_type] || ['bg-primary', 'Radarr'];
-    const arrBadge = `<span class="badge ${bCls}" style="font-size:9px">${bLabel}</span>`;
-    const err = rec.error ? `<div class="text-danger" style="font-size:11px"><i class="bi bi-exclamation-triangle me-1"></i>${escHtml(rec.error)}</div>` : '';
-    return `<tr>
-      <td style="min-width:240px">
-        <div class="small">${arrBadge} ${escHtml(rec.title)}</div>
-        <div class="text-muted" style="font-size:11px">${escHtml(rec.download_client||'')}${rec.indexer ? ' · ' + escHtml(rec.indexer) : ''}${rec.instance ? ' · ' + escHtml(rec.instance) : ''}</div>
-        ${err}
-      </td>
-      <td style="min-width:160px">
-        <div class="progress" style="height:14px">
-          <div class="progress-bar ${m.bar}" style="width:${rec.progress}%">${rec.progress}%</div>
-        </div>
-      </td>
-      <td class="text-nowrap small">${fmtBytes(rec.size)}</td>
-      <td class="text-nowrap small">${rec.timeleft || '—'}</td>
-      <td><span class="badge ${m.cls}">${m.label}</span></td>
-    </tr>`;
-  }).join('');
+  // Regroupement par statut : erreurs d'abord, puis en cours, en file, en pause, terminé.
+  const order = ['error', 'downloading', 'queued', 'paused', 'completed'];
+  const groups = {};
+  for (const rec of items) {
+    const k = statusMeta(rec).key;
+    (groups[k] = groups[k] || []).push(rec);
+  }
+  let rows = '';
+  for (const k of order) {
+    const list = groups[k];
+    if (!list || !list.length) continue;
+    rows += `<tr class="table-group-header"><td colspan="6" class="text-muted small fw-semibold" style="background:var(--pr-surface-2)">${groupLabel(k)} (${list.length})</td></tr>`;
+    rows += list.map(renderRow).join('');
+  }
   return `<div class="card"><div class="table-responsive"><table class="table table-dark table-hover align-middle mb-0">
-    <thead><tr><th>Titre</th><th>Progression</th><th>Taille</th><th>Restant</th><th>Statut</th></tr></thead>
+    <thead><tr><th>Titre</th><th>Progression</th><th>Taille</th><th>Restant</th><th>Statut</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div></div>`;
+}
+
+function renderFiltered(){
+  const search = (document.getElementById('dl-search').value || '').toLowerCase().trim();
+  const instance = document.getElementById('dl-filter-instance').value;
+  const status = document.getElementById('dl-filter-status').value;
+  let items = _allItems;
+  if (search) items = items.filter(r => (r.title || '').toLowerCase().includes(search));
+  if (instance) items = items.filter(r => r.instance === instance);
+  if (status) items = items.filter(r => statusMeta(r).key === status);
+  document.getElementById('dl-container').innerHTML = render(items);
+}
+
+async function queueAction(instanceId, queueId, blocklist, search, btn){
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  try {
+    const params = new URLSearchParams({ blocklist: blocklist ? 'true' : 'false', search: search ? 'true' : 'false' });
+    const r = await fetch(`/api/arr/queue/${instanceId}/${queueId}?${params.toString()}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(blocklist ? 'Item blocklisté, nouvelle recherche lancée' : 'Item retiré de la file', 'success');
+    loadQueue();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-x-lg"></i>'; }
+  }
 }
 
 function configCallout(title, body, actionLabel = 'Configurer'){
@@ -85,6 +250,8 @@ async function loadQueue(){
     ]);
     if (!caps.has_arr_downloads && !caps.has_download_clients) {
       const disabled = caps.arr_downloads_disabled || caps.download_clients_disabled;
+      document.getElementById('dl-summary').innerHTML = '';
+      document.getElementById('dl-filters').style.setProperty('display', 'none', 'important');
       document.getElementById('dl-container').innerHTML = configCallout(
         disabled ? 'Telechargements desactives.' : 'Aucun service de telechargement configure.',
         disabled
@@ -95,7 +262,13 @@ async function loadQueue(){
       return;
     }
     const items = [...arrq, ...direct].sort((a,b) => (a.progress||0) - (b.progress||0));
-    document.getElementById('dl-container').innerHTML = render(items);
+    notifyNewErrors(items);
+    renderSummary(items);
+    _allItems = items;
+    populateInstanceFilter(items);
+    document.getElementById('dl-filters').style.setProperty('display', 'flex', 'important');
+    renderFiltered();
+    saveSnapshot(items);
     document.getElementById('dl-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
   } catch (e) {
     document.getElementById('dl-container').innerHTML = configCallout(
@@ -105,7 +278,49 @@ async function loadQueue(){
   }
 }
 
+function fmtAgo(iso){
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso + 'Z').getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `il y a ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `il y a ${hours}h`;
+  return `il y a ${Math.floor(hours / 24)}j`;
+}
+
+async function loadHistory(){
+  const el = document.getElementById('dl-history-container');
+  try {
+    const rows = await fetch('/api/downloads/history?limit=30').then(r => { if (!r.ok) throw new Error('Historique inaccessible'); return r.json(); });
+    if (!rows.length) {
+      el.innerHTML = `<div class="text-center text-muted py-4"><p class="small mb-0">Aucun téléchargement terminé pour l'instant.</p></div>`;
+      return;
+    }
+    const sourceBadge = { sonarr: ['bg-info text-dark', 'Sonarr'], radarr: ['bg-primary', 'Radarr'], plex: ['bg-warning text-dark', 'Plex'], torrent: ['bg-secondary', 'Direct'] };
+    const rowsHtml = rows.map(h => {
+      const [cls, label] = sourceBadge[h.source] || ['bg-secondary', h.source];
+      const link = h.request_id != null ? `/library?open_request=${h.request_id}` : null;
+      const titleHtml = link
+        ? `<a href="${link}" class="text-decoration-none"><span class="text-white">${escHtml(h.title)}</span></a>`
+        : `<span class="text-white">${escHtml(h.title)}</span>`;
+      return `<tr>
+        <td><span class="badge ${cls}" style="font-size:9px">${label}</span> ${titleHtml}${h.year ? `<span class="text-muted"> (${h.year})</span>` : ''}</td>
+        <td class="small text-muted">${escHtml(h.instance_name || '—')}</td>
+        <td class="small text-muted text-nowrap">${fmtAgo(h.completed_at)}</td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `<div class="card"><div class="table-responsive"><table class="table table-dark table-hover align-middle mb-0">
+      <thead><tr><th>Titre</th><th>Source</th><th>Terminé</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table></div></div>`;
+  } catch (e) {
+    el.innerHTML = configCallout('Historique inaccessible.', e.message || 'Erreur de chargement');
+  }
+}
+
 loadQueue();
+loadHistory();
 setInterval(loadQueue, 5000);
+setInterval(loadHistory, 30000);
 </script>
 {% endblock %}

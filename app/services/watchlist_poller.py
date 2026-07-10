@@ -131,10 +131,13 @@ async def _submit_to_arr(
                 item["_torrent_hash"] = info_hash
                 item["_download_client_id"] = client_id
                 return None, already_existed, arr_slug
-            logger.warning(
-                "No enabled Sonarr/Radarr instance found for submission and Torrent automation did not succeed"
+            # Ni Sonarr/Radarr actif ni filet Prowlarr+torrent exploitable : lever une
+            # exception (au lieu de retourner silencieusement) pour que l'appelant marque
+            # la demande "failed" et notifie l'échec, plutôt que de la laisser bloquée en
+            # "sent_to_arr" avec un mail "demande prise en compte" trompeur.
+            raise Exception(
+                "Aucune instance Sonarr/Radarr active et aucun résultat exploitable via le filet Prowlarr/torrent"
             )
-            return None, False, None
 
         item["_arr_instance_id"] = instance.id
 

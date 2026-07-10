@@ -13,6 +13,7 @@ Fonctions principales :
 
 import logging
 import re
+from datetime import datetime, timezone
 
 import httpx
 
@@ -451,12 +452,44 @@ async def get_episodes(sonarr_url: str, api_key: str, series_id: int) -> list[di
         return resp.json()
 
 
+async def get_season_aired_episode_counts(sonarr_url: str, api_key: str, series_id: int) -> dict[int, int]:
+    """Nombre d'épisodes surveillés déjà diffusés, par saison (saison 0/spéciales exclue).
+
+    Sert à distinguer une vraie "saison complète" (tous les épisodes déjà diffusés sont
+    présents) d'un simple "tous les épisodes *connus jusqu'ici*" — un scan Plex/VFF ne
+    remonte que les épisodes déjà importés, donc un début de saison (1 seul épisode
+    sorti) matcherait à tort "tous correspondent" sans ce compteur de référence.
+    """
+    episodes = await get_episodes(sonarr_url, api_key, series_id)
+    now = datetime.now(timezone.utc)
+    counts: dict[int, int] = {}
+    for ep in episodes:
+        if not ep.get("monitored", True):
+            continue
+        season = ep.get("seasonNumber")
+        if not season:  # None ou 0 (spéciales)
+            continue
+        air_date = ep.get("airDateUtc")
+        if not air_date:
+            continue
+        try:
+            aired_at = datetime.fromisoformat(air_date.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if aired_at > now:
+            continue
+        counts[season] = counts.get(season, 0) + 1
+    return counts
+
+
 def _normalize_queue_record(r: dict, title: str) -> dict:
     """Réduit un enregistrement de file d'attente Sonarr à un format compact pour l'UI."""
     size = r.get("size") or 0
     sizeleft = r.get("sizeleft") or 0
     progress = round((size - sizeleft) / size * 100, 1) if size else 0
     return {
+        "queue_id": r.get("id"),
+        "arr_media_id": r.get("seriesId"),
         "title": title,
         "status": r.get("status"),
         "tracked_state": r.get("trackedDownloadState"),
@@ -500,6 +533,54 @@ async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
     return out
 
 
+async def delete_queue_item(
+    sonarr_url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
+) -> tuple[bool, str]:
+    """Supprime un item de la file d'attente Sonarr, avec blocklist et relance de recherche optionnelles."""
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.delete(
+                f"{base}/api/v3/queue/{queue_id}",
+                params={
+                    "removeFromClient": "true",
+                    "blocklist": "true" if blocklist else "false",
+                    "skipRedownload": "false" if search else "true",
+                },
+                headers={"X-Api-Key": api_key},
+            )
+            if resp.status_code in (200, 204):
+                return True, "Item supprimé de la file Sonarr"
+            resp.raise_for_status()
+            return True, "Item supprimé de la file Sonarr"
+    except Exception as e:
+        logger.warning(f"Sonarr delete_queue_item échec (queue {queue_id}): {e}")
+        return False, str(e)
+
+
+async def get_queue_series_ids(sonarr_url: str, api_key: str) -> set[int]:
+    """IDs des séries ayant au moins un item actif dans la file de téléchargement Sonarr.
+
+    Utilisé pour distinguer une vraie anomalie Plex (fichier importé mais introuvable dans
+    Plex) d'une série encore partiellement en cours de téléchargement (ex: d'autres épisodes
+    de la même série toujours en file pendant qu'un premier épisode est déjà disponible).
+    """
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/queue",
+                params={"pageSize": 200},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+    except Exception as e:
+        logger.warning(f"Sonarr get_queue_series_ids échec: {e}")
+        return set()
+    return {r["seriesId"] for r in records if r.get("seriesId")}
+
+
 async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Sonarr.
 
@@ -515,6 +596,58 @@ async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
             resp.raise_for_status()
             data = resp.json()
             return True, f"Sonarr v{data.get('version', '?')} connecté"
+    except Exception as e:
+        return False, str(e)
+
+
+async def get_notifications(sonarr_url: str, api_key: str) -> list[dict]:
+    """Retourne les connecteurs de notification configurés dans Sonarr (Settings → Connect)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{sonarr_url.rstrip('/')}/api/v3/notification",
+            headers={"X-Api-Key": api_key},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+def find_webhook_notification(notifications: list[dict], webhook_path: str) -> dict | None:
+    """Trouve, parmi les connecteurs Sonarr, celui de type Webhook pointant vers notre endpoint."""
+    for notif in notifications:
+        if notif.get("implementation") != "Webhook":
+            continue
+        for field in notif.get("fields", []):
+            if field.get("name") == "url" and webhook_path in str(field.get("value", "")):
+                return notif
+    return None
+
+
+async def test_notification(sonarr_url: str, api_key: str, notification: dict) -> tuple[bool, str]:
+    """Déclenche depuis Sonarr un test réel du connecteur Webhook (round-trip vers notre endpoint).
+
+    Réutilise l'endpoint /api/v3/notification/test de Sonarr, qui envoie une notification de
+    test avec la configuration fournie sans la re-sauvegarder.
+    """
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/notification/test",
+                json=notification,
+                headers={"X-Api-Key": api_key},
+            )
+            if resp.status_code in (200, 204):
+                return True, "Test envoyé et accepté par Sonarr"
+            try:
+                errors = resp.json()
+                msg = (
+                    "; ".join(e.get("errorMessage", str(e)) for e in errors)
+                    if isinstance(errors, list)
+                    else str(errors)
+                )
+            except Exception:
+                msg = resp.text
+            return False, msg or f"HTTP {resp.status_code}"
     except Exception as e:
         return False, str(e)
 

@@ -71,57 +71,13 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
             ctx["plex_user"] = user.custom_name or user.display_name or user.plex_user_id
             recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
 
-    if body.type == "available":
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
-    elif body.type in ("available_vf", "available_vo_tracking", "vf_upgrade"):
-        ctx["media_type_label"] = "Film"
-        ctx["media_type_label_cap"] = "Le film"
-        ctx["language_reason"] = "VF film complet"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-    elif body.type.startswith("language_"):
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
-        ctx["language"] = "VF"
-        ctx["language_lower"] = "vf"
-        if body.type == "language_episode":
-            ctx["language_reason"] = "VF S01E02"
-            ctx["language_milestone_type"] = "episode"
-        elif body.type == "language_season_start":
-            ctx["language_reason"] = "VF saison 1 demarree"
-            ctx["language_milestone_type"] = "season_start"
-        elif body.type == "language_season_complete":
-            ctx["language_reason"] = "VF saison 1 complete"
-            ctx["language_milestone_type"] = "season_complete"
-        elif body.type == "language_series_complete":
-            ctx["language_reason"] = "VF serie complete"
-            ctx["language_milestone_type"] = "series_complete"
-    elif body.type == "failure":
-        ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
-
-    subject_fallbacks = {
-        "request": f"[Plexarr] Nouvelle demande : {ctx['title']}",
-        "available": f"[Plexarr] {ctx['title']} est disponible sur Plex !",
-        "available_vf": f"[Plexarr] {ctx['title']} est disponible sur Plex en VF !",
-        "available_vo_tracking": f"[Plexarr] {ctx['title']} est disponible sur Plex en VO !",
-        "vf_upgrade": f"[Plexarr] {ctx['title']} est désormais disponible sur Plex en VF !",
-        "language_episode": f"[Plexarr] {ctx['title']} : nouvel épisode en {ctx.get('language', 'VF')} sur Plex !",
-        "language_season_start": f"[Plexarr] {ctx['title']} : saison démarrée en {ctx.get('language', 'VF')} sur Plex !",
-        "language_season_complete": f"[Plexarr] {ctx['title']} : saison complète en {ctx.get('language', 'VF')} sur Plex !",
-        "language_series_complete": f"[Plexarr] {ctx['title']} est entièrement disponible en {ctx.get('language', 'VF')} sur Plex !",
-    }
-    if event_def.default_subject:
-        subject_fallbacks[body.type] = render_subject(
-            event_def.default_subject,
-            ctx,
-            fallback=f"[Plexarr] {event_def.label} : {ctx['title']}",
-        )
-    rendered_subject = render_subject(
-        body.subject,
-        ctx,
-        fallback=subject_fallbacks.get(body.type, f"[Plexarr] Échec de transmission : {ctx['title']}"),
+    generic_fallback = f"[Plexarr] {event_def.label} : {ctx['title']}"
+    fallback_subject = (
+        render_subject(event_def.default_subject, ctx, fallback=generic_fallback)
+        if event_def.default_subject
+        else generic_fallback
     )
+    rendered_subject = render_subject(body.subject, ctx, fallback=fallback_subject)
 
     html = render_template(body.template, ctx)
 
@@ -275,17 +231,6 @@ async def test_send_email(
         user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
         if user:
             ctx["plex_user"] = user.custom_name or user.display_name or user.plex_user_id
-
-    if body.type == "available":
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
-    elif body.type == "failure":
-        ctx["reason"] = "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
-
-    if body.type in ("available_vf", "available_vo_tracking", "vf_upgrade") and "language_reason" not in ctx:
-        ctx["media_type_label"] = "Film"
-        ctx["media_type_label_cap"] = "Le film"
-        ctx["language_reason"] = "VF film complet"
 
     fallback_subject = f"[Plex Test] {body.type} : {ctx['title']}"
     rendered_subject = render_subject(body.subject, ctx, fallback=fallback_subject)

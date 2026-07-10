@@ -61,7 +61,16 @@
                     <input type="text" class="form-control font-monospace" readonly id="webhook-sonarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-sonarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Sonarr → Connexions → Webhook · Événements : <strong>On Import / On Delete</strong></div>
+                  <div class="d-flex align-items-center gap-2 mt-1">
+                    <div class="form-text mb-0">Sonarr → Connexions → Webhook · Événements : <strong>On Import / On Delete / On Test</strong></div>
+                    <span id="wh-status-sonarr" class="badge bg-secondary" style="font-size:10px;white-space:nowrap"><i class="bi bi-question-circle me-1"></i>Non testé</span>
+                  </div>
+                  <div class="mt-1">
+                    <button class="btn btn-sm btn-outline-info py-0" onclick="checkLiveWebhook('sonarr')" id="btn-wh-live-sonarr">
+                      <i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis Sonarr
+                    </button>
+                    <div id="wh-live-result-sonarr" class="small mt-1"></div>
+                  </div>
                 </div>
                 <div class="col-md-6">
                   <label class="form-label"><i class="bi bi-camera-video text-primary me-1"></i>Radarr — URL Webhook</label>
@@ -69,7 +78,16 @@
                     <input type="text" class="form-control font-monospace" readonly id="webhook-radarr">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-radarr')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">Radarr → Connexions → Webhook · Événements : <strong>On Import / On Delete</strong></div>
+                  <div class="d-flex align-items-center gap-2 mt-1">
+                    <div class="form-text mb-0">Radarr → Connexions → Webhook · Événements : <strong>On Import / On Delete / On Test</strong></div>
+                    <span id="wh-status-radarr" class="badge bg-secondary" style="font-size:10px;white-space:nowrap"><i class="bi bi-question-circle me-1"></i>Non testé</span>
+                  </div>
+                  <div class="mt-1">
+                    <button class="btn btn-sm btn-outline-info py-0" onclick="checkLiveWebhook('radarr')" id="btn-wh-live-radarr">
+                      <i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis Radarr
+                    </button>
+                    <div id="wh-live-result-radarr" class="small mt-1"></div>
+                  </div>
                 </div>
                 <div class="col-12">
                   <hr class="border-secondary my-2">
@@ -84,15 +102,25 @@
                     <input type="text" class="form-control font-monospace" readonly id="webhook-plex">
                     <button class="btn btn-outline-warning" onclick="copyEl('webhook-plex')"><i class="bi bi-clipboard"></i></button>
                   </div>
-                  <div class="form-text">
-                    Plex → Paramètres → Webhooks · Événements traités : <strong>library.new</strong> et <strong>media.scrobble</strong>.
-                    Détection de disponibilité instantanée sans attendre la vérification périodique.
+                  <div class="d-flex align-items-center gap-2 mt-1">
+                    <div class="form-text mb-0">
+                      Plex → Paramètres → Webhooks · Événements traités : <strong>library.new</strong> et <strong>media.scrobble</strong>.
+                      Détection de disponibilité instantanée sans attendre la vérification périodique.
+                    </div>
+                    <span id="wh-status-plex" class="badge bg-secondary" style="font-size:10px;white-space:nowrap"><i class="bi bi-question-circle me-1"></i>Non testé</span>
                   </div>
+                </div>
+                <div class="col-12">
+                  <button class="btn btn-sm btn-outline-info" onclick="refreshWebhookStatus()" id="btn-wh-refresh">
+                    <i class="bi bi-arrow-repeat me-1"></i>Vérifier le statut des webhooks
+                  </button>
+                  <span class="text-muted small ms-2" id="wh-last-check"></span>
                 </div>
               </div>
               <div class="alert alert-secondary border-0 mt-3 mb-0 py-2" style="background:var(--pr-surface-2);font-size:13px">
                 <i class="bi bi-info-circle me-1"></i>
                 La correspondance se fait en priorité par <strong>TMDB/TVDB/IMDB ID</strong>, puis par titre si les IDs sont absents.
+                Pour valider la configuration, cliquez <strong>Test</strong> dans Sonarr/Radarr → Connexions, puis rafraîchissez le statut ci-dessus.
               </div>
             </div>
           </div>
@@ -125,6 +153,78 @@
             showToast('Nouveau secret généré — recollez les URLs dans Sonarr/Radarr/Plex', 'success');
           } catch (e) {
             showToast('Erreur : ' + e.message, 'danger');
+          }
+        }
+
+        function _renderWhBadge(elId, info) {
+          const el = document.getElementById(elId);
+          if (!el) return;
+          if (!info.received) {
+            el.className = 'badge bg-secondary';
+            el.innerHTML = '<i class="bi bi-question-circle me-1"></i>Non testé';
+            return;
+          }
+          const ago = info.ago_seconds;
+          let agoStr;
+          if (ago < 60) agoStr = 'il y a ' + ago + 's';
+          else if (ago < 3600) agoStr = 'il y a ' + Math.floor(ago / 60) + 'min';
+          else agoStr = 'il y a ' + Math.floor(ago / 3600) + 'h';
+          // Vert si < 5 min, orange si < 1h, gris sinon
+          const cls = ago < 300 ? 'bg-success' : (ago < 3600 ? 'bg-warning text-dark' : 'bg-secondary');
+          el.className = 'badge ' + cls;
+          el.innerHTML = '<i class="bi bi-check-circle me-1"></i>OK · ' + agoStr;
+          el.title = new Date(info.at).toLocaleString();
+        }
+
+        async function refreshWebhookStatus() {
+          const btn = document.getElementById('btn-wh-refresh');
+          const lbl = document.getElementById('wh-last-check');
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vérification...'; }
+          try {
+            const r = await fetch('/webhook/status');
+            const d = await r.json();
+            _renderWhBadge('wh-status-sonarr', d.sonarr);
+            _renderWhBadge('wh-status-radarr', d.radarr);
+            _renderWhBadge('wh-status-plex', d.plex);
+            if (lbl) lbl.textContent = 'Vérifié à ' + new Date().toLocaleTimeString();
+          } catch(e) {
+            if (lbl) lbl.textContent = 'Erreur de connexion';
+          } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Vérifier le statut des webhooks'; }
+          }
+        }
+
+        // Rafraîchit les badges au chargement de la page
+        refreshWebhookStatus();
+
+        function _whEscHtml(s) {
+          if (!s) return '';
+          return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        // Interroge l'API Sonarr/Radarr pour retrouver le connecteur Webhook configuré et lui
+        // fait déclencher lui-même un envoi de test (round-trip réel, sans action manuelle côté *arr).
+        async function checkLiveWebhook(service) {
+          const btn = document.getElementById('btn-wh-live-' + service);
+          const out = document.getElementById('wh-live-result-' + service);
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Test en cours...'; }
+          if (out) out.innerHTML = '';
+          try {
+            const r = await fetch('/webhook/check-live/' + service, { method: 'POST' });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Erreur');
+            const lines = (d.results || []).map(function (res) {
+              const label = res.instance ? res.instance : service;
+              const cls = res.success ? 'text-success' : 'text-danger';
+              const icon = res.success ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+              return '<div class="' + cls + '"><i class="bi ' + icon + ' me-1"></i><strong>' + _whEscHtml(label) + ' :</strong> ' + _whEscHtml(res.message) + '</div>';
+            });
+            if (out) out.innerHTML = lines.join('') || '<span class="text-muted">Aucun résultat</span>';
+            refreshWebhookStatus();
+          } catch (e) {
+            if (out) out.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>' + _whEscHtml(e.message) + '</span>';
+          } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis ' + (service === 'sonarr' ? 'Sonarr' : 'Radarr'); }
           }
         }
       </script>

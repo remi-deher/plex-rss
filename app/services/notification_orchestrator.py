@@ -125,6 +125,10 @@ def _purge_notification_logs():
                 if deleted_polls:
                     db.commit()
                     logger.info(f"Purge historique poll : {deleted_polls} entrées supprimées (>{poll_days}j)")
+
+            from .download_history import purge_old_entries
+
+            purge_old_entries(db)
     except Exception as e:
         logger.error(f"Erreur purge logs / historique poll : {e}")
 
@@ -227,15 +231,25 @@ def _resolve_series_notify_mode(direction: str, settings: Settings, user_obj: Pl
 
 
 def _resolve_series_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
-    """ "language" (VF/VO, historique) ou "simple" (épisodes/saisons, sans langue).
+    """ "language" (VF/VO, prioritaire par défaut), "simple" (épisodes/saisons, sans
+    langue) ou "classic" (mail générique "Disponible sur Plex", aucun jalon).
 
     Réglage par utilisateur (PlexUser.series_tracking_mode) prioritaire sur le réglage
-    global (Settings.series_tracking_mode) s'il est défini. Les deux modes sont
-    mutuellement exclusifs pour une série donnée.
+    global (Settings.series_tracking_mode) s'il est défini. "classic" n'est proposé que
+    comme forçage par utilisateur (pas d'option globale équivalente) mais reste accepté
+    ici quelle que soit la source, la résolution ne fait pas de distinction.
     """
     user_value = getattr(user_obj, "series_tracking_mode", None) if user_obj else None
     value = user_value or getattr(settings, "series_tracking_mode", None)
-    return value if value in ("language", "simple") else "language"
+    return value if value in ("language", "simple", "classic") else "language"
+
+
+def _resolve_movie_tracking_mode(user_obj: PlexUser | None) -> str:
+    """"language" (VO/VF, comportement standard) ou "classic" (mail générique, forçage
+    par utilisateur uniquement — pas de réglage global équivalent)."""
+    if user_obj and getattr(user_obj, "movie_tracking_mode", None) == "classic":
+        return "classic"
+    return "language"
 
 
 def _resolve_episode_notify_mode(settings: Settings, user_obj: PlexUser | None) -> str:
@@ -260,12 +274,25 @@ def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[in
     return normalized
 
 
-def _series_language_milestones(direction: str, mode: str, episode_status: dict | None, has_vf_full: bool):
+def _series_language_milestones(
+    direction: str,
+    mode: str,
+    episode_status: dict | None,
+    has_vf_full: bool,
+    season_aired_counts: dict[int, int] | None = None,
+):
     """Calcule les jalons (episode/season_start/season_complete/series_complete) à notifier.
 
     `direction` : "vf"/"vo" (suivi par langue) ou "simple" (suivi épisode indépendant de
     la langue — `episode_status` ne sert alors qu'à connaître la présence des épisodes sur
     Plex, `matches` est donc toujours vrai : tout épisode connu de Plex "correspond").
+
+    `season_aired_counts` : nombre d'épisodes Sonarr déjà diffusés par saison (voir
+    `sonarr.get_season_aired_episode_counts`). Sans cette référence, `episode_status` ne
+    contient que les épisodes déjà repérés dans Plex — un début de saison (1 seul épisode
+    sorti) déclencherait alors à tort "saison complète" en même temps que "saison démarrée",
+    faute de savoir que d'autres épisodes diffusés restent encore à charger. Si absent
+    (Sonarr injoignable, média Seer sans arr_id...), on retombe sur l'ancien comportement.
     """
     status = _normalized_episode_status(episode_status)
 
@@ -298,7 +325,9 @@ def _series_language_milestones(direction: str, mode: str, episode_status: dict 
         if mode == "season_start_and_complete":
             milestones.append(("season_start", season, matching_eps[0]))
         if mode in ("season_complete", "season_start_and_complete") and all(matches(v) for v in eps.values()):
-            milestones.append(("season_complete", season, None))
+            expected = season_aired_counts.get(season) if season_aired_counts else None
+            if expected is None or len(eps) >= expected:
+                milestones.append(("season_complete", season, None))
     return milestones
 
 
@@ -408,23 +437,45 @@ def _queue_language_progress_notifications(
     db: Session,
     episode_status: dict | None = None,
     has_vf_full: bool = False,
+    season_aired_counts: dict[int, int] | None = None,
 ) -> int:
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     if not _user_wants_vf(user_obj, req.vf_category):
         return 0
     if req.media_type != "show":
+        if _resolve_movie_tracking_mode(user_obj) == "classic":
+            if not req.available_mail_sent:
+                _notify("available", settings, req, db)
+            return 0
         return int(_queue_vf_milestone(direction, settings, req, db, "movie"))
+
+    tracking_mode = _resolve_series_tracking_mode(settings, user_obj)
+    if tracking_mode == "simple":
+        # Le suivi "simple" (check_episode_tracking) couvre déjà ce cas — sans ce
+        # garde-fou, un utilisateur en mode simple recevrait aussi les jalons VO/VF
+        # calculés ici, en plus de ses propres jalons épisode/saison (doublon).
+        return 0
+    if tracking_mode == "classic":
+        if not req.available_mail_sent:
+            _notify("available", settings, req, db)
+        return 0
 
     mode = _resolve_series_notify_mode(direction, settings, user_obj)
     count = 0
-    for milestone_type, season, episode in _series_language_milestones(direction, mode, episode_status, has_vf_full):
+    for milestone_type, season, episode in _series_language_milestones(
+        direction, mode, episode_status, has_vf_full, season_aired_counts
+    ):
         if _queue_vf_milestone(direction, settings, req, db, milestone_type, season, episode):
             count += 1
     return count
 
 
 def _queue_episode_progress_notifications(
-    settings: Settings, req: MediaRequest, db: Session, episode_status: dict | None
+    settings: Settings,
+    req: MediaRequest,
+    db: Session,
+    episode_status: dict | None,
+    season_aired_counts: dict[int, int] | None = None,
 ) -> int:
     """Équivalent de `_queue_language_progress_notifications` pour le mode "simple"
     (suivi épisode/saison indépendant de la langue, voir `_resolve_series_tracking_mode`).
@@ -434,7 +485,9 @@ def _queue_episode_progress_notifications(
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     mode = _resolve_episode_notify_mode(settings, user_obj)
     count = 0
-    for milestone_type, season, episode in _series_language_milestones("simple", mode, episode_status, False):
+    for milestone_type, season, episode in _series_language_milestones(
+        "simple", mode, episode_status, False, season_aired_counts
+    ):
         if _queue_vf_milestone("simple", settings, req, db, milestone_type, season, episode):
             count += 1
     return count
@@ -523,10 +576,12 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
     if (req.episodes_available_count or 0) <= 0:
         return  # aucun fichier pour l'instant, rien à notifier
 
-    if tracking_mode == "simple":
-        # Le suivi "simple" (check_episode_tracking) couvre déjà "nouvel épisode" /
-        # "saison complète" à partir du scan Plex — la notif "disponibilité partielle"
-        # (issue des compteurs Sonarr) ferait doublon pour le même événement.
+    if tracking_active:
+        # Le suivi de série (VFF en mode langue, ou "simple") couvre déjà "nouvel épisode" /
+        # "saison démarrée" à partir du scan Plex — avec en plus l'info de langue (VO/VF)
+        # pour le mode langue. La notif "disponibilité partielle" (issue des compteurs
+        # Sonarr, sans langue) ferait doublon pour le même événement — même garde-fou que
+        # pour la complétion ci-dessus.
         return
 
     frequency = _resolve_partial_notify_frequency(settings, user_obj)

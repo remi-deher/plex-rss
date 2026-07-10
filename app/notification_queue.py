@@ -77,9 +77,6 @@ EMAIL_SENDERS = {
     "failed": lambda settings, req, recipient, reason, display_name: send_failure_notification(
         settings, req, recipient, reason, display_name
     ),
-    "failure": lambda settings, req, recipient, reason, display_name: send_failure_notification(
-        settings, req, recipient, reason, display_name
-    ),
 }
 
 

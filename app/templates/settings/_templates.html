@@ -73,12 +73,12 @@
               </button>
             </li>
             <li class="nav-item">
-              <button class="nav-link" id="tmpl-tab-vf_upgrade" onclick="tmplSwitchTab('vf_upgrade')">
+              <button class="nav-link" id="tmpl-tab-vf_available" onclick="tmplSwitchTab('vf_available')">
                 <i class="bi bi-arrow-up-circle me-1"></i>VF ajoutée plus tard
               </button>
             </li>
             <li class="nav-item">
-              <button class="nav-link" id="tmpl-tab-failure" onclick="tmplSwitchTab('failure')">
+              <button class="nav-link" id="tmpl-tab-failed" onclick="tmplSwitchTab('failed')">
                 <i class="bi bi-exclamation-triangle me-1"></i>Échec de transmission
               </button>
             </li>
@@ -142,9 +142,9 @@
             <label class="form-label small text-muted">Objet (Disponible en VO, suivi VF actif)</label>
             <input type="text" id="tmpl-subject-available_vo_tracking" class="form-control form-control-sm" value="{{ available_vo_tracking_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est disponible sur Plex en VO !" oninput="tmplOnEdit()">
           </div>
-          <div id="tmpl-subject-group-vf_upgrade" style="display:none">
+          <div id="tmpl-subject-group-vf_available" style="display:none">
             <label class="form-label small text-muted">Objet (VF ajoutée plus tard)</label>
-            <input type="text" id="tmpl-subject-vf_upgrade" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplOnEdit()">
+            <input type="text" id="tmpl-subject-vf_available" class="form-control form-control-sm" value="{{ vf_upgrade_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est désormais disponible sur Plex en VF !" oninput="tmplOnEdit()">
           </div>
           <div id="tmpl-subject-group-language_episode" style="display:none">
             <label class="form-label small text-muted">Objet (Suivi par episode)</label>
@@ -162,9 +162,9 @@
             <label class="form-label small text-muted">Objet (Série complète)</label>
             <input type="text" id="tmpl-subject-language_series_complete" class="form-control form-control-sm" value="{{ language_series_complete_subject }}" placeholder="[Plexarr] {{ '{{' }} title {{ '}}' }} est entièrement disponible en {{ '{{' }} language {{ '}}' }} sur Plex !" oninput="tmplOnEdit()">
           </div>
-          <div id="tmpl-subject-group-failure" style="display:none">
+          <div id="tmpl-subject-group-failed" style="display:none">
             <label class="form-label small text-muted">Objet (Échec de transmission)</label>
-            <input type="text" id="tmpl-subject-failure" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plexarr] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
+            <input type="text" id="tmpl-subject-failed" class="form-control form-control-sm" value="{{ failure_subject }}" placeholder="[Plexarr] Échec : {{ '{{' }} title {{ '}}' }}" oninput="tmplOnEdit()">
           </div>
         </div>
         <div style="flex-grow:1;position:relative">
@@ -180,8 +180,8 @@
           <div id="tmpl-container-available_vo_tracking" style="position:absolute;inset:0;display:none">
             <textarea id="tmpl-editor-available_vo_tracking" style="display:none">{{ available_vo_tracking_template }}</textarea>
           </div>
-          <div id="tmpl-container-vf_upgrade" style="position:absolute;inset:0;display:none">
-            <textarea id="tmpl-editor-vf_upgrade" style="display:none">{{ vf_upgrade_template }}</textarea>
+          <div id="tmpl-container-vf_available" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-vf_available" style="display:none">{{ vf_upgrade_template }}</textarea>
           </div>
           <div id="tmpl-container-language_episode" style="position:absolute;inset:0;display:none">
             <textarea id="tmpl-editor-language_episode" style="display:none">{{ language_episode_template }}</textarea>
@@ -195,8 +195,8 @@
           <div id="tmpl-container-language_series_complete" style="position:absolute;inset:0;display:none">
             <textarea id="tmpl-editor-language_series_complete" style="display:none">{{ language_series_complete_template }}</textarea>
           </div>
-          <div id="tmpl-container-failure" style="position:absolute;inset:0;display:none">
-            <textarea id="tmpl-editor-failure" style="display:none">{{ failure_template }}</textarea>
+          <div id="tmpl-container-failed" style="position:absolute;inset:0;display:none">
+            <textarea id="tmpl-editor-failed" style="display:none">{{ failure_template }}</textarea>
           </div>
         </div>
       </div>

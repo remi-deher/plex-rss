@@ -1623,12 +1623,12 @@ const tmplTypes = [
   'available',
   'available_vf',
   'available_vo_tracking',
-  'vf_upgrade',
+  'vf_available',
   'language_episode',
   'language_season_start',
   'language_season_complete',
   'language_series_complete',
-  'failure'
+  'failed'
 ];
 
 
@@ -1660,12 +1660,12 @@ const tmplVarRelevance = {
   available:             TMPL_CORE_VARS.concat(['media_type_label_cap', 'genres']),
   available_vf:          TMPL_CORE_VARS.concat(['media_type_label_cap']),
   available_vo_tracking: TMPL_CORE_VARS.concat(['media_type_label_cap']),
-  vf_upgrade:            TMPL_CORE_VARS.concat(['media_type_label_cap', 'language_reason']),
+  vf_available:          TMPL_CORE_VARS.concat(['media_type_label_cap', 'language_reason']),
   language_episode:         TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
   language_season_start:    TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
   language_season_complete: TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
   language_series_complete: TMPL_CORE_VARS.concat(['language', 'language_reason', 'overview']),
-  failure:               TMPL_CORE_VARS.concat(['media_type_label', 'reason'])
+  failed:                TMPL_CORE_VARS.concat(['media_type_label', 'reason'])
 };
 
 function tmplToggleVars() {
@@ -1777,22 +1777,22 @@ async function tmplSave() {
         email_available_template: tmplGetValue('available'),
         email_available_vf_template: tmplGetValue('available_vf'),
         email_available_vo_tracking_template: tmplGetValue('available_vo_tracking'),
-        email_vf_upgrade_template: tmplGetValue('vf_upgrade'),
+        email_vf_upgrade_template: tmplGetValue('vf_available'),
         email_language_episode_template: tmplGetValue('language_episode'),
         email_language_season_start_template: tmplGetValue('language_season_start'),
         email_language_season_complete_template: tmplGetValue('language_season_complete'),
         email_language_series_complete_template: tmplGetValue('language_series_complete'),
-        email_failure_template: tmplGetValue('failure'),
+        email_failure_template: tmplGetValue('failed'),
         email_request_subject: document.getElementById('tmpl-subject-request').value,
         email_available_subject: document.getElementById('tmpl-subject-available').value,
         email_available_vf_subject: document.getElementById('tmpl-subject-available_vf').value,
         email_available_vo_tracking_subject: document.getElementById('tmpl-subject-available_vo_tracking').value,
-        email_vf_upgrade_subject: document.getElementById('tmpl-subject-vf_upgrade').value,
+        email_vf_upgrade_subject: document.getElementById('tmpl-subject-vf_available').value,
         email_language_episode_subject: document.getElementById('tmpl-subject-language_episode').value,
         email_language_season_start_subject: document.getElementById('tmpl-subject-language_season_start').value,
         email_language_season_complete_subject: document.getElementById('tmpl-subject-language_season_complete').value,
         email_language_series_complete_subject: document.getElementById('tmpl-subject-language_series_complete').value,
-        email_failure_subject: document.getElementById('tmpl-subject-failure').value,
+        email_failure_subject: document.getElementById('tmpl-subject-failed').value,
       }),
     });
     if (!r.ok) throw new Error();

@@ -99,6 +99,9 @@ const DISC_REQ_STATUS_META = {
   failed: { cls: 'badge-failed', icon: 'bi-x-circle-fill', label: 'Echec' },
 };
 function statusBadge(it){
+  if (!it.in_library && it.is_downloading) {
+    return '<span class="badge bg-info text-dark" style="font-size:9px" title="Téléchargement/import en cours côté Sonarr/Radarr"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>';
+  }
   if (it.in_library || it.available) {
     let b = '<span class="badge bg-success" style="font-size:9px"><i class="bi bi-check-circle-fill me-1"></i>Disponible</span>';
     if (it.has_vf === true) b += ' <span class="badge badge-available" style="font-size:9px"><i class="bi bi-translate me-1"></i>VF</span>';
@@ -349,7 +352,7 @@ function renderDiscDetail(d, mediaType){
     ? `<a href="${ficheUrl}" class="btn btn-outline-warning btn-sm ms-1"><i class="bi bi-box-arrow-up-right me-1"></i>Voir la fiche &amp; recherche</a>`
     : '';
   const contextLine = (d.in_library || d.available || d.requested)
-    ? `<div class="text-white-50 small mt-1">${requesters ? 'Demandé par ' + escH(requesters) + (d.request_status ? ' · ' : '') : ''}${d.request_status && !d.in_library && !d.available ? (DISC_REQ_STATUS_META[d.request_status] || {label:d.request_status}).label : ''}${d.plex_anomaly ? ' · <span class="text-danger">Disponible côté Sonarr/Radarr mais introuvable dans Plex</span>' : ''}</div>`
+    ? `<div class="text-white-50 small mt-1">${requesters ? 'Demandé par ' + escH(requesters) + (d.request_status ? ' · ' : '') : ''}${d.request_status && !d.in_library && !d.available ? (DISC_REQ_STATUS_META[d.request_status] || {label:d.request_status}).label : ''}${d.is_downloading ? ' · <span class="text-info">En cours de téléchargement côté Sonarr/Radarr</span>' : (d.plex_anomaly ? ' · <span class="text-danger">Disponible côté Sonarr/Radarr mais introuvable dans Plex</span>' : '')}</div>`
     : '';
   const reqBtn = canReq
     ? `<div class="disc-modal-actions" id="disc-req-box">

@@ -54,6 +54,7 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "arr_slug": req.arr_slug,
         "arr_instance_id": req.arr_instance_id,
         "library_item_id": req.library_item_id,
+        "is_downloading": req.is_downloading,
     }
 
 

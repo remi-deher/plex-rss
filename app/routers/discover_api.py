@@ -56,8 +56,12 @@ def _annotate(db: Session, items: list[dict]) -> list[dict]:
         it["available"] = it["in_library"] or st == "available"
         it["has_vf"] = li.has_vf if li else (req.has_vf if req else None)
         it["vf_granularity"] = (li.vf_granularity if li else None) or (req.vf_granularity if req else None)
-        # Anomalie : *arr dit "disponible" mais absent de la bibliothèque Plex synchronisée.
-        it["plex_anomaly"] = bool(req and st == "available" and not li)
+        # En cours de téléchargement (prioritaire sur l'anomalie) : cf. commentaire équivalent
+        # dans app/routers/pages.py.
+        it["is_downloading"] = bool(req and req.is_downloading)
+        # Anomalie : *arr dit "disponible" mais absent de la bibliothèque Plex synchronisée,
+        # à condition qu'il ne soit pas encore en cours de téléchargement/import.
+        it["plex_anomaly"] = bool(req and st == "available" and not li and not req.is_downloading)
     return items
 
 

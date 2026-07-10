@@ -44,6 +44,7 @@ EVENTS: dict[str, NotificationEvent] = {
         template_field="email_available_template",
         subject_field="email_available_subject",
         default_subject="[Plexarr] {{ title }} est disponible sur Plex !",
+        preview_context={"media_type_label": "Série", "media_type_label_cap": "La série"},
     ),
     "available_vf": NotificationEvent(
         key="available_vf",
@@ -108,25 +109,6 @@ EVENTS: dict[str, NotificationEvent] = {
             "language_reason": "VF film complet",
         },
     ),
-    "vf_upgrade": NotificationEvent(
-        key="vf_upgrade",
-        label="VF ajoutée plus tard",
-        group="Templates",
-        description="Template utilisé par l'événement VF ajoutée plus tard.",
-        color=0x1DB954,
-        badge_class="bg-success",
-        template_field="email_vf_upgrade_template",
-        subject_field="email_vf_upgrade_subject",
-        default_subject="[Plexarr] {{ title }} est désormais disponible sur Plex en VF !",
-        preview_context={
-            "media_type": "movie",
-            "media_type_label": "Film",
-            "media_type_label_cap": "Le film",
-            "language": "VF",
-            "language_lower": "vf",
-            "language_reason": "VF film complet",
-        },
-    ),
     "episode_track": NotificationEvent(
         key="episode_track",
         label="Jalon série",
@@ -154,17 +136,9 @@ EVENTS: dict[str, NotificationEvent] = {
         template_field="email_failure_template",
         subject_field="email_failure_subject",
         default_subject="[Plexarr] Échec de transmission : {{ title }}",
-    ),
-    "failure": NotificationEvent(
-        key="failure",
-        label="Échec de transmission",
-        group="Templates",
-        description="Template utilisé pour les échecs de transmission.",
-        color=0xDC3545,
-        badge_class="bg-danger",
-        template_field="email_failure_template",
-        subject_field="email_failure_subject",
-        default_subject="[Plexarr] Échec de transmission : {{ title }}",
+        preview_context={
+            "reason": "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
+        },
     ),
     "language_episode": NotificationEvent(
         key="language_episode",

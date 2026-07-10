@@ -174,7 +174,9 @@ class Settings(Base):
     torrent_auto_delete_files: Mapped[bool] = mapped_column(default=True)
 
     # --- VFF (audit / suivi des pistes françaises) ---
-    vff_enabled: Mapped[bool] = mapped_column(default=False)
+    # Actif par défaut : le suivi VO/VF est la priorité par défaut (voir plan de session),
+    # le mail générique "Disponible sur Plex" devient l'exception (forçage par utilisateur).
+    vff_enabled: Mapped[bool] = mapped_column(default=True)
     # Bibliothèques Plex à inspecter, JSON: [{"name": "Films", "kind": "movie"},
     # {"name": "Animes", "kind": "series"}]. Null → auto-détection des sections.
     vff_libraries: Mapped[Optional[str]] = mapped_column(Text)
@@ -267,9 +269,15 @@ class PlexUser(Base):
     series_vo_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
     series_vf_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
     # Surcharge par utilisateur de Settings.series_tracking_mode / series_episode_notify_mode.
-    # None = hérite du réglage global.
+    # None = hérite du réglage global. Valeurs : "language" | "simple" | "classic" (force
+    # le mail générique "Disponible sur Plex", sans distinction VO/VF ni jalons de saison).
     series_tracking_mode: Mapped[Optional[str]] = mapped_column(default=None)
     series_episode_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
+
+    # Équivalent films de series_tracking_mode (pas de réglage global correspondant : le
+    # comportement par défaut des films suit toujours le VO/VF dès que vff_enabled est actif).
+    # None = comportement standard VO/VF ; "classic" = force le mail générique.
+    movie_tracking_mode: Mapped[Optional[str]] = mapped_column(default=None)
 
     # Fréquence de notification pour une série suivie en disponibilité partielle
     # (épisodes en cours de diffusion). None = hérite du réglage global
@@ -396,6 +404,29 @@ class PollHistory(Base):
     error_detail: Mapped[Optional[str]]
 
 
+class DownloadHistory(Base):
+    """Trace un téléchargement terminé et importé (Sonarr/Radarr/Plex/torrent direct).
+
+    Contrairement à la file d'attente *arr (transitoire, un item en disparaît dès qu'il
+    est importé), cette table conserve un historique consultable des téléchargements
+    passés. Alimentée aux points de détection de disponibilité existants (webhook temps
+    réel, poll périodique `check_arr_statuses`, suivi torrent direct) — pas de scan dédié.
+    """
+
+    __tablename__ = "download_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    title: Mapped[str]
+    year: Mapped[Optional[int]]
+    media_type: Mapped[str]
+    # Origine de la détection : "sonarr" | "radarr" | "plex" | "torrent"
+    source: Mapped[str]
+    instance_name: Mapped[Optional[str]]
+    poster_url: Mapped[Optional[str]]
+    request_id: Mapped[Optional[int]]
+    completed_at: Mapped[datetime] = mapped_column(default=now_utc)
+
+
 class MediaRequest(Base):
     __tablename__ = "media_requests"
 
@@ -477,6 +508,12 @@ class MediaRequest(Base):
     # Dernier episodes_available_count notifié en mode "every_episode" (évite de
     # renvoyer une notif si le compte n'a pas progressé depuis le dernier cycle).
     last_notified_episode_count: Mapped[Optional[int]] = mapped_column(default=None)
+
+    # Présent dans la file de téléchargement Sonarr/Radarr au dernier cycle de poll
+    # (check_arr_statuses). Sert à distinguer un vrai bug d'indexation Plex ("anomalie")
+    # d'un média encore en cours de téléchargement/import (ex: série avec des épisodes
+    # déjà disponibles pendant que d'autres sont encore en file de téléchargement).
+    is_downloading: Mapped[bool] = mapped_column(default=False)
 
 
 class LibraryItem(Base):

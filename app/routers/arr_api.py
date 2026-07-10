@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import require_admin
-from ..models import ArrInstance, DownloadClient, MediaRequest, RequestStatus, Settings
+from ..models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
 from ..services.download_clients import (
     add_torrent_file_to_client,
@@ -495,6 +495,18 @@ async def arr_grab_release(body: ArrGrabRequest, db: Session = Depends(get_db)):
 async def arr_download_queue(db: Session = Depends(get_db)):
     """File d'attente de téléchargement unifiée : agrège les queues de toutes les instances Sonarr/Radarr actives."""
     instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+
+    # Pré-charge les demandes/items bibliothèque par (arr_instance_id, arr_id) pour lier
+    # chaque ligne de la file à sa fiche média (lien "Voir la fiche" côté UI).
+    req_by_key: dict[tuple[int, int], MediaRequest] = {}
+    lib_by_key: dict[tuple[int, int], LibraryItem] = {}
+    for req in db.query(MediaRequest).filter(MediaRequest.arr_id.isnot(None)).all():
+        if req.arr_instance_id:
+            req_by_key[(req.arr_instance_id, req.arr_id)] = req
+    for li in db.query(LibraryItem).filter(LibraryItem.arr_id.isnot(None)).all():
+        if li.arr_instance_id:
+            lib_by_key[(li.arr_instance_id, li.arr_id)] = li
+
     items = []
     for inst in instances:
         if inst.arr_type == "radarr":
@@ -505,10 +517,38 @@ async def arr_download_queue(db: Session = Depends(get_db)):
             continue
         for rec in records:
             rec["instance"] = inst.name
+            rec["instance_id"] = inst.id
             rec["arr_type"] = inst.arr_type
+            arr_media_id = rec.get("arr_media_id")
+            key = (inst.id, arr_media_id) if arr_media_id else None
+            li = lib_by_key.get(key) if key else None
+            req = req_by_key.get(key) if key else None
+            rec["library_id"] = li.id if li else None
+            rec["request_id"] = req.id if (req and not li) else None
             items.append(rec)
     items.sort(key=lambda x: x.get("progress") or 0)
     return items
+
+
+@router.delete("/arr/queue/{instance_id}/{queue_id}")
+async def delete_arr_queue_item(
+    instance_id: int,
+    queue_id: int,
+    blocklist: bool = False,
+    search: bool = True,
+    db: Session = Depends(get_db),
+):
+    """Supprime un item de la file *arr (avec blocklist et relance de recherche optionnelles)."""
+    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    if inst.arr_type == "sonarr":
+        ok, msg = await sonarr.delete_queue_item(inst.url, inst.api_key, queue_id, blocklist=blocklist, search=search)
+    elif inst.arr_type == "radarr":
+        ok, msg = await radarr.delete_queue_item(inst.url, inst.api_key, queue_id, blocklist=blocklist, search=search)
+    else:
+        raise HTTPException(400, "Instance non applicable (ni Sonarr ni Radarr)")
+    if not ok:
+        raise HTTPException(502, msg)
+    return {"status": "ok", "message": msg}
 
 
 @router.get("/downloads/direct")
@@ -555,9 +595,43 @@ async def direct_downloads(db: Session = Depends(get_db)):
                 "instance": client.name,
                 "arr_type": "direct",
                 "error": None,
+                "request_id": req.id,
+                "library_id": req.library_item_id,
             }
         )
     return out
+
+
+@router.get("/downloads/history")
+def downloads_history(
+    limit: int = 100,
+    media_type: Optional[str] = None,
+    source: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Historique des téléchargements terminés (Sonarr/Radarr/Plex/torrent direct)."""
+    from ..models import DownloadHistory
+
+    q = db.query(DownloadHistory)
+    if media_type in ("movie", "show"):
+        q = q.filter(DownloadHistory.media_type == media_type)
+    if source:
+        q = q.filter(DownloadHistory.source == source)
+    rows = q.order_by(DownloadHistory.completed_at.desc()).limit(min(limit, 500)).all()
+    return [
+        {
+            "id": h.id,
+            "title": h.title,
+            "year": h.year,
+            "media_type": h.media_type,
+            "source": h.source,
+            "instance_name": h.instance_name,
+            "poster_url": h.poster_url,
+            "request_id": h.request_id,
+            "completed_at": h.completed_at.isoformat() if h.completed_at else None,
+        }
+        for h in rows
+    ]
 
 
 @router.get("/sonarr/profiles")

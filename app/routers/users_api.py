@@ -43,6 +43,14 @@ class UserCreate(BaseModel):
     auto_approve: bool = False
     sonarr_instance_id: Optional[int] = None
     radarr_instance_id: Optional[int] = None
+    movie_vo_notify: Optional[bool] = None
+    movie_vf_notify: Optional[bool] = None
+    series_tracking_mode: Optional[str] = None
+    movie_tracking_mode: Optional[str] = None
+    series_vo_notify_mode: Optional[str] = None
+    series_vf_notify_mode: Optional[str] = None
+    series_episode_notify_mode: Optional[str] = None
+    partial_notify_frequency: Optional[str] = None
 
 
 class UserEnabledUpdate(BaseModel):
