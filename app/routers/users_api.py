@@ -32,9 +32,8 @@ class UserCreate(BaseModel):
     notify_on_available: Optional[bool] = True
     notify_digest: Optional[bool] = False
     notify_vf_movie: Optional[bool] = True
-    notify_vo_movie: Optional[bool] = True
     notify_vf_series: Optional[bool] = True
-    notify_vo_series: Optional[bool] = True
+    notify_vf_anime: Optional[bool] = False
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None

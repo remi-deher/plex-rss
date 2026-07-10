@@ -16,6 +16,7 @@ from .notification_orchestrator import _handle_show_progress_notification
 from .radarr import get_all_movies, get_queue_movie_ids, is_movie_available, movie_exists
 from .seer import is_request_available as seer_available
 from .sonarr import get_all_series, get_queue_series_ids, get_series_episode_stats, is_series_available, series_exists
+from .vff_scanner import scan_and_notify_availability
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
 
 logger = logging.getLogger(__name__)
@@ -297,12 +298,15 @@ async def check_arr_statuses():
                         # décide de la notif à envoyer (partielle / complète) selon la
                         # progression et la fréquence choisie. Tourne à chaque cycle tant
                         # que la série n'est pas intégralement disponible.
-                        _handle_show_progress_notification(settings, req, db)
-                    elif not was_already_available and not settings.vff_enabled:
-                        # Quand VFF est actif, on diffère la notification « available » :
-                        # check_vf_statuses enverra soit « available » (VF présente) soit
-                        # « vo_only » (VO seule) — une seule notification, pas de doublon.
-                        notification_orchestrator._notify("available", settings, req, db)
+                        await _handle_show_progress_notification(settings, req, db)
+                    elif not was_already_available:
+                        # Scan Plex immédiat avant d'envoyer le mail : propose directement
+                        # le bon mail (VF/VO) si VFF est actif, sans attendre le prochain
+                        # scan planifié. Repli sur le mail générique seulement si VFF est
+                        # désactivé (sinon check_vf_statuses rattrapera au cycle suivant).
+                        handled = await scan_and_notify_availability(req, settings, db)
+                        if not handled and not settings.vff_enabled:
+                            notification_orchestrator._notify("available", settings, req, db)
                 else:
                     await _refresh_next_release(
                         req, settings, series_list=series_list, movies_list=movies_list, inst=inst

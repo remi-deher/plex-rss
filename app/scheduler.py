@@ -61,6 +61,7 @@ from .services.vff_scanner import (
     _scan_vf_blocking,
     _trigger_vf_search,
     check_episode_tracking,
+    check_new_vf_availability,
     check_vf_statuses,
     episode_scan_state,
     trigger_vff_scan_background,
@@ -116,6 +117,12 @@ def start_scheduler(poll_seconds: int = 300):
     scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
     scheduler.add_job(
         check_episode_tracking, "interval", minutes=vff_interval, id="episode_tracking_check", replace_existing=True
+    )
+    # Scan léger et fréquent, restreint aux médias jamais analysés (has_vf IS NULL) :
+    # comble le trou laissé par un scan eager raté (scan_and_notify_availability) sans
+    # attendre le prochain scan complet (potentiellement long, cf. vff_interval ci-dessus).
+    scheduler.add_job(
+        check_new_vf_availability, "interval", minutes=1, id="vf_new_availability_check", replace_existing=True
     )
     scheduler.add_job(_seer_full_sync, "interval", minutes=60, id="seer_sync", replace_existing=True)
     scheduler.add_job(_purge_notification_logs, "cron", hour=3, minute=0, id="notif_log_purge", replace_existing=True)

@@ -12,6 +12,7 @@ from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Setting
 from ..notification_queue import enqueue as enqueue_notification
 from ..services import radarr, sonarr
 from ..services.download_history import record_completed
+from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
 from ..utils import now_utc
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
@@ -89,7 +90,7 @@ def _arr_event_query(
     return q.filter(False)
 
 
-def _mark_available_and_notify(
+async def _mark_available_and_notify(
     title: str,
     media_type: str,
     arr_id: int | None,
@@ -136,7 +137,12 @@ def _mark_available_and_notify(
             poster_url=req.poster_url,
             request_id=req.id,
         )
-        if settings and settings.email_on_available and not req.available_mail_sent:
+        # Scan Plex immédiat avant d'envoyer le mail générique : propose directement le
+        # bon mail (VF/VO/jalon série) si VFF est actif, sans attendre le prochain scan
+        # planifié. Si le scan ne conclut pas (VFF désactivé, mode "classic", média pas
+        # encore indexé...), on retombe sur l'ancien comportement ci-dessous.
+        handled = await scan_and_notify_availability(req, settings, db) if settings else False
+        if not handled and settings and settings.email_on_available and not req.available_mail_sent:
             user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
             recipients = _get_recipients(user_obj, settings)
             enqueue_notification("available", req.id, recipients)
@@ -188,6 +194,31 @@ def _instance_name(db: Session, instance_id: int | None) -> str | None:
     return inst.name if inst else None
 
 
+def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) -> tuple[str, str, str] | None:
+    """Résout (url, api_key, cache_key) pour l'instance *arr concernée par ce webhook.
+
+    Utilisé pour vérifier si Sonarr/Radarr a déjà un connecteur natif "Plex Media Server"
+    (voir `trigger_plex_library_refresh`) — repli sur l'instance par défaut puis sur les
+    réglages globaux legacy, comme le reste des résolutions d'instance de l'app.
+    """
+    if instance_id:
+        inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+        if inst:
+            return inst.url, inst.api_key, f"{service}:{inst.id}"
+        return None
+    inst = (
+        db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled, ArrInstance.is_default).first()
+    )
+    if inst:
+        return inst.url, inst.api_key, f"{service}:{inst.id}"
+    settings = db.query(Settings).first()
+    url = getattr(settings, f"{service}_url", None) if settings else None
+    api_key = getattr(settings, f"{service}_api_key", None) if settings else None
+    if url and api_key:
+        return url, api_key, f"{service}:legacy"
+    return None
+
+
 @router.post("/sonarr")
 async def sonarr_webhook(request: Request):
     """Receives Sonarr OnImport/OnDownload/Test webhook events."""
@@ -220,22 +251,33 @@ async def sonarr_webhook(request: Request):
         if event not in ("Download", "Import"):
             return {"status": "ignored"}
 
+        webhook_instance_id = _query_instance_id(request)
+        if settings:
+            conn = _resolve_arr_connection(db, "sonarr", webhook_instance_id)
+            await trigger_plex_library_refresh(
+                settings,
+                "show",
+                arr_type="sonarr",
+                arr_url=conn[0] if conn else None,
+                arr_api_key=conn[1] if conn else None,
+                cache_key=conn[2] if conn else None,
+            )
+
         series = data.get("series", {})
         title = series.get("title", "")
         sonarr_id = series.get("id")
         tvdb_id = series.get("tvdbId")
 
-        instance_id = _query_instance_id(request)
-        matched = _mark_available_and_notify(
+        matched = await _mark_available_and_notify(
             title,
             "show",
             sonarr_id,
             db,
             settings,
             tvdb_id=tvdb_id,
-            instance_id=instance_id,
+            instance_id=webhook_instance_id,
             source="sonarr",
-            instance_name=_instance_name(db, instance_id),
+            instance_name=_instance_name(db, webhook_instance_id),
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -275,14 +317,25 @@ async def radarr_webhook(request: Request):
         if event not in ("Download", "Import", "MovieAdded"):
             return {"status": "ignored"}
 
+        instance_id = _query_instance_id(request)
+        if settings and event in ("Download", "Import"):
+            conn = _resolve_arr_connection(db, "radarr", instance_id)
+            await trigger_plex_library_refresh(
+                settings,
+                "movie",
+                arr_type="radarr",
+                arr_url=conn[0] if conn else None,
+                arr_api_key=conn[1] if conn else None,
+                cache_key=conn[2] if conn else None,
+            )
+
         movie = data.get("movie", {})
         title = movie.get("title", "")
         radarr_id = movie.get("id")
         tmdb_id = movie.get("tmdbId")
         imdb_id = movie.get("imdbId")
 
-        instance_id = _query_instance_id(request)
-        matched = _mark_available_and_notify(
+        matched = await _mark_available_and_notify(
             title,
             "movie",
             radarr_id,
@@ -373,23 +426,26 @@ async def plex_webhook(request: Request):
         elif gid.startswith("imdb://"):
             imdb_id = gid.replace("imdb://", "")
 
+    def _identity_filter(q):
+        # Filtre par identifiant si disponible, sinon par titre
+        if tmdb_id:
+            return q.filter(MediaRequest.tmdb_id == tmdb_id)
+        if tvdb_id:
+            return q.filter(MediaRequest.tvdb_id == tvdb_id)
+        if imdb_id:
+            return q.filter(MediaRequest.imdb_id == imdb_id)
+        return q.filter(MediaRequest.title.ilike(f"%{title}%"))
+
     # Recherche et mise à jour des demandes correspondantes
     db: Session = SessionLocal()
     try:
         settings = db.query(Settings).first()
-        q = db.query(MediaRequest).filter(
-            MediaRequest.status != RequestStatus.available,
-            MediaRequest.media_type == media_type,
+        q = _identity_filter(
+            db.query(MediaRequest).filter(
+                MediaRequest.status != RequestStatus.available,
+                MediaRequest.media_type == media_type,
+            )
         )
-        # Filtre par identifiant si disponible, sinon par titre
-        if tmdb_id:
-            q = q.filter(MediaRequest.tmdb_id == tmdb_id)
-        elif tvdb_id:
-            q = q.filter(MediaRequest.tvdb_id == tvdb_id)
-        elif imdb_id:
-            q = q.filter(MediaRequest.imdb_id == imdb_id)
-        else:
-            q = q.filter(MediaRequest.title.ilike(f"%{title}%"))
 
         requests = q.all()
         for req in requests:
@@ -407,12 +463,32 @@ async def plex_webhook(request: Request):
                 poster_url=req.poster_url,
                 request_id=req.id,
             )
-            if settings and settings.email_on_available and not req.available_mail_sent:
+            handled = await scan_and_notify_availability(req, settings, db) if settings else False
+            if not handled and settings and settings.email_on_available and not req.available_mail_sent:
                 user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
                 recipients = _get_recipients(user_obj, settings)
                 enqueue_notification("available", req.id, recipients)
 
-        return {"status": "ok", "event": event, "matched": len(requests), "title": title}
+        # « library.new » est le signal le plus fiable qui existe pour savoir que Plex a
+        # fini d'indexer un média (contrairement au webhook *arr, qui peut arriver avant
+        # que Plex ait scanné — course gérée jusqu'ici en différant au scan léger/complet).
+        # On en profite pour retenter tout de suite le scan VF des demandes déjà
+        # "disponibles" côté *arr mais encore non confirmées (has_vf IS NULL) : c'est
+        # quasi garanti de réussir puisque Plex vient de confirmer la présence du fichier.
+        rescanned = 0
+        if event == "library.new" and settings:
+            pending_vf_q = _identity_filter(
+                db.query(MediaRequest).filter(
+                    MediaRequest.status == RequestStatus.available,
+                    MediaRequest.media_type == media_type,
+                    MediaRequest.has_vf.is_(None),
+                )
+            )
+            for req in pending_vf_q.all():
+                if await scan_and_notify_availability(req, settings, db):
+                    rescanned += 1
+
+        return {"status": "ok", "event": event, "matched": len(requests), "rescanned": rescanned, "title": title}
     finally:
         db.close()
 
@@ -433,6 +509,47 @@ def webhook_status():
     }
 
 
+async def _check_live_plex() -> dict:
+    """Vérifie l'état du webhook Plex à partir du dernier événement réellement reçu.
+
+    Contrairement à Sonarr/Radarr, Plex n'expose pas d'API fiable pour déclencher un envoi
+    de test à distance (l'ancien endpoint `/:/webhooks` renvoie une 404 sur les versions
+    récentes) ni pour lister les webhooks enregistrés — impossible de confirmer
+    l'enregistrement sans risquer un faux diagnostic. On se limite donc au signal fiable
+    dont on dispose déjà : le dernier événement réel reçu par `/webhook/plex` (mis à jour
+    à chaque webhook Plex traité, y compris le ping de connectivité envoyé par Plex à
+    l'enregistrement de l'URL).
+    """
+    db: Session = SessionLocal()
+    try:
+        settings = db.query(Settings).first()
+    finally:
+        db.close()
+    if not settings or not settings.plex_url or not settings.plex_token:
+        return {"instance": "Plex", "configured": False, "success": False, "message": "Plex non configuré (URL ou token manquant)"}
+
+    last = _last_webhook_test.get("plex")
+    if last:
+        ago = int((datetime.now(timezone.utc) - last).total_seconds())
+        return {
+            "instance": "Plex",
+            "configured": True,
+            "success": True,
+            "message": f"Dernier événement Plex reçu il y a {ago}s — le webhook fonctionne.",
+        }
+    return {
+        "instance": "Plex",
+        "configured": False,
+        "success": False,
+        "message": (
+            "Aucun événement Plex reçu pour l'instant. Vérifie que l'URL ci-dessus est bien "
+            "collée dans Plex → Paramètres → Webhooks, puis lis un média ou ajoute-en un à la "
+            "bibliothèque pour déclencher un vrai événement (Plex ne permet pas de test à "
+            "distance, contrairement à Sonarr/Radarr)."
+        ),
+    }
+
+
 @router.post("/check-live/{service}")
 async def check_live_webhook(service: str, instance_id: int | None = None):
     """Déclenche depuis Sonarr/Radarr un test réel du connecteur Webhook pointant vers cette app.
@@ -440,10 +557,14 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
     Contrairement à /webhook/status (qui attend passivement un événement Test), cet endpoint
     interroge l'API Sonarr/Radarr pour retrouver le connecteur Webhook configuré (Settings →
     Connect) et lui fait déclencher lui-même un envoi de test, confirmant en direct que la
-    notification temps réel fonctionnera bien à la disponibilité d'un média.
+    notification temps réel fonctionnera bien à la disponibilité d'un média. Pour Plex — qui
+    n'expose aucune API fiable de déclenchement à distance ni de lister ses webhooks —
+    rapporte à la place le dernier événement réel reçu (voir `_check_live_plex`).
     """
+    if service == "plex":
+        return {"results": [await _check_live_plex()]}
     if service not in ("sonarr", "radarr"):
-        raise HTTPException(status_code=400, detail="service doit être 'sonarr' ou 'radarr'")
+        raise HTTPException(status_code=400, detail="service doit être 'sonarr', 'radarr' ou 'plex'")
 
     client = sonarr if service == "sonarr" else radarr
     webhook_path = f"/webhook/{service}"
@@ -498,6 +619,80 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
             entry.update({"configured": True, "success": ok, "message": msg})
             if ok:
                 _last_webhook_test[service] = datetime.now(timezone.utc)
+            results.append(entry)
+
+        return {"results": results}
+    finally:
+        db.close()
+
+
+@router.get("/plex-connector-status/{service}")
+async def plex_connector_status(service: str, instance_id: int | None = None):
+    """Vérifie si Sonarr/Radarr a déjà un connecteur natif "Plex Media Server" actif.
+
+    Si oui, notre propre refresh de section Plex (déclenché à chaque webhook Download/
+    Import, voir `trigger_plex_library_refresh`) est redondant : l'*arr notifie déjà Plex
+    directement avec un scan ciblé sur le dossier importé, plus précis que le nôtre.
+    """
+    if service not in ("sonarr", "radarr"):
+        raise HTTPException(status_code=400, detail="service doit être 'sonarr' ou 'radarr'")
+
+    client = sonarr if service == "sonarr" else radarr
+
+    db: Session = SessionLocal()
+    try:
+        if instance_id is not None:
+            inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+            if not inst:
+                raise HTTPException(status_code=404, detail="Instance introuvable")
+            instances = [inst]
+        else:
+            instances = db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled).all()
+            if not instances:
+                settings = db.query(Settings).first()
+                url = getattr(settings, f"{service}_url", None) if settings else None
+                api_key = getattr(settings, f"{service}_api_key", None) if settings else None
+                if url and api_key:
+                    instances = [ArrInstance(name=service.capitalize(), arr_type=service, url=url, api_key=api_key)]
+
+        if not instances:
+            return {"results": [{"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}]}
+
+        results = []
+        for inst in instances:
+            entry = {"instance": inst.name, "instance_id": inst.id}
+            try:
+                notifications = await client.get_notifications(inst.url, inst.api_key)
+            except Exception as e:
+                entry.update(
+                    {"configured": False, "success": False, "message": f"Connexion à {service.capitalize()} impossible : {e}"}
+                )
+                results.append(entry)
+                continue
+
+            match = client.find_plex_notification(notifications)
+            if match:
+                entry.update(
+                    {
+                        "configured": True,
+                        "success": True,
+                        "message": (
+                            f"Connecteur natif 'Plex Media Server' actif dans {service.capitalize()} — "
+                            "notre propre refresh de section est automatiquement désactivé pour cette instance."
+                        ),
+                    }
+                )
+            else:
+                entry.update(
+                    {
+                        "configured": False,
+                        "success": True,
+                        "message": (
+                            f"Aucun connecteur natif Plex trouvé dans {service.capitalize()} → Connexions — "
+                            "notre refresh de section Plex prend le relais à chaque import."
+                        ),
+                    }
+                )
             results.append(entry)
 
         return {"results": results}

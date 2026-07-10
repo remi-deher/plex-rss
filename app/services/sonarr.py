@@ -622,6 +622,18 @@ def find_webhook_notification(notifications: list[dict], webhook_path: str) -> d
     return None
 
 
+def find_plex_notification(notifications: list[dict]) -> dict | None:
+    """Trouve le connecteur natif 'Plex Media Server' de Sonarr, actif sur import/téléchargement.
+
+    S'il existe, Sonarr notifie déjà Plex directement (scan ciblé sur le dossier importé)
+    à chaque import — pas la peine de dupliquer avec notre propre refresh de section.
+    """
+    for notif in notifications:
+        if notif.get("implementation") == "PlexServer" and (notif.get("onDownload") or notif.get("onImport")):
+            return notif
+    return None
+
+
 async def test_notification(sonarr_url: str, api_key: str, notification: dict) -> tuple[bool, str]:
     """Déclenche depuis Sonarr un test réel du connecteur Webhook (round-trip vers notre endpoint).
 

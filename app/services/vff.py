@@ -277,6 +277,22 @@ def connect(plex_url: str, plex_token: str, timeout: int = 30) -> PlexServer:
     return PlexServer(plex_url, plex_token, timeout=timeout)
 
 
+def refresh_sections_blocking(plex_url: str, plex_token: str, section_names: list[str]) -> None:
+    """Déclenche un scan Plex (refresh complet de section) pour les sections données.
+
+    Utilisé pour prévenir Plex dès qu'un import Sonarr/Radarr est détecté, au lieu
+    d'attendre son propre calendrier de scan de bibliothèque. Best-effort : une section
+    en erreur (introuvable, Plex temporairement indisponible...) n'interrompt pas les
+    autres.
+    """
+    plex = connect(plex_url, plex_token)
+    for name in section_names:
+        try:
+            plex.library.section(name).update()
+        except Exception as exc:
+            logger.warning(f"Refresh Plex échoué pour la section {name!r}: {exc}")
+
+
 def _external_id_matches(item, tmdb_id: Optional[str], tvdb_id: Optional[str], imdb_id: Optional[str]) -> bool:
     """True si les GUIDs Plex de l'item correspondent à l'un des identifiants fournis."""
     try:

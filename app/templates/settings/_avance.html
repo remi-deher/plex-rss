@@ -69,7 +69,11 @@
                     <button class="btn btn-sm btn-outline-info py-0" onclick="checkLiveWebhook('sonarr')" id="btn-wh-live-sonarr">
                       <i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis Sonarr
                     </button>
+                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="checkPlexConnector('sonarr')" id="btn-plex-connector-sonarr" title="Vérifie si Sonarr notifie déjà Plex nativement, pour éviter un refresh Plex redondant">
+                      <i class="bi bi-collection-play me-1"></i>Connecteur Plex natif
+                    </button>
                     <div id="wh-live-result-sonarr" class="small mt-1"></div>
+                    <div id="plex-connector-result-sonarr" class="small mt-1"></div>
                   </div>
                 </div>
                 <div class="col-md-6">
@@ -86,7 +90,11 @@
                     <button class="btn btn-sm btn-outline-info py-0" onclick="checkLiveWebhook('radarr')" id="btn-wh-live-radarr">
                       <i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis Radarr
                     </button>
+                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="checkPlexConnector('radarr')" id="btn-plex-connector-radarr" title="Vérifie si Radarr notifie déjà Plex nativement, pour éviter un refresh Plex redondant">
+                      <i class="bi bi-collection-play me-1"></i>Connecteur Plex natif
+                    </button>
                     <div id="wh-live-result-radarr" class="small mt-1"></div>
+                    <div id="plex-connector-result-radarr" class="small mt-1"></div>
                   </div>
                 </div>
                 <div class="col-12">
@@ -108,6 +116,12 @@
                       Détection de disponibilité instantanée sans attendre la vérification périodique.
                     </div>
                     <span id="wh-status-plex" class="badge bg-secondary" style="font-size:10px;white-space:nowrap"><i class="bi bi-question-circle me-1"></i>Non testé</span>
+                  </div>
+                  <div class="mt-1">
+                    <button class="btn btn-sm btn-outline-info py-0" onclick="checkLiveWebhook('plex')" id="btn-wh-live-plex">
+                      <i class="bi bi-broadcast-pin me-1"></i>Tester la chaîne du webhook Plex
+                    </button>
+                    <div id="wh-live-result-plex" class="small mt-1"></div>
                   </div>
                 </div>
                 <div class="col-12">
@@ -224,7 +238,34 @@
           } catch (e) {
             if (out) out.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>' + _whEscHtml(e.message) + '</span>';
           } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast-pin me-1"></i>Tester en direct depuis ' + (service === 'sonarr' ? 'Sonarr' : 'Radarr'); }
+            const labels = { sonarr: 'Tester en direct depuis Sonarr', radarr: 'Tester en direct depuis Radarr', plex: 'Tester la chaîne du webhook Plex' };
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-broadcast-pin me-1"></i>' + (labels[service] || 'Tester'); }
+          }
+        }
+
+        // Vérifie si Sonarr/Radarr a déjà un connecteur natif "Plex Media Server" actif —
+        // si oui, notre propre refresh de section Plex (à chaque webhook Download/Import)
+        // est automatiquement désactivé côté serveur pour éviter la redondance.
+        async function checkPlexConnector(service) {
+          const btn = document.getElementById('btn-plex-connector-' + service);
+          const out = document.getElementById('plex-connector-result-' + service);
+          if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Vérification...'; }
+          if (out) out.innerHTML = '';
+          try {
+            const r = await fetch('/webhook/plex-connector-status/' + service);
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.detail || 'Erreur');
+            const lines = (d.results || []).map(function (res) {
+              const label = res.instance ? res.instance : service;
+              const cls = res.configured ? 'text-info' : 'text-muted';
+              const icon = res.configured ? 'bi-collection-play-fill' : 'bi-arrow-repeat';
+              return '<div class="' + cls + '"><i class="bi ' + icon + ' me-1"></i><strong>' + _whEscHtml(label) + ' :</strong> ' + _whEscHtml(res.message) + '</div>';
+            });
+            if (out) out.innerHTML = lines.join('') || '<span class="text-muted">Aucun résultat</span>';
+          } catch (e) {
+            if (out) out.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>' + _whEscHtml(e.message) + '</span>';
+          } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-collection-play me-1"></i>Connecteur Plex natif'; }
           }
         }
       </script>

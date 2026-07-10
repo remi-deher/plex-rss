@@ -536,7 +536,7 @@ def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
     enqueue_notification("partially_available", req.id, recipients, reason)
 
 
-def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
+async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
     """Décide et envoie la notification de disponibilité pour une série suivie par
     compteurs d'épisodes (Sonarr direct — pas de suivi partiel via Seer).
 
@@ -549,6 +549,10 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
     Si aucune donnée de progression n'est disponible (ex: média géré par Seer), la
     demande garde le comportement historique : une notif "available" classique.
     """
+    # Import local pour éviter un cycle : vff_scanner importe déjà plusieurs symboles
+    # de ce module (voir plan de session).
+    from .vff_scanner import scan_and_notify_availability
+
     if req.media_type != "show" or not req.episodes_total_count:
         if not req.available_mail_sent:
             _notify("available", settings, req, db)
@@ -567,7 +571,9 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
     if is_complete:
         if tracking_active:
             # Le suivi de série annonce déjà la complétion via son jalon "série complète" —
-            # éviter le doublon avec le mail "Disponible" classique.
+            # tente un scan Plex immédiat pour l'envoyer maintenant plutôt que d'attendre
+            # le prochain scan planifié (best-effort, pas de mail générique en secours ici).
+            await scan_and_notify_availability(req, settings, db)
             return
         if not req.available_mail_sent:
             _notify("available", settings, req, db)
@@ -581,7 +587,10 @@ def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db
         # "saison démarrée" à partir du scan Plex — avec en plus l'info de langue (VO/VF)
         # pour le mode langue. La notif "disponibilité partielle" (issue des compteurs
         # Sonarr, sans langue) ferait doublon pour le même événement — même garde-fou que
-        # pour la complétion ci-dessus.
+        # pour la complétion ci-dessus. Tente un scan immédiat plutôt que d'attendre le
+        # prochain scan planifié ; sans effet si le média n'est pas encore indexé (le scan
+        # planifié prendra le relais comme avant).
+        await scan_and_notify_availability(req, settings, db)
         return
 
     frequency = _resolve_partial_notify_frequency(settings, user_obj)
