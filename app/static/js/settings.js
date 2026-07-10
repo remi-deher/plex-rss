@@ -224,8 +224,38 @@ function toggleTrackingMode() {
   const simple = document.getElementById('tracking-mode-simple').checked;
   document.getElementById('tracking-mode-language-fields').style.display = simple ? 'none' : '';
   document.getElementById('tracking-mode-simple-fields').style.display = simple ? '' : 'none';
+  // La disponibilité partielle est déjà couverte par le mode Simple (nouvel épisode/saison
+  // depuis Plex) : l'afficher en plus serait redondant, donc on la masque dans ce mode.
+  document.getElementById('partial-availability-card')?.classList.toggle('d-none', simple);
 }
 toggleTrackingMode();
+
+function toggleMovieTrackingMode() {
+  const classic = document.getElementById('movie-tracking-mode-classic').checked;
+  document.getElementById('movie-tracking-mode-language-fields').style.display = classic ? 'none' : '';
+}
+toggleMovieTrackingMode();
+
+// ── VFF désactivé → masquer les règles VO/VF (n'afficher que si pertinent) ────
+function toggleVffDependent() {
+  const enabled = document.getElementById('vff_enabled')?.checked;
+  document.getElementById('vf-rules-fields')?.classList.toggle('d-none', !enabled);
+  document.getElementById('vf-email-row')?.classList.toggle('d-none', !enabled);
+  document.getElementById('vf-rules-disabled-note')?.classList.toggle('d-none', !!enabled);
+}
+document.getElementById('vff_enabled')?.addEventListener('change', toggleVffDependent);
+toggleVffDependent();
+
+// ── Canal désactivé → griser ses switches par évènement dans Demande/Disponibilité/Échec ──
+function updateChannelDim(channel) {
+  const enabled = document.getElementById(`${channel}_enabled`)?.checked;
+  document.querySelectorAll(`.chan-wrap-${channel}`).forEach(el => {
+    el.style.opacity = enabled ? '' : '.4';
+    el.style.pointerEvents = enabled ? '' : 'none';
+    el.title = enabled ? '' : 'Canal désactivé — active-le dans l\'onglet Canaux';
+  });
+}
+['discord', 'telegram', 'ntfy', 'gotify'].forEach(updateChannelDim);
 
 // ── Core functions ────────────────────────────────────────────────────────────
 function togglePass(id) {

@@ -11,13 +11,11 @@
           <input class="form-check-input" type="checkbox" name="vff_enabled" id="vff_enabled"
                  {% if s.vff_enabled %}checked{% endif %}>
           <label class="form-check-label" for="vff_enabled"><strong>Activer les notifications VFF / VO</strong></label>
-          <div class="form-text">Previent quand un media arrive en VO, puis quand une piste francaise apparait.</div>
-        </div>
-
-        <div class="form-check form-switch mb-3">
-          <input class="form-check-input" type="checkbox" name="email_on_vf_available" id="email_on_vf_available"
-                 {% if s.email_on_vf_available %}checked{% endif %}>
-          <label class="form-check-label" for="email_on_vf_available">Envoyer un email quand la VF devient disponible</label>
+          <div class="form-text">
+            Previent quand un media arrive en VO, puis quand une piste francaise apparait. Les
+            réglages d'envoi (VO / VF / amélioration) se trouvent dans l'onglet
+            <a href="#" onclick="document.querySelector('#settingsTabs button[data-bs-target=\'#tab-notifications\']')?.click(); setTimeout(() =&gt; document.querySelector('#notifSubTabs button[data-bs-target=\'#notif-rules\']')?.click(), 50); return false;">Notifications → Règles VO / VF</a>.
+          </div>
         </div>
 
         <div class="row g-3">

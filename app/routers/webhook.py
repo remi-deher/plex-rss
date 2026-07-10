@@ -118,6 +118,13 @@ async def _mark_available_and_notify(
     requests = q.all()
     for req in requests:
         if req.status == RequestStatus.available:
+            # Webhook répété sur une demande déjà disponible (ex. upgrade Sonarr/Radarr
+            # remplaçant un fichier VO par une release VF) : on ne refait pas le
+            # bookkeeping initial, mais on retente un scan VF si la VF n'est pas
+            # encore confirmée, sinon ce cas ne serait détecté qu'au prochain scan
+            # planifié (jusqu'à `vff_recheck_interval_minutes`, 6h par défaut).
+            if settings and req.has_vf is not True:
+                await scan_and_notify_availability(req, settings, db)
             continue
         req.status = RequestStatus.available
         req.available_at = now_utc()
@@ -473,15 +480,16 @@ async def plex_webhook(request: Request):
         # fini d'indexer un média (contrairement au webhook *arr, qui peut arriver avant
         # que Plex ait scanné — course gérée jusqu'ici en différant au scan léger/complet).
         # On en profite pour retenter tout de suite le scan VF des demandes déjà
-        # "disponibles" côté *arr mais encore non confirmées (has_vf IS NULL) : c'est
-        # quasi garanti de réussir puisque Plex vient de confirmer la présence du fichier.
+        # "disponibles" côté *arr mais encore non confirmées VF (has_vf IS NULL, jamais
+        # analysé, ou False, VO suivi en attente d'upgrade) : c'est quasi garanti de
+        # réussir puisque Plex vient de confirmer la présence du fichier.
         rescanned = 0
         if event == "library.new" and settings:
             pending_vf_q = _identity_filter(
                 db.query(MediaRequest).filter(
                     MediaRequest.status == RequestStatus.available,
                     MediaRequest.media_type == media_type,
-                    MediaRequest.has_vf.is_(None),
+                    or_(MediaRequest.has_vf.is_(None), MediaRequest.has_vf.is_(False)),
                 )
             )
             for req in pending_vf_q.all():

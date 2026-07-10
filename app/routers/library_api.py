@@ -12,6 +12,7 @@ from ..dependencies import current_user, require_admin, require_auth
 from ..models import ArrInstance, LibraryItem, MediaIssue, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services import radarr, sonarr
 from ..services import seer as seer_service
+from ..services.notification_orchestrator import _notify
 from ..utils import get_or_404, identity_keys, now_utc_naive
 from .arr_api import _resolve_arr_instance
 
@@ -817,6 +818,8 @@ async def media_add(body: MediaAddRequest, request: Request, db: Session = Depen
         )
         db.add(req)
         db.commit()
+        if s:
+            _notify("request", s, req, db)
     else:
         # Ré-attache le contexte de suivi à une demande existante qui n'en avait pas
         # (ancienne demande manuelle, ou média re-demandé), pour que le statut repasse.
@@ -840,5 +843,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: Session = Depen
         if existing.status in (RequestStatus.failed, RequestStatus.pending):
             existing.status = RequestStatus.sent_to_arr
         db.commit()
+        if s:
+            _notify("request", s, existing, db)
 
     return {"ok": True, "via": via, "already_existed": already, "id": arr_id, "search_triggered": search_triggered}

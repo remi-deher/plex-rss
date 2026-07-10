@@ -194,6 +194,9 @@ class Settings(Base):
     partial_notify_frequency: Mapped[str] = mapped_column(default="milestones")
     movie_vo_notify: Mapped[bool] = mapped_column(default=True)
     movie_vf_notify: Mapped[bool] = mapped_column(default=True)
+    # Mode de suivi des films : "language" (VO/VF ci-dessus) ou "classic" (mail générique
+    # "disponible", aucun suivi VF). Équivalent global de PlexUser.movie_tracking_mode.
+    movie_tracking_mode: Mapped[str] = mapped_column(default="language")
     series_vo_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
     series_vf_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
     # Mode de suivi des séries : "language" (VF/VO, comportement historique ci-dessus) ou

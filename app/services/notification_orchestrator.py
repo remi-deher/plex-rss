@@ -244,12 +244,13 @@ def _resolve_series_tracking_mode(settings: Settings, user_obj: PlexUser | None)
     return value if value in ("language", "simple", "classic") else "language"
 
 
-def _resolve_movie_tracking_mode(user_obj: PlexUser | None) -> str:
-    """"language" (VO/VF, comportement standard) ou "classic" (mail générique, forçage
-    par utilisateur uniquement — pas de réglage global équivalent)."""
-    if user_obj and getattr(user_obj, "movie_tracking_mode", None) == "classic":
-        return "classic"
-    return "language"
+def _resolve_movie_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
+    """"language" (VO/VF, comportement standard) ou "classic" (mail générique, aucun
+    suivi VF). Réglage par utilisateur (PlexUser.movie_tracking_mode) prioritaire sur le
+    réglage global (Settings.movie_tracking_mode) s'il est défini."""
+    user_value = getattr(user_obj, "movie_tracking_mode", None) if user_obj else None
+    value = user_value or getattr(settings, "movie_tracking_mode", None)
+    return value if value in ("language", "classic") else "language"
 
 
 def _resolve_episode_notify_mode(settings: Settings, user_obj: PlexUser | None) -> str:
@@ -443,7 +444,7 @@ def _queue_language_progress_notifications(
     if not _user_wants_vf(user_obj, req.vf_category):
         return 0
     if req.media_type != "show":
-        if _resolve_movie_tracking_mode(user_obj) == "classic":
+        if _resolve_movie_tracking_mode(settings, user_obj) == "classic":
             if not req.available_mail_sent:
                 _notify("available", settings, req, db)
             return 0

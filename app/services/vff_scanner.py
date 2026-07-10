@@ -496,7 +496,7 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
 
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     if req.media_type == "movie":
-        if _resolve_movie_tracking_mode(user_obj) == "classic":
+        if _resolve_movie_tracking_mode(settings, user_obj) == "classic":
             return False
     else:
         tracking_mode = _resolve_series_tracking_mode(settings, user_obj)

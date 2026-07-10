@@ -226,108 +226,125 @@
               <input class="form-check-input" type="checkbox" id="fNotifyAdmin" checked>
               <label class="form-check-label" for="fNotifyAdmin">Notifier l'admin pour cet utilisateur</label>
             </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">Webhook Discord personnel <span class="text-muted">(optionnel, en plus du global)</span></label>
+              <input type="url" class="form-control form-control-sm" id="fDiscordWebhook" placeholder="https://discord.com/api/webhooks/…">
+            </div>
+            <div>
+              <label class="form-label small mb-1">Chat ID Telegram personnel <span class="text-muted">(optionnel, en plus du global)</span></label>
+              <input type="text" class="form-control form-control-sm" id="fTelegramChatId" placeholder="-100123456789">
+            </div>
+
             <hr class="border-secondary">
-            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-lightning-charge me-1"></i>Evenements</label>
-            <div class="form-check form-switch mb-2">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-inbox me-1"></i>Demande</label>
+            <div class="form-check form-switch mb-3">
               <input class="form-check-input" type="checkbox" id="fNotifyOnRequest" checked>
               <label class="form-check-label" for="fNotifyOnRequest">Notifier à la demande</label>
             </div>
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="fNotifyOnAvailable" checked>
+
+            <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-translate me-1"></i>Disponibilité (VO / VF / amélioration)</label>
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" id="fNotifyOnAvailable" checked onchange="onNotifyAvailableChange()">
               <label class="form-check-label" for="fNotifyOnAvailable">Notifier à la disponibilité</label>
             </div>
+
+            <div id="vf-user-rules">
+              <p class="text-muted small mb-2">Catégories suivies en VO/VF</p>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="fNotifyVfMovie" checked>
+                <label class="form-check-label" for="fNotifyVfMovie">Films</label>
+              </div>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="fNotifyVfSeries" checked>
+                <label class="form-check-label" for="fNotifyVfSeries">Séries</label>
+              </div>
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="fNotifyVfAnime">
+                <label class="form-check-label" for="fNotifyVfAnime">Animes <span class="text-muted small">(souvent en VO japonaise à la sortie)</span></label>
+              </div>
+
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Mode de suivi des films</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieTrackingMode" onchange="onMovieTrackingModeChange()">
+                    <option value="">Par langue (VF / VO) — reglage par defaut</option>
+                    <option value="classic">Classique (pas de distinction VO/VF)</option>
+                  </select>
+                </div>
+                <div class="col-md-6" id="fMovieVoNotifyWrap">
+                  <label class="form-label small mb-1">Films VO</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVoNotify">
+                    <option value="">Reglage global</option>
+                    <option value="true">Notifier</option>
+                    <option value="false">Ne pas notifier</option>
+                  </select>
+                </div>
+                <div class="col-md-6" id="fMovieVfNotifyWrap">
+                  <label class="form-label small mb-1">Films upgrade VF</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVfNotify">
+                    <option value="">Reglage global</option>
+                    <option value="true">Notifier</option>
+                    <option value="false">Ne pas notifier</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Mode de suivi des series</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesTrackingMode" onchange="onSeriesTrackingModeChange()">
+                    <option value="">Reglage global</option>
+                    <option value="language">Par langue (VF / VO)</option>
+                    <option value="simple">Simple (episodes, sans distinction de langue)</option>
+                    <option value="classic">Classique (pas de distinction VO/VF)</option>
+                  </select>
+                </div>
+                <div class="col-md-6" id="fSeriesEpisodeNotifyModeWrap" style="display:none">
+                  <label class="form-label small mb-1">Frequence de suivi (mode simple)</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesEpisodeNotifyMode">
+                    <option value="">Reglage global</option>
+                    <option value="every_episode">Chaque episode</option>
+                    <option value="season_complete">Saison complete</option>
+                    <option value="series_complete">Serie complete</option>
+                    <option value="season_start_and_complete">Premier episode + saison complete</option>
+                  </select>
+                </div>
+                <div class="col-md-6" id="fSeriesVoNotifyModeWrap">
+                  <label class="form-label small mb-1">Series VO</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVoNotifyMode">
+                    <option value="">Reglage global</option>
+                    <option value="every_episode">Chaque episode</option>
+                    <option value="season_complete">Saison complete</option>
+                    <option value="series_complete">Serie complete</option>
+                    <option value="season_start_and_complete">Premier episode + saison complete</option>
+                  </select>
+                </div>
+                <div class="col-md-6" id="fSeriesVfNotifyModeWrap">
+                  <label class="form-label small mb-1">Series VF</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVfNotifyMode">
+                    <option value="">Reglage global</option>
+                    <option value="every_episode">Chaque episode</option>
+                    <option value="season_complete">Saison complete</option>
+                    <option value="series_complete">Serie complete</option>
+                    <option value="season_start_and_complete">Premier episode + saison complete</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="mb-3" id="fPartialNotifyFrequencyWrap">
+                <label class="form-label small mb-1"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
+                <select class="form-select bg-dark text-light border-secondary" id="fPartialNotifyFrequency">
+                  <option value="">Réglage global par défaut</option>
+                  <option value="milestones">Étapes clés uniquement (1ère dispo partielle + dispo complète)</option>
+                  <option value="every_episode">À chaque nouvel épisode disponible</option>
+                </select>
+                <div class="form-text">Sans effet en mode de suivi série « Simple » (couvert directement par ce mode).</div>
+              </div>
+            </div><!-- /vf-user-rules -->
+
+            <hr class="border-secondary">
+            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-newspaper me-1"></i>Digest</label>
             <div class="form-check form-switch mb-3">
               <input class="form-check-input" type="checkbox" id="fNotifyDigest">
               <label class="form-check-label" for="fNotifyDigest">Inclure dans le digest quotidien</label>
-            </div>
-
-            <hr class="border-secondary">
-            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-translate me-1"></i>Notifications VF (VO → VF)</label>
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="fNotifyVfMovie" checked>
-              <label class="form-check-label" for="fNotifyVfMovie">Films</label>
-            </div>
-            <div class="form-check form-switch mb-2">
-              <input class="form-check-input" type="checkbox" id="fNotifyVfSeries" checked>
-              <label class="form-check-label" for="fNotifyVfSeries">Séries</label>
-            </div>
-            <div class="form-check form-switch mb-3">
-              <input class="form-check-input" type="checkbox" id="fNotifyVfAnime">
-              <label class="form-check-label" for="fNotifyVfAnime">Animes <span class="text-muted small">(souvent en VO japonaise à la sortie)</span></label>
-            </div>
-
-            <hr class="border-secondary">
-            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
-            <div class="row g-2 mb-3">
-              <div class="col-md-6">
-                <label class="form-label small mb-1">Mode de suivi des films</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieTrackingMode" onchange="onMovieTrackingModeChange()">
-                  <option value="">Par langue (VF / VO) — reglage par defaut</option>
-                  <option value="classic">Classique (pas de distinction VO/VF)</option>
-                </select>
-              </div>
-              <div class="col-md-6" id="fMovieVoNotifyWrap">
-                <label class="form-label small mb-1">Films VO</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVoNotify">
-                  <option value="">Reglage global</option>
-                  <option value="true">Notifier</option>
-                  <option value="false">Ne pas notifier</option>
-                </select>
-              </div>
-              <div class="col-md-6" id="fMovieVfNotifyWrap">
-                <label class="form-label small mb-1">Films upgrade VF</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVfNotify">
-                  <option value="">Reglage global</option>
-                  <option value="true">Notifier</option>
-                  <option value="false">Ne pas notifier</option>
-                </select>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small mb-1">Mode de suivi des series</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesTrackingMode" onchange="onSeriesTrackingModeChange()">
-                  <option value="">Reglage global</option>
-                  <option value="language">Par langue (VF / VO)</option>
-                  <option value="simple">Simple (episodes, sans distinction de langue)</option>
-                  <option value="classic">Classique (pas de distinction VO/VF)</option>
-                </select>
-              </div>
-              <div class="col-md-6" id="fSeriesEpisodeNotifyModeWrap" style="display:none">
-                <label class="form-label small mb-1">Frequence de suivi (mode simple)</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesEpisodeNotifyMode">
-                  <option value="">Reglage global</option>
-                  <option value="every_episode">Chaque episode</option>
-                  <option value="season_complete">Saison complete</option>
-                  <option value="series_complete">Serie complete</option>
-                  <option value="season_start_and_complete">Premier episode + saison complete</option>
-                </select>
-              </div>
-              <div class="col-md-6" id="fSeriesVoNotifyModeWrap">
-                <label class="form-label small mb-1">Series VO</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVoNotifyMode">
-                  <option value="">Reglage global</option>
-                  <option value="every_episode">Chaque episode</option>
-                  <option value="season_complete">Saison complete</option>
-                  <option value="series_complete">Serie complete</option>
-                  <option value="season_start_and_complete">Premier episode + saison complete</option>
-                </select>
-              </div>
-              <div class="col-md-6" id="fSeriesVfNotifyModeWrap">
-                <label class="form-label small mb-1">Series VF</label>
-                <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVfNotifyMode">
-                  <option value="">Reglage global</option>
-                  <option value="every_episode">Chaque episode</option>
-                  <option value="season_complete">Saison complete</option>
-                  <option value="series_complete">Serie complete</option>
-                  <option value="season_start_and_complete">Premier episode + saison complete</option>
-                </select>
-              </div>
-            </div>
-            <div class="mb-3">
-              <select class="form-select bg-dark text-light border-secondary" id="fPartialNotifyFrequency">
-                <option value="">Réglage global par défaut</option>
-                <option value="milestones">Étapes clés uniquement (1ère dispo partielle + dispo complète)</option>
-                <option value="every_episode">À chaque nouvel épisode disponible</option>
-              </select>
             </div>
 
             <hr class="border-secondary">
@@ -347,17 +364,6 @@
                   {% for inst in radarr_instances %}<option value="{{ inst.id }}">{{ inst.name }}</option>{% endfor %}
                 </select>
               </div>
-            </div>
-            <hr class="border-secondary">
-            <label class="form-label small text-muted text-uppercase" style="letter-spacing:.05em"><i class="bi bi-send me-1"></i>Canaux personnels</label>
-            <p class="text-muted small mb-2">Push personnel <span class="text-muted">(optionnel, en plus du global)</span></p>
-            <div class="mb-2">
-              <label class="form-label small mb-1">Webhook Discord personnel</label>
-              <input type="url" class="form-control form-control-sm" id="fDiscordWebhook" placeholder="https://discord.com/api/webhooks/…">
-            </div>
-            <div>
-              <label class="form-label small mb-1">Chat ID Telegram personnel</label>
-              <input type="text" class="form-control form-control-sm" id="fTelegramChatId" placeholder="-100123456789">
             </div>
           </div>
 
@@ -701,12 +707,21 @@ function onSeriesTrackingModeChange() {
   document.getElementById('fSeriesEpisodeNotifyModeWrap').style.display = simple ? '' : 'none';
   document.getElementById('fSeriesVoNotifyModeWrap').style.display = language ? '' : 'none';
   document.getElementById('fSeriesVfNotifyModeWrap').style.display = language ? '' : 'none';
+  // Couvert directement par le mode Simple (nouvel épisode/saison depuis Plex) : redondant sinon.
+  document.getElementById('fPartialNotifyFrequencyWrap').classList.toggle('d-none', simple);
 }
 
 function onMovieTrackingModeChange() {
   const classic = document.getElementById('fMovieTrackingMode').value === 'classic';
   document.getElementById('fMovieVoNotifyWrap').style.display = classic ? 'none' : '';
   document.getElementById('fMovieVfNotifyWrap').style.display = classic ? 'none' : '';
+}
+
+// Les règles VO/VF/amélioration ne servent à rien si l'utilisateur ne reçoit pas
+// de notification de disponibilité (n'afficher que si pertinent).
+function onNotifyAvailableChange() {
+  const enabled = document.getElementById('fNotifyOnAvailable').checked;
+  document.getElementById('vf-user-rules').classList.toggle('d-none', !enabled);
 }
 
 // ── Ouverture de la modale hub ────────────────────────────────────────────────
@@ -733,6 +748,7 @@ function _setFields(u) {
   document.getElementById('fNotifyAdmin').checked = u.notify_admin !== false;
   document.getElementById('fNotifyOnRequest').checked = u.notify_on_request !== false;
   document.getElementById('fNotifyOnAvailable').checked = u.notify_on_available !== false;
+  onNotifyAvailableChange();
   document.getElementById('fNotifyDigest').checked = !!u.notify_digest;
   document.getElementById('fNotifyVfMovie').checked = u.notify_vf_movie !== false;
   document.getElementById('fNotifyVfSeries').checked = u.notify_vf_series !== false;

@@ -41,7 +41,7 @@ def _validate_series_notify_modes(payload: dict):
     if tracking_mode is not None and tracking_mode not in ("language", "simple", "classic"):
         raise HTTPException(status_code=400, detail=f"Mode de suivi invalide: {tracking_mode}")
     movie_tracking_mode = payload.get("movie_tracking_mode")
-    if movie_tracking_mode is not None and movie_tracking_mode not in ("classic",):
+    if movie_tracking_mode is not None and movie_tracking_mode not in ("language", "classic"):
         raise HTTPException(status_code=400, detail=f"Mode de suivi film invalide: {movie_tracking_mode}")
 
 
@@ -144,6 +144,7 @@ class SettingsUpdate(BaseModel):
     partial_notify_frequency: Optional[str] = None
     movie_vo_notify: Optional[bool] = None
     movie_vf_notify: Optional[bool] = None
+    movie_tracking_mode: Optional[str] = None
     series_vo_notify_mode: Optional[str] = None
     series_vf_notify_mode: Optional[str] = None
     series_tracking_mode: Optional[str] = None
