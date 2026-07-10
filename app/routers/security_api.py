@@ -225,7 +225,7 @@ async def register_verify(
     db.add(PasskeyCredential(
         user_id=user.id,
         credential_id=cred_id_str,
-        public_key=b64encode(verification.public_key).decode("utf-8"),
+        public_key=b64encode(verification.credential_public_key).decode("utf-8"),
         sign_count=verification.sign_count,
         name=payload.name or "Passkey"
     ))
