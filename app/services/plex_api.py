@@ -253,7 +253,7 @@ async def get_auth_pin(forward_url: str = "") -> dict:
         auth_url = (
             f"https://app.plex.tv/auth#?clientID={CLIENT_IDENTIFIER}"
             f"&code={code}"
-            f"&context%5Bdevice%5D%5Bproduct%5D=Plex%20RSS%20Monitor"
+            f"&context%5Bdevice%5D%5Bproduct%5D=Plexarr"
             f"&forwardUrl={encoded_forward}"
         )
         return {"id": pin_id, "code": code, "auth_url": auth_url}
