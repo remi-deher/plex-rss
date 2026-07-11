@@ -1,4 +1,4 @@
-const TMPL_TYPES = ['request', 'available', 'upgrade', 'failure'];
+const TMPL_TYPES = ['request', 'available', 'upgrade', 'failure', 'correction'];
 
 // Miroirs des presets serveur (email_service.py FONT_FAMILY_PRESETS/SYNOPSIS_FONT_SIZE_PRESETS),
 // utilisés uniquement pour l'aperçu client-side du mockup (le rendu email réel reste calculé côté serveur).
@@ -56,6 +56,8 @@ const variablesList = [
   { tag: '{nom_utilisateur}', desc: 'Nom du demandeur' },
   { tag: '{synopsis}', desc: 'Résumé du média' },
   { tag: '{raison}', desc: 'Raison de l\'échec (uniquement onglet Échec)' },
+  { tag: '{corrections}', desc: 'Liste des corrections cochées (uniquement onglet Correction)' },
+  { tag: '{note_correction}', desc: 'Note complémentaire optionnelle (uniquement onglet Correction)' },
 ];
 
 // Suivi du dernier champ pertinent ayant eu le focus (sujet/contenu/pied de page). Les boutons
@@ -160,7 +162,11 @@ function tmplRenderVariablesModalList(filterText) {
   const ft = (filterText || '').trim().toLowerCase();
 
   const filtered = variablesList
-    .filter(v => (v.tag === '{raison}') === (tmplCurrentTab === 'failure'))
+    .filter(v => {
+      if (v.tag === '{raison}') return tmplCurrentTab === 'failure';
+      if (v.tag === '{corrections}' || v.tag === '{note_correction}') return tmplCurrentTab === 'correction';
+      return true;
+    })
     .filter(v => !ft || v.tag.toLowerCase().includes(ft) || v.desc.toLowerCase().includes(ft));
 
   if (!filtered.length) {
@@ -439,10 +445,12 @@ window.tmplSave = async function() {
     email_available_template: tmplGetValue('available'),
     email_upgrade_template: tmplGetValue('upgrade'),
     email_failure_template: tmplGetValue('failure'),
+    email_correction_template: tmplGetValue('correction'),
     email_request_subject: document.getElementById('tmpl-subject-request').value,
     email_available_subject: document.getElementById('tmpl-subject-available').value,
     email_upgrade_subject: document.getElementById('tmpl-subject-upgrade').value,
     email_failure_subject: document.getElementById('tmpl-subject-failure').value,
+    email_correction_subject: document.getElementById('tmpl-subject-correction').value,
     email_header_brand: shared.header_brand,
     email_header_subtitle: shared.header_subtitle,
     email_footer_template: shared.footer_template,

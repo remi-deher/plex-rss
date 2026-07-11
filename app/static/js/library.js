@@ -11,6 +11,7 @@ function _isOwnRequest(r) {
 }
 const mediaModal = new bootstrap.Modal(document.getElementById('mediaModal'));
 let currentMediaDetail = null;
+let episodeFilter = 'all';
 
 function escHtml(s) {
   if (s == null) return '';
@@ -189,6 +190,10 @@ function renderSummary(d) {
                 onclick="reportMediaIssue(${m.request_id == null ? 'null' : m.request_id}, ${m.library_id == null ? 'null' : m.library_id})">
           <i class="bi bi-flag"></i> Signaler un probleme
         </button>
+        ${IS_ADMIN ? `<button class="btn btn-sm btn-outline-success d-inline-flex align-items-center gap-1"
+                onclick="openCorrectionModal(${m.request_id == null ? 'null' : m.request_id}, ${m.library_id == null ? 'null' : m.library_id})">
+          <i class="bi bi-envelope-check"></i> Signaler une correction
+        </button>` : ''}
         ${openIssueCount ? `<span class="badge bg-warning text-dark">${openIssueCount} signalement${openIssueCount > 1 ? 's' : ''} ouvert${openIssueCount > 1 ? 's' : ''}</span>` : ''}
       </div>
       <table class="table table-sm table-dark table-borderless mb-0" style="font-size:13px">
@@ -224,6 +229,320 @@ async function reportMediaIssue(requestId, libraryId) {
     if (m) openMediaDetail(m.library_id, m.request_id);
   } catch (e) {
     showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+const CORRECTION_OPTIONS = [
+  'Son corrigé',
+  'Synchronisation audio corrigée',
+  'Sous-titres corrigés',
+  'Synchronisation des sous-titres corrigée',
+  'Langue audio corrigée',
+  'Qualité vidéo améliorée',
+  'Mauvaise version remplacée',
+  'Épisode corrigé',
+  'Métadonnées corrigées',
+  'Affiche / jaquette corrigée',
+];
+let correctionModal = null;
+let correctionPreviewTimer = null;
+let correctionContext = { requestId: null, libraryId: null };
+
+function ensureCorrectionModal() {
+  let el = document.getElementById('correctionModal');
+  if (!el) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade" id="correctionModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+          <div class="modal-content bg-dark border-secondary text-white">
+            <div class="modal-header border-secondary">
+              <h5 class="modal-title">Signaler une correction</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-lg-4">
+                  <label class="form-label text-muted small">Destinataires</label>
+                  <div id="correction-recipients" class="border rounded p-2" style="border-color:var(--pr-border)!important;max-height:180px;overflow:auto"></div>
+
+                  <div id="correction-target-wrap" class="mt-3">
+                    <label class="form-label text-muted small">Cible de la correction</label>
+                    <select id="correction-scope" class="form-select form-select-sm bg-dark text-white border-secondary mb-2">
+                      <option value="media">Média entier</option>
+                      <option value="season">Une saison</option>
+                      <option value="episode">Un épisode</option>
+                    </select>
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <select id="correction-season" class="form-select form-select-sm bg-dark text-white border-secondary"></select>
+                      </div>
+                      <div class="col-6">
+                        <select id="correction-episode" class="form-select form-select-sm bg-dark text-white border-secondary"></select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <label class="form-label text-muted small mt-3">Corrections appliquées</label>
+                  <div id="correction-options" class="border rounded p-2" style="border-color:var(--pr-border)!important;max-height:260px;overflow:auto"></div>
+
+                  <label class="form-label text-muted small mt-3" for="correction-note">Note complémentaire</label>
+                  <textarea class="form-control bg-dark text-white border-secondary" id="correction-note" rows="3" maxlength="2000" placeholder="Optionnel"></textarea>
+                </div>
+                <div class="col-lg-8">
+                  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <label class="form-label text-muted small mb-0">Aperçu du mail</label>
+                    <div class="d-flex align-items-center gap-2">
+                      <select id="correction-preview-user" class="form-select form-select-sm bg-dark text-white border-secondary" style="width:auto"></select>
+                      <span id="correction-preview-status" class="badge bg-secondary">En attente</span>
+                    </div>
+                  </div>
+                  <iframe id="correction-preview-frame" style="width:100%;height:560px;border:1px solid var(--pr-border);border-radius:8px;background:#111"></iframe>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer border-secondary">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+              <button type="button" class="btn btn-success" id="correction-send-btn" onclick="sendCorrectionEmail()">
+                <i class="bi bi-send"></i> Envoyer la correction
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    el = document.getElementById('correctionModal');
+    document.getElementById('correction-note')?.addEventListener('input', scheduleCorrectionPreview);
+    document.getElementById('correction-preview-user')?.addEventListener('change', scheduleCorrectionPreview);
+    document.getElementById('correction-scope')?.addEventListener('change', () => {
+      updateCorrectionTargetControls();
+      scheduleCorrectionPreview();
+    });
+    document.getElementById('correction-season')?.addEventListener('change', () => {
+      populateCorrectionEpisodes();
+      scheduleCorrectionPreview();
+    });
+    document.getElementById('correction-episode')?.addEventListener('change', scheduleCorrectionPreview);
+  }
+  correctionModal = correctionModal || new bootstrap.Modal(el);
+  return el;
+}
+
+function correctionUserLabel(u) {
+  return u.custom_name || u.display_name || u.plex_user_id || ('Utilisateur #' + u.id);
+}
+
+function correctionUserEmail(u) {
+  return u.notification_email || u.plex_email || '';
+}
+
+function selectedCorrectionRecipientIds() {
+  return Array.from(document.querySelectorAll('.correction-recipient:checked')).map(el => parseInt(el.value)).filter(Boolean);
+}
+
+function selectedCorrectionLabels() {
+  return Array.from(document.querySelectorAll('.correction-option:checked')).map(el => el.value);
+}
+
+function getCorrectionEpisodeMap() {
+  const map = new Map();
+  const events = (currentMediaDetail && currentMediaDetail.calendar) || [];
+  events.forEach(e => {
+    const match = String(e.subtitle || '').match(/S(\d+)E(\d+)/i);
+    if (!match) return;
+    const season = Number(match[1]);
+    const episode = Number(match[2]);
+    if (!map.has(season)) map.set(season, new Set());
+    map.get(season).add(episode);
+  });
+  const vfSeasons = (currentMediaDetail && currentMediaDetail.vf_seasons) || [];
+  vfSeasons.forEach(s => {
+    const season = Number(s.season_number);
+    if (!season) return;
+    if (!map.has(season)) map.set(season, new Set());
+    (s.episodes || []).forEach(ep => {
+      const episode = Number(ep.episode);
+      if (episode) map.get(season).add(episode);
+    });
+  });
+  return map;
+}
+
+function correctionAvailableSeasons() {
+  const map = getCorrectionEpisodeMap();
+  const seasons = Array.from(map.keys()).sort((a, b) => a - b);
+  const presetSeason = correctionContext.seasonNumber;
+  if (presetSeason && !seasons.includes(presetSeason)) seasons.push(presetSeason);
+  return seasons.sort((a, b) => a - b);
+}
+
+function populateCorrectionSeasons() {
+  const select = document.getElementById('correction-season');
+  if (!select) return;
+  const seasons = correctionAvailableSeasons();
+  select.innerHTML = seasons.map(s => `<option value="${s}">Saison ${s}</option>`).join('');
+  if (correctionContext.seasonNumber) select.value = String(correctionContext.seasonNumber);
+  populateCorrectionEpisodes();
+}
+
+function populateCorrectionEpisodes() {
+  const episodeSelect = document.getElementById('correction-episode');
+  const seasonSelect = document.getElementById('correction-season');
+  if (!episodeSelect || !seasonSelect) return;
+  const season = Number(seasonSelect.value || correctionContext.seasonNumber || 0);
+  const map = getCorrectionEpisodeMap();
+  const episodes = Array.from(map.get(season) || []).sort((a, b) => a - b);
+  if (correctionContext.seasonNumber === season && correctionContext.episodeNumber && !episodes.includes(correctionContext.episodeNumber)) {
+    episodes.push(correctionContext.episodeNumber);
+    episodes.sort((a, b) => a - b);
+  }
+  episodeSelect.innerHTML = episodes.map(e => `<option value="${e}">Épisode ${e}</option>`).join('');
+  if (correctionContext.episodeNumber) episodeSelect.value = String(correctionContext.episodeNumber);
+}
+
+function updateCorrectionTargetControls() {
+  const media = currentMediaDetail && currentMediaDetail.media;
+  const wrap = document.getElementById('correction-target-wrap');
+  const scope = document.getElementById('correction-scope');
+  const season = document.getElementById('correction-season');
+  const episode = document.getElementById('correction-episode');
+  if (!wrap || !scope || !season || !episode) return;
+  const isShow = media && media.media_type === 'show';
+  wrap.style.display = isShow ? '' : 'none';
+  if (!isShow) {
+    scope.value = 'media';
+    return;
+  }
+  season.style.display = scope.value === 'season' || scope.value === 'episode' ? '' : 'none';
+  episode.style.display = scope.value === 'episode' ? '' : 'none';
+}
+
+function syncCorrectionPreviewUsers() {
+  const select = document.getElementById('correction-preview-user');
+  if (!select) return;
+  const ids = selectedCorrectionRecipientIds();
+  const current = select.value;
+  const users = (_addUsers || []).filter(u => ids.includes(u.id));
+  select.innerHTML = users.map(u => `<option value="${u.id}">${escHtml(correctionUserLabel(u))}</option>`).join('');
+  if (users.some(u => String(u.id) === current)) select.value = current;
+}
+
+function renderCorrectionChoices() {
+  const users = (_addUsers || []).filter(u => u.enabled && correctionUserEmail(u));
+  const recipientBox = document.getElementById('correction-recipients');
+  recipientBox.innerHTML = users.length ? users.map(u => `
+    <div class="form-check">
+      <input class="form-check-input correction-recipient" type="checkbox" value="${u.id}" id="correction-recipient-${u.id}">
+      <label class="form-check-label small" for="correction-recipient-${u.id}">
+        ${escHtml(correctionUserLabel(u))} <span class="text-muted">${escHtml(correctionUserEmail(u))}</span>
+      </label>
+    </div>`).join('') : '<div class="text-muted small">Aucun utilisateur avec email configuré.</div>';
+  recipientBox.querySelectorAll('input').forEach(el => el.addEventListener('change', () => {
+    syncCorrectionPreviewUsers();
+    scheduleCorrectionPreview();
+  }));
+
+  const optionsBox = document.getElementById('correction-options');
+  optionsBox.innerHTML = CORRECTION_OPTIONS.map((label, i) => `
+    <div class="form-check">
+      <input class="form-check-input correction-option" type="checkbox" value="${escHtml(label)}" id="correction-option-${i}">
+      <label class="form-check-label small" for="correction-option-${i}">${escHtml(label)}</label>
+    </div>`).join('');
+  optionsBox.querySelectorAll('input').forEach(el => el.addEventListener('change', scheduleCorrectionPreview));
+}
+
+async function openCorrectionModal(requestId, libraryId, target = {}) {
+  if (!IS_ADMIN) return;
+  ensureCorrectionModal();
+  if (window._addUsersPromise) await window._addUsersPromise;
+  correctionContext = {
+    requestId,
+    libraryId,
+    scope: target.scope || 'media',
+    seasonNumber: target.season || null,
+    episodeNumber: target.episode || null,
+  };
+  renderCorrectionChoices();
+  document.getElementById('correction-note').value = '';
+  const scopeSelect = document.getElementById('correction-scope');
+  if (scopeSelect) scopeSelect.value = correctionContext.scope;
+  populateCorrectionSeasons();
+  updateCorrectionTargetControls();
+  const firstRecipient = document.querySelector('.correction-recipient');
+  if (firstRecipient) firstRecipient.checked = true;
+  const firstOption = document.querySelector('.correction-option');
+  if (firstOption) firstOption.checked = true;
+  syncCorrectionPreviewUsers();
+  correctionModal.show();
+  scheduleCorrectionPreview(50);
+}
+
+function buildCorrectionPayload() {
+  return {
+    request_id: correctionContext.requestId,
+    library_id: correctionContext.libraryId,
+    recipient_user_ids: selectedCorrectionRecipientIds(),
+    preview_user_id: parseInt(document.getElementById('correction-preview-user')?.value || '0') || null,
+    corrections: selectedCorrectionLabels(),
+    note: document.getElementById('correction-note')?.value || '',
+    scope: document.getElementById('correction-scope')?.value || 'media',
+    season_number: parseInt(document.getElementById('correction-season')?.value || '0') || null,
+    episode_number: parseInt(document.getElementById('correction-episode')?.value || '0') || null,
+  };
+}
+
+function scheduleCorrectionPreview(delay = 500) {
+  clearTimeout(correctionPreviewTimer);
+  correctionPreviewTimer = setTimeout(loadCorrectionPreview, delay);
+}
+
+async function loadCorrectionPreview() {
+  const status = document.getElementById('correction-preview-status');
+  const frame = document.getElementById('correction-preview-frame');
+  const payload = buildCorrectionPayload();
+  if (!payload.recipient_user_ids.length || !payload.corrections.length) {
+    if (status) { status.className = 'badge bg-secondary'; status.textContent = 'En attente'; }
+    if (frame) frame.srcdoc = '<div style="padding:24px;color:#aaa;font-family:sans-serif">Choisissez un destinataire et au moins une correction.</div>';
+    return;
+  }
+  if (status) { status.className = 'badge bg-warning text-dark'; status.textContent = 'Actualisation...'; }
+  try {
+    const r = await fetch('/api/media/correction-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur aperçu');
+    if (frame) frame.srcdoc = await r.text();
+    if (status) { status.className = 'badge bg-success'; status.textContent = 'À jour'; }
+  } catch (e) {
+    if (status) { status.className = 'badge bg-danger'; status.textContent = 'Erreur'; }
+    if (frame) frame.srcdoc = `<div style="padding:24px;color:#ff6b6b;font-family:sans-serif">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function sendCorrectionEmail() {
+  const payload = buildCorrectionPayload();
+  if (!payload.recipient_user_ids.length) { showToast('Sélectionnez au moins un destinataire', 'warning'); return; }
+  if (!payload.corrections.length) { showToast('Sélectionnez au moins une correction', 'warning'); return; }
+  const btn = document.getElementById('correction-send-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Envoi...';
+  try {
+    const r = await fetch('/api/media/send-correction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : (d.detail?.message || 'Erreur envoi'));
+    const skipped = d.skipped?.length ? ` (${d.skipped.length} ignoré${d.skipped.length > 1 ? 's' : ''})` : '';
+    showToast(`${d.sent?.length || 0} email(s) envoyé(s)${skipped}`, d.errors?.length ? 'warning' : 'success');
+    correctionModal?.hide();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
   }
 }
 
@@ -413,6 +732,7 @@ async function loadVfDetail(m) {
   const path = sourcePath(m.vf_source_type);
   try {
     const d = await fetch(`/api/${path}/${m.vf_source_id}/vf-detail`).then(r => r.json());
+    if (currentMediaDetail && m.media_type === 'show') currentMediaDetail.vf_seasons = d.seasons || [];
     const actions = (VFF_ENABLED && IS_ADMIN) ? vfActionsBar(m) : '';
     body.innerHTML = actions + (m.media_type === 'show' ? renderVfSeasons(d, m) : renderVfTracks(d));
   } catch (e) {
@@ -431,6 +751,13 @@ const VF_STATUS_META = {
   absent: { badge: 'badge-pending', icon: 'bi-dash-circle', label: 'Absent' },
   unknown: { badge: 'bg-secondary', icon: 'bi-question-circle', label: 'Present' },
 };
+const VF_FILTERS = [
+  { key: 'all', label: 'Tous', icon: 'bi-list-ul' },
+  { key: 'vf', label: 'VF', icon: 'bi-translate' },
+  { key: 'vo', label: 'VO', icon: 'bi-translate' },
+  { key: 'unknown', label: 'A verifier', icon: 'bi-question-circle' },
+  { key: 'absent', label: 'Absents', icon: 'bi-dash-circle' },
+];
 function renderVfTracks(d) {
   if (d.error) return `<div class="text-warning small py-2">${escHtml(d.error)}</div>`;
   if (d.vf_available === false) return '<div class="alert alert-secondary py-2 small">Suivi VFF desactive.</div>';
@@ -438,10 +765,50 @@ function renderVfTracks(d) {
   if (!d.tracks || !d.tracks.length) return '<div class="text-muted small py-2">Aucune piste audio detectee.</div>';
   return `<ul class="list-unstyled mb-0">${d.tracks.map(t => `<li class="d-flex align-items-center gap-2 py-1"><span class="badge ${t.is_fr ? 'badge-available' : 'bg-secondary'}" style="min-width:42px">${t.is_fr ? 'VF' : 'VO'}</span><span class="small">${escHtml(t.label || t.lang || '?')}</span></li>`).join('')}</ul>`;
 }
+function episodeThumbHtml(url, fallbackUrl, icon = 'bi-tv') {
+  const src = url || fallbackUrl;
+  if (src) {
+    return `<img src="${escHtml(src)}" alt="" loading="lazy" style="width:72px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
+  }
+  return `<div style="width:72px;height:42px;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi ${icon} text-muted"></i></div>`;
+}
+function seasonPosterHtml(url, fallbackUrl) {
+  const src = url || fallbackUrl;
+  if (src) {
+    return `<img src="${escHtml(src)}" alt="" loading="lazy" style="width:50px;height:75px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
+  }
+  return `<div style="width:50px;height:75px;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi bi-collection-play text-muted"></i></div>`;
+}
+function sumEpisodeCounts(seasons) {
+  const totals = { vf: 0, vo: 0, present: 0, absent: 0, unknown: 0, all: 0 };
+  (seasons || []).forEach(s => {
+    const c = s.counts || {};
+    ['vf', 'vo', 'present', 'absent', 'unknown'].forEach(k => { totals[k] += c[k] || 0; });
+    totals.all += (s.episodes || []).length;
+  });
+  return totals;
+}
+function setEpisodeFilter(filter) {
+  episodeFilter = filter || 'all';
+  document.querySelectorAll('[data-vf-filter]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.vfFilter === episodeFilter);
+  });
+  document.querySelectorAll('.vf-episode-row').forEach(row => {
+    const show = episodeFilter === 'all' || row.dataset.status === episodeFilter;
+    row.style.display = show ? '' : 'none';
+  });
+  document.querySelectorAll('.vf-season-item').forEach(item => {
+    const visible = Array.from(item.querySelectorAll('.vf-episode-row')).some(row => row.style.display !== 'none');
+    item.style.display = visible ? '' : 'none';
+  });
+}
 function renderVfSeasons(d, m) {
   if (d.error) return `<div class="text-warning small py-2">${escHtml(d.error)}</div>`;
   if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Aucun episode suivi trouve.</div>';
+  episodeFilter = 'all';
   const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
+  const reqId = m.request_id == null ? 'null' : m.request_id;
+  const libId = m.library_id == null ? 'null' : m.library_id;
   return `<div class="accordion mt-2" id="${accId}">${d.seasons.map((s, i) => {
     const c = s.counts || {};
     const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} inconnus`, c.absent && `${c.absent} absents`].filter(Boolean).join(' · ');
@@ -455,10 +822,84 @@ function renderVfSeasons(d, m) {
     }
     const eps = (s.episodes || []).map(e => {
       const meta = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
-      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px"><span class="badge ${meta.badge}" style="min-width:58px"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span><span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span><span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span><button class="btn btn-link btn-sm p-0 text-muted" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-arrow-repeat"></i></button></li>`;
+      const correctionBtn = IS_ADMIN ? `<button class="btn btn-link btn-sm p-0 text-success" title="Signaler une correction pour cet épisode" onclick="openCorrectionModal(${reqId}, ${libId}, {scope:'episode', season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-envelope-check"></i></button>` : '';
+      return `<li class="d-flex align-items-center gap-2 py-1" style="font-size:12px"><span class="badge ${meta.badge}" style="min-width:58px"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span><span class="text-muted" style="min-width:34px">E${String(e.episode).padStart(2,'0')}</span><span class="text-truncate flex-grow-1">${escHtml(e.title || '')}</span>${correctionBtn}<button class="btn btn-link btn-sm p-0 text-muted" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-arrow-repeat"></i></button></li>`;
     }).join('');
-    return `<div class="accordion-item" style="background:transparent;border-color:var(--pr-border)"><h2 class="accordion-header d-flex align-items-center" style="gap:4px"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1"><strong class="me-2">Saison ${s.season_number}</strong><span class="small">${summary}</span>${seasonBadge}</button><button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}})"><i class="bi bi-arrow-repeat"></i></button></h2><div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div></div>`;
+    const seasonCorrectionBtn = IS_ADMIN ? `<button class="btn btn-sm btn-outline-success py-0 px-2" title="Signaler une correction pour cette saison" onclick="openCorrectionModal(${reqId}, ${libId}, {scope:'season', season:${s.season_number}})"><i class="bi bi-envelope-check"></i></button>` : '';
+    return `<div class="accordion-item" style="background:transparent;border-color:var(--pr-border)"><h2 class="accordion-header d-flex align-items-center" style="gap:4px"><button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1"><strong class="me-2">Saison ${s.season_number}</strong><span class="small">${summary}</span>${seasonBadge}</button>${seasonCorrectionBtn}<button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}})"><i class="bi bi-arrow-repeat"></i></button></h2><div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div></div>`;
   }).join('')}</div>`;
+}
+function renderVfSeasons(d, m) {
+  if (d.error) return `<div class="text-warning small py-2">${escHtml(d.error)}</div>`;
+  if (!d.seasons || !d.seasons.length) return '<div class="text-muted small py-2">Aucun episode suivi trouve.</div>';
+  episodeFilter = 'all';
+  const accId = 'vf-acc-' + Math.random().toString(36).slice(2, 8);
+  const reqId = m.request_id == null ? 'null' : m.request_id;
+  const libId = m.library_id == null ? 'null' : m.library_id;
+  const totals = sumEpisodeCounts(d.seasons);
+  const posterFallback = d.poster_url || m.poster_url;
+  const summaryCards = [
+    { label: 'Episodes', value: totals.all, icon: 'bi-collection-play', color: 'text-warning' },
+    { label: 'VF', value: totals.vf, icon: 'bi-translate', color: 'text-success' },
+    { label: 'VO', value: totals.vo, icon: 'bi-volume-up', color: 'text-info' },
+    { label: 'A verifier', value: totals.unknown, icon: 'bi-question-circle', color: 'text-secondary' },
+    { label: 'Absents', value: totals.absent, icon: 'bi-dash-circle', color: 'text-warning' },
+  ].map(card => `<div class="d-flex align-items-center gap-2 px-2 py-1 rounded" style="background:var(--pr-surface);border:1px solid var(--pr-border);min-width:96px"><i class="bi ${card.icon} ${card.color}"></i><div><div class="fw-semibold lh-1">${card.value}</div><div class="text-muted" style="font-size:11px">${card.label}</div></div></div>`).join('');
+  const filters = VF_FILTERS.map(f => {
+    const count = f.key === 'all' ? totals.all : totals[f.key] || 0;
+    return `<button type="button" class="btn btn-sm btn-outline-secondary ${episodeFilter === f.key ? 'active' : ''}" data-vf-filter="${f.key}" onclick="setEpisodeFilter('${f.key}')"><i class="bi ${f.icon} me-1"></i>${f.label}<span class="badge bg-dark ms-1">${count}</span></button>`;
+  }).join('');
+  const accordion = `<div class="accordion mt-2" id="${accId}">${d.seasons.map((s, i) => {
+    const c = s.counts || {};
+    const seasonTotal = (s.episodes || []).length || Object.values(c).reduce((a, b) => a + (b || 0), 0);
+    const progressValue = d.vf_available === false ? (c.present || 0) : (c.vf || 0);
+    const progressPct = seasonTotal ? Math.round(progressValue / seasonTotal * 100) : 0;
+    const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} a verifier`, c.absent && `${c.absent} absents`].filter(Boolean).join(' - ');
+    let seasonBadge = '';
+    if ((c.vf || 0) > 0 && (c.vo || 0) === 0) {
+      seasonBadge = '<span class="badge badge-available ms-2" style="font-size:10px"><i class="bi bi-translate me-1"></i>VF</span>';
+    } else if ((c.vf || 0) > 0 && (c.vo || 0) > 0) {
+      seasonBadge = '<span class="badge bg-info text-dark ms-2" style="font-size:10px" title="Episodes VF et VO melanges dans cette saison"><i class="bi bi-translate me-1"></i>VF Partiel</span>';
+    }
+    const eps = (s.episodes || []).map(e => {
+      const meta = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
+      const correctionBtn = IS_ADMIN ? `<button class="btn btn-sm btn-link p-0 text-success" title="Signaler une correction pour cet episode" onclick="openCorrectionModal(${reqId}, ${libId}, {scope:'episode', season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-envelope-check"></i></button>` : '';
+      const airDate = e.air_date ? `<span class="text-muted"><i class="bi bi-calendar3 me-1"></i>${fmtDate(e.air_date)}</span>` : '';
+      const fileBadge = e.has_file ? '<span class="text-muted"><i class="bi bi-hdd me-1"></i>Fichier</span>' : '';
+      return `<li class="vf-episode-row d-flex align-items-center gap-2 py-2 px-1 border-bottom" data-status="${escHtml(e.status || 'unknown')}" style="border-color:var(--pr-border)!important;font-size:12px">
+        ${episodeThumbHtml(e.thumb_url, s.poster_url || posterFallback)}
+        <div class="min-w-0 flex-grow-1">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge ${meta.badge}" style="min-width:58px"><i class="bi ${meta.icon} me-1"></i>${meta.label}</span>
+            <span class="text-muted text-nowrap">S${String(s.season_number).padStart(2,'0')}E${String(e.episode).padStart(2,'0')}</span>
+            <span class="text-truncate fw-semibold">${escHtml(e.title || 'Episode sans titre')}</span>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-1" style="font-size:11px">${airDate}${fileBadge}</div>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-shrink-0">${correctionBtn}<button class="btn btn-sm btn-link p-0 text-muted" title="Verifier cet episode" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-arrow-repeat"></i></button></div>
+      </li>`;
+    }).join('');
+    const seasonCorrectionBtn = IS_ADMIN ? `<button class="btn btn-sm btn-outline-success py-1 px-2" title="Signaler une correction pour cette saison" onclick="openCorrectionModal(${reqId}, ${libId}, {scope:'season', season:${s.season_number}})"><i class="bi bi-envelope-check"></i></button>` : '';
+    return `<div class="accordion-item vf-season-item" style="background:transparent;border-color:var(--pr-border)">
+      <h2 class="accordion-header d-flex align-items-stretch" style="gap:6px">
+        <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#${accId}-c${i}" style="background:var(--pr-surface);color:var(--bs-body-color);font-size:13px;flex:1">
+          <div class="d-flex align-items-center gap-3 w-100 pe-2">
+            ${seasonPosterHtml(s.poster_url, posterFallback)}
+            <div class="min-w-0 flex-grow-1">
+              <div class="d-flex align-items-center flex-wrap gap-1"><strong>Saison ${s.season_number}</strong>${seasonBadge}</div>
+              <div class="small text-muted text-truncate">${summary || 'Aucun statut'}</div>
+              <div class="progress mt-2" style="height:5px;background:var(--pr-surface-2)"><div class="progress-bar bg-warning" style="width:${progressPct}%"></div></div>
+            </div>
+            <span class="text-muted small text-nowrap">${progressPct}%</span>
+          </div>
+        </button>
+        <div class="d-flex align-items-center gap-1 py-2">${seasonCorrectionBtn}<button class="btn btn-sm btn-outline-warning py-1 px-2" title="Verifier cette saison" onclick="scanVff('${m.vf_source_type}', ${m.vf_source_id}, {force:true, season:${s.season_number}})"><i class="bi bi-arrow-repeat"></i></button></div>
+      </h2>
+      <div id="${accId}-c${i}" class="accordion-collapse collapse" data-bs-parent="#${accId}"><div class="accordion-body py-0 px-2"><ul class="list-unstyled mb-0">${eps}</ul></div></div>
+    </div>`;
+  }).join('')}</div>`;
+  setTimeout(() => setEpisodeFilter(episodeFilter), 0);
+  return `<div class="d-flex flex-wrap gap-2 mb-2">${summaryCards}</div><div class="d-flex flex-wrap gap-2 mb-2">${filters}</div>${accordion}`;
 }
 async function scanVff(kind, id, { force = false, season = null, episode = null } = {}) {
   if (force && !await confirmAction({ title:'Forcer la verification', body:'Purger le cache VF et re-verifier dans Plex ?', okLabel:'Forcer' })) return;
@@ -608,7 +1049,7 @@ async function bulkDelete() {
 
 // Utilisateurs (réutilisés par l'éditeur de demandeurs de la modale détail).
 let _addUsers = [];
-(async function _loadUsers() {
+window._addUsersPromise = (async function _loadUsers() {
   try { const r = await fetch('/api/users'); _addUsers = r.ok ? await r.json() : []; } catch (e) { _addUsers = []; }
 })();
 

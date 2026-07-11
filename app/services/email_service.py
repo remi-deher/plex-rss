@@ -8,7 +8,7 @@ import markdown
 from jinja2 import TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 
-from ..models import MediaRequest, Settings
+from ..models import LibraryItem, MediaRequest, Settings
 from . import vff
 
 logger = logging.getLogger(__name__)
@@ -114,6 +114,17 @@ DEFAULT_FAILURE_TEMPLATE = """Une erreur est survenue lors de la transmission à
 
 *La demande reste enregistrée. Plexarr réessaiera automatiquement lors de la prochaine vérification si le problème est résolu.*"""
 
+DEFAULT_CORRECTION_TEMPLATE = """Bonjour {nom_utilisateur},
+
+Une correction a été effectuée sur **{media_type_et_titre}** {details_saison_episode}.
+
+Corrections appliquées :
+{corrections}
+
+{note_correction}
+
+Vous pouvez relancer la lecture depuis Plex."""
+
 DEFAULT_HEADER_BRAND = "PLEXARR"
 DEFAULT_HEADER_SUBTITLE = "Notification Plex"
 DEFAULT_FOOTER_TEMPLATE = """Géré par **Plexarr**
@@ -178,6 +189,12 @@ _EVENT_VISUAL_DEFAULTS = {
         "headline_text": "Demande non transmise",
         "show_synopsis": False,
     },
+    "correction": {
+        "accent_color": "#20c997",
+        "badge_text": "Correction",
+        "headline_text": "Correction effectuée",
+        "show_synopsis": True,
+    },
 }
 
 
@@ -238,7 +255,7 @@ def get_event_visuals(settings, event_type: str) -> dict:
     }
 
 
-def build_tmdb_url(request: MediaRequest) -> str | None:
+def build_tmdb_url(request: MediaRequest | LibraryItem) -> str | None:
     if not request.tmdb_id:
         return None
     kind = "tv" if request.media_type == "show" else "movie"
@@ -282,7 +299,12 @@ async def resolve_plex_deep_link(settings: Settings, request: MediaRequest, time
         return None
 
 
-def _build_tags(request: MediaRequest, display_name: str | None = None, scope: str = "movie", language: str | None = None, is_upgrade: bool = False, season_number: int | None = None, episode_number: int | None = None, reason: str = "") -> dict:
+def _format_corrections(corrections: list[str] | tuple[str, ...] | None) -> str:
+    cleaned = [str(c).strip() for c in (corrections or []) if str(c).strip()]
+    return "\n".join(f"- {c}" for c in cleaned)
+
+
+def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = None, scope: str = "movie", language: str | None = None, is_upgrade: bool = False, season_number: int | None = None, episode_number: int | None = None, reason: str = "", corrections: list[str] | tuple[str, ...] | None = None, correction_note: str = "") -> dict:
     is_show = request.media_type == "show"
     
     type_media = "Le film"
@@ -293,6 +315,8 @@ def _build_tags(request: MediaRequest, display_name: str | None = None, scope: s
     if is_show and season_number is not None:
         if scope == 'episode' and episode_number is not None:
             details_se = f"(Saison {season_number}, Épisode {episode_number})"
+        elif scope == 'season':
+            details_se = f"(Saison {season_number})"
         elif scope == 'season_start':
             details_se = f"(Premier épisode de la Saison {season_number})"
         elif scope == 'season_complete':
@@ -313,19 +337,21 @@ def _build_tags(request: MediaRequest, display_name: str | None = None, scope: s
         "{affiche}": request.poster_url or "",
         "{details_saison_episode}": details_se,
         "{langue}": langue_str,
-        "{nom_utilisateur}": display_name or request.plex_user or request.plex_user_id or "",
+        "{nom_utilisateur}": display_name or getattr(request, "plex_user", None) or getattr(request, "plex_user_id", None) or "",
         "{synopsis}": request.overview or "",
         "{raison}": reason or "Erreur inconnue",
+        "{corrections}": _format_corrections(corrections) or "- Correction effectuée",
+        "{note_correction}": correction_note.strip() if correction_note else "",
         "{media_type_et_titre}": f"{type_media} {request.title or ''}".strip(),
     }
 
-def _build_jinja_ctx(request: MediaRequest, display_name: str | None = None) -> dict:
+def _build_jinja_ctx(request: MediaRequest | LibraryItem, display_name: str | None = None) -> dict:
     is_show = request.media_type == "show"
     return {
         "_title": request.title or "",
         "_year": request.year,
         "_poster_url": request.poster_url or "",
-        "_plex_user": display_name or request.plex_user or request.plex_user_id or "",
+        "_plex_user": display_name or getattr(request, "plex_user", None) or getattr(request, "plex_user_id", None) or "",
         "_media_type": request.media_type,
         "_media_type_label": "Série" if is_show else "Film",
         "_overview": request.overview or "",
@@ -365,7 +391,7 @@ def render_subject(template_str: str, tags: dict, fallback: str) -> str:
 
 async def _send_templated(
     settings: Settings,
-    request: MediaRequest,
+    request: MediaRequest | LibraryItem,
     recipient: str,
     display_name: str | None = None,
     *,
@@ -504,6 +530,71 @@ async def send_failure_notification(
         tags=tags,
         extra_jinja_ctx=extra_ctx,
     )
+
+
+def build_correction_email(
+    settings: Settings,
+    media: MediaRequest | LibraryItem,
+    display_name: str,
+    corrections: list[str],
+    correction_note: str = "",
+    *,
+    plex_deep_link: str | None = None,
+    scope: str = "movie",
+    season_number: int | None = None,
+    episode_number: int | None = None,
+) -> tuple[str, str]:
+    tags = _build_tags(
+        media,
+        display_name=display_name,
+        scope=scope,
+        season_number=season_number,
+        episode_number=episode_number,
+        corrections=corrections,
+        correction_note=correction_note,
+    )
+    extra_ctx = get_shared_email_parts(settings)
+    extra_ctx.update(get_event_visuals(settings, "correction"))
+    extra_ctx["_requester_label"] = "Destinataire"
+    extra_ctx["_tmdb_url"] = build_tmdb_url(media)
+    extra_ctx["_plex_deep_link"] = plex_deep_link
+
+    jinja_ctx = _build_jinja_ctx(media, display_name)
+    jinja_ctx.update(extra_ctx)
+
+    template_str = _resolve_str_setting(settings, "email_correction_template") or DEFAULT_CORRECTION_TEMPLATE
+    subject_str = _resolve_str_setting(settings, "email_correction_subject") or "[Plexarr] Correction : {titre} {details_saison_episode}"
+    subject = render_subject(subject_str, tags, fallback=f"[Plexarr] Correction : {media.title}")
+    html = render_template(template_str, tags, jinja_ctx)
+    return subject, html
+
+
+async def send_correction_notification(
+    settings: Settings,
+    media: MediaRequest | LibraryItem,
+    recipient: str,
+    display_name: str,
+    corrections: list[str],
+    correction_note: str = "",
+    *,
+    scope: str = "movie",
+    season_number: int | None = None,
+    episode_number: int | None = None,
+):
+    plex_link = await resolve_plex_deep_link(settings, media)
+    subject, html = build_correction_email(
+        settings,
+        media,
+        display_name,
+        corrections,
+        correction_note,
+        plex_deep_link=plex_link,
+        scope=scope,
+        season_number=season_number,
+        episode_number=episode_number,
+    )
+    await _send(settings, recipient, subject, html)
+
 
 async def test_smtp(settings: Settings, test_recipient: str) -> tuple[bool, str]:
     try:

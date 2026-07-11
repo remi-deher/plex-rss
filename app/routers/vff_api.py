@@ -32,6 +32,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["vff"], dependencies=[Depends(require_auth)])
 
 
+def _arr_image_url(images: list[dict] | None, *cover_types: str) -> str | None:
+    """Return the best public image URL exposed by Sonarr/Radarr."""
+    if not images:
+        return None
+    for cover_type in cover_types:
+        for img in images:
+            if img.get("coverType") != cover_type:
+                continue
+            url = img.get("remoteUrl") or img.get("url")
+            if url:
+                return url
+    for img in images:
+        url = img.get("remoteUrl") or img.get("url")
+        if url:
+            return url
+    return None
+
+
 async def _vf_detail_payload(db: Session, req):
     """Détail VF (modale) : pistes audio (film) ou statut par saison/épisode (série)."""
     settings = db.query(Settings).first()
@@ -94,6 +112,8 @@ async def _vf_detail_payload(db: Session, req):
     sonarr_episodes = None
     first_aired = None
     next_episode_at = None
+    series_poster_url = getattr(req, "poster_url", None)
+    season_posters: dict[int, str] = {}
     try:
         inst = _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
         series_id = None
@@ -107,6 +127,12 @@ async def _vf_detail_payload(db: Session, req):
         if data:
             first_aired = data.get("firstAired")
             next_episode_at = data.get("nextAiring")
+            series_poster_url = _arr_image_url(data.get("images"), "poster") or series_poster_url
+            for season in data.get("seasons") or []:
+                sn = season.get("seasonNumber")
+                poster_url = _arr_image_url(season.get("images"), "poster")
+                if sn is not None and poster_url:
+                    season_posters[sn] = poster_url
         if series_id:
             sonarr_episodes = await get_episodes(inst.url, inst.api_key, series_id)
     except Exception as e:
@@ -139,7 +165,14 @@ async def _vf_detail_payload(db: Session, req):
             if sn is None or en is None or sn == 0:
                 continue
             status = _status(plex_eps.get(sn, {}).get(en), ep.get("hasFile"))
-            seasons.setdefault(sn, {})[en] = {"episode": en, "title": ep.get("title") or "", "status": status}
+            seasons.setdefault(sn, {})[en] = {
+                "episode": en,
+                "title": ep.get("title") or "",
+                "status": status,
+                "air_date": ep.get("airDateUtc") or ep.get("airDate"),
+                "has_file": bool(ep.get("hasFile")),
+                "thumb_url": _arr_image_url(ep.get("images"), "screenshot", "poster"),
+            }
     else:
         for sn, eps in plex_eps.items():
             if sn == 0:
@@ -149,6 +182,9 @@ async def _vf_detail_payload(db: Session, req):
                     "episode": en,
                     "title": "",
                     "status": "vf" if has_vf else "vo",
+                    "air_date": None,
+                    "has_file": True,
+                    "thumb_url": None,
                 }
 
     out_seasons = []
@@ -157,7 +193,14 @@ async def _vf_detail_payload(db: Session, req):
         counts = {"vf": 0, "vo": 0, "present": 0, "absent": 0, "unknown": 0}
         for ep_out in eps:
             counts[ep_out["status"]] = counts.get(ep_out["status"], 0) + 1
-        out_seasons.append({"season_number": sn, "counts": counts, "episodes": eps})
+        out_seasons.append(
+            {
+                "season_number": sn,
+                "poster_url": season_posters.get(sn) or series_poster_url,
+                "counts": counts,
+                "episodes": eps,
+            }
+        )
 
     return {
         "enabled": True,
@@ -167,6 +210,7 @@ async def _vf_detail_payload(db: Session, req):
         "sonarr_available": sonarr_episodes is not None,
         "first_aired": first_aired,
         "next_episode_at": next_episode_at,
+        "poster_url": series_poster_url,
         "seasons": out_seasons,
     }
 

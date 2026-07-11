@@ -17,6 +17,7 @@ from ..database import get_db
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_CORRECTION_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_FONT_FAMILY_KEY,
     DEFAULT_FOOTER_TEMPLATE,
@@ -608,6 +609,7 @@ def templates_page(request: Request, _: None = Depends(require_admin), db: Sessi
         ("available", "Disponibilité", (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE, (s.email_available_subject if s else None) or ""),
         ("upgrade", "Mise à jour", (s.email_upgrade_template if s else None) or DEFAULT_UPGRADE_TEMPLATE, (s.email_upgrade_subject if s else None) or ""),
         ("failure", "Échec", (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE, (s.email_failure_subject if s else None) or ""),
+        ("correction", "Correction", (s.email_correction_template if s else None) or DEFAULT_CORRECTION_TEMPLATE, (s.email_correction_subject if s else None) or ""),
     ]
     tabs = [
         {"key": key, "label": label, "template": template, "subject": subject, "visuals": get_event_visuals(s, key)}

@@ -87,10 +87,12 @@ class Settings(Base):
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
     email_upgrade_template: Mapped[Optional[str]] = mapped_column(Text)
     email_failure_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_correction_template: Mapped[Optional[str]] = mapped_column(Text)
     email_request_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_upgrade_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_failure_subject: Mapped[Optional[str]] = mapped_column(default=None)
+    email_correction_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_templates_backup: Mapped[Optional[str]] = mapped_column(Text)
     # Coquille email : parties communes (header/footer) + bandeau par évènement
     # (couleur/badge/titre/synopsis), tous éditables via /templates. None = valeur
@@ -114,6 +116,10 @@ class Settings(Base):
     email_failure_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
     email_failure_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
     email_failure_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_correction_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_correction_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_correction_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_correction_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
     # Bloc affiche/titre/tags/"Demandé par" : mise en page, partagée entre tous les templates
     # (contrairement au bandeau, ce n'est pas du contenu qui varie par évènement).
     email_show_poster: Mapped[Optional[bool]] = mapped_column(default=None)

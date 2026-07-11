@@ -273,7 +273,7 @@
             <textarea class="form-control bg-dark text-white border-0 tmpl-textarea tmpl-content-textarea" id="tmpl-editor-{{ tab.key }}" rows="6">{{ tab.template }}</textarea>
           </div>
 
-          {% if tab.key in ('available', 'upgrade') %}
+          {% if tab.key in ('available', 'upgrade', 'correction') %}
           <div class="tmpl-mockup-plex-row text-center pb-2" id="tmpl-mockup-plex-row-{{ tab.key }}" {% if not show_plex_button %}style="display:none"{% endif %}>
             <a href="#" onclick="return false" class="tmpl-mockup-plex-btn" style="background:{{ tab.visuals['_accent_color'] }}">&#9654; Lire sur Plex</a>
           </div>
