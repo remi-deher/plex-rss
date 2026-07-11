@@ -107,6 +107,12 @@
                 <label class="form-check-label" for="smtp_tls">STARTTLS</label>
               </div>
             </div>
+            <div class="col-md-3 d-flex align-items-end">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" name="email_enabled" id="email_enabled" {% if s.email_enabled %}checked{% endif %} onchange="updateChannelDim('email')">
+                <label class="form-check-label" for="email_enabled">Canal actif</label>
+              </div>
+            </div>
             <div class="col-md-3">
               <label class="form-label">Email expéditeur</label>
               <input type="email" class="form-control" name="smtp_from" value="{{ s.smtp_from or '' }}" placeholder="plex@example.com">
@@ -274,7 +280,7 @@
             <p class="text-muted small mb-3">Confirmation envoyée quand une demande est enregistrée.</p>
             <div class="settings-section-title">Canaux qui envoient cette notification</div>
             <div class="row g-3 mb-4">
-              <div class="col-6 col-md-2">
+              <div class="col-6 col-md-2 chan-wrap chan-wrap-email">
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_request" id="email_req" {% if s.email_on_request %}checked{% endif %}>
                   <label class="form-check-label" for="email_req"><i class="bi bi-envelope me-1"></i>Email</label>
@@ -335,13 +341,69 @@
           <p class="text-muted small mb-3">
             Un seul évènement « Disponibilité », avec 3 cas automatiques : le média arrive en VO
             (« disponible, VF suivie »), il arrive directement en VF (« disponible en VF »), ou il
-            passe de VO à VF après coup (« amélioration vers VF »). S'applique aux films comme aux
-            séries. Les utilisateurs peuvent personnaliser ces réglages depuis leur fiche.
+            passe de VO à VF après coup (« amélioration vers VF »). Les utilisateurs peuvent
+            personnaliser ces réglages depuis leur fiche.
           </p>
 
-          <div class="settings-section-title">Canaux — disponibilité (VO / VF directe)</div>
+          <div class="settings-section-title">1. Distinguer VO / VF ?</div>
+          <div class="alert alert-light border py-2 px-3 mb-3">
+            <i class="bi bi-signpost-split me-1"></i>
+            <strong>C'est le réglage qui décide de tout le reste de cette page.</strong>
+            Désactivé pour un type (film ou série) : un seul mail générique « disponible sur Plex »
+            part sur tous les canaux actifs ci-dessous — les réglages de la section 2 (canal VO/VF,
+            amélioration) n'ont alors <strong>aucun effet</strong> pour ce type. Activé : les 3 cas
+            distincts s'appliquent (VO détectée · VF directe · amélioration VO→VF après coup), et les
+            canaux ci-dessous s'appliquent réellement.
+          </div>
+
+          <div id="vf-rules-fields">
+
+          <div class="row g-3 mb-4">
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="movie_notify_language" id="movie_notify_language" {% if s.movie_notify_language is not false %}checked{% endif %}>
+                <label class="form-check-label" for="movie_notify_language"><strong>Films</strong> — distinguer VO / VF</label>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="series_notify_language" id="series_notify_language" {% if s.series_notify_language is not false %}checked{% endif %}>
+                <label class="form-check-label" for="series_notify_language"><strong>Séries</strong> — distinguer VO / VF</label>
+              </div>
+            </div>
+          </div>
+
           <div class="row g-3 mb-2">
-            <div class="col-6 col-md-2">
+            <div class="col-md-6">
+              <label class="form-label">Fréquence des notifications (séries)</label>
+              <select class="form-select" name="series_notify_granularity">
+                {% set granularity = s.series_notify_granularity or 'jalons' %}
+                <option value="minimal" {% if granularity == 'minimal' %}selected{% endif %}>Minimal — un seul mail, à la disponibilité finale (série complète)</option>
+                <option value="jalons" {% if granularity == 'jalons' %}selected{% endif %}>Jalons — un mail au début et à la fin de chaque saison</option>
+                <option value="tout" {% if granularity == 'tout' %}selected{% endif %}>Tout — un mail à chaque nouvel épisode</option>
+              </select>
+              <div class="form-text">Indépendant du switch ci-dessus : s'applique que la distinction VO/VF soit active ou non.</div>
+            </div>
+          </div>
+
+          </div><!-- /vf-rules-fields -->
+
+          <div id="vf-rules-disabled-note" class="alert alert-secondary py-2 px-3 mb-3 d-none">
+            <i class="bi bi-info-circle me-1"></i>Le suivi VO/VF est désactivé globalement. Active-le dans l'onglet
+            <a href="#" onclick="document.querySelector('#settingsTabs button[data-bs-target=\'#tab-vff\']')?.click(); return false;">VFF</a>
+            pour que les switchs ci-dessus aient un effet.
+          </div>
+
+          <hr class="my-3">
+
+          <div class="settings-section-title">2. Canaux</div>
+          <div class="form-text mb-2">
+            Actifs dans tous les cas (distinction VO/VF activée ou non). Quand la distinction est
+            activée, email peut en plus isoler le cas « amélioration » séparément — les autres canaux
+            utilisent le même réglage pour les 3 cas, ils ne peuvent pas l'isoler.
+          </div>
+          <div class="row g-3 mb-2">
+            <div class="col-6 col-md-2 chan-wrap chan-wrap-email">
               <div class="form-check form-switch">
                 <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_available" id="email_av" {% if s.email_on_available %}checked{% endif %}>
                 <label class="form-check-label" for="email_av"><i class="bi bi-envelope me-1"></i>Email</label>
@@ -372,59 +434,20 @@
               </div>
             </div>
           </div>
-          <div class="form-text mb-3">Discord/Telegram/ntfy/Gotify utilisent un seul évènement « Disponibilité » (pas de distinction VO/VF/amélioration côté push).</div>
-
-          <div id="vf-email-row">
-            <div class="settings-section-title">Email — amélioration VO → VF</div>
-            <div class="row g-3 mb-4">
-              <div class="col-6 col-md-2">
-                <div class="form-check form-switch">
-                  <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_vf_available" id="email_vf_av" {% if s.email_on_vf_available %}checked{% endif %}>
-                  <label class="form-check-label" for="email_vf_av"><i class="bi bi-envelope me-1"></i>Email</label>
-                </div>
-              </div>
+          <div class="form-text mb-2">
+            Ce réglage email couvre 2 des 3 cas : VO détectée, et VF directe. Discord/Telegram/ntfy/Gotify
+            utilisent aussi ce même déclencheur pour leurs 3 cas (pas de distinction possible côté push).
+          </div>
+          <div id="vf-email-row" class="mb-3 chan-wrap chan-wrap-email">
+            <div class="form-check form-switch">
+              <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_vf_available" id="email_vf_av" {% if s.email_on_vf_available %}checked{% endif %}>
+              <label class="form-check-label" for="email_vf_av"><i class="bi bi-envelope me-1"></i>Email : isoler le 3ᵉ cas (amélioration VO → VF) sur un réglage à part</label>
+            </div>
+            <div class="form-text">
+              Si désactivé, une amélioration VO→VF n'envoie <strong>aucun</strong> mail (contrairement à
+              Discord/Telegram/ntfy/Gotify, qui l'annoncent quand même via leur réglage unique ci-dessus).
             </div>
           </div>
-
-          <div id="vf-rules-disabled-note" class="alert alert-secondary py-2 px-3 mb-3 d-none">
-            <i class="bi bi-info-circle me-1"></i>Le suivi VO/VF est désactivé. Active-le dans l'onglet
-            <a href="#" onclick="document.querySelector('#settingsTabs button[data-bs-target=\'#tab-vff\']')?.click(); return false;">VFF</a>
-            pour affiner les règles ci-dessous (films/séries en VO/VF).
-          </div>
-
-          <div id="vf-rules-fields">
-
-          <div class="settings-section-title">Films</div>
-          <div class="row g-3 mb-4">
-            <div class="col-12">
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" name="movie_notify_language" id="movie_notify_language" {% if s.movie_notify_language is not false %}checked{% endif %}>
-                <label class="form-check-label" for="movie_notify_language">Suivre VO/VF (sinon mail générique « disponible »)</label>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-section-title">Séries</div>
-          <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" name="series_notify_language" id="series_notify_language" {% if s.series_notify_language is not false %}checked{% endif %}>
-                <label class="form-check-label" for="series_notify_language">Suivre VO/VF</label>
-              </div>
-              <div class="form-text">Désactivé : suivi des épisodes/saisons sans distinction de langue.</div>
-            </div>
-            <div class="col-md-5">
-              <label class="form-label">Fréquence des notifications</label>
-              <select class="form-select" name="series_notify_granularity">
-                {% set granularity = s.series_notify_granularity or 'jalons' %}
-                <option value="minimal" {% if granularity == 'minimal' %}selected{% endif %}>Minimal (une seule notif à la disponibilité finale)</option>
-                <option value="jalons" {% if granularity == 'jalons' %}selected{% endif %}>Jalons (début/fin de saison)</option>
-                <option value="tout" {% if granularity == 'tout' %}selected{% endif %}>Tout (chaque épisode)</option>
-              </select>
-            </div>
-          </div>
-
-          </div><!-- /vf-rules-fields -->
         </div>
       </div>
 
@@ -441,7 +464,7 @@
             <p class="text-muted small mb-3">La demande n'a pas pu être transmise à Sonarr ou Radarr.</p>
             <div class="settings-section-title">Canaux qui envoient cette notification</div>
             <div class="row g-3">
-              <div class="col-6 col-md-2">
+              <div class="col-6 col-md-2 chan-wrap chan-wrap-email">
                 <div class="form-check form-switch">
                   <input class="form-check-input smtp-trigger" type="checkbox" name="email_on_failure" id="email_fail" {% if s.email_on_failure %}checked{% endif %}>
                   <label class="form-check-label" for="email_fail"><i class="bi bi-envelope me-1"></i>Email</label>

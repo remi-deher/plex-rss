@@ -88,6 +88,7 @@ def _load_known_vf_episodes(db: Session, source_type: str, source_ids: list[int]
             VfEpisodeStatus.source_type == source_type,
             VfEpisodeStatus.source_id.in_(source_ids),
             VfEpisodeStatus.has_vf.is_(True),
+            VfEpisodeStatus.fr_is_default.is_(True),
         )
         .all()
     )
@@ -119,6 +120,7 @@ def _persist_episode_status(
     source_id: int,
     episode_status: dict[int, dict[int, bool]],
     now: datetime,
+    french_default: dict[int, dict[int, bool]] | None = None,
 ) -> None:
     """Upsert le statut VF par épisode dans le cache (`vf_episode_status`)."""
     if not episode_status:
@@ -131,10 +133,13 @@ def _persist_episode_status(
     }
     for sn, eps in episode_status.items():
         for en, has_vf in eps.items():
+            fr_is_default = (french_default or {}).get(sn, {}).get(en)
             row = existing.get((sn, en))
             if row:
                 if row.has_vf != has_vf:
                     row.has_vf = has_vf
+                if fr_is_default is not None and row.fr_is_default != fr_is_default:
+                    row.fr_is_default = fr_is_default
                 row.checked_at = now
             else:
                 db.add(
@@ -144,6 +149,7 @@ def _persist_episode_status(
                         season_number=sn,
                         episode_number=en,
                         has_vf=has_vf,
+                        fr_is_default=fr_is_default,
                         checked_at=now,
                     )
                 )
@@ -568,7 +574,7 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
     now = now_utc_naive()
     episode_status = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "request", req.id, episode_status, now)
+        _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
         db.commit()
 
     if req.media_type == "show" and series_no_language:
@@ -605,7 +611,7 @@ vff_light_scan_state: dict[str, Any] = {
 }
 
 
-async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> None:
+async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, force: bool = False) -> None:
     """Cœur du job VFF : détecte la présence de VF sur les médias disponibles et notifie.
 
     - Première analyse d'un média (has_vf IS NULL) :
@@ -619,6 +625,12 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
     (`check_new_vf_availability`) pour combler le trou laissé par un scan eager raté sans
     attendre le scan complet (`check_vf_statuses`, tous les médias en attente de VF, sur
     un intervalle plus long).
+
+    `force=True` : re-scanne aussi les médias déjà marqués `has_vf=True` (normalement
+    exclus, voir `req_has_vf_filter`/`lib_has_vf_filter` ci-dessous) — utilisé quand le
+    cache par épisode est suspecté obsolète (faux positif, remplacement de fichier côté
+    Plex). L'appelant est responsable d'avoir déjà vidé le cache par épisode
+    (`_invalidate_vf_cache`) avant d'appeler cette fonction.
 
     La détection Plex (plexapi) est bloquante : elle est déportée dans un thread.
     """
@@ -686,14 +698,20 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
             db.commit()
             logger.info(f"VFF ({label}) : {promoted} demande(s) promue(s) 'disponible' via la bibliothèque Plex")
 
-        req_has_vf_filter = (
-            MediaRequest.has_vf.is_(None)
-            if only_unseen
-            else (MediaRequest.has_vf.is_(None)) | (MediaRequest.has_vf.is_(False))
-        )
-        lib_has_vf_filter = (
-            LibraryItem.has_vf.is_(None) if only_unseen else (LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False))
-        )
+        if force:
+            req_has_vf_filter = True
+            lib_has_vf_filter = True
+        else:
+            req_has_vf_filter = (
+                MediaRequest.has_vf.is_(None)
+                if only_unseen
+                else (MediaRequest.has_vf.is_(None)) | (MediaRequest.has_vf.is_(False))
+            )
+            lib_has_vf_filter = (
+                LibraryItem.has_vf.is_(None)
+                if only_unseen
+                else (LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False))
+            )
         candidates_q = (
             db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.available, req_has_vf_filter).all()
         )
@@ -756,7 +774,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
             for r in results:
                 episode_status = r.get("episode_status")
                 if episode_status:
-                    _persist_episode_status(db, "request", r["id"], episode_status, now)
+                    _persist_episode_status(db, "request", r["id"], episode_status, now, r.get("french_default"))
             if any(r.get("episode_status") for r in results):
                 db.commit()
 
@@ -825,7 +843,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
                 lib_updated += 1
                 episode_status = res.get("episode_status")
                 if episode_status:
-                    _persist_episode_status(db, "library_item", li.id, episode_status, now)
+                    _persist_episode_status(db, "library_item", li.id, episode_status, now, res.get("french_default"))
             db.commit()
 
         # --- Demandes liées à un LibraryItem : propager son has_vf, pas de re-scan Plex ---
@@ -866,10 +884,11 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str) -> 
         db.close()
 
 
-async def check_vf_statuses() -> None:
+async def check_vf_statuses(force: bool = False) -> None:
     """Scan complet : tous les médias en attente de VF (`has_vf IS NULL` ou `False`),
-    sur l'intervalle long (`vff_recheck_interval_minutes`)."""
-    await _run_vf_scan(only_unseen=False, state=vff_scan_state, label="complet")
+    sur l'intervalle long (`vff_recheck_interval_minutes`). `force=True` (scan manuel
+    "Forcer l'analyse complète") re-scanne aussi les médias déjà marqués VF."""
+    await _run_vf_scan(only_unseen=False, state=vff_scan_state, label="complet", force=force)
 
 
 async def check_new_vf_availability() -> None:
@@ -963,7 +982,7 @@ async def check_episode_tracking():
                 continue
             episode_status = res.get("episode_status")
             if episode_status:
-                _persist_episode_status(db, "request", req.id, episode_status, now)
+                _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
                 db.commit()
             notified += _queue_show_milestones(
                 settings,
@@ -985,11 +1004,11 @@ async def check_episode_tracking():
         db.close()
 
 
-def trigger_vff_scan_background():
+def trigger_vff_scan_background(force: bool = False):
     if vff_scan_state["status"] == "running":
         return
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(check_vf_statuses())
+        loop.create_task(check_vf_statuses(force=force))
     except RuntimeError:
         pass

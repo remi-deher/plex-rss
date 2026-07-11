@@ -500,6 +500,7 @@ def users_page(request: Request, _: None = Depends(require_admin), db: Session =
             "seer_enabled": seer_enabled,
             "sonarr_instances": sonarr_instances,
             "radarr_instances": radarr_instances,
+            "s": settings,
         },
     )
 

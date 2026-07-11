@@ -21,7 +21,7 @@ async def _send_digest():
     try:
         with db_session(SessionLocal) as db:
             settings = db.query(Settings).first()
-            if not settings or not settings.digest_enabled:
+            if not settings or not settings.digest_enabled or not settings.email_enabled:
                 return
             if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
                 logger.warning("Digest : SMTP non configuré, skip")
@@ -148,11 +148,14 @@ def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -
 def _get_recipients(user_obj, settings: Settings, event: str = "request") -> list[str]:
     """Résout la liste des destinataires email pour un utilisateur.
 
+    - Canal email désactivé globalement (`email_enabled`) : aucune notification.
     - Si l'utilisateur est inactif (enabled=False) : aucune notification.
     - Adresse(s) de l'utilisateur (séparées par virgules), ou smtp_from par défaut.
     - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie.
     - Respecte les flags notify_on_request / notify_on_available par utilisateur.
     """
+    if not settings.email_enabled:
+        return []
     if user_obj and not user_obj.enabled:
         return []
 
@@ -191,6 +194,8 @@ def _user_wants_vf(user_obj: PlexUser | None, vf_category: str | None) -> bool:
 
 def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_category: str | None) -> list[str]:
     """Résout les destinataires email d'une notification de disponibilité avec suivi de langue."""
+    if not settings.email_enabled:
+        return []
     if not _user_wants_vf(user_obj, vf_category):
         return []
     raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""

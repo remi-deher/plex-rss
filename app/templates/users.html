@@ -268,7 +268,7 @@
                 <div class="col-md-6">
                   <label class="form-label small mb-1">Films — suivi VO/VF</label>
                   <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieNotifyLanguage">
-                    <option value="">Réglage global</option>
+                    <option value="">Réglage global (actuellement : {{ 'Suivre VO/VF' if s.movie_notify_language is not false else 'Classique, mail générique' }})</option>
                     <option value="true">Suivre VO/VF</option>
                     <option value="false">Classique (mail générique)</option>
                   </select>
@@ -276,15 +276,17 @@
                 <div class="col-md-6">
                   <label class="form-label small mb-1">Séries — suivi VO/VF</label>
                   <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesNotifyLanguage">
-                    <option value="">Réglage global</option>
+                    <option value="">Réglage global (actuellement : {{ 'Suivre VO/VF' if s.series_notify_language is not false else 'Sans distinction de langue' }})</option>
                     <option value="true">Suivre VO/VF</option>
                     <option value="false">Sans distinction de langue</option>
                   </select>
                 </div>
                 <div class="col-md-6">
+                  {% set granularity = s.series_notify_granularity or 'jalons' %}
+                  {% set granularity_label = {'minimal': 'Minimal', 'jalons': 'Jalons', 'tout': 'Tout'}[granularity] %}
                   <label class="form-label small mb-1">Séries — fréquence des notifications</label>
                   <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesNotifyGranularity">
-                    <option value="">Réglage global</option>
+                    <option value="">Réglage global (actuellement : {{ granularity_label }})</option>
                     <option value="minimal">Minimal (disponibilité finale uniquement)</option>
                     <option value="jalons">Jalons (début/fin de saison)</option>
                     <option value="tout">Tout (chaque épisode)</option>

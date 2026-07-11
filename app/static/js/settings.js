@@ -239,7 +239,7 @@ function updateChannelDim(channel) {
     el.title = enabled ? '' : 'Canal désactivé — active-le dans l\'onglet Canaux';
   });
 }
-['discord', 'telegram', 'ntfy', 'gotify'].forEach(updateChannelDim);
+['email', 'discord', 'telegram', 'ntfy', 'gotify'].forEach(updateChannelDim);
 
 // ── Core functions ────────────────────────────────────────────────────────────
 function togglePass(id) {

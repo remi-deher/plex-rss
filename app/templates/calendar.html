@@ -100,11 +100,18 @@ function render(events) {
     const day = e.date.slice(0, 10);
     (byDay[day] = byDay[day] || []).push(e);
   }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  // Date locale (pas toISOString, qui bascule en UTC et peut désigner le mauvais
+  // jour) — même logique que dayLabel() pour rester cohérent avec le libellé "Aujourd'hui".
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  if (!byDay[todayStr]) byDay[todayStr] = []; // ancre toujours presente pour aligner la vue sur aujourd'hui, meme sans sortie ce jour-la
   const days = Object.keys(byDay).sort();
   return days.map(day => `
-    <div class="mb-3">
+    <div class="mb-3" ${day === todayStr ? 'id="cal-day-today" style="scroll-margin-top:80px"' : ''}>
       <h6 class="text-warning mb-2">${dayLabel(day)}</h6>
-      <div class="card p-2">${byDay[day].map(renderEvent).join('')}</div>
+      ${byDay[day].length
+        ? `<div class="card p-2">${byDay[day].map(renderEvent).join('')}</div>`
+        : `<div class="card p-2 text-center text-muted small py-3">Aucune sortie aujourd'hui.</div>`}
     </div>
   `).join('');
 }
@@ -178,6 +185,11 @@ async function loadCalendar(prependPreviousMonth = false, appendNextMonth = fals
     const events = await fetch(`/api/calendar?${params.toString()}`).then(r => { if (!r.ok) throw new Error('Calendrier Sonarr/Radarr inaccessible'); return r.json(); });
     container.innerHTML = render(events);
     document.getElementById('cal-updated').textContent = 'Maj ' + new Date().toLocaleTimeString('fr-FR');
+    // Aligne la vue sur aujourd'hui, sauf quand l'utilisateur vient d'étendre la plage
+    // vers un mois précédent/suivant (il navigue volontairement ailleurs).
+    if (!prependPreviousMonth && !appendNextMonth) {
+      document.getElementById('cal-day-today')?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
   } catch (e) {
     container.innerHTML = configCallout(
       'Calendrier inaccessible.',

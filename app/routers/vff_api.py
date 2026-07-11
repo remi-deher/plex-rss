@@ -140,13 +140,16 @@ async def _vf_detail_payload(db: Session, req):
 
     plex_res = await plex_task if plex_task else {}
     plex_eps = plex_res.get("episodes", {}) if plex_res.get("found") else {}
+    plex_fr_default = plex_res.get("french_default", {}) if plex_res.get("found") else {}
     if plex_eps:
-        _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive())
+        _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive(), plex_fr_default)
         db.commit()
 
-    def _status(in_plex, has_file):
+    def _status(in_plex, has_file, fr_is_default=None):
         if vf_detected:
             if in_plex is True:
+                if fr_is_default is False:
+                    return "vf_secondary"
                 return "vf"
             if in_plex is False:
                 return "vo"
@@ -164,7 +167,11 @@ async def _vf_detail_payload(db: Session, req):
             en = ep.get("episodeNumber")
             if sn is None or en is None or sn == 0:
                 continue
-            status = _status(plex_eps.get(sn, {}).get(en), ep.get("hasFile"))
+            status = _status(
+                plex_eps.get(sn, {}).get(en),
+                ep.get("hasFile"),
+                plex_fr_default.get(sn, {}).get(en),
+            )
             seasons.setdefault(sn, {})[en] = {
                 "episode": en,
                 "title": ep.get("title") or "",
@@ -181,7 +188,7 @@ async def _vf_detail_payload(db: Session, req):
                 seasons.setdefault(sn, {})[en] = {
                     "episode": en,
                     "title": "",
-                    "status": "vf" if has_vf else "vo",
+                    "status": "vf_secondary" if has_vf and plex_fr_default.get(sn, {}).get(en) is False else ("vf" if has_vf else "vo"),
                     "air_date": None,
                     "has_file": True,
                     "thumb_url": None,
@@ -190,7 +197,7 @@ async def _vf_detail_payload(db: Session, req):
     out_seasons = []
     for sn in sorted(seasons):
         eps = [seasons[sn][en] for en in sorted(seasons[sn])]
-        counts = {"vf": 0, "vo": 0, "present": 0, "absent": 0, "unknown": 0}
+        counts = {"vf": 0, "vf_secondary": 0, "vo": 0, "present": 0, "absent": 0, "unknown": 0}
         for ep_out in eps:
             counts[ep_out["status"]] = counts.get(ep_out["status"], 0) + 1
         out_seasons.append(
@@ -226,11 +233,19 @@ def vff_counts(db: Session = Depends(get_db)):
 
 
 @router.post("/vff/scan", dependencies=[Depends(require_admin)])
-async def vff_scan_all():
-    """Déclenche immédiatement le scan global VFF en arrière-plan."""
+async def vff_scan_all(force: bool = False, db: Session = Depends(get_db)):
+    """Déclenche immédiatement le scan global VFF en arrière-plan.
+
+    `force` : vide le cache par épisode avant de lancer le scan, pour re-vérifier aussi
+    les médias déjà marqués VF (sinon `_run_vf_scan` les ignore, voir sa docstring).
+    """
     from ..scheduler import trigger_vff_scan_background
 
-    trigger_vff_scan_background()
+    if force:
+        _invalidate_vf_cache(db)
+        db.commit()
+
+    trigger_vff_scan_background(force=force)
     return {"status": "started"}
 
 
@@ -319,7 +334,7 @@ async def vff_scan_single_request(
     req.vf_checked_at = now
     episode_status = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "request", req.id, episode_status, now)
+        _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
 
     has_vf_new = res["has_vf"]
     if has_vf_new:
@@ -456,7 +471,7 @@ async def library_vff_scan(
     item.updated_at = now
     episode_status = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "library_item", item.id, episode_status, now)
+        _persist_episode_status(db, "library_item", item.id, episode_status, now, res.get("french_default"))
     db.commit()
     return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
 

@@ -43,6 +43,7 @@ class SettingsUpdate(BaseModel):
     poll_interval_minutes: Optional[int] = None
     poll_interval_seconds: Optional[int] = None
     # --- SMTP / Mail ---
+    email_enabled: Optional[bool] = None
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None

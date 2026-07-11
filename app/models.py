@@ -68,6 +68,7 @@ class Settings(Base):
     radarr_minimum_availability: Mapped[str] = mapped_column(default="released")
 
     # --- Email (SMTP) ---
+    email_enabled: Mapped[bool] = mapped_column(default=True)
     smtp_host: Mapped[Optional[str]]
     smtp_port: Mapped[int] = mapped_column(default=587)
     smtp_user: Mapped[Optional[str]]
@@ -619,6 +620,7 @@ class VfEpisodeStatus(Base):
     season_number: Mapped[int]
     episode_number: Mapped[int]
     has_vf: Mapped[bool] = mapped_column(default=False)
+    fr_is_default: Mapped[Optional[bool]] = mapped_column(default=None)
     checked_at: Mapped[Optional[datetime]]
 
 
