@@ -56,4 +56,3 @@ def test_resolve_and_notify_availability_sends_one_and_consumes_all_candidates()
         ("episode", 2, 5),
     }
     assert all(m.language is None and m.is_upgrade is False for m in milestones)
-

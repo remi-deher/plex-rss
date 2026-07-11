@@ -14,11 +14,7 @@ from app.main import app
 from app.models import Base, PasskeyCredential, PlexUser, Settings
 from app.services.auth import hash_password, verify_password
 
-engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool
-)
+engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -39,8 +35,20 @@ def _cleanup():
 def test_password_and_totp_security():
     db = _db()
     # Add local users
-    user1 = PlexUser(plex_user_id="user1", display_name="User One", role="user", source="local", password_hash=hash_password("oldpass"))
-    user2 = PlexUser(plex_user_id="user2", display_name="User Two", role="user", source="local", password_hash=hash_password("user2pass"))
+    user1 = PlexUser(
+        plex_user_id="user1",
+        display_name="User One",
+        role="user",
+        source="local",
+        password_hash=hash_password("oldpass"),
+    )
+    user2 = PlexUser(
+        plex_user_id="user2",
+        display_name="User Two",
+        role="user",
+        source="local",
+        password_hash=hash_password("user2pass"),
+    )
     db.add(user1)
     db.add(user2)
     db.commit()
@@ -128,7 +136,10 @@ def test_webauthn_registration_options(mock_gen):
         mock_opts.challenge = b"challenge_bytes"
         mock_gen.return_value = mock_opts
 
-        with patch("app.routers.security_api.options_to_json", return_value='{"challenge": "challenge_str", "rp": {}, "user": {}}'):
+        with patch(
+            "app.routers.security_api.options_to_json",
+            return_value='{"challenge": "challenge_str", "rp": {}, "user": {}}',
+        ):
             resp = client.post("/api/users/webauthn/register/options", json={"user_id": user1.id})
             assert resp.status_code == 200
             assert resp.json()["challenge"] == "challenge_str"

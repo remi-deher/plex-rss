@@ -180,9 +180,7 @@ async def _mark_available_and_notify(
                 settings,
                 req,
                 db,
-                candidates=[
-                    AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")
-                ],
+                candidates=[AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")],
             )
     return len(requests)
 
@@ -245,7 +243,9 @@ def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) 
             return inst.url, inst.api_key, f"{service}:{inst.id}"
         return None
     inst = (
-        db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled, ArrInstance.is_default).first()
+        db.query(ArrInstance)
+        .filter(ArrInstance.arr_type == service, ArrInstance.enabled, ArrInstance.is_default)
+        .first()
     )
     if inst:
         return inst.url, inst.api_key, f"{service}:{inst.id}"
@@ -547,6 +547,7 @@ async def plex_webhook(request: Request):
 @router.get("/status")
 def webhook_status():
     """Retourne le statut des derniers tests reçus pour chaque webhook."""
+
     def _fmt(dt: datetime | None) -> dict:
         if dt is None:
             return {"received": False, "at": None, "ago_seconds": None}
@@ -577,7 +578,12 @@ async def _check_live_plex() -> dict:
     finally:
         db.close()
     if not settings or not settings.plex_url or not settings.plex_token:
-        return {"instance": "Plex", "configured": False, "success": False, "message": "Plex non configuré (URL ou token manquant)"}
+        return {
+            "instance": "Plex",
+            "configured": False,
+            "success": False,
+            "message": "Plex non configuré (URL ou token manquant)",
+        }
 
     last = _last_webhook_test.get("plex")
     if last:
@@ -637,7 +643,11 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
                     instances = [ArrInstance(name=service.capitalize(), arr_type=service, url=url, api_key=api_key)]
 
         if not instances:
-            return {"results": [{"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}]}
+            return {
+                "results": [
+                    {"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}
+                ]
+            }
 
         results = []
         for inst in instances:
@@ -646,7 +656,11 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
                 notifications = await client.get_notifications(inst.url, inst.api_key)
             except Exception as e:
                 entry.update(
-                    {"configured": False, "success": False, "message": f"Connexion à {service.capitalize()} impossible : {e}"}
+                    {
+                        "configured": False,
+                        "success": False,
+                        "message": f"Connexion à {service.capitalize()} impossible : {e}",
+                    }
                 )
                 results.append(entry)
                 continue
@@ -707,7 +721,11 @@ async def plex_connector_status(service: str, instance_id: int | None = None):
                     instances = [ArrInstance(name=service.capitalize(), arr_type=service, url=url, api_key=api_key)]
 
         if not instances:
-            return {"results": [{"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}]}
+            return {
+                "results": [
+                    {"instance": None, "configured": False, "success": False, "message": "Aucune instance configurée"}
+                ]
+            }
 
         results = []
         for inst in instances:
@@ -716,7 +734,11 @@ async def plex_connector_status(service: str, instance_id: int | None = None):
                 notifications = await client.get_notifications(inst.url, inst.api_key)
             except Exception as e:
                 entry.update(
-                    {"configured": False, "success": False, "message": f"Connexion à {service.capitalize()} impossible : {e}"}
+                    {
+                        "configured": False,
+                        "success": False,
+                        "message": f"Connexion à {service.capitalize()} impossible : {e}",
+                    }
                 )
                 results.append(entry)
                 continue

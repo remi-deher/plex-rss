@@ -254,6 +254,7 @@ async def get_open_api_endpoint(request: Request, db: SqlSession = Depends(get_d
     require_admin(request, db)
     return get_openapi(title="Plexarr", version="1.0.0", routes=app.routes)
 
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SessionSyncMiddleware)
 # Middleware de session (doit être ajouté avant les routers)

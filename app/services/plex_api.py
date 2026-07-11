@@ -121,8 +121,6 @@ async def get_plex_account(token: str) -> Optional[dict]:
     }
 
 
-
-
 async def check_auth_pin(pin_id: int) -> Optional[str]:
     """Vérifie si le code PIN a été validé par l'utilisateur sur Plex.
 

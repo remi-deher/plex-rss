@@ -33,7 +33,9 @@ def list_requests_v1(
     return q.order_by(MediaRequest.requested_at.desc()).offset(offset).limit(limit).all()
 
 
-@router.get("/requests/{request_id}", response_model=RequestOut, dependencies=[Depends(require_api_scope("requests:read"))])
+@router.get(
+    "/requests/{request_id}", response_model=RequestOut, dependencies=[Depends(require_api_scope("requests:read"))]
+)
 def get_request_v1(request_id: int, db: Session = Depends(get_db)):
     """Récupère les détails d'une demande spécifique."""
     return get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -78,7 +80,9 @@ def get_metrics_v1(db: Session = Depends(get_db)):
     return get_metrics(db)
 
 
-@router.get("/poll-history", response_model=List[PollHistoryOut], dependencies=[Depends(require_api_scope("system:read"))])
+@router.get(
+    "/poll-history", response_model=List[PollHistoryOut], dependencies=[Depends(require_api_scope("system:read"))]
+)
 def get_poll_history_v1(limit: int = 50, job: Optional[str] = None, db: Session = Depends(get_db)):
     """Retourne l'historique des exécutions du scheduler."""
     return get_poll_history(limit, job, db)

@@ -61,7 +61,9 @@ def _create_dummy_request() -> MediaRequest:
     req.media_type = "show"
     req.poster_url = "https://image.tmdb.org/t/p/w300/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"
     req.overview = "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille."
-    setattr(req, "genres", "Crime, Drame, Thriller")  # attribut dynamique, non déclaré sur MediaRequest (voir _build_jinja_ctx)
+    setattr(
+        req, "genres", "Crime, Drame, Thriller"
+    )  # attribut dynamique, non déclaré sur MediaRequest (voir _build_jinja_ctx)
     req.tmdb_id = "1396"  # vrai ID TMDB de Breaking Bad, pour que le lien TMDB de démo soit réel
     return req
 
@@ -87,6 +89,7 @@ def _parse_preview_variant(preview_variant: Optional[str]):
 
 class _EmailShellDraft(BaseModel):
     """Valeurs de brouillon (non enregistrées) pour la coquille email, en overrides des Settings."""
+
     header_brand: Optional[str] = None
     header_subtitle: Optional[str] = None
     footer_template: Optional[str] = None
@@ -154,14 +157,18 @@ def _apply_draft_overrides(jinja_ctx: dict, draft: _EmailShellDraft) -> None:
     if draft.card_border_radius is not None:
         jinja_ctx["_card_border_radius"] = draft.card_border_radius
     if draft.synopsis_font_size is not None:
-        jinja_ctx["_synopsis_font_size"] = SYNOPSIS_FONT_SIZE_PRESETS.get(draft.synopsis_font_size, SYNOPSIS_FONT_SIZE_PRESETS["normal"])
+        jinja_ctx["_synopsis_font_size"] = SYNOPSIS_FONT_SIZE_PRESETS.get(
+            draft.synopsis_font_size, SYNOPSIS_FONT_SIZE_PRESETS["normal"]
+        )
     if draft.show_tmdb_link is not None:
         jinja_ctx["_show_tmdb_link"] = draft.show_tmdb_link
     if draft.show_plex_button is not None:
         jinja_ctx["_show_plex_button"] = draft.show_plex_button
 
 
-def _build_preview_jinja_ctx(settings, event_type: str, req, display_name: str, language: Optional[str], draft: _EmailShellDraft) -> dict:
+def _build_preview_jinja_ctx(
+    settings, event_type: str, req, display_name: str, language: Optional[str], draft: _EmailShellDraft
+) -> dict:
     jinja_ctx = _build_jinja_ctx(req, display_name=display_name)
     jinja_ctx.update(get_shared_email_parts(settings))
     jinja_ctx.update(get_event_visuals(settings, event_type))
@@ -195,7 +202,9 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     display_name = "Jean Dupont"
 
     scope, language, season_number, episode_number = (
-        _parse_preview_variant(body.preview_variant) if event_type in ("available", "upgrade") else ("movie", None, None, None)
+        _parse_preview_variant(body.preview_variant)
+        if event_type in ("available", "upgrade")
+        else ("movie", None, None, None)
     )
 
     settings = db.query(Settings).first()
@@ -216,7 +225,9 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
         episode_number=episode_number,
         reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
         corrections=["Son corrigé", "Sous-titres resynchronisés"],
-        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée." if event_type == "correction" else "",
+        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
+        if event_type == "correction"
+        else "",
     )
 
     jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
@@ -226,11 +237,13 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     jinja_ctx["_plex_deep_link"] = "#"
 
     generic_fallback = f"[Plexarr] {'Correction' if event_type == 'correction' else event_def.label} : {req.title}"
-    default_subject = "[Plexarr] Correction : {titre} {details_saison_episode}" if event_type == "correction" else event_def.default_subject
+    default_subject = (
+        "[Plexarr] Correction : {titre} {details_saison_episode}"
+        if event_type == "correction"
+        else event_def.default_subject
+    )
     fallback_subject = (
-        render_subject(default_subject, tags, fallback=generic_fallback)
-        if default_subject
-        else generic_fallback
+        render_subject(default_subject, tags, fallback=generic_fallback) if default_subject else generic_fallback
     )
     rendered_subject = render_subject(body.subject, tags, fallback=fallback_subject)
 
@@ -397,16 +410,45 @@ def reset_templates(db: Session = Depends(get_db), s: Settings = Depends(get_set
     s.email_failure_subject = None
     s.email_correction_subject = None
     for field in (
-        "email_header_brand", "email_header_subtitle", "email_footer_template",
-        "email_request_accent_color", "email_request_badge_text", "email_request_headline_text", "email_request_show_synopsis",
-        "email_available_accent_color", "email_available_badge_text", "email_available_headline_text", "email_available_show_synopsis",
-        "email_upgrade_accent_color", "email_upgrade_badge_text", "email_upgrade_headline_text", "email_upgrade_show_synopsis",
-        "email_failure_accent_color", "email_failure_badge_text", "email_failure_headline_text", "email_failure_show_synopsis",
-        "email_correction_accent_color", "email_correction_badge_text", "email_correction_headline_text", "email_correction_show_synopsis",
-        "email_show_poster", "email_show_genres", "email_show_requester", "email_requester_label",
-        "email_brand_color", "email_show_header_subtitle", "email_poster_width", "email_media_layout",
-        "email_bg_color", "email_card_bg_color", "email_font_family", "email_card_width",
-        "email_card_border_radius", "email_synopsis_font_size", "email_show_tmdb_link", "email_show_plex_button",
+        "email_header_brand",
+        "email_header_subtitle",
+        "email_footer_template",
+        "email_request_accent_color",
+        "email_request_badge_text",
+        "email_request_headline_text",
+        "email_request_show_synopsis",
+        "email_available_accent_color",
+        "email_available_badge_text",
+        "email_available_headline_text",
+        "email_available_show_synopsis",
+        "email_upgrade_accent_color",
+        "email_upgrade_badge_text",
+        "email_upgrade_headline_text",
+        "email_upgrade_show_synopsis",
+        "email_failure_accent_color",
+        "email_failure_badge_text",
+        "email_failure_headline_text",
+        "email_failure_show_synopsis",
+        "email_correction_accent_color",
+        "email_correction_badge_text",
+        "email_correction_headline_text",
+        "email_correction_show_synopsis",
+        "email_show_poster",
+        "email_show_genres",
+        "email_show_requester",
+        "email_requester_label",
+        "email_brand_color",
+        "email_show_header_subtitle",
+        "email_poster_width",
+        "email_media_layout",
+        "email_bg_color",
+        "email_card_bg_color",
+        "email_font_family",
+        "email_card_width",
+        "email_card_border_radius",
+        "email_synopsis_font_size",
+        "email_show_tmdb_link",
+        "email_show_plex_button",
     ):
         setattr(s, field, None)
     db.commit()
@@ -448,7 +490,9 @@ async def test_send_email(
     req = _create_dummy_request()
 
     scope, language, season_number, episode_number = (
-        _parse_preview_variant(body.preview_variant) if event_type in ("available", "upgrade") else ("movie", None, None, None)
+        _parse_preview_variant(body.preview_variant)
+        if event_type in ("available", "upgrade")
+        else ("movie", None, None, None)
     )
 
     tags = _build_tags(
@@ -461,7 +505,9 @@ async def test_send_email(
         episode_number=episode_number,
         reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
         corrections=["Son corrigé", "Sous-titres resynchronisés"],
-        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée." if event_type == "correction" else "",
+        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
+        if event_type == "correction"
+        else "",
     )
 
     jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
@@ -471,11 +517,13 @@ async def test_send_email(
     jinja_ctx["_plex_deep_link"] = await resolve_plex_deep_link(settings, req)
 
     generic_fallback = f"[Plexarr] {'Correction' if event_type == 'correction' else event_def.label} : {req.title}"
-    default_subject = "[Plexarr] Correction : {titre} {details_saison_episode}" if event_type == "correction" else event_def.default_subject
+    default_subject = (
+        "[Plexarr] Correction : {titre} {details_saison_episode}"
+        if event_type == "correction"
+        else event_def.default_subject
+    )
     fallback_subject = (
-        render_subject(default_subject, tags, fallback=generic_fallback)
-        if default_subject
-        else generic_fallback
+        render_subject(default_subject, tags, fallback=generic_fallback) if default_subject else generic_fallback
     )
     rendered_subject = render_subject(body.subject, tags, fallback=fallback_subject)
 
@@ -483,6 +531,7 @@ async def test_send_email(
 
     try:
         from ..services.email_service import _send
+
         await _send(settings, recipient, rendered_subject, html)
         return {"status": "ok", "message": f"Email envoyé avec succès à {recipient}"}
     except Exception as e:

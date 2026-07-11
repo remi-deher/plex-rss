@@ -144,7 +144,9 @@ def test_vff_scan_single_request_404_when_missing(client):
 def test_vff_scan_single_request_400_without_settings(db, client):
     from app.models import MediaRequest, RequestStatus
 
-    req = MediaRequest(plex_user_id="alice", plex_user="Alice", title="Inception", media_type="movie", status=RequestStatus.available)
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="Alice", title="Inception", media_type="movie", status=RequestStatus.available
+    )
     db.add(req)
     db.commit()
 
@@ -157,7 +159,9 @@ def test_vff_scan_single_request_400_when_vff_disabled(db, client):
     from app.models import MediaRequest, RequestStatus
 
     db.add(Settings(vff_enabled=False))
-    req = MediaRequest(plex_user_id="alice", plex_user="Alice", title="Inception", media_type="movie", status=RequestStatus.available)
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="Alice", title="Inception", media_type="movie", status=RequestStatus.available
+    )
     db.add(req)
     db.commit()
 

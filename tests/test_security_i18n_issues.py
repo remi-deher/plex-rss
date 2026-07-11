@@ -102,6 +102,7 @@ def test_api_docs_requires_authentication():
     from fastapi.testclient import TestClient
 
     from app.dependencies import require_admin
+
     app.dependency_overrides[get_db] = lambda: db
     client = TestClient(app, raise_server_exceptions=False)
     try:
@@ -120,28 +121,18 @@ def test_retry_issue_media_search_endpoint(mock_search_series):
     client = _client(db)
     try:
         from app.models import ArrInstance, MediaRequest
+
         inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=True)
         db.add(inst)
         db.commit()
 
         req = MediaRequest(
-            title="Silo",
-            media_type="show",
-            status="failed",
-            arr_id=12,
-            arr_instance_id=inst.id,
-            plex_user_id="alice"
+            title="Silo", media_type="show", status="failed", arr_id=12, arr_instance_id=inst.id, plex_user_id="alice"
         )
         db.add(req)
         db.commit()
 
-        issue = MediaIssue(
-            title="Silo",
-            media_type="show",
-            issue_type="audio",
-            status="open",
-            request_id=req.id
-        )
+        issue = MediaIssue(title="Silo", media_type="show", issue_type="audio", status="open", request_id=req.id)
         db.add(issue)
         db.commit()
 
@@ -163,7 +154,7 @@ def test_plex_sso_server_access_control(mock_has_access, mock_get_account, mock_
         "uuid": "uuid123",
         "username": "user123",
         "email": "user123@gmail.com",
-        "thumb": "http://thumb"
+        "thumb": "http://thumb",
     }
 
     db = _db()

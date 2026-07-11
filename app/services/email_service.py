@@ -250,12 +250,8 @@ def get_event_visuals(settings, event_type: str) -> dict:
     return {
         "_accent_color": _setting_str(settings, f"email_{event_type}_accent_color", str(defaults["accent_color"])),
         "_badge_text": _setting_str(settings, f"email_{event_type}_badge_text", str(defaults["badge_text"])),
-        "_headline_text": _setting_str(
-            settings, f"email_{event_type}_headline_text", str(defaults["headline_text"])
-        ),
-        "_show_synopsis": _setting_bool(
-            settings, f"email_{event_type}_show_synopsis", bool(defaults["show_synopsis"])
-        ),
+        "_headline_text": _setting_str(settings, f"email_{event_type}_headline_text", str(defaults["headline_text"])),
+        "_show_synopsis": _setting_bool(settings, f"email_{event_type}_show_synopsis", bool(defaults["show_synopsis"])),
     }
 
 
@@ -283,7 +279,9 @@ def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest | Lib
     )
     if item is None:
         return None
-    return f"https://app.plex.tv/desktop/#!/server/{plex.machineIdentifier}/details?key=/library/metadata/{item.ratingKey}"
+    return (
+        f"https://app.plex.tv/desktop/#!/server/{plex.machineIdentifier}/details?key=/library/metadata/{item.ratingKey}"
+    )
 
 
 async def resolve_plex_deep_link(
@@ -299,7 +297,9 @@ async def resolve_plex_deep_link(
     if not settings or not settings.plex_url or not settings.plex_token:
         return None
     try:
-        return await asyncio.wait_for(asyncio.to_thread(_resolve_plex_deep_link_sync, settings, request), timeout=timeout)
+        return await asyncio.wait_for(
+            asyncio.to_thread(_resolve_plex_deep_link_sync, settings, request), timeout=timeout
+        )
     except Exception as exc:
         logger.debug(f"resolve_plex_deep_link: échec pour {request.title!r}: {exc}")
         return None
@@ -310,7 +310,18 @@ def _format_corrections(corrections: list[str] | tuple[str, ...] | None) -> str:
     return "\n".join(f"- {c}" for c in cleaned)
 
 
-def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = None, scope: str = "movie", language: str | None = None, is_upgrade: bool = False, season_number: int | None = None, episode_number: int | None = None, reason: str = "", corrections: list[str] | tuple[str, ...] | None = None, correction_note: str = "") -> dict:
+def _build_tags(
+    request: MediaRequest | LibraryItem,
+    display_name: str | None = None,
+    scope: str = "movie",
+    language: str | None = None,
+    is_upgrade: bool = False,
+    season_number: int | None = None,
+    episode_number: int | None = None,
+    reason: str = "",
+    corrections: list[str] | tuple[str, ...] | None = None,
+    correction_note: str = "",
+) -> dict:
     is_show = request.media_type == "show"
 
     type_media = "Le film"
@@ -319,21 +330,21 @@ def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = 
 
     details_se = ""
     if is_show and season_number is not None:
-        if scope == 'episode' and episode_number is not None:
+        if scope == "episode" and episode_number is not None:
             details_se = f"(Saison {season_number}, Épisode {episode_number})"
-        elif scope == 'season':
+        elif scope == "season":
             details_se = f"(Saison {season_number})"
-        elif scope == 'season_start':
+        elif scope == "season_start":
             details_se = f"(Premier épisode de la Saison {season_number})"
-        elif scope == 'season_complete':
+        elif scope == "season_complete":
             details_se = f"(Saison {season_number} complète)"
-        elif scope == 'series_complete':
+        elif scope == "series_complete":
             details_se = "(Série complète)"
 
     langue_str = ""
-    if language == 'vo':
+    if language == "vo":
         langue_str = "en VO"
-    elif language == 'vf':
+    elif language == "vf":
         langue_str = "en VF"
 
     return {
@@ -343,7 +354,10 @@ def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = 
         "{affiche}": request.poster_url or "",
         "{details_saison_episode}": details_se,
         "{langue}": langue_str,
-        "{nom_utilisateur}": display_name or getattr(request, "plex_user", None) or getattr(request, "plex_user_id", None) or "",
+        "{nom_utilisateur}": display_name
+        or getattr(request, "plex_user", None)
+        or getattr(request, "plex_user_id", None)
+        or "",
         "{synopsis}": request.overview or "",
         "{raison}": reason or "Erreur inconnue",
         "{corrections}": _format_corrections(corrections) or "- Correction effectuée",
@@ -351,22 +365,28 @@ def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = 
         "{media_type_et_titre}": f"{type_media} {request.title or ''}".strip(),
     }
 
+
 def _build_jinja_ctx(request: MediaRequest | LibraryItem, display_name: str | None = None) -> dict:
     is_show = request.media_type == "show"
     return {
         "_title": request.title or "",
         "_year": request.year,
         "_poster_url": request.poster_url or "",
-        "_plex_user": display_name or getattr(request, "plex_user", None) or getattr(request, "plex_user_id", None) or "",
+        "_plex_user": display_name
+        or getattr(request, "plex_user", None)
+        or getattr(request, "plex_user_id", None)
+        or "",
         "_media_type": request.media_type,
         "_media_type_label": "Série" if is_show else "Film",
         "_overview": request.overview or "",
         "_genres": getattr(request, "genres", "") or "",
     }
 
+
 def _resolve_str_setting(settings, field):
     val = getattr(settings, field, None)
     return val if isinstance(val, str) else None
+
 
 def render_template(template_str: str, tags: dict, jinja_ctx: dict) -> str:
     # 1. Remplacement des tags intelligents
@@ -388,12 +408,14 @@ def render_template(template_str: str, tags: dict, jinja_ctx: dict) -> str:
         logger.error(f"Template render error: {e}")
         return f"<p>Erreur de template shell : {e}</p>"
 
+
 def render_subject(template_str: str, tags: dict, fallback: str) -> str:
     rendered = template_str
     for tag, value in tags.items():
         rendered = rendered.replace(tag, str(value))
     rendered = rendered.replace("  ", " ")
     return rendered.strip() or fallback
+
 
 async def _send_templated(
     settings: Settings,
@@ -421,6 +443,7 @@ async def _send_templated(
 
     await _send(settings, recipient, subject, html)
 
+
 async def send_request_notification(
     settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
 ):
@@ -441,6 +464,7 @@ async def send_request_notification(
         tags=tags,
         extra_jinja_ctx=extra_ctx,
     )
+
 
 async def send_available_notification(
     settings: Settings,
@@ -464,7 +488,15 @@ async def send_available_notification(
     else:
         default_subject = "[Plexarr] Disponible : {titre}"
 
-    tags = _build_tags(request, display_name, scope=scope, language=language, is_upgrade=is_upgrade, season_number=season_number, episode_number=episode_number)
+    tags = _build_tags(
+        request,
+        display_name,
+        scope=scope,
+        language=language,
+        is_upgrade=is_upgrade,
+        season_number=season_number,
+        episode_number=episode_number,
+    )
 
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, event_type))
@@ -489,6 +521,7 @@ async def send_available_notification(
         tags=tags,
         extra_jinja_ctx=extra_ctx,
     )
+
 
 async def _send(settings: Settings, recipient: str, subject: str, html: str):
     if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
@@ -515,6 +548,7 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
     except Exception as e:
         logger.error(f"Email send failed: {e}")
         raise
+
 
 async def send_failure_notification(
     settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None
@@ -569,7 +603,10 @@ def build_correction_email(
     jinja_ctx.update(extra_ctx)
 
     template_str = _resolve_str_setting(settings, "email_correction_template") or DEFAULT_CORRECTION_TEMPLATE
-    subject_str = _resolve_str_setting(settings, "email_correction_subject") or "[Plexarr] Correction : {titre} {details_saison_episode}"
+    subject_str = (
+        _resolve_str_setting(settings, "email_correction_subject")
+        or "[Plexarr] Correction : {titre} {details_saison_episode}"
+    )
     subject = render_subject(subject_str, tags, fallback=f"[Plexarr] Correction : {media.title}")
     html = render_template(template_str, tags, jinja_ctx)
     return subject, html

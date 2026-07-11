@@ -1,4 +1,4 @@
-﻿"""Tests pour la granularitÃ© VF (vf_granularity) sur MediaRequest/LibraryItem.
+"""Tests pour la granularitÃ© VF (vf_granularity) sur MediaRequest/LibraryItem.
 
 Une sÃ©rie non-complÃ¨te en VF (has_vf=False) peut avoir 0 Ã©pisode VF, quelques
 Ã©pisodes VF Ã©pars ("episode_partial"), ou une saison entiÃ¨re en VF sans que la
@@ -237,7 +237,13 @@ async def test_check_vf_statuses_notifies_vf_season_start_once_for_partial_upgra
 
     assert mock_enqueue.call_count == 1
     assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
-    assert mock_enqueue.call_args.args[3] == {"scope": "season_start", "language": "vf", "is_upgrade": True, "season_number": 1, "episode_number": 1}
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "season_start",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": 1,
+        "episode_number": 1,
+    }
     milestones = db.query(NotificationMilestone).filter_by(req_id=req_id).all()
     assert len(milestones) == 1
     assert milestones[0].direction == "vf"
@@ -295,7 +301,13 @@ async def test_linked_request_notifies_vf_milestone_from_library_episode_cache()
 
     assert mock_enqueue.call_count == 1
     assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
-    assert mock_enqueue.call_args.args[3] == {"scope": "season_start", "language": "vf", "is_upgrade": True, "season_number": 1, "episode_number": 1}
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "season_start",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": 1,
+        "episode_number": 1,
+    }
     milestone = db.query(NotificationMilestone).filter_by(req_id=req_id).one()
     assert milestone.direction == "vf"
     assert milestone.milestone_type == "season_start"
@@ -490,10 +502,15 @@ async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
 
     mock_enqueue.assert_called_once()
     assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
-    assert mock_enqueue.call_args.args[3] == {"scope": "movie", "language": "vf", "is_upgrade": True, "season_number": None, "episode_number": None}
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": None,
+        "episode_number": None,
+    }
     req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
     assert req_fresh.has_vf is True
     assert req_fresh.vf_granularity == "full"
     milestone = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vf").one()
     assert milestone.milestone_type == "movie"
-

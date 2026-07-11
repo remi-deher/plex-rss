@@ -615,6 +615,7 @@ def settings_page(request: Request, _: None = Depends(require_admin), db: Sessio
         },
     )
 
+
 @router.get("/templates", response_class=HTMLResponse)
 def templates_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
     """Page de configuration des modèles d'emails (Markdown)."""
@@ -623,11 +624,36 @@ def templates_page(request: Request, _: None = Depends(require_admin), db: Sessi
     shared = get_shared_email_parts(s)
 
     tab_defs = [
-        ("request", "Demande", (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE, (s.email_request_subject if s else None) or ""),
-        ("available", "Disponibilité", (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE, (s.email_available_subject if s else None) or ""),
-        ("upgrade", "Mise à jour", (s.email_upgrade_template if s else None) or DEFAULT_UPGRADE_TEMPLATE, (s.email_upgrade_subject if s else None) or ""),
-        ("failure", "Échec", (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE, (s.email_failure_subject if s else None) or ""),
-        ("correction", "Correction", (s.email_correction_template if s else None) or DEFAULT_CORRECTION_TEMPLATE, (s.email_correction_subject if s else None) or ""),
+        (
+            "request",
+            "Demande",
+            (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE,
+            (s.email_request_subject if s else None) or "",
+        ),
+        (
+            "available",
+            "Disponibilité",
+            (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
+            (s.email_available_subject if s else None) or "",
+        ),
+        (
+            "upgrade",
+            "Mise à jour",
+            (s.email_upgrade_template if s else None) or DEFAULT_UPGRADE_TEMPLATE,
+            (s.email_upgrade_subject if s else None) or "",
+        ),
+        (
+            "failure",
+            "Échec",
+            (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE,
+            (s.email_failure_subject if s else None) or "",
+        ),
+        (
+            "correction",
+            "Correction",
+            (s.email_correction_template if s else None) or DEFAULT_CORRECTION_TEMPLATE,
+            (s.email_correction_subject if s else None) or "",
+        ),
     ]
     tabs = [
         {"key": key, "label": label, "template": template, "subject": subject, "visuals": get_event_visuals(s, key)}

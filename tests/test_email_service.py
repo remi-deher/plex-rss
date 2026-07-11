@@ -253,7 +253,9 @@ async def test_send_available_episode_scope_details_tag():
     s = _settings(email_available_template="{titre} {details_saison_episode}")
     req = _req(media_type="show", title="Breaking Bad")
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_available_notification(s, req, "dest@example.com", scope="episode", season_number=1, episode_number=3)
+        await send_available_notification(
+            s, req, "dest@example.com", scope="episode", season_number=1, episode_number=3
+        )
 
     body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
     assert "Saison 1, Épisode 3" in body
@@ -283,9 +285,7 @@ async def test_send_failure_subject_contains_title():
 
 @pytest.mark.asyncio
 async def test_send_failure_uses_custom_template_and_subject():
-    s = _settings(
-        email_failure_template="Échec : {titre} - {raison}", email_failure_subject="Alerte : {titre}"
-    )
+    s = _settings(email_failure_template="Échec : {titre} - {raison}", email_failure_subject="Alerte : {titre}")
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_failure_notification(s, _req(), "dest@example.com", reason="Erreur API")
 
@@ -381,9 +381,7 @@ async def test_smtp_connection_check_success():
 
 @pytest.mark.asyncio
 async def test_smtp_connection_check_failure_returns_error_message():
-    with patch(
-        "app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("auth failed"))
-    ):
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("auth failed"))):
         ok, message = await smtp_test_connection(_settings(), "dest@example.com")
 
     assert ok is False

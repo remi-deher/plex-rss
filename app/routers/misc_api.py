@@ -17,10 +17,14 @@ router = APIRouter(prefix="/api", tags=["misc"])
 
 
 @router.get("/i18n/catalog", dependencies=[Depends(require_auth)])
-def i18n_catalog(request: Request, db: Session = Depends(get_db), user: PlexUser | None = Depends(get_current_plex_user)):
+def i18n_catalog(
+    request: Request, db: Session = Depends(get_db), user: PlexUser | None = Depends(get_current_plex_user)
+):
     settings = db.query(Settings).first()
     requested = request.query_params.get("locale")
-    locale = normalize_locale(requested or (user.locale if user else None) or (settings.default_locale if settings else None))
+    locale = normalize_locale(
+        requested or (user.locale if user else None) or (settings.default_locale if settings else None)
+    )
     return {"locale": locale, "supported": sorted(SUPPORTED_LOCALES), "messages": catalog(locale)}
 
 

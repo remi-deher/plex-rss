@@ -138,7 +138,10 @@ def export_data(include_secrets: bool = False, db: Session = Depends(get_db)):
         "arr_instances": [_row(i, exclude={"id", *secret_exclude(ArrInstance)}) for i in arr_instances],
         "download_clients": [_row(c, exclude={"id", *secret_exclude(DownloadClient)}) for c in download_clients],
         "passkey_credentials": [
-            {**_row(p, exclude={"id", "user_id", *secret_exclude(PasskeyCredential)}), "plex_user_id": users_by_id.get(p.user_id)}
+            {
+                **_row(p, exclude={"id", "user_id", *secret_exclude(PasskeyCredential)}),
+                "plex_user_id": users_by_id.get(p.user_id),
+            }
             for p in passkeys
         ],
         # Référence seulement — non réimportées (voir _REFERENCE_ONLY_MODELS).

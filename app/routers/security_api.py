@@ -200,10 +200,7 @@ async def register_verify(
         rp_id = "localhost"
 
     host = request.headers.get("x-forwarded-host", request.url.netloc)
-    expected_origin = [
-        f"https://{host}",
-        f"http://{host}"
-    ]
+    expected_origin = [f"https://{host}", f"http://{host}"]
 
     try:
         verification = verify_registration_response(
@@ -219,13 +216,15 @@ async def register_verify(
 
     # Enregistrer la clé
     cred_id_str = b64encode(verification.credential_id).decode("utf-8")
-    db.add(PasskeyCredential(
-        user_id=user.id,
-        credential_id=cred_id_str,
-        public_key=b64encode(verification.credential_public_key).decode("utf-8"),
-        sign_count=verification.sign_count,
-        name=payload.name or "Passkey"
-    ))
+    db.add(
+        PasskeyCredential(
+            user_id=user.id,
+            credential_id=cred_id_str,
+            public_key=b64encode(verification.credential_public_key).decode("utf-8"),
+            sign_count=verification.sign_count,
+            name=payload.name or "Passkey",
+        )
+    )
     db.commit()
 
     return {"success": True}
@@ -243,8 +242,9 @@ async def list_passkeys(
         {
             "credential_id": k.credential_id,
             "name": k.name,
-            "created_at": k.created_at.isoformat() if k.created_at else None
-        } for k in keys
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+        }
+        for k in keys
     ]
 
 
@@ -256,10 +256,11 @@ async def delete_passkey(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    key = db.query(PasskeyCredential).filter(
-        PasskeyCredential.user_id == id,
-        PasskeyCredential.credential_id == credential_id
-    ).first()
+    key = (
+        db.query(PasskeyCredential)
+        .filter(PasskeyCredential.user_id == id, PasskeyCredential.credential_id == credential_id)
+        .first()
+    )
     if not key:
         raise HTTPException(status_code=404, detail="Passkey introuvable.")
 

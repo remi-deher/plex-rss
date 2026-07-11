@@ -161,7 +161,7 @@ async def login_post(
 
         request.session["authenticated"] = True
         request.session["username"] = user.plex_user_id
-        request.session["is_owner"] = (user.role == "admin")
+        request.session["is_owner"] = user.role == "admin"
         request.session["role"] = user.role or "user"
         request.session["plex_user_id"] = user.plex_user_id if user.source == "plex_sso" else None
         request.session["user_id"] = user.id
@@ -242,15 +242,23 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
     if account["uuid"]:
         user = db.query(PlexUser).filter(PlexUser.plex_account_uuid == account["uuid"]).first()
         if user:
-            logger.info("SSO Login check: matched existing user by UUID: id=%s, plex_user_id=%s", user.id, user.plex_user_id)
+            logger.info(
+                "SSO Login check: matched existing user by UUID: id=%s, plex_user_id=%s", user.id, user.plex_user_id
+            )
     if not user:
         user = db.query(PlexUser).filter(PlexUser.plex_user_id == account["username"]).first()
         if user:
-            logger.info("SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id)
+            logger.info(
+                "SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id
+            )
 
     s = db.query(Settings).first()
     is_admin_username = bool(s and s.auth_username and account["username"] == s.auth_username)
-    logger.info("SSO Login check: is_admin_username check: %s (auth_username: %s)", is_admin_username, s.auth_username if s else "None")
+    logger.info(
+        "SSO Login check: is_admin_username check: %s (auth_username: %s)",
+        is_admin_username,
+        s.auth_username if s else "None",
+    )
 
     if s and s.plex_token:
         logger.info("SSO Login check: checking server access via admin token...")
@@ -264,8 +272,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
         if not has_access:
             logger.warning("SSO Login check: access denied. User %s has no access to Plex server.", account["username"])
             raise HTTPException(
-                status_code=403,
-                detail="Ce compte Plex n'a pas accès au serveur Plex de l'application."
+                status_code=403, detail="Ce compte Plex n'a pas accès au serveur Plex de l'application."
             )
 
     if not user:
@@ -297,7 +304,11 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
             user.role = "admin"
 
     if not user.enabled or not user.can_login:
-        logger.warning("SSO Login check: user found but is disabled/cannot login (enabled=%s, can_login=%s)", user.enabled, user.can_login)
+        logger.warning(
+            "SSO Login check: user found but is disabled/cannot login (enabled=%s, can_login=%s)",
+            user.enabled,
+            user.can_login,
+        )
         db.commit()
         raise HTTPException(
             status_code=403, detail="Ce compte n'est pas autorisé à se connecter. Contactez l'administrateur."
@@ -307,7 +318,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
     db.commit()
 
     request.session["authenticated"] = True
-    request.session["is_owner"] = (user.role == "admin")
+    request.session["is_owner"] = user.role == "admin"
     request.session["role"] = user.role or "user"
     request.session["plex_user_id"] = user.plex_user_id
     request.session["username"] = user.custom_name or user.display_name or user.plex_user_id
@@ -354,10 +365,7 @@ async def webauthn_login_verify(
         rp_id = "localhost"
 
     host = request.headers.get("x-forwarded-host", request.url.netloc)
-    expected_origin = [
-        f"https://{host}",
-        f"http://{host}"
-    ]
+    expected_origin = [f"https://{host}", f"http://{host}"]
 
     cred_id_str = credential.get("id")
     db_cred = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == cred_id_str).first()
@@ -387,7 +395,7 @@ async def webauthn_login_verify(
 
     request.session["authenticated"] = True
     request.session["username"] = user.plex_user_id
-    request.session["is_owner"] = (user.role == "admin")
+    request.session["is_owner"] = user.role == "admin"
     request.session["role"] = user.role or "user"
     request.session["plex_user_id"] = user.plex_user_id if user.source == "plex_sso" else None
     request.session["user_id"] = user.id

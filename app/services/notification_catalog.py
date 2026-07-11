@@ -72,9 +72,7 @@ EVENTS: dict[str, NotificationEvent] = {
         template_field="email_failure_template",
         subject_field="email_failure_subject",
         default_subject="[Plexarr] Échec de transmission : {titre}",
-        preview_context={
-            "reason": "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."
-        },
+        preview_context={"reason": "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."},
     ),
 }
 

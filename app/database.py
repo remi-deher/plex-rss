@@ -107,7 +107,7 @@ def seed_defaults():
                     source="local",
                     password_hash=s.auth_password_hash,
                     totp_secret=s.totp_secret,
-                    totp_enabled=s.totp_enabled
+                    totp_enabled=s.totp_enabled,
                 )
                 db.add(admin_user)
             else:

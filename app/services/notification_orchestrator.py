@@ -469,6 +469,8 @@ def _queue_milestone(
             )
         ],
     )
+
+
 def _queue_show_milestones(
     settings: Settings,
     req: MediaRequest,

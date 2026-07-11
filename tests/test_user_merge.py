@@ -19,9 +19,7 @@ from app.routers.users_api import _merge_users
 
 @pytest.fixture()
 def db():
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     session = sessionmaker(bind=engine)()
     yield session
@@ -31,8 +29,12 @@ def db():
 def _mk_users(db):
     keeper = PlexUser(plex_user_id="admin", display_name="Admin", source="api", role="admin", notification_email=None)
     source = PlexUser(
-        plex_user_id="seer42", display_name="Seer42", source="seer",
-        seer_user_id=42, seer_active=True, notification_email="seer@example.com",
+        plex_user_id="seer42",
+        display_name="Seer42",
+        source="seer",
+        seer_user_id=42,
+        seer_active=True,
+        notification_email="seer@example.com",
     )
     db.add_all([keeper, source])
     db.commit()
@@ -41,8 +43,16 @@ def _mk_users(db):
 
 def test_merge_moves_primary_requests_and_deletes_source(db):
     keeper, source = _mk_users(db)
-    db.add(MediaRequest(plex_user_id="seer42", plex_user="Seer42", title="Dune", media_type="movie",
-                        tmdb_id="1", status=RequestStatus.sent_to_arr))
+    db.add(
+        MediaRequest(
+            plex_user_id="seer42",
+            plex_user="Seer42",
+            title="Dune",
+            media_type="movie",
+            tmdb_id="1",
+            status=RequestStatus.sent_to_arr,
+        )
+    )
     db.commit()
 
     _merge_users(db, source, keeper)
@@ -58,13 +68,29 @@ def test_merge_moves_primary_requests_and_deletes_source(db):
 def test_merge_remaps_and_dedups_extra_requesters(db):
     keeper, source = _mk_users(db)
     # Demande où keeper est déjà principal et source co-demandeur -> l'entrée source doit disparaître.
-    db.add(MediaRequest(plex_user_id="admin", plex_user="Admin", title="A", media_type="movie", tmdb_id="2",
-                        status=RequestStatus.sent_to_arr,
-                        extra_requesters=json.dumps([{"plex_user_id": "seer42", "display_name": "Seer42"}])))
+    db.add(
+        MediaRequest(
+            plex_user_id="admin",
+            plex_user="Admin",
+            title="A",
+            media_type="movie",
+            tmdb_id="2",
+            status=RequestStatus.sent_to_arr,
+            extra_requesters=json.dumps([{"plex_user_id": "seer42", "display_name": "Seer42"}]),
+        )
+    )
     # Demande d'un tiers avec source en co-demandeur -> source remappé vers keeper.
-    db.add(MediaRequest(plex_user_id="bob", plex_user="Bob", title="B", media_type="movie", tmdb_id="3",
-                        status=RequestStatus.sent_to_arr,
-                        extra_requesters=json.dumps([{"plex_user_id": "seer42", "display_name": "Seer42"}])))
+    db.add(
+        MediaRequest(
+            plex_user_id="bob",
+            plex_user="Bob",
+            title="B",
+            media_type="movie",
+            tmdb_id="3",
+            status=RequestStatus.sent_to_arr,
+            extra_requesters=json.dumps([{"plex_user_id": "seer42", "display_name": "Seer42"}]),
+        )
+    )
     db.commit()
 
     _merge_users(db, source, keeper)

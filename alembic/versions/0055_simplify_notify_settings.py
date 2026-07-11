@@ -54,8 +54,8 @@ def upgrade() -> None:
             series_notify_language = CASE WHEN series_tracking_mode IN ('simple', 'classic') THEN 0 ELSE 1 END,
             series_notify_granularity = CASE
                 WHEN series_tracking_mode = 'classic' THEN 'minimal'
-                WHEN series_tracking_mode = 'simple' THEN {_GRANULARITY_CASE.format(col='series_episode_notify_mode')}
-                ELSE {_GRANULARITY_CASE.format(col='series_vf_notify_mode')}
+                WHEN series_tracking_mode = 'simple' THEN {_GRANULARITY_CASE.format(col="series_episode_notify_mode")}
+                ELSE {_GRANULARITY_CASE.format(col="series_vf_notify_mode")}
             END
         """
     )
@@ -79,9 +79,9 @@ def upgrade() -> None:
         UPDATE plex_users SET series_notify_granularity = CASE
             WHEN series_tracking_mode = 'classic' THEN 'minimal'
             WHEN series_tracking_mode = 'simple' AND series_episode_notify_mode IS NOT NULL
-                THEN {_GRANULARITY_CASE.format(col='series_episode_notify_mode')}
+                THEN {_GRANULARITY_CASE.format(col="series_episode_notify_mode")}
             WHEN series_vf_notify_mode IS NOT NULL
-                THEN {_GRANULARITY_CASE.format(col='series_vf_notify_mode')}
+                THEN {_GRANULARITY_CASE.format(col="series_vf_notify_mode")}
             ELSE NULL
         END
         WHERE series_tracking_mode IS NOT NULL OR series_vf_notify_mode IS NOT NULL OR series_episode_notify_mode IS NOT NULL
@@ -142,7 +142,9 @@ def downgrade() -> None:
                 "series_episode_notify_mode", sa.String(), nullable=False, server_default="season_start_and_complete"
             )
         )
-        batch_op.add_column(sa.Column("partial_notify_frequency", sa.String(), nullable=False, server_default="milestones"))
+        batch_op.add_column(
+            sa.Column("partial_notify_frequency", sa.String(), nullable=False, server_default="milestones")
+        )
         batch_op.drop_column("movie_notify_language")
         batch_op.drop_column("series_notify_language")
         batch_op.drop_column("series_notify_granularity")

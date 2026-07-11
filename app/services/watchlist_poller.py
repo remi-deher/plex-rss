@@ -539,8 +539,7 @@ async def _process_watchlist_item(
         db.flush()
 
     needs_approval = bool(
-        settings.require_approval
-        and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))
+        settings.require_approval and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))
     )
     if needs_approval:
         req.status = RequestStatus.pending_approval

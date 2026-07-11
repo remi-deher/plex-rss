@@ -188,7 +188,9 @@ async def _vf_detail_payload(db: Session, req):
                 seasons.setdefault(sn, {})[en] = {
                     "episode": en,
                     "title": "",
-                    "status": "vf_secondary" if has_vf and plex_fr_default.get(sn, {}).get(en) is False else ("vf" if has_vf else "vo"),
+                    "status": "vf_secondary"
+                    if has_vf and plex_fr_default.get(sn, {}).get(en) is False
+                    else ("vf" if has_vf else "vo"),
                     "air_date": None,
                     "has_file": True,
                     "thumb_url": None,

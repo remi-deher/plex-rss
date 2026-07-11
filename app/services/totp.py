@@ -14,8 +14,7 @@ def generate_secret() -> str:
 def provisioning_uri(secret: str, account_name: str, issuer: str = "Plexarr") -> str:
     label = f"{issuer}:{account_name}"
     return (
-        f"otpauth://totp/{quote(label)}"
-        f"?secret={quote(secret)}&issuer={quote(issuer)}&algorithm=SHA1&digits=6&period=30"
+        f"otpauth://totp/{quote(label)}?secret={quote(secret)}&issuer={quote(issuer)}&algorithm=SHA1&digits=6&period=30"
     )
 
 
