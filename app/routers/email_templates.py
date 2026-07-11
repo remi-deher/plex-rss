@@ -15,10 +15,14 @@ from ..services.email_service import (
     DEFAULT_UPGRADE_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    FONT_FAMILY_PRESETS,
+    SYNOPSIS_FONT_SIZE_PRESETS,
+    build_tmdb_url,
     get_event_visuals,
     get_shared_email_parts,
     render_subject,
     render_template,
+    resolve_plex_deep_link,
     _build_tags,
     _build_jinja_ctx,
 )
@@ -57,6 +61,7 @@ def _create_dummy_request() -> MediaRequest:
     req.poster_url = "https://image.tmdb.org/t/p/w300/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"
     req.overview = "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille."
     req.genres = "Crime, Drame, Thriller"
+    req.tmdb_id = "1396"  # vrai ID TMDB de Breaking Bad, pour que le lien TMDB de démo soit réel
     return req
 
 
@@ -92,6 +97,18 @@ class _EmailShellDraft(BaseModel):
     show_genres: Optional[bool] = None
     show_requester: Optional[bool] = None
     requester_label: Optional[str] = None
+    brand_color: Optional[str] = None
+    show_header_subtitle: Optional[bool] = None
+    poster_width: Optional[int] = None
+    media_layout: Optional[str] = None
+    bg_color: Optional[str] = None
+    card_bg_color: Optional[str] = None
+    font_family: Optional[str] = None
+    card_width: Optional[int] = None
+    card_border_radius: Optional[int] = None
+    synopsis_font_size: Optional[str] = None
+    show_tmdb_link: Optional[bool] = None
+    show_plex_button: Optional[bool] = None
 
 
 def _apply_draft_overrides(jinja_ctx: dict, draft: _EmailShellDraft) -> None:
@@ -117,6 +134,30 @@ def _apply_draft_overrides(jinja_ctx: dict, draft: _EmailShellDraft) -> None:
         jinja_ctx["_show_requester"] = draft.show_requester
     if draft.requester_label is not None:
         jinja_ctx["_requester_label"] = draft.requester_label
+    if draft.brand_color is not None:
+        jinja_ctx["_brand_color"] = draft.brand_color
+    if draft.show_header_subtitle is not None:
+        jinja_ctx["_show_header_subtitle"] = draft.show_header_subtitle
+    if draft.poster_width is not None:
+        jinja_ctx["_poster_width"] = draft.poster_width
+    if draft.media_layout is not None:
+        jinja_ctx["_media_layout"] = draft.media_layout
+    if draft.bg_color is not None:
+        jinja_ctx["_bg_color"] = draft.bg_color
+    if draft.card_bg_color is not None:
+        jinja_ctx["_card_bg_color"] = draft.card_bg_color
+    if draft.font_family is not None:
+        jinja_ctx["_font_family"] = FONT_FAMILY_PRESETS.get(draft.font_family, FONT_FAMILY_PRESETS["arial"])
+    if draft.card_width is not None:
+        jinja_ctx["_card_width"] = draft.card_width
+    if draft.card_border_radius is not None:
+        jinja_ctx["_card_border_radius"] = draft.card_border_radius
+    if draft.synopsis_font_size is not None:
+        jinja_ctx["_synopsis_font_size"] = SYNOPSIS_FONT_SIZE_PRESETS.get(draft.synopsis_font_size, SYNOPSIS_FONT_SIZE_PRESETS["normal"])
+    if draft.show_tmdb_link is not None:
+        jinja_ctx["_show_tmdb_link"] = draft.show_tmdb_link
+    if draft.show_plex_button is not None:
+        jinja_ctx["_show_plex_button"] = draft.show_plex_button
 
 
 def _build_preview_jinja_ctx(settings, event_type: str, req, display_name: str, language: Optional[str], draft: _EmailShellDraft) -> dict:
@@ -165,6 +206,10 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
     tags = _build_tags(req, display_name=display_name, scope=scope, language=language, is_upgrade=is_upgrade, season_number=season_number, episode_number=episode_number, reason="Impossible de contacter Sonarr." if event_type == "failure" else "")
 
     jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
+    # Aperçu : jamais d'appel Plex réel (redéclenché à chaque frappe) — lien TMDB réel
+    # (la demande factice a un vrai tmdb_id), lien Plex factice juste pour visualiser la mise en page.
+    jinja_ctx["_tmdb_url"] = build_tmdb_url(req)
+    jinja_ctx["_plex_deep_link"] = "#"
 
     generic_fallback = f"[Plexarr] {event_def.label} : {req.title}"
     fallback_subject = (
@@ -229,6 +274,18 @@ class SaveTemplates(BaseModel):
     email_show_genres: Optional[bool] = None
     email_show_requester: Optional[bool] = None
     email_requester_label: Optional[str] = None
+    email_brand_color: Optional[str] = None
+    email_show_header_subtitle: Optional[bool] = None
+    email_poster_width: Optional[int] = None
+    email_media_layout: Optional[str] = None
+    email_bg_color: Optional[str] = None
+    email_card_bg_color: Optional[str] = None
+    email_font_family: Optional[str] = None
+    email_card_width: Optional[int] = None
+    email_card_border_radius: Optional[int] = None
+    email_synopsis_font_size: Optional[str] = None
+    email_show_tmdb_link: Optional[bool] = None
+    email_show_plex_button: Optional[bool] = None
 
 
 TEMPLATE_FIELDS = [
@@ -263,6 +320,18 @@ TEMPLATE_FIELDS = [
     "email_show_genres",
     "email_show_requester",
     "email_requester_label",
+    "email_brand_color",
+    "email_show_header_subtitle",
+    "email_poster_width",
+    "email_media_layout",
+    "email_bg_color",
+    "email_card_bg_color",
+    "email_font_family",
+    "email_card_width",
+    "email_card_border_radius",
+    "email_synopsis_font_size",
+    "email_show_tmdb_link",
+    "email_show_plex_button",
 ]
 
 
@@ -305,6 +374,9 @@ def reset_templates(db: Session = Depends(get_db), s: Settings = Depends(get_set
         "email_upgrade_accent_color", "email_upgrade_badge_text", "email_upgrade_headline_text", "email_upgrade_show_synopsis",
         "email_failure_accent_color", "email_failure_badge_text", "email_failure_headline_text", "email_failure_show_synopsis",
         "email_show_poster", "email_show_genres", "email_show_requester", "email_requester_label",
+        "email_brand_color", "email_show_header_subtitle", "email_poster_width", "email_media_layout",
+        "email_bg_color", "email_card_bg_color", "email_font_family", "email_card_width",
+        "email_card_border_radius", "email_synopsis_font_size", "email_show_tmdb_link", "email_show_plex_button",
     ):
         setattr(s, field, None)
     db.commit()
@@ -352,6 +424,10 @@ async def test_send_email(
     tags = _build_tags(req, display_name=display_name, scope=scope, language=language, is_upgrade=is_upgrade, season_number=season_number, episode_number=episode_number, reason="Impossible de contacter Sonarr." if event_type == "failure" else "")
 
     jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
+    # Envoi réel (contrairement à l'aperçu) : résolution effective du lien Plex, avec
+    # fallback silencieux (None -> bouton omis) si le serveur est injoignable ou l'item introuvable.
+    jinja_ctx["_tmdb_url"] = build_tmdb_url(req)
+    jinja_ctx["_plex_deep_link"] = await resolve_plex_deep_link(settings, req)
 
     generic_fallback = f"[Plexarr] {event_def.label} : {req.title}"
     fallback_subject = (

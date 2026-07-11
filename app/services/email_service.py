@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -8,6 +9,7 @@ from jinja2 import TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 
 from ..models import MediaRequest, Settings
+from . import vff
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +17,26 @@ _jinja_env = SandboxedEnvironment()
 
 _EMAIL_SHELL = """<!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>a{color:#e5a00d;text-decoration:none}</style>
+<style>a{color:{{ _brand_color }};text-decoration:none}</style>
 </head>
-<body style="margin:0;padding:0;background:#0d0d0d;font-family:Arial,Helvetica,sans-serif;color:#e9e9e9">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0d0d0d;padding:20px 0">
+<body style="margin:0;padding:0;background:{{ _bg_color }};font-family:{{ _font_family }};color:#e9e9e9">
+{% macro title_block() %}
+<div style="color:#ffffff;font-size:19px;font-weight:bold;line-height:1.3">{{ _title }}{% if _year %} <span style="color:#888888;font-weight:normal">({{ _year }})</span>{% endif %}</div>
+<div style="margin-top:9px">
+  <span style="display:inline-block;background:#2a2a2a;color:#bbbbbb;font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px 5px 0">{{ _media_type_label }}</span>
+  {% if _show_genres and _genres %}{% for g in _genres.split(',') %}{% if g.strip() %}<span style="display:inline-block;background:#242424;color:{{ _accent_color }};font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px 5px 0">{{ g.strip() }}</span>{% endif %}{% endfor %}{% endif %}
+</div>
+{% if _show_requester %}<div style="margin-top:10px;color:#999999;font-size:13px"><span style="color:{{ _brand_color }};font-weight:bold">{{ _requester_label }}</span>&nbsp;&nbsp;{{ _plex_user }}</div>{% endif %}
+{% if _show_tmdb_link and _tmdb_url %}<div style="margin-top:10px"><a href="{{ _tmdb_url }}" style="color:{{ _brand_color }};font-size:12.5px;font-weight:bold;text-decoration:none">Voir sur TMDB &rarr;</a></div>{% endif %}
+{% endmacro %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{{ _bg_color }};padding:20px 0">
   <tr><td align="center">
-    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#141414;border:1px solid #333333;border-radius:10px;overflow:hidden">
+    <table role="presentation" width="{{ _card_width }}" cellpadding="0" cellspacing="0" style="width:100%;max-width:{{ _card_width }}px;background:{{ _card_bg_color }};border:1px solid #333333;border-radius:{{ _card_border_radius }}px;overflow:hidden">
 
       <tr><td style="background:#1a1a1a;padding:12px 20px;border-bottom:1px solid #2a2a2a">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td style="color:#e5a00d;font-weight:bold;letter-spacing:1.5px;font-size:15px">{{ _header_brand }}</td>
-          <td align="right" style="color:#666666;font-size:11px;letter-spacing:.5px;text-transform:uppercase">{{ _header_subtitle }}</td>
+          <td style="color:{{ _brand_color }};font-weight:bold;letter-spacing:1.5px;font-size:15px">{{ _header_brand }}</td>
+          {% if _show_header_subtitle %}<td align="right" style="color:#666666;font-size:11px;letter-spacing:.5px;text-transform:uppercase">{{ _header_subtitle }}</td>{% endif %}
         </tr></table>
       </td></tr>
 
@@ -35,24 +46,31 @@ _EMAIL_SHELL = """<!DOCTYPE html>
       </td></tr>
 
       <tr><td style="padding:22px 20px 4px">
+        {% if _media_layout == 'stacked' %}
+          {% if _show_poster and _poster_url %}<div style="text-align:center;margin-bottom:12px">
+            <img src="{{ _poster_url }}" width="{{ _poster_width }}" alt="" style="width:{{ _poster_width }}px;height:auto;border-radius:8px;display:inline-block;border:1px solid #444444">
+          </div>{% endif %}
+          <div style="text-align:center">{{ title_block() }}</div>
+        {% elif _media_layout == 'right' %}
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          {% if _show_poster and _poster_url %}<td valign="top" width="116" style="padding-right:16px">
-            <img src="{{ _poster_url }}" width="100" alt="" style="width:100px;height:auto;border-radius:8px;display:block;border:1px solid #444444">
+          <td valign="top">{{ title_block() }}</td>
+          {% if _show_poster and _poster_url %}<td valign="top" width="{{ _poster_width + 16 }}" style="padding-left:16px">
+            <img src="{{ _poster_url }}" width="{{ _poster_width }}" alt="" style="width:{{ _poster_width }}px;height:auto;border-radius:8px;display:block;border:1px solid #444444">
           </td>{% endif %}
-          <td valign="top">
-            <div style="color:#ffffff;font-size:19px;font-weight:bold;line-height:1.3">{{ _title }}{% if _year %} <span style="color:#888888;font-weight:normal">({{ _year }})</span>{% endif %}</div>
-            <div style="margin-top:9px">
-              <span style="display:inline-block;background:#2a2a2a;color:#bbbbbb;font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px 5px 0">{{ _media_type_label }}</span>
-              {% if _show_genres and _genres %}{% for g in _genres.split(',') %}{% if g.strip() %}<span style="display:inline-block;background:#242424;color:{{ _accent_color }};font-size:11px;padding:3px 10px;border-radius:20px;margin:0 4px 5px 0">{{ g.strip() }}</span>{% endif %}{% endfor %}{% endif %}
-            </div>
-            {% if _show_requester %}<div style="margin-top:10px;color:#999999;font-size:13px"><span style="color:#e5a00d;font-weight:bold">{{ _requester_label }}</span>&nbsp;&nbsp;{{ _plex_user }}</div>{% endif %}
-          </td>
         </tr></table>
+        {% else %}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          {% if _show_poster and _poster_url %}<td valign="top" width="{{ _poster_width + 16 }}" style="padding-right:16px">
+            <img src="{{ _poster_url }}" width="{{ _poster_width }}" alt="" style="width:{{ _poster_width }}px;height:auto;border-radius:8px;display:block;border:1px solid #444444">
+          </td>{% endif %}
+          <td valign="top">{{ title_block() }}</td>
+        </tr></table>
+        {% endif %}
       </td></tr>
 
       {% if _overview and _show_synopsis %}<tr><td style="padding:12px 20px 2px">
         <div style="color:#777777;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">Synopsis</div>
-        <div style="color:#cccccc;font-size:13.5px;line-height:1.65">{{ _overview }}</div>
+        <div style="color:#cccccc;font-size:{{ _synopsis_font_size }}px;line-height:1.65">{{ _overview }}</div>
       </td></tr>{% endif %}
 
       <tr><td style="padding:16px 20px 2px">
@@ -62,7 +80,11 @@ _EMAIL_SHELL = """<!DOCTYPE html>
           </td>
         </tr></table>
       </td></tr>
-      
+
+      {% if _show_plex_button and _plex_deep_link %}<tr><td style="padding:18px 20px 2px;text-align:center">
+        <a href="{{ _plex_deep_link }}" style="display:inline-block;background:{{ _accent_color }};color:#ffffff;font-weight:bold;font-size:14px;padding:10px 24px;border-radius:6px;text-decoration:none">&#9654; Lire sur Plex</a>
+      </td></tr>{% endif %}
+
       <tr><td style="padding:15px 20px 20px"></td></tr>
 
       <tr><td style="padding:20px;text-align:center;border-top:1px solid #2a2a2a;color:#888888;font-size:12px">
@@ -101,6 +123,32 @@ DEFAULT_SHOW_POSTER = True
 DEFAULT_SHOW_GENRES = True
 DEFAULT_SHOW_REQUESTER = True
 DEFAULT_REQUESTER_LABEL = "Demandé par"
+DEFAULT_BRAND_COLOR = "#e5a00d"
+DEFAULT_SHOW_HEADER_SUBTITLE = True
+DEFAULT_POSTER_WIDTH = 100
+DEFAULT_MEDIA_LAYOUT = "left"
+DEFAULT_BG_COLOR = "#0d0d0d"
+DEFAULT_CARD_BG_COLOR = "#141414"
+DEFAULT_FONT_FAMILY_KEY = "arial"
+DEFAULT_CARD_WIDTH = 600
+DEFAULT_CARD_BORDER_RADIUS = 10
+DEFAULT_SYNOPSIS_FONT_SIZE_KEY = "normal"
+DEFAULT_SHOW_TMDB_LINK = True
+DEFAULT_SHOW_PLEX_BUTTON = True
+
+# Presets fermés (pas de champ libre) pour garantir un rendu correct dans les clients email.
+FONT_FAMILY_PRESETS = {
+    "arial": "Arial, Helvetica, sans-serif",
+    "georgia": "Georgia, 'Times New Roman', serif",
+    "verdana": "Verdana, Geneva, sans-serif",
+    "trebuchet": "'Trebuchet MS', Tahoma, sans-serif",
+}
+SYNOPSIS_FONT_SIZE_PRESETS = {
+    "small": 12,
+    "normal": 13.5,
+    "large": 15,
+    "xlarge": 17,
+}
 
 # Bandeau (couleur/badge/titre/synopsis) par type d'évènement, éditable via /templates.
 # "available" sert aussi de base pour la variante VO, qui applique une exception
@@ -143,6 +191,11 @@ def _setting_bool(settings, field: str, default: bool) -> bool:
     return default if val is None else bool(val)
 
 
+def _setting_int(settings, field: str, default: int) -> int:
+    val = getattr(settings, field, None) if settings else None
+    return default if val is None else int(val)
+
+
 def get_shared_email_parts(settings) -> dict:
     """Partie commune à tous les emails (header, pied de page, bloc affiche/tags), éditable une seule fois."""
     footer_md = _setting_str(settings, "email_footer_template", DEFAULT_FOOTER_TEMPLATE)
@@ -154,6 +207,23 @@ def get_shared_email_parts(settings) -> dict:
         "_show_genres": _setting_bool(settings, "email_show_genres", DEFAULT_SHOW_GENRES),
         "_show_requester": _setting_bool(settings, "email_show_requester", DEFAULT_SHOW_REQUESTER),
         "_requester_label": _setting_str(settings, "email_requester_label", DEFAULT_REQUESTER_LABEL),
+        "_brand_color": _setting_str(settings, "email_brand_color", DEFAULT_BRAND_COLOR),
+        "_show_header_subtitle": _setting_bool(settings, "email_show_header_subtitle", DEFAULT_SHOW_HEADER_SUBTITLE),
+        "_poster_width": _setting_int(settings, "email_poster_width", DEFAULT_POSTER_WIDTH),
+        "_media_layout": _setting_str(settings, "email_media_layout", DEFAULT_MEDIA_LAYOUT),
+        "_bg_color": _setting_str(settings, "email_bg_color", DEFAULT_BG_COLOR),
+        "_card_bg_color": _setting_str(settings, "email_card_bg_color", DEFAULT_CARD_BG_COLOR),
+        "_font_family": FONT_FAMILY_PRESETS.get(
+            _setting_str(settings, "email_font_family", DEFAULT_FONT_FAMILY_KEY), FONT_FAMILY_PRESETS["arial"]
+        ),
+        "_card_width": _setting_int(settings, "email_card_width", DEFAULT_CARD_WIDTH),
+        "_card_border_radius": _setting_int(settings, "email_card_border_radius", DEFAULT_CARD_BORDER_RADIUS),
+        "_synopsis_font_size": SYNOPSIS_FONT_SIZE_PRESETS.get(
+            _setting_str(settings, "email_synopsis_font_size", DEFAULT_SYNOPSIS_FONT_SIZE_KEY),
+            SYNOPSIS_FONT_SIZE_PRESETS["normal"],
+        ),
+        "_show_tmdb_link": _setting_bool(settings, "email_show_tmdb_link", DEFAULT_SHOW_TMDB_LINK),
+        "_show_plex_button": _setting_bool(settings, "email_show_plex_button", DEFAULT_SHOW_PLEX_BUTTON),
     }
 
 
@@ -166,6 +236,51 @@ def get_event_visuals(settings, event_type: str) -> dict:
         "_headline_text": _setting_str(settings, f"email_{event_type}_headline_text", defaults["headline_text"]),
         "_show_synopsis": _setting_bool(settings, f"email_{event_type}_show_synopsis", defaults["show_synopsis"]),
     }
+
+
+def build_tmdb_url(request: MediaRequest) -> str | None:
+    if not request.tmdb_id:
+        return None
+    kind = "tv" if request.media_type == "show" else "movie"
+    return f"https://www.themoviedb.org/{kind}/{request.tmdb_id}"
+
+
+def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest) -> str | None:
+    """Bloquant (plexapi) : à appeler uniquement via asyncio.to_thread."""
+    plex = vff.connect(settings.plex_url, settings.plex_token)
+    section_type = "show" if request.media_type == "show" else "movie"
+    library_names = [s.title for s in plex.library.sections() if s.type == section_type]
+    item = vff.find_item_in_libraries(
+        plex,
+        library_names,
+        request.title,
+        request.year,
+        tmdb_id=request.tmdb_id,
+        tvdb_id=request.tvdb_id,
+        imdb_id=request.imdb_id,
+        plex_guid=request.plex_guid,
+    )
+    if item is None:
+        return None
+    return f"https://app.plex.tv/desktop/#!/server/{plex.machineIdentifier}/details?key=/library/metadata/{item.ratingKey}"
+
+
+async def resolve_plex_deep_link(settings: Settings, request: MediaRequest, timeout: float = 6.0) -> str | None:
+    """Résout un lien profond vers l'item exact dans Plex, pour le bouton "Lire sur Plex".
+
+    Best-effort : ne doit jamais faire échouer l'envoi de l'email. Toute erreur (serveur
+    injoignable, item introuvable, timeout) renvoie simplement None — le bouton est alors
+    omis par le template (voir _EMAIL_SHELL, `{% if _show_plex_button and _plex_deep_link %}`).
+    À n'appeler que pour un envoi réel, jamais depuis l'aperçu de /templates.
+    """
+    if not settings or not settings.plex_url or not settings.plex_token:
+        return None
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_resolve_plex_deep_link_sync, settings, request), timeout=timeout)
+    except Exception as exc:
+        logger.debug(f"resolve_plex_deep_link: échec pour {request.title!r}: {exc}")
+        return None
+
 
 def _build_tags(request: MediaRequest, display_name: str | None = None, scope: str = "movie", language: str | None = None, is_upgrade: bool = False, season_number: int | None = None, episode_number: int | None = None, reason: str = "") -> dict:
     is_show = request.media_type == "show"
@@ -280,6 +395,7 @@ async def send_request_notification(
     tags = _build_tags(request, display_name)
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, "request"))
+    extra_ctx["_tmdb_url"] = build_tmdb_url(request)
     await _send_templated(
         settings,
         request,
@@ -324,6 +440,9 @@ async def send_available_notification(
     if not is_upgrade and language == "vo":
         extra_ctx["_accent_color"] = "#0d6efd"
         extra_ctx["_badge_text"] = "Disponible en VO"
+
+    extra_ctx["_tmdb_url"] = build_tmdb_url(request)
+    extra_ctx["_plex_deep_link"] = await resolve_plex_deep_link(settings, request)
 
     await _send_templated(
         settings,
@@ -371,6 +490,7 @@ async def send_failure_notification(
     tags = _build_tags(request, display_name, reason=reason)
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, "failure"))
+    extra_ctx["_tmdb_url"] = build_tmdb_url(request)
     await _send_templated(
         settings,
         request,

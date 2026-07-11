@@ -9,9 +9,13 @@
   color: #fff;
 }
 
-.tmpl-var-item { display: inline-block; padding: 4px 10px; margin: 2px; background: #2a2a2a; border-radius: 4px; cursor: pointer; border: 1px solid #444; font-size: 0.85rem; }
-.tmpl-var-item:hover { background: #333; border-color: #e5a00d; }
-.tmpl-var-item code { color: #e5a00d; }
+.tmpl-var-check-item { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.tmpl-var-check-item:hover { background: #242424; }
+.tmpl-var-check-item code { color: #e5a00d; }
+.tmpl-var-preview { min-height: 1.2em; font-style: italic; }
+
+.tmpl-md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.tmpl-md-toolbar select { width: auto; }
 
 .tmpl-textarea {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -25,16 +29,30 @@
   border-radius: 6px;
   padding: 10px 12px;
 }
+.tmpl-shared-toggle { border-color: #3a3a3a; color: #aaa; }
+.tmpl-shared-toggle .bi-chevron-down,
+.tmpl-footer-toggle .bi-chevron-down { transition: transform .15s ease; }
+.tmpl-shared-toggle[aria-expanded="true"] .bi-chevron-down,
+.tmpl-footer-toggle[aria-expanded="true"] .bi-chevron-down { transform: rotate(180deg); }
 
 .tmpl-preview-frame-wrap { min-height: 70vh; }
 .tmpl-preview-frame-wrap iframe { width: 100%; height: 100%; min-height: 70vh; border: none; background: #fff; }
 
 /* Mockup de la coquille email, par onglet */
+.tmpl-mockup-page-frame {
+  padding: 16px;
+  border-radius: 8px;
+  transition: background-color .15s ease;
+}
+
 .tmpl-mockup {
   border: 1px solid #333;
   border-radius: 8px;
   overflow: hidden;
   background: #141414;
+  max-width: 100%;
+  margin: 0 auto;
+  transition: background-color .15s ease, border-radius .15s ease, max-width .15s ease;
 }
 
 .tmpl-mockup-header {
@@ -46,7 +64,7 @@
   align-items: baseline;
   font-size: 0.8rem;
 }
-.tmpl-mockup-brand { color: #e5a00d; font-weight: bold; letter-spacing: 1px; }
+.tmpl-mockup-brand { font-weight: bold; letter-spacing: 1px; }
 .tmpl-mockup-subtitle { color: #666; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .5px; }
 
 .tmpl-mockup-banner {
@@ -78,7 +96,13 @@
   letter-spacing: .05em;
   margin-bottom: 8px;
 }
-.tmpl-mockup-poster { width: 70px; height: auto; border-radius: 6px; border: 1px solid #444; flex-shrink: 0; }
+.tmpl-mockup-media-row { display: flex; gap: 14px; }
+.tmpl-mockup-media-row.tmpl-layout-right { flex-direction: row-reverse; }
+.tmpl-mockup-media-row.tmpl-layout-stacked { flex-direction: column; align-items: center; text-align: center; }
+.tmpl-mockup-media-row.tmpl-layout-stacked .tmpl-mockup-genres-row,
+.tmpl-mockup-media-row.tmpl-layout-stacked .tmpl-mockup-requester-row { justify-content: center; }
+
+.tmpl-mockup-poster { height: auto; border-radius: 6px; border: 1px solid #444; flex-shrink: 0; transition: width .15s ease; }
 .tmpl-mockup-title { color: #fff; font-size: 1rem; font-weight: bold; }
 .tmpl-mockup-tag {
   display: inline-block;
@@ -101,6 +125,16 @@
   transition: border-color .15s ease;
 }
 .tmpl-content-box .tmpl-textarea { min-height: 160px; }
+
+.tmpl-mockup-plex-btn {
+  display: inline-block;
+  color: #fff;
+  font-weight: bold;
+  font-size: 0.85rem;
+  padding: 8px 20px;
+  border-radius: 6px;
+  text-decoration: none;
+}
 
 .tmpl-mockup-footer-note {
   padding: 10px 14px;

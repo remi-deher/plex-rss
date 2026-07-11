@@ -18,8 +18,10 @@ from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestSt
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_FONT_FAMILY_KEY,
     DEFAULT_FOOTER_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
     DEFAULT_UPGRADE_TEMPLATE,
     get_event_visuals,
     get_shared_email_parts,
@@ -627,6 +629,20 @@ def templates_page(request: Request, _: None = Depends(require_admin), db: Sessi
             "show_genres": shared["_show_genres"],
             "show_requester": shared["_show_requester"],
             "requester_label": shared["_requester_label"],
+            "brand_color": shared["_brand_color"],
+            "show_header_subtitle": shared["_show_header_subtitle"],
+            "poster_width": shared["_poster_width"],
+            "media_layout": shared["_media_layout"],
+            "bg_color": shared["_bg_color"],
+            "card_bg_color": shared["_card_bg_color"],
+            "card_width": shared["_card_width"],
+            "card_border_radius": shared["_card_border_radius"],
+            "show_tmdb_link": shared["_show_tmdb_link"],
+            "show_plex_button": shared["_show_plex_button"],
+            "font_family_css": shared["_font_family"],
+            # Clés brutes (pas la valeur CSS/px résolue) pour présélectionner le bon <option>.
+            "font_family_key": (s.email_font_family if s else None) or DEFAULT_FONT_FAMILY_KEY,
+            "synopsis_font_size_key": (s.email_synopsis_font_size if s else None) or DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
         },
     )
 

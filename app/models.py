@@ -120,6 +120,18 @@ class Settings(Base):
     email_show_genres: Mapped[Optional[bool]] = mapped_column(default=None)
     email_show_requester: Mapped[Optional[bool]] = mapped_column(default=None)
     email_requester_label: Mapped[Optional[str]] = mapped_column(default=None)
+    email_brand_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_show_header_subtitle: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_poster_width: Mapped[Optional[int]] = mapped_column(default=None)
+    email_media_layout: Mapped[Optional[str]] = mapped_column(default=None)
+    email_bg_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_card_bg_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_font_family: Mapped[Optional[str]] = mapped_column(default=None)
+    email_card_width: Mapped[Optional[int]] = mapped_column(default=None)
+    email_card_border_radius: Mapped[Optional[int]] = mapped_column(default=None)
+    email_synopsis_font_size: Mapped[Optional[str]] = mapped_column(default=None)
+    email_show_tmdb_link: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_show_plex_button: Mapped[Optional[bool]] = mapped_column(default=None)
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
