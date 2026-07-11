@@ -36,21 +36,6 @@ def _build_message(event: str, request: MediaRequest) -> tuple[str, str]:
     elif event == "available":
         title = f"Disponible — {request.title}{year}"
         body = f"{type_label} maintenant disponible sur Plex !"
-    elif event == "available_vf":
-        title = f"Disponible en VF — {request.title}{year}"
-        body = f"{type_label} disponible sur Plex avec une piste audio française."
-    elif event == "available_vo_tracking":
-        title = f"Disponible en VO — {request.title}{year}"
-        body = f"{type_label} disponible sur Plex en VO. Le suivi VF reste actif."
-    elif event == "vo_only":
-        title = f"Disponible en VO — {request.title}{year}"
-        body = f"{type_label} disponible en VO uniquement. Vous serez prévenu dès que la VF arrive."
-    elif event == "vf_available":
-        title = f"VF disponible — {request.title}{year}"
-        body = f"{type_label} est maintenant disponible en version française sur Plex !"
-    elif event == "episode_track":
-        title = f"Nouveau contenu — {request.title}{year}"
-        body = f"{type_label} : nouvel épisode/saison disponible sur Plex."
     else:
         title = f"Echec — {request.title}{year}"
         body = f"Impossible de transmettre à {'Sonarr' if request.media_type == 'show' else 'Radarr'}"

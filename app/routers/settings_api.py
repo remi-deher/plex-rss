@@ -24,25 +24,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_admin)])
 
-SERIES_NOTIFY_MODES = {
-    "every_episode",
-    "season_complete",
-    "series_complete",
-    "season_start_and_complete",
-}
+GRANULARITY_MODES = {"minimal", "jalons", "tout"}
 
 
-def _validate_series_notify_modes(payload: dict):
-    for key in ("series_vo_notify_mode", "series_vf_notify_mode", "series_episode_notify_mode"):
-        value = payload.get(key)
-        if value is not None and value not in SERIES_NOTIFY_MODES:
-            raise HTTPException(status_code=400, detail=f"Mode de notification invalide: {value}")
-    tracking_mode = payload.get("series_tracking_mode")
-    if tracking_mode is not None and tracking_mode not in ("language", "simple", "classic"):
-        raise HTTPException(status_code=400, detail=f"Mode de suivi invalide: {tracking_mode}")
-    movie_tracking_mode = payload.get("movie_tracking_mode")
-    if movie_tracking_mode is not None and movie_tracking_mode not in ("language", "classic"):
-        raise HTTPException(status_code=400, detail=f"Mode de suivi film invalide: {movie_tracking_mode}")
+def _validate_notify_settings(payload: dict):
+    granularity = payload.get("series_notify_granularity")
+    if granularity is not None and granularity not in GRANULARITY_MODES:
+        raise HTTPException(status_code=400, detail=f"Granularité de notification invalide: {granularity}")
 
 
 class SettingsUpdate(BaseModel):
@@ -71,14 +59,13 @@ class SettingsUpdate(BaseModel):
     email_send_failure: Optional[bool] = None
     email_request_template: Optional[str] = None
     email_available_template: Optional[str] = None
+    email_upgrade_template: Optional[str] = None
     email_failure_template: Optional[str] = None
     email_request_subject: Optional[str] = None
     email_available_subject: Optional[str] = None
+    email_upgrade_subject: Optional[str] = None
     email_failure_subject: Optional[str] = None
-    email_available_vf_template: Optional[str] = None
-    email_available_vf_subject: Optional[str] = None
-    email_available_vo_tracking_template: Optional[str] = None
-    email_available_vo_tracking_subject: Optional[str] = None
+    email_templates_backup: Optional[str] = None
     # --- Discord ---
     discord_enabled: Optional[bool] = None
     discord_webhook_url: Optional[str] = None
@@ -141,14 +128,9 @@ class SettingsUpdate(BaseModel):
     vff_recheck_interval_minutes: Optional[int] = None
     vff_auto_search: Optional[bool] = None
     email_on_vf_available: Optional[bool] = None
-    partial_notify_frequency: Optional[str] = None
-    movie_vo_notify: Optional[bool] = None
-    movie_vf_notify: Optional[bool] = None
-    movie_tracking_mode: Optional[str] = None
-    series_vo_notify_mode: Optional[str] = None
-    series_vf_notify_mode: Optional[str] = None
-    series_tracking_mode: Optional[str] = None
-    series_episode_notify_mode: Optional[str] = None
+    movie_notify_language: Optional[bool] = None
+    series_notify_language: Optional[bool] = None
+    series_notify_granularity: Optional[str] = None
     require_approval: Optional[bool] = None
     default_locale: Optional[str] = None
 
@@ -183,8 +165,11 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
     _nullable_fields = {
         "email_request_template",
         "email_available_template",
+        "email_upgrade_template",
         "email_request_subject",
         "email_available_subject",
+        "email_upgrade_subject",
+        "email_templates_backup",
         "torrent_required_keywords",
         "torrent_forbidden_keywords",
         "torrent_min_size_gb",
@@ -193,7 +178,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
         "torrent_seed_time_limit_hours",
     }
     payload = data.model_dump()
-    _validate_series_notify_modes(payload)
+    _validate_notify_settings(payload)
     for key, val in payload.items():
         if val is None and key not in _nullable_fields:
             continue

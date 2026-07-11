@@ -61,7 +61,7 @@ def test_export_returns_json_with_version(client, db_session):
     r = client.get("/api/export")
     assert r.status_code == 200
     data = r.json()
-    assert data["version"] == 1
+    assert data["version"] == 2
     assert "exported_at" in data
     assert "settings" in data
     assert "users" in data

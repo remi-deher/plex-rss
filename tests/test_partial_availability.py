@@ -1,11 +1,3 @@
-"""Tests pour la disponibilité partielle des séries en cours de diffusion.
-
-Une série pouvait passer en statut "available" (donc notifiée comme telle) dès
-qu'un seul épisode avait un fichier, même si elle est encore en cours de
-diffusion. Ces tests couvrent la décision de notification (milestones vs
-every_episode, réglage global vs par utilisateur) et la fréquence de rappel.
-"""
-
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +6,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.scheduler import _handle_show_progress_notification, _resolve_partial_notify_frequency
+from app.scheduler import _handle_show_progress_notification
+from app.services.notification_orchestrator import _resolve_series_granularity
 
 
 def _make_db():
@@ -24,7 +17,7 @@ def _make_db():
 
 
 def _settings(**kwargs) -> Settings:
-    defaults = dict(email_on_available=True, smtp_from="admin@example.com")
+    defaults = dict(email_on_available=True, smtp_from="admin@example.com", vff_enabled=False)
     defaults.update(kwargs)
     return Settings(id=1, **defaults)
 
@@ -42,55 +35,59 @@ def _show_request(**kwargs) -> MediaRequest:
     return MediaRequest(**defaults)
 
 
-def test_resolve_frequency_user_override_wins():
-    settings = _settings(partial_notify_frequency="milestones")
-    user = PlexUser(plex_user_id="alice", partial_notify_frequency="every_episode")
-    assert _resolve_partial_notify_frequency(settings, user) == "every_episode"
+def test_resolve_granularity_user_override_wins():
+    settings = _settings(series_notify_granularity="jalons")
+    user = PlexUser(plex_user_id="alice", series_notify_granularity="tout")
+    assert _resolve_series_granularity(settings, user) == "tout"
 
 
-def test_resolve_frequency_falls_back_to_global():
-    settings = _settings(partial_notify_frequency="every_episode")
-    user = PlexUser(plex_user_id="alice", partial_notify_frequency=None)
-    assert _resolve_partial_notify_frequency(settings, user) == "every_episode"
+def test_resolve_granularity_falls_back_to_global():
+    settings = _settings(series_notify_granularity="minimal")
+    user = PlexUser(plex_user_id="alice", series_notify_granularity=None)
+    assert _resolve_series_granularity(settings, user) == "minimal"
 
 
-def test_milestones_notifies_once_on_first_partial():
+@pytest.mark.asyncio
+async def test_jalons_notifies_once_on_first_partial():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="milestones")
+    settings = _settings(series_notify_granularity="jalons")
     db.add(settings)
     req = _show_request(episodes_available_count=2, episodes_aired_count=5, episodes_total_count=10)
     db.add(req)
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "partially_available"
+    assert mock_enqueue.call_args.args[0] == "available"
+    assert mock_enqueue.call_args.args[3]["scope"] == "episode"
 
 
-def test_milestones_does_not_repeat_once_flagged():
+@pytest.mark.asyncio
+async def test_jalons_does_not_repeat_once_flagged():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="milestones")
+    settings = _settings(series_notify_granularity="jalons")
     db.add(settings)
     req = _show_request(
         episodes_available_count=3,
         episodes_aired_count=5,
         episodes_total_count=10,
-        partial_available_mail_sent=True,  # déjà notifié une 1ère fois
+        partial_available_mail_sent=True,
     )
     db.add(req)
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
 
 
-def test_every_episode_notifies_on_each_increase():
+@pytest.mark.asyncio
+async def test_tout_notifies_on_each_increase():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="every_episode")
+    settings = _settings(series_notify_granularity="tout")
     db.add(settings)
     req = _show_request(
         episodes_available_count=3,
@@ -102,49 +99,54 @@ def test_every_episode_notifies_on_each_increase():
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "partially_available"
+    assert mock_enqueue.call_args.args[0] == "available"
+    assert mock_enqueue.call_args.args[3]["scope"] == "episode"
 
 
-def test_every_episode_skips_when_count_unchanged():
+@pytest.mark.asyncio
+async def test_tout_skips_when_count_unchanged():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="every_episode")
+    settings = _settings(series_notify_granularity="tout")
     db.add(settings)
     req = _show_request(
         episodes_available_count=3,
         episodes_aired_count=5,
         episodes_total_count=10,
-        last_notified_episode_count=3,  # déjà notifié pour ce compte
+        last_notified_episode_count=3,
     )
     db.add(req)
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
 
 
-def test_complete_series_sends_available_notification():
+@pytest.mark.asyncio
+async def test_complete_series_sends_available_notification():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="milestones")
+    settings = _settings(series_notify_granularity="jalons")
     db.add(settings)
     req = _show_request(episodes_available_count=10, episodes_aired_count=10, episodes_total_count=10)
     db.add(req)
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "available"
+    assert mock_enqueue.call_args.args[0] == "available"
+    assert mock_enqueue.call_args.args[3]["scope"] == "series_complete"
 
 
-def test_complete_series_does_not_repeat_once_sent():
+@pytest.mark.asyncio
+async def test_complete_series_does_not_repeat_once_sent():
     db = _make_db()
-    settings = _settings(partial_notify_frequency="milestones")
+    settings = _settings(series_notify_granularity="jalons")
     db.add(settings)
     req = _show_request(
         episodes_available_count=10,
@@ -156,13 +158,13 @@ def test_complete_series_does_not_repeat_once_sent():
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
 
 
-def test_no_episode_data_falls_back_to_classic_available_notification():
-    """Média sans données de progression (ex: géré par Seer) -> comportement historique."""
+@pytest.mark.asyncio
+async def test_no_episode_data_falls_back_to_classic_available_notification():
     db = _make_db()
     settings = _settings()
     db.add(settings)
@@ -171,13 +173,14 @@ def test_no_episode_data_falls_back_to_classic_available_notification():
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "available"
+    assert mock_enqueue.call_args.args[0] == "available"
 
 
-def test_zero_episodes_available_does_not_notify():
+@pytest.mark.asyncio
+async def test_zero_episodes_available_does_not_notify():
     db = _make_db()
     settings = _settings()
     db.add(settings)
@@ -186,6 +189,6 @@ def test_zero_episodes_available_does_not_notify():
     db.commit()
 
     with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        _handle_show_progress_notification(settings, req, db)
+        await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()

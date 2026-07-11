@@ -15,7 +15,7 @@ from ..services.seer import get_users as seer_get_users
 from ..utils import get_or_404
 
 # Réutilise la validation du mode de notification définie dans settings_api
-from .settings_api import _validate_series_notify_modes
+from .settings_api import _validate_notify_settings
 
 router = APIRouter(prefix="/api", tags=["users"], dependencies=[Depends(require_admin)])
 
@@ -42,14 +42,9 @@ class UserCreate(BaseModel):
     auto_approve: bool = False
     sonarr_instance_id: Optional[int] = None
     radarr_instance_id: Optional[int] = None
-    movie_vo_notify: Optional[bool] = None
-    movie_vf_notify: Optional[bool] = None
-    series_tracking_mode: Optional[str] = None
-    movie_tracking_mode: Optional[str] = None
-    series_vo_notify_mode: Optional[str] = None
-    series_vf_notify_mode: Optional[str] = None
-    series_episode_notify_mode: Optional[str] = None
-    partial_notify_frequency: Optional[str] = None
+    movie_notify_language: Optional[bool] = None
+    series_notify_language: Optional[bool] = None
+    series_notify_granularity: Optional[str] = None
 
 
 class UserEnabledUpdate(BaseModel):
@@ -258,7 +253,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 @router.post("/users")
 def create_user(data: UserCreate, db: Session = Depends(get_db)):
     payload = data.model_dump()
-    _validate_series_notify_modes(payload)
+    _validate_notify_settings(payload)
     _validate_portal_profile(payload)
     existing = db.query(PlexUser).filter(PlexUser.plex_user_id == data.plex_user_id).first()
     if existing:
@@ -274,7 +269,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
 def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
     user = get_or_404(db, PlexUser, user_id, "User not found")
     payload = data.model_dump()
-    _validate_series_notify_modes(payload)
+    _validate_notify_settings(payload)
     _validate_portal_profile(payload)
     for k, v in payload.items():
         setattr(user, k, v)

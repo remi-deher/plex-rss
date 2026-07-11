@@ -60,6 +60,7 @@
       html.sidebar-collapsed #app-main { flex: 0 0 calc(100% - 64px); max-width: calc(100% - 64px); }
     }
 
+    html.sidebar-collapsed #app-sidebar .transition-icon { display: none; }
     /* Navbar */
     .navbar-brand { color: var(--pr-accent) !important; font-weight: bold; letter-spacing: .5px; }
 
@@ -244,9 +245,25 @@
       <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}" {% if page=='users' %}aria-current="page"{% endif %} title="Utilisateurs">
         <i class="bi bi-people me-2"></i><span class="nav-label">Utilisateurs</span>
       </a>
-      <a href="/settings" class="nav-link {% if page=='settings' %}active{% endif %}" {% if page=='settings' %}aria-current="page"{% endif %} title="Paramètres">
-        <i class="bi bi-gear me-2"></i><span class="nav-label">Paramètres</span>
+      <!-- Menu déroulant Paramètres -->
+      <a href="#settingsCollapse" data-bs-toggle="collapse" class="nav-link d-flex align-items-center justify-content-between {% if page not in ['settings', 'email-templates'] %}collapsed{% endif %}" role="button" aria-expanded="{% if page in ['settings', 'email-templates'] %}true{% else %}false{% endif %}" aria-controls="settingsCollapse" title="Paramètres">
+        <div><i class="bi bi-gear me-2"></i><span class="nav-label">Paramètres</span></div>
+        <i class="bi bi-chevron-down nav-label transition-icon"></i>
       </a>
+      <div class="collapse {% if page in ['settings', 'email-templates'] %}show{% endif %}" id="settingsCollapse">
+        <ul class="nav flex-column ms-3 mt-1 mb-2">
+          <li class="nav-item">
+            <a href="/settings" class="nav-link py-1 {% if page=='settings' %}active{% endif %}" style="font-size: 0.9em; padding-left: 0.5rem;" title="Général">
+              <i class="bi bi-sliders me-2"></i><span class="nav-label">Général</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/templates" class="nav-link py-1 {% if page=='email-templates' %}active{% endif %}" style="font-size: 0.9em; padding-left: 0.5rem;" title="Modèles d'emails">
+              <i class="bi bi-envelope-paper me-2"></i><span class="nav-label">Modèles</span>
+            </a>
+          </li>
+        </ul>
+      </div>
       <a href="/logs" class="nav-link {% if page=='logs' %}active{% endif %}" {% if page=='logs' %}aria-current="page"{% endif %} title="Logs">
         <i class="bi bi-terminal me-2"></i><span class="nav-label">Logs</span>
       </a>
@@ -299,7 +316,10 @@
     <i class="bi bi-calendar3"></i>Calendrier
   </a>
   {% if is_admin %}
-  <a href="/settings" class="{% if page=='settings' or page=='email-templates' %}active{% endif %}">
+  <a href="/templates" class="{% if page=='email-templates' %}active{% endif %}">
+    <i class="bi bi-envelope-paper"></i>Emails
+  </a>
+  <a href="/settings" class="{% if page=='settings' %}active{% endif %}">
     <i class="bi bi-gear"></i>Paramètres
   </a>
   {% endif %}

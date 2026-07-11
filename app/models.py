@@ -78,27 +78,48 @@ class Settings(Base):
     email_on_request: Mapped[bool] = mapped_column(default=True)
     email_on_available: Mapped[bool] = mapped_column(default=True)
     email_on_failure: Mapped[bool] = mapped_column(default=True)
+    # 3 templates (un par évènement du catalogue simplifié — voir notification_catalog.py) :
+    # "available" fusionne les 10 anciens templates de disponibilité (available_vf,
+    # available_vo_tracking, vo_only, vf_available, language_*, partially_available) en un
+    # seul, paramétré par le contexte structuré (scope/language/is_upgrade/season/episode)
+    # assemblé par email_service._build_subject_phrase()/_build_status_phrase().
     email_request_template: Mapped[Optional[str]] = mapped_column(Text)
     email_available_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_upgrade_template: Mapped[Optional[str]] = mapped_column(Text)
     email_failure_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_available_vf_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_available_vo_tracking_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_vf_upgrade_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_language_episode_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_language_season_start_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_language_season_complete_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_language_series_complete_template: Mapped[Optional[str]] = mapped_column(Text)
     email_request_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
+    email_upgrade_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_failure_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_vf_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_vo_tracking_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_vf_upgrade_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_language_episode_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_language_season_start_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_language_season_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_language_series_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
     email_templates_backup: Mapped[Optional[str]] = mapped_column(Text)
+    # Coquille email : parties communes (header/footer) + bandeau par évènement
+    # (couleur/badge/titre/synopsis), tous éditables via /templates. None = valeur
+    # par défaut codée en dur (voir email_service.get_shared_email_parts/get_event_visuals).
+    email_header_brand: Mapped[Optional[str]] = mapped_column(default=None)
+    email_header_subtitle: Mapped[Optional[str]] = mapped_column(default=None)
+    email_footer_template: Mapped[Optional[str]] = mapped_column(Text)
+    email_request_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_request_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_request_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_request_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_available_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_available_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_available_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_available_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_upgrade_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_upgrade_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_upgrade_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_upgrade_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_failure_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
+    email_failure_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_failure_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
+    email_failure_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
+    # Bloc affiche/titre/tags/"Demandé par" : mise en page, partagée entre tous les templates
+    # (contrairement au bandeau, ce n'est pas du contenu qui varie par évènement).
+    email_show_poster: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_show_genres: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_show_requester: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_requester_label: Mapped[Optional[str]] = mapped_column(default=None)
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
@@ -186,23 +207,17 @@ class Settings(Base):
     vff_auto_search: Mapped[bool] = mapped_column(default=False)
     email_on_vf_available: Mapped[bool] = mapped_column(default=True)
 
-    # --- Disponibilité partielle (séries en cours de diffusion) ---
-    # Fréquence par défaut des notifications quand une série n'est encore que
-    # partiellement disponible : "milestones" (1ère dispo partielle + dispo complète,
-    # 2 notifs max) ou "every_episode" (une notif à chaque nouvel épisode téléchargé).
-    # Écrasable par utilisateur via PlexUser.partial_notify_frequency.
-    partial_notify_frequency: Mapped[str] = mapped_column(default="milestones")
-    movie_vo_notify: Mapped[bool] = mapped_column(default=True)
-    movie_vf_notify: Mapped[bool] = mapped_column(default=True)
-    # Mode de suivi des films : "language" (VO/VF ci-dessus) ou "classic" (mail générique
-    # "disponible", aucun suivi VF). Équivalent global de PlexUser.movie_tracking_mode.
-    movie_tracking_mode: Mapped[str] = mapped_column(default="language")
-    series_vo_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
-    series_vf_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
-    # Mode de suivi des séries : "language" (VF/VO, comportement historique ci-dessus) ou
-    # "simple" (nouveaux épisodes/saisons, indépendant de la langue). Mutuellement exclusifs.
-    series_tracking_mode: Mapped[str] = mapped_column(default="language")
-    series_episode_notify_mode: Mapped[str] = mapped_column(default="season_start_and_complete")
+    # --- Disponibilité : réglages simplifiés à 2 axes (remplace l'ancien enchevêtrement
+    # tracking_mode "language"/"simple"/"classic" + 3 modes de notif séparés + fréquence
+    # partielle — voir migration 0055_simplify_notify_settings) ---
+    # notify_language : suit la distinction VO/VF (True) ou notification générique sans
+    # distinction de langue (False, remplace l'ancien mode "classic"/"simple").
+    movie_notify_language: Mapped[bool] = mapped_column(default=True)
+    series_notify_language: Mapped[bool] = mapped_column(default=True)
+    # notify_granularity (séries uniquement) : "minimal" (une seule notif à la disponibilité
+    # finale), "jalons" (début/fin de saison + améliorations VF — défaut), "tout" (chaque
+    # épisode individuellement).
+    series_notify_granularity: Mapped[str] = mapped_column(default="jalons")
 
 
 class ArrInstance(Base):
@@ -267,25 +282,12 @@ class PlexUser(Base):
     notify_vf_movie: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_series: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_anime: Mapped[Optional[bool]] = mapped_column(default=False)
-    movie_vo_notify: Mapped[Optional[bool]] = mapped_column(default=None)
-    movie_vf_notify: Mapped[Optional[bool]] = mapped_column(default=None)
-    series_vo_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
-    series_vf_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
-    # Surcharge par utilisateur de Settings.series_tracking_mode / series_episode_notify_mode.
-    # None = hérite du réglage global. Valeurs : "language" | "simple" | "classic" (force
-    # le mail générique "Disponible sur Plex", sans distinction VO/VF ni jalons de saison).
-    series_tracking_mode: Mapped[Optional[str]] = mapped_column(default=None)
-    series_episode_notify_mode: Mapped[Optional[str]] = mapped_column(default=None)
 
-    # Équivalent films de series_tracking_mode (pas de réglage global correspondant : le
-    # comportement par défaut des films suit toujours le VO/VF dès que vff_enabled est actif).
-    # None = comportement standard VO/VF ; "classic" = force le mail générique.
-    movie_tracking_mode: Mapped[Optional[str]] = mapped_column(default=None)
-
-    # Fréquence de notification pour une série suivie en disponibilité partielle
-    # (épisodes en cours de diffusion). None = hérite du réglage global
-    # (Settings.partial_notify_frequency). Valeurs : "milestones" | "every_episode".
-    partial_notify_frequency: Mapped[Optional[str]] = mapped_column(default=None)
+    # Surcharge par utilisateur des réglages globaux Settings.movie_notify_language /
+    # series_notify_language / series_notify_granularity. None = hérite du réglage global.
+    movie_notify_language: Mapped[Optional[bool]] = mapped_column(default=None)
+    series_notify_language: Mapped[Optional[bool]] = mapped_column(default=None)
+    series_notify_granularity: Mapped[Optional[str]] = mapped_column(default=None)
 
     # --- Authentification locale & 2FA ---
     password_hash: Mapped[Optional[str]] = mapped_column(default=None)
@@ -319,6 +321,15 @@ class NotificationLog(Base):
     error_msg: Mapped[Optional[str]]
     req_id: Mapped[Optional[int]]
 
+    # --- Contexte structuré du jalon (remplace le texte libre "reason" reparsé par regex
+    # côté email_service.py) : scope = "movie"|"episode"|"season_start"|"season_complete"|
+    # "series_complete" ; language = "vo"|"vf"|None ; is_upgrade = VO->VF ou partiel->complet.
+    scope: Mapped[Optional[str]] = mapped_column(default=None)
+    language: Mapped[Optional[str]] = mapped_column(default=None)
+    is_upgrade: Mapped[bool] = mapped_column(default=False)
+    season_number: Mapped[Optional[int]] = mapped_column(default=None)
+    episode_number: Mapped[Optional[int]] = mapped_column(default=None)
+
 
 class NotificationMilestone(Base):
     __tablename__ = "notification_milestones"
@@ -340,6 +351,8 @@ class NotificationMilestone(Base):
     plex_user_id: Mapped[str]
     direction: Mapped[str]
     milestone_type: Mapped[str]
+    language: Mapped[Optional[str]] = mapped_column(default=None)
+    is_upgrade: Mapped[bool] = mapped_column(default=False)
     season_number: Mapped[Optional[int]] = mapped_column(default=None)
     episode_number: Mapped[Optional[int]] = mapped_column(default=None)
 

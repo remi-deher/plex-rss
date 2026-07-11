@@ -17,15 +17,12 @@ from ..database import get_db
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
-    DEFAULT_AVAILABLE_VF_TEMPLATE,
-    DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
-    DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
-    DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
-    DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
-    DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
+    DEFAULT_FOOTER_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
-    DEFAULT_VF_AVAILABLE_TEMPLATE,
+    DEFAULT_UPGRADE_TEMPLATE,
+    get_event_visuals,
+    get_shared_email_parts,
 )
 from ..utils import identity_keys as _identity_keys
 
@@ -594,32 +591,42 @@ def settings_page(request: Request, _: None = Depends(require_admin), db: Sessio
             "s": s,
             "webhook_url": f"{base_url}/webhook",
             "webhook_secret": (s.webhook_secret if s else "") or "",
+        },
+    )
+
+@router.get("/templates", response_class=HTMLResponse)
+def templates_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+    """Page de configuration des modèles d'emails (Markdown)."""
+    s = db.query(Settings).first()
+    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
+    shared = get_shared_email_parts(s)
+
+    tab_defs = [
+        ("request", "Demande", (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE, (s.email_request_subject if s else None) or ""),
+        ("available", "Disponibilité", (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE, (s.email_available_subject if s else None) or ""),
+        ("upgrade", "Mise à jour", (s.email_upgrade_template if s else None) or DEFAULT_UPGRADE_TEMPLATE, (s.email_upgrade_subject if s else None) or ""),
+        ("failure", "Échec", (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE, (s.email_failure_subject if s else None) or ""),
+    ]
+    tabs = [
+        {"key": key, "label": label, "template": template, "subject": subject, "visuals": get_event_visuals(s, key)}
+        for key, label, template, subject in tab_defs
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "email_templates/index.html",
+        {
+            "page": "email-templates",
+            "s": s,
             "users": users,
-            "request_template": (s.email_request_template if s else None) or DEFAULT_REQUEST_TEMPLATE,
-            "available_template": (s.email_available_template if s else None) or DEFAULT_AVAILABLE_TEMPLATE,
-            "failure_template": (s.email_failure_template if s else None) or DEFAULT_FAILURE_TEMPLATE,
-            "available_vf_template": (s.email_available_vf_template if s else None) or DEFAULT_AVAILABLE_VF_TEMPLATE,
-            "available_vo_tracking_template": (s.email_available_vo_tracking_template if s else None)
-            or DEFAULT_AVAILABLE_VO_TRACKING_TEMPLATE,
-            "vf_upgrade_template": (s.email_vf_upgrade_template if s else None) or DEFAULT_VF_AVAILABLE_TEMPLATE,
-            "language_episode_template": (s.email_language_episode_template if s else None)
-            or DEFAULT_LANGUAGE_EPISODE_TEMPLATE,
-            "language_season_start_template": (s.email_language_season_start_template if s else None)
-            or DEFAULT_LANGUAGE_SEASON_START_TEMPLATE,
-            "language_season_complete_template": (s.email_language_season_complete_template if s else None)
-            or DEFAULT_LANGUAGE_SEASON_COMPLETE_TEMPLATE,
-            "language_series_complete_template": (s.email_language_series_complete_template if s else None)
-            or DEFAULT_LANGUAGE_SERIES_COMPLETE_TEMPLATE,
-            "request_subject": (s.email_request_subject if s else None) or "",
-            "available_subject": (s.email_available_subject if s else None) or "",
-            "failure_subject": (s.email_failure_subject if s else None) or "",
-            "available_vf_subject": (s.email_available_vf_subject if s else None) or "",
-            "available_vo_tracking_subject": (s.email_available_vo_tracking_subject if s else None) or "",
-            "vf_upgrade_subject": (s.email_vf_upgrade_subject if s else None) or "",
-            "language_episode_subject": (s.email_language_episode_subject if s else None) or "",
-            "language_season_start_subject": (s.email_language_season_start_subject if s else None) or "",
-            "language_season_complete_subject": (s.email_language_season_complete_subject if s else None) or "",
-            "language_series_complete_subject": (s.email_language_series_complete_subject if s else None) or "",
+            "tabs": tabs,
+            "header_brand": shared["_header_brand"],
+            "header_subtitle": shared["_header_subtitle"],
+            "footer_template": (s.email_footer_template if s else None) or DEFAULT_FOOTER_TEMPLATE,
+            "show_poster": shared["_show_poster"],
+            "show_genres": shared["_show_genres"],
+            "show_requester": shared["_show_requester"],
+            "requester_label": shared["_requester_label"],
         },
     )
 

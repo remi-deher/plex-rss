@@ -24,9 +24,8 @@ from .services.notification_orchestrator import (
     _get_recipients,
     _handle_show_progress_notification,
     _notify,
-    _notify_vf,
     _purge_notification_logs,
-    _resolve_partial_notify_frequency,
+    _queue_milestone,
     _send_digest,
 )
 from .services.plex_sync import (

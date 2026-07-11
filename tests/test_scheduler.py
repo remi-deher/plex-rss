@@ -42,6 +42,7 @@ def _settings(**kwargs) -> Settings:
         email_on_available=True,
         smtp_from="admin@example.com",
         admin_notification_email=None,
+        vff_enabled=False,
     )
     defaults.update(kwargs)
     return Settings(**defaults)

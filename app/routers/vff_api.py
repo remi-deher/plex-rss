@@ -12,9 +12,9 @@ from ..scheduler import (
     _invalidate_vf_cache,
     _load_known_vf_episodes,
     _notify,
-    _notify_vf,
     _parse_vff_libraries,
     _persist_episode_status,
+    _queue_milestone,
     _trigger_vf_search,
     plex_sync_state,
     sync_plex_media,
@@ -284,7 +284,8 @@ async def vff_scan_single_request(
         if was_tracking:
             req.vf_available_at = now
             db.commit()
-            _notify_vf("vf_available", settings, req, db)
+            scope = "movie" if req.media_type == "movie" else "series_complete"
+            _queue_milestone(settings, req, db, scope=scope, language="vf")
         else:
             db.commit()
             _notify("available", settings, req, db)
@@ -295,7 +296,8 @@ async def vff_scan_single_request(
             if not req.available_mail_sent:
                 req.available_mail_sent = True
                 db.commit()
-                _notify_vf("vo_only", settings, req, db)
+                scope = "movie" if req.media_type == "movie" else "series_complete"
+                _queue_milestone(settings, req, db, scope=scope, language="vo")
             else:
                 db.commit()
             if settings.vff_auto_search:

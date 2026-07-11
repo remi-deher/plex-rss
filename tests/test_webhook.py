@@ -22,6 +22,7 @@ def _settings(smtp_from="noreply@app.com", admin_email=None):
     s.smtp_from = smtp_from
     s.admin_notification_email = admin_email
     s.email_on_available = True
+    s.vff_enabled = False
     s.webhook_secret = None
     return s
 
@@ -103,7 +104,8 @@ def test_get_recipients_no_user_no_settings():
 # ---------------------------------------------------------------------------
 
 
-def test_mark_available_and_notify_marks_request():
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_marks_request():
     req = _req()
     db = MagicMock()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = [req]
@@ -111,37 +113,40 @@ def test_mark_available_and_notify_marks_request():
     s = _settings()
     s.email_on_available = True
 
-    with patch("app.routers.webhook.enqueue_notification") as mock_enqueue:
-        count = _mark_available_and_notify("Dune", "movie", 10, db, s)
+    with patch("app.routers.webhook.resolve_and_notify_availability") as mock_notify:
+        count = await _mark_available_and_notify("Dune", "movie", 10, db, s)
 
     assert count == 1
     db.commit.assert_called()
-    mock_enqueue.assert_called_once()
+    mock_notify.assert_called_once()
 
 
-def test_mark_available_and_notify_no_match():
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_no_match():
     db = MagicMock()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
-    count = _mark_available_and_notify("Unknown", "movie", None, db, _settings())
+    count = await _mark_available_and_notify("Unknown", "movie", None, db, _settings())
     assert count == 0
 
 
-def test_mark_available_and_notify_skips_if_already_sent():
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_skips_if_already_sent():
     req = _req(available_mail_sent=True)
     db = MagicMock()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = [req]
     db.query.return_value.filter.return_value.first.return_value = None
 
-    with patch("app.routers.webhook.enqueue_notification") as mock_enqueue:
-        _mark_available_and_notify("Dune", "movie", 10, db, _settings())
+    with patch("app.routers.webhook.resolve_and_notify_availability") as mock_notify:
+        await _mark_available_and_notify("Dune", "movie", 10, db, _settings())
 
-    mock_enqueue.assert_not_called()
+    mock_notify.assert_not_called()
 
 
-def test_mark_available_and_notify_lookup_by_arr_id():
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_lookup_by_arr_id():
     db = MagicMock()
     db.query.return_value.filter.return_value.filter.return_value.all.return_value = []
-    _mark_available_and_notify("X", "show", arr_id=42, db=db, settings=_settings())
+    await _mark_available_and_notify("X", "show", arr_id=42, db=db, settings=_settings())
     # Vérifie que filter a été appelé (par arr_id cette fois)
     assert db.query.called
 
@@ -161,7 +166,7 @@ def test_sonarr_webhook_ignored_event():
     with _db_patch(db):
         r = client.post("/webhook/sonarr", json={"eventType": "Test"})
     assert r.status_code == 200
-    assert r.json()["status"] == "ignored"
+    assert r.json()["status"] == "ok"
 
 
 def test_sonarr_webhook_download_event():

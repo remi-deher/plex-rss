@@ -1,10 +1,10 @@
-"""Tests pour la granularité VF (vf_granularity) sur MediaRequest/LibraryItem.
+﻿"""Tests pour la granularitÃ© VF (vf_granularity) sur MediaRequest/LibraryItem.
 
-Une série non-complète en VF (has_vf=False) peut avoir 0 épisode VF, quelques
-épisodes VF épars ("episode_partial"), ou une saison entière en VF sans que la
-série le soit ("season_partial"). Ces tests vérifient que check_vf_statuses
-persiste bien ce champ, pour piloter les badges "VF Épisode Partiel" /
-"VF Saison Partiel" sans requête supplémentaire à l'affichage.
+Une sÃ©rie non-complÃ¨te en VF (has_vf=False) peut avoir 0 Ã©pisode VF, quelques
+Ã©pisodes VF Ã©pars ("episode_partial"), ou une saison entiÃ¨re en VF sans que la
+sÃ©rie le soit ("season_partial"). Ces tests vÃ©rifient que check_vf_statuses
+persiste bien ce champ, pour piloter les badges "VF Ã‰pisode Partiel" /
+"VF Saison Partiel" sans requÃªte supplÃ©mentaire Ã  l'affichage.
 """
 
 from unittest.mock import patch
@@ -32,7 +32,7 @@ async def test_check_vf_statuses_sets_episode_partial_granularity():
         plex_url="http://plex",
         plex_token="tok",
         vff_enabled=True,
-        vff_libraries='[{"name": "Séries", "kind": "series"}]',
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
     )
     db.add(settings)
     li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc")
@@ -67,7 +67,7 @@ async def test_check_vf_statuses_sets_season_partial_granularity():
         plex_url="http://plex",
         plex_token="tok",
         vff_enabled=True,
-        vff_libraries='[{"name": "Séries", "kind": "series"}]',
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
     )
     db.add(settings)
     li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc")
@@ -102,7 +102,7 @@ async def test_check_vf_statuses_sets_full_granularity_on_complete_show():
         plex_url="http://plex",
         plex_token="tok",
         vff_enabled=True,
-        vff_libraries='[{"name": "Séries", "kind": "series"}]',
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
         email_on_vf_available=True,
     )
     db.add(settings)
@@ -140,16 +140,16 @@ async def test_check_vf_statuses_sets_full_granularity_on_complete_show():
 
 @pytest.mark.asyncio
 async def test_linked_request_shares_single_scan_with_library_item():
-    """Une demande liée à un LibraryItem encore suivi (has_vf=False) partage le même
-    scan Plex que la bibliothèque : un seul appel _scan_vf_blocking, pas de scan
-    dédié pour la demande — et elle reprend la granularité fraîchement calculée."""
+    """Une demande liÃ©e Ã  un LibraryItem encore suivi (has_vf=False) partage le mÃªme
+    scan Plex que la bibliothÃ¨que : un seul appel _scan_vf_blocking, pas de scan
+    dÃ©diÃ© pour la demande â€” et elle reprend la granularitÃ© fraÃ®chement calculÃ©e."""
     db = _make_db()
     settings = Settings(
         id=1,
         plex_url="http://plex",
         plex_token="tok",
         vff_enabled=True,
-        vff_libraries='[{"name": "Séries", "kind": "series"}]',
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
     )
     db.add(settings)
     li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc", has_vf=False)
@@ -185,7 +185,7 @@ async def test_linked_request_shares_single_scan_with_library_item():
     ):
         await check_vf_statuses()
 
-    assert mock_scan.call_count == 1  # un seul scan Plex, partagé entre li et req
+    assert mock_scan.call_count == 1  # un seul scan Plex, partagÃ© entre li et req
     li_fresh = db.query(LibraryItem).filter(LibraryItem.id == li_id).first()
     req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
     assert li_fresh.vf_granularity == "season_partial"
@@ -203,7 +203,7 @@ async def test_check_vf_statuses_notifies_vf_season_start_once_for_partial_upgra
         vff_enabled=True,
         vff_libraries='[{"name": "Series", "kind": "series"}]',
         email_on_vf_available=True,
-        series_vf_notify_mode="season_start_and_complete",
+        series_notify_granularity="jalons",
     )
     db.add(settings)
     db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
@@ -236,8 +236,8 @@ async def test_check_vf_statuses_notifies_vf_season_start_once_for_partial_upgra
         await check_vf_statuses()
 
     assert mock_enqueue.call_count == 1
-    assert mock_enqueue.call_args.args[:3] == ("vf_available", req_id, ["alice@example.com"])
-    assert "VF saison 1 demarree" in mock_enqueue.call_args.args[3]
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {"scope": "season_start", "language": "vf", "is_upgrade": True, "season_number": 1, "episode_number": 1}
     milestones = db.query(NotificationMilestone).filter_by(req_id=req_id).all()
     assert len(milestones) == 1
     assert milestones[0].direction == "vf"
@@ -257,7 +257,7 @@ async def test_linked_request_notifies_vf_milestone_from_library_episode_cache()
         vff_enabled=True,
         vff_libraries='[{"name": "Series", "kind": "series"}]',
         email_on_vf_available=True,
-        series_vf_notify_mode="season_start_and_complete",
+        series_notify_granularity="jalons",
     )
     db.add(settings)
     db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
@@ -294,8 +294,8 @@ async def test_linked_request_notifies_vf_milestone_from_library_episode_cache()
         await check_vf_statuses()
 
     assert mock_enqueue.call_count == 1
-    assert mock_enqueue.call_args.args[:3] == ("vf_available", req_id, ["alice@example.com"])
-    assert mock_enqueue.call_args.args[3] == "VF saison 1 demarree"
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {"scope": "season_start", "language": "vf", "is_upgrade": True, "season_number": 1, "episode_number": 1}
     milestone = db.query(NotificationMilestone).filter_by(req_id=req_id).one()
     assert milestone.direction == "vf"
     assert milestone.milestone_type == "season_start"
@@ -311,7 +311,7 @@ async def test_check_vf_statuses_notifies_vo_every_episode_on_first_detection():
         smtp_from="admin@example.com",
         vff_enabled=True,
         vff_libraries='[{"name": "Series", "kind": "series"}]',
-        series_vo_notify_mode="every_episode",
+        series_notify_granularity="tout",
     )
     db.add(settings)
     db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
@@ -342,9 +342,15 @@ async def test_check_vf_statuses_notifies_vo_every_episode_on_first_detection():
     ):
         await check_vf_statuses()
 
-    assert mock_enqueue.call_count == 2
-    assert [call.args[0] for call in mock_enqueue.call_args_list] == ["vo_only", "vo_only"]
-    assert [call.args[3] for call in mock_enqueue.call_args_list] == ["VO S01E01", "VO S01E02"]
+    assert mock_enqueue.call_count == 1
+    assert mock_enqueue.call_args.args[0] == "available"
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "episode",
+        "language": "vo",
+        "is_upgrade": False,
+        "season_number": 1,
+        "episode_number": 1,
+    }
     milestones = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vo").all()
     assert len(milestones) == 2
 
@@ -384,7 +390,14 @@ async def test_movie_first_vo_detection_uses_single_available_vo_tracking_event(
         await check_vf_statuses()
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args.args[:3] == ("available_vo_tracking", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vo",
+        "is_upgrade": False,
+        "season_number": None,
+        "episode_number": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -424,7 +437,14 @@ async def test_movie_first_vf_detection_uses_single_available_vf_event():
         await check_vf_statuses()
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args.args[:3] == ("available_vf", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vf",
+        "is_upgrade": False,
+        "season_number": None,
+        "episode_number": None,
+    }
     req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
     assert req_fresh.has_vf is True
     assert req_fresh.vf_granularity == "full"
@@ -469,10 +489,11 @@ async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
         await check_vf_statuses()
 
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args.args[:3] == ("vf_available", req_id, ["alice@example.com"])
-    assert mock_enqueue.call_args.args[3] == "VF film complet"
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {"scope": "movie", "language": "vf", "is_upgrade": True, "season_number": None, "episode_number": None}
     req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
     assert req_fresh.has_vf is True
     assert req_fresh.vf_granularity == "full"
     milestone = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vf").one()
     assert milestone.milestone_type == "movie"
+

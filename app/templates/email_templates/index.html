@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% block title %}Modèles d'Emails{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/email_templates.css" />
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0 text-white">Modèles d'Emails</h1>
+  <div>
+    <button class="btn btn-outline-secondary me-2" onclick="tmplReset()">
+      <i class="bi bi-arrow-counterclockwise"></i> Rétablir par défaut
+    </button>
+    <button class="btn btn-primary" onclick="tmplSave()">
+      <i class="bi bi-check2"></i> Enregistrer les modifications
+    </button>
+  </div>
+</div>
+
+<!-- Navigation par onglets (type de modèle) -->
+<ul class="nav nav-pills mb-3 custom-pills" id="templateTabs" role="tablist">
+  {% for tab in tabs %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-{{ tab.key }}" type="button" role="tab">{{ tab.label }}</button>
+  </li>
+  {% endfor %}
+</ul>
+
+<!-- Switch Editeur / Apercu + controles de preview -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="btn-group tmpl-mode-switch" role="group" aria-label="Mode d'affichage">
+    <button type="button" class="btn btn-outline-light active" id="tmpl-mode-editor-btn" onclick="tmplSetMode('editor')">
+      <i class="bi bi-pencil"></i> Éditeur
+    </button>
+    <button type="button" class="btn btn-outline-light" id="tmpl-mode-preview-btn" onclick="tmplSetMode('preview')">
+      <i class="bi bi-eye"></i> Aperçu
+    </button>
+  </div>
+
+  <div class="d-flex gap-2 align-items-center" id="tmpl-preview-controls" style="display:none">
+    <select id="tmpl-preview-variant" class="form-select form-select-sm bg-dark text-white border-secondary" style="width: auto;" onchange="tmplSchedulePreview()">
+      <option value="movie_generic">Film</option>
+      <option value="movie_vo">Film (VO)</option>
+      <option value="movie_vf">Film (VF)</option>
+      <option value="episode">Épisode (Série)</option>
+      <option value="season_complete">Saison entière</option>
+    </select>
+    <select id="tmpl-preview-user" class="form-select form-select-sm bg-dark text-white border-secondary" style="width: auto;" onchange="tmplSchedulePreview()">
+      <option value="">Sélectionnez un utilisateur...</option>
+      {% for u in users %}
+      <option value="{{ u.id }}">{{ u.custom_name or u.display_name or u.plex_user_id }}</option>
+      {% endfor %}
+    </select>
+    <span id="tmpl-preview-status" class="badge bg-secondary">En attente</span>
+  </div>
+</div>
+
+<div class="card bg-dark border-secondary">
+
+  <!-- Panneau Editeur -->
+  <div class="card-body" id="tmpl-editor-panel">
+    <div class="tab-content" id="templateTabsContent">
+      {% for tab in tabs %}
+      <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="tab-{{ tab.key }}" role="tabpanel">
+
+        <div class="mb-3">
+          <label class="form-label text-muted">Sujet de l'email</label>
+          <input type="text" class="form-control bg-dark text-white border-secondary" id="tmpl-subject-{{ tab.key }}" value="{{ tab.subject }}">
+        </div>
+
+        <div class="tmpl-shared-inline mb-3">
+          <div class="small text-muted mb-2"><i class="bi bi-share"></i> Réglages communs à tous les emails (en-tête &amp; bloc affiche/tags)</div>
+          <div class="row g-2 mb-2">
+            <div class="col-md-6">
+              <label class="form-label text-muted small mb-1">Marque (logo texte)</label>
+              <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="tmpl-header-brand-{{ tab.key }}" value="{{ header_brand }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label text-muted small mb-1">Sous-titre du bandeau</label>
+              <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="tmpl-header-subtitle-{{ tab.key }}" value="{{ header_subtitle }}">
+            </div>
+          </div>
+          <div class="row g-2 align-items-end">
+            <div class="col-auto">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="tmpl-show-poster-{{ tab.key }}" {% if show_poster %}checked{% endif %}>
+                <label class="form-check-label text-muted small" for="tmpl-show-poster-{{ tab.key }}">Afficher l'affiche</label>
+              </div>
+            </div>
+            <div class="col-auto">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="tmpl-show-genres-{{ tab.key }}" {% if show_genres %}checked{% endif %}>
+                <label class="form-check-label text-muted small" for="tmpl-show-genres-{{ tab.key }}">Afficher les tags/genres</label>
+              </div>
+            </div>
+            <div class="col-auto">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="tmpl-show-requester-{{ tab.key }}" {% if show_requester %}checked{% endif %}>
+                <label class="form-check-label text-muted small" for="tmpl-show-requester-{{ tab.key }}">Afficher "Demandé par"</label>
+              </div>
+            </div>
+            <div class="col">
+              <label class="form-label text-muted small mb-1">Libellé "Demandé par"</label>
+              <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="tmpl-requester-label-{{ tab.key }}" value="{{ requester_label }}">
+            </div>
+          </div>
+        </div>
+
+        <div class="tmpl-mockup" data-tab="{{ tab.key }}">
+
+          <div class="tmpl-mockup-header">
+            <span class="tmpl-mockup-brand" id="tmpl-mockup-brand-{{ tab.key }}">{{ header_brand }}</span>
+            <span class="tmpl-mockup-subtitle" id="tmpl-mockup-subtitle-{{ tab.key }}">{{ header_subtitle }}</span>
+          </div>
+
+          <div class="tmpl-mockup-banner" id="tmpl-banner-{{ tab.key }}" style="background:{{ tab.visuals['_accent_color'] }}">
+            <div class="tmpl-banner-badge" id="tmpl-banner-badge-{{ tab.key }}">{{ tab.visuals['_badge_text'] }}</div>
+            <div class="tmpl-banner-headline" id="tmpl-banner-headline-{{ tab.key }}">{{ tab.visuals['_headline_text'] }}</div>
+          </div>
+
+          <div class="row g-2 tmpl-banner-controls">
+            <div class="col-auto">
+              <label class="form-label text-muted small mb-1">Couleur</label>
+              <input type="color" class="form-control form-control-color" id="tmpl-accent-{{ tab.key }}" value="{{ tab.visuals['_accent_color'] }}">
+            </div>
+            <div class="col">
+              <label class="form-label text-muted small mb-1">Texte du badge</label>
+              <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="tmpl-badge-{{ tab.key }}" value="{{ tab.visuals['_badge_text'] }}">
+            </div>
+            <div class="col">
+              <label class="form-label text-muted small mb-1">Titre du bandeau</label>
+              <input type="text" class="form-control form-control-sm bg-dark text-white border-secondary" id="tmpl-headline-{{ tab.key }}" value="{{ tab.visuals['_headline_text'] }}">
+            </div>
+            <div class="col-auto d-flex align-items-end pb-1">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="tmpl-synopsis-{{ tab.key }}" {% if tab.visuals['_show_synopsis'] %}checked{% endif %}>
+                <label class="form-check-label text-muted small" for="tmpl-synopsis-{{ tab.key }}">Afficher le synopsis</label>
+              </div>
+            </div>
+          </div>
+
+          <div class="tmpl-mockup-fixed">
+            <div class="tmpl-mockup-fixed-label">Exemple — données réelles à l'envoi, non modifiable ici (réglages ci-dessus)</div>
+            <div class="d-flex gap-3">
+              <img src="https://image.tmdb.org/t/p/w300/ggFHVNu6YYI5L9pCfOacjizRGt.jpg" class="tmpl-mockup-poster tmpl-mockup-poster-img" alt="" {% if not show_poster %}style="display:none"{% endif %}>
+              <div>
+                <div class="tmpl-mockup-title">Breaking Bad <span class="text-muted">(2008)</span></div>
+                <div class="mt-2 tmpl-mockup-genres-row" {% if not show_genres %}style="display:none"{% endif %}>
+                  <span class="tmpl-mockup-tag">Série</span>
+                  <span class="tmpl-mockup-tag tmpl-mockup-tag-accent" id="tmpl-mockup-genre-{{ tab.key }}" style="color:{{ tab.visuals['_accent_color'] }}">Crime</span>
+                </div>
+                <div class="mt-2 small text-muted tmpl-mockup-requester-row" {% if not show_requester %}style="display:none"{% endif %}><span class="text-warning fw-bold tmpl-mockup-requester-label">{{ requester_label }}</span>&nbsp;&nbsp;Jean Dupont</div>
+              </div>
+            </div>
+            <div class="tmpl-mockup-synopsis mt-2" id="tmpl-mockup-synopsis-{{ tab.key }}" {% if not tab.visuals['_show_synopsis'] %}style="display:none"{% endif %}>
+              <div class="small text-uppercase text-muted">Synopsis</div>
+              <div class="small text-muted">Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille.</div>
+            </div>
+          </div>
+
+          <div class="tmpl-content-box" id="tmpl-content-box-{{ tab.key }}" style="border-left-color:{{ tab.visuals['_accent_color'] }}">
+            <label class="form-label text-muted small mb-1">Contenu (Markdown) — zone éditable</label>
+            <textarea class="form-control bg-dark text-white border-0 tmpl-textarea tmpl-content-textarea" id="tmpl-editor-{{ tab.key }}" rows="6">{{ tab.template }}</textarea>
+          </div>
+
+          <div class="tmpl-mockup-footer-note">Pied de page : voir les réglages communs en bas de page</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Panneau Apercu -->
+  <div class="card-body p-0 d-none tmpl-preview-frame-wrap" id="tmpl-preview-panel">
+    <iframe id="tmpl-preview-frame"></iframe>
+  </div>
+  <div class="card-footer border-secondary text-end d-none" id="tmpl-preview-footer">
+    <button class="btn btn-sm btn-outline-warning" onclick="tmplTestSend()">
+      <i class="bi bi-envelope"></i> Envoyer un test
+    </button>
+  </div>
+</div>
+
+<!-- Liste des variables (uniquement en mode Editeur) -->
+<div class="card bg-dark border-secondary mt-3" id="tmpl-vars-card">
+  <div class="card-header border-secondary text-muted">Variables utilisables</div>
+  <div class="card-body" id="variables-container">
+    <!-- Rempli par le JS -->
+  </div>
+</div>
+
+<!-- Réglages partagés : pied de page uniquement (header + affiche/tags sont réglés dans chaque onglet, juste sous le sujet) -->
+<div class="card bg-dark border-secondary mt-3" id="tmpl-shared-card">
+  <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+    <span class="text-muted"><i class="bi bi-layout-text-window-reverse"></i> Pied de page</span>
+    <span class="badge bg-secondary">Commun à tous les emails</span>
+  </div>
+  <div class="card-body">
+    <div class="mb-3">
+      <label class="form-label text-muted">Pied de page (Markdown)</label>
+      <textarea class="form-control bg-dark text-white border-secondary tmpl-textarea" id="tmpl-footer" rows="2">{{ footer_template }}</textarea>
+    </div>
+
+    <label class="form-label text-muted small mb-1">Aperçu</label>
+    <div class="tmpl-mockup tmpl-shared-preview">
+      <div class="tmpl-mockup-header">
+        <span class="tmpl-mockup-brand" id="tmpl-shared-preview-brand">{{ header_brand }}</span>
+        <span class="tmpl-mockup-subtitle" id="tmpl-shared-preview-subtitle">{{ header_subtitle }}</span>
+      </div>
+      <div class="tmpl-mockup-footer-note" id="tmpl-shared-preview-footer"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/email_templates.js"></script>
+{% endblock %}

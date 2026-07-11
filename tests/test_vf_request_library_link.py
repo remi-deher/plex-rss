@@ -182,7 +182,9 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     mock_scan.assert_not_called()
     assert req.has_vf is True
     mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "vf_available"
+    assert mock_enqueue.call_args[0][0] == "available"
+    assert mock_enqueue.call_args[0][3]["language"] == "vf"
+    assert mock_enqueue.call_args[0][3]["is_upgrade"] is True
 
 
 @pytest.mark.asyncio

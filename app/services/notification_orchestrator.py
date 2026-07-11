@@ -1,7 +1,7 @@
 import json
 import logging
-import re
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -156,7 +156,6 @@ def _get_recipients(user_obj, settings: Settings, event: str = "request") -> lis
     if user_obj and not user_obj.enabled:
         return []
 
-    # Vérification des flags par utilisateur
     if user_obj:
         if event == "request" and user_obj.notify_on_request is False:
             return []
@@ -191,7 +190,7 @@ def _user_wants_vf(user_obj: PlexUser | None, vf_category: str | None) -> bool:
 
 
 def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_category: str | None) -> list[str]:
-    """Résout les destinataires email d'une notification VF (respecte les flags par type)."""
+    """Résout les destinataires email d'une notification de disponibilité avec suivi de langue."""
     if not _user_wants_vf(user_obj, vf_category):
         return []
     raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
@@ -204,58 +203,57 @@ def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_categor
     return recipients
 
 
-SERIES_NOTIFY_MODES = {
-    "every_episode",
-    "season_complete",
-    "series_complete",
-    "season_start_and_complete",
+# ---------------------------------------------------------------------------
+# Réglages de disponibilité — 2 axes (voir migration 0055_simplify_notify_settings) :
+# notify_language (VO/VF distingués ou non) × notify_granularity (séries uniquement :
+# minimal/jalons/tout). Remplace l'ancien enchevêtrement tracking_mode "language"/
+# "simple"/"classic" + 4 modes de fréquence par direction.
+# ---------------------------------------------------------------------------
+
+GRANULARITY_MODES = {"minimal", "jalons", "tout"}
+
+
+@dataclass(frozen=True)
+class AvailabilityCandidate:
+    """Jalon de disponibilite detecte pendant un cycle de scan."""
+
+    scope: str
+    language: str | None = None
+    is_upgrade: bool = False
+    season_number: int | None = None
+    episode_number: int | None = None
+
+
+_AVAILABILITY_PRIORITY = {
+    "episode": 50,
+    "season_start": 40,
+    "season_complete": 40,
+    "series_complete": 30,
+    "movie": 20,
 }
 
 
-def _valid_series_notify_mode(value: str | None, default: str = "season_start_and_complete") -> str:
-    return value if value in SERIES_NOTIFY_MODES else default
+def _valid_granularity(value: str | None, default: str = "jalons") -> str:
+    return value if value in GRANULARITY_MODES else default
 
 
-def _resolve_movie_notify(direction: str, settings: Settings, user_obj: PlexUser | None) -> bool:
-    attr = "movie_vf_notify" if direction == "vf" else "movie_vo_notify"
-    user_value = getattr(user_obj, attr, None) if user_obj else None
+def _resolve_movie_notify_language(settings: Settings, user_obj: PlexUser | None) -> bool:
+    user_value = getattr(user_obj, "movie_notify_language", None) if user_obj else None
     if user_value is not None:
         return bool(user_value)
-    return getattr(settings, attr, True) is not False
+    return getattr(settings, "movie_notify_language", True) is not False
 
 
-def _resolve_series_notify_mode(direction: str, settings: Settings, user_obj: PlexUser | None) -> str:
-    attr = "series_vf_notify_mode" if direction == "vf" else "series_vo_notify_mode"
-    user_value = getattr(user_obj, attr, None) if user_obj else None
-    return _valid_series_notify_mode(user_value or getattr(settings, attr, None))
+def _resolve_series_notify_language(settings: Settings, user_obj: PlexUser | None) -> bool:
+    user_value = getattr(user_obj, "series_notify_language", None) if user_obj else None
+    if user_value is not None:
+        return bool(user_value)
+    return getattr(settings, "series_notify_language", True) is not False
 
 
-def _resolve_series_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
-    """ "language" (VF/VO, prioritaire par défaut), "simple" (épisodes/saisons, sans
-    langue) ou "classic" (mail générique "Disponible sur Plex", aucun jalon).
-
-    Réglage par utilisateur (PlexUser.series_tracking_mode) prioritaire sur le réglage
-    global (Settings.series_tracking_mode) s'il est défini. "classic" n'est proposé que
-    comme forçage par utilisateur (pas d'option globale équivalente) mais reste accepté
-    ici quelle que soit la source, la résolution ne fait pas de distinction.
-    """
-    user_value = getattr(user_obj, "series_tracking_mode", None) if user_obj else None
-    value = user_value or getattr(settings, "series_tracking_mode", None)
-    return value if value in ("language", "simple", "classic") else "language"
-
-
-def _resolve_movie_tracking_mode(settings: Settings, user_obj: PlexUser | None) -> str:
-    """"language" (VO/VF, comportement standard) ou "classic" (mail générique, aucun
-    suivi VF). Réglage par utilisateur (PlexUser.movie_tracking_mode) prioritaire sur le
-    réglage global (Settings.movie_tracking_mode) s'il est défini."""
-    user_value = getattr(user_obj, "movie_tracking_mode", None) if user_obj else None
-    value = user_value or getattr(settings, "movie_tracking_mode", None)
-    return value if value in ("language", "classic") else "language"
-
-
-def _resolve_episode_notify_mode(settings: Settings, user_obj: PlexUser | None) -> str:
-    user_value = getattr(user_obj, "series_episode_notify_mode", None) if user_obj else None
-    return _valid_series_notify_mode(user_value or getattr(settings, "series_episode_notify_mode", None))
+def _resolve_series_granularity(settings: Settings, user_obj: PlexUser | None) -> str:
+    user_value = getattr(user_obj, "series_notify_granularity", None) if user_obj else None
+    return _valid_granularity(user_value or getattr(settings, "series_notify_granularity", None))
 
 
 def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[int, bool]]:
@@ -275,41 +273,36 @@ def _normalized_episode_status(episode_status: dict | None) -> dict[int, dict[in
     return normalized
 
 
-def _series_language_milestones(
-    direction: str,
-    mode: str,
+def _series_milestones(
+    granularity: str,
     episode_status: dict | None,
     has_vf_full: bool,
+    language: str | None,
     season_aired_counts: dict[int, int] | None = None,
-):
+) -> list[tuple[str, int | None, int | None]]:
     """Calcule les jalons (episode/season_start/season_complete/series_complete) à notifier.
 
-    `direction` : "vf"/"vo" (suivi par langue) ou "simple" (suivi épisode indépendant de
-    la langue — `episode_status` ne sert alors qu'à connaître la présence des épisodes sur
-    Plex, `matches` est donc toujours vrai : tout épisode connu de Plex "correspond").
+    `language` : "vf"/"vo" (suivi par langue — seuls les épisodes correspondant à cette
+    langue comptent) ou None (suivi indépendant de la langue — tout épisode présent compte).
 
-    `season_aired_counts` : nombre d'épisodes Sonarr déjà diffusés par saison (voir
-    `sonarr.get_season_aired_episode_counts`). Sans cette référence, `episode_status` ne
-    contient que les épisodes déjà repérés dans Plex — un début de saison (1 seul épisode
-    sorti) déclencherait alors à tort "saison complète" en même temps que "saison démarrée",
-    faute de savoir que d'autres épisodes diffusés restent encore à charger. Si absent
-    (Sonarr injoignable, média Seer sans arr_id...), on retombe sur l'ancien comportement.
+    `season_aired_counts` : nombre d'épisodes Sonarr déjà diffusés par saison. Sans cette
+    référence, un début de saison (1 seul épisode sorti) déclencherait à tort "saison
+    complète" en même temps que "saison démarrée", faute de savoir que d'autres épisodes
+    diffusés restent encore à charger.
     """
     status = _normalized_episode_status(episode_status)
+    granularity = _valid_granularity(granularity)
 
     def matches(has_vf: bool) -> bool:
-        if direction == "simple":
+        if language is None:
             return True
-        return has_vf if direction == "vf" else not has_vf
+        return has_vf if language == "vf" else not has_vf
 
     milestones: list[tuple[str, int | None, int | None]] = []
-    mode = _valid_series_notify_mode(mode)
 
-    if mode == "series_complete":
-        if (direction == "vf" and has_vf_full) or (
-            status
-            and direction in ("vo", "simple")
-            and all(matches(v) for eps in status.values() for v in eps.values())
+    if granularity == "minimal":
+        if (language == "vf" and has_vf_full) or (
+            status and language in ("vo", None) and all(matches(v) for eps in status.values() for v in eps.values())
         ):
             milestones.append(("series_complete", None, None))
         return milestones
@@ -320,40 +313,24 @@ def _series_language_milestones(
         matching_eps = sorted(ep for ep, has_vf in eps.items() if matches(has_vf))
         if not matching_eps:
             continue
-        if mode == "every_episode":
+        if granularity == "tout":
             milestones.extend(("episode", season, ep) for ep in matching_eps)
             continue
-        if mode == "season_start_and_complete":
-            milestones.append(("season_start", season, matching_eps[0]))
-        if mode in ("season_complete", "season_start_and_complete") and all(matches(v) for v in eps.values()):
+        # "jalons" : début + fin de saison
+        milestones.append(("season_start", season, matching_eps[0]))
+        if all(matches(v) for v in eps.values()):
             expected = season_aired_counts.get(season) if season_aired_counts else None
             if expected is None or len(eps) >= expected:
                 milestones.append(("season_complete", season, None))
     return milestones
 
 
-def _milestone_reason(direction: str, milestone_type: str, season: int | None, episode: int | None) -> str:
-    lang = "VF" if direction == "vf" else ("VO" if direction == "vo" else "")
-    prefix = f"{lang} " if lang else ""
-    if milestone_type == "movie":
-        return f"{prefix}film complet".strip()
-    if milestone_type == "episode" and season is not None and episode is not None:
-        return f"{prefix}S{season:02d}E{episode:02d}"
-    if milestone_type == "season_start" and season is not None:
-        return f"{prefix}saison {season} demarree"
-    if milestone_type == "season_complete" and season is not None:
-        return f"{prefix}saison {season} complete"
-    if milestone_type == "series_complete":
-        return f"{prefix}serie complete"
-    return lang
-
-
-def _milestone_exists(db: Session, req: MediaRequest, direction: str, milestone_type: str, season, episode) -> bool:
+def _milestone_exists(db: Session, req: MediaRequest, direction: str, scope: str, season, episode) -> bool:
     q = db.query(NotificationMilestone).filter(
         NotificationMilestone.req_id == req.id,
         NotificationMilestone.plex_user_id == req.plex_user_id,
         NotificationMilestone.direction == direction,
-        NotificationMilestone.milestone_type == milestone_type,
+        NotificationMilestone.milestone_type == scope,
     )
     q = q.filter(
         NotificationMilestone.season_number.is_(None)
@@ -368,244 +345,165 @@ def _milestone_exists(db: Session, req: MediaRequest, direction: str, milestone_
     return q.first() is not None
 
 
-def _queue_vf_milestone(
-    direction: str,
+def _candidate_key(candidate: AvailabilityCandidate) -> tuple:
+    return (
+        candidate.language or "simple",
+        candidate.scope,
+        candidate.season_number,
+        candidate.episode_number,
+        candidate.language,
+        bool(candidate.is_upgrade),
+    )
+
+
+def _candidate_priority(candidate: AvailabilityCandidate) -> tuple[int, int, int]:
+    language_score = 2 if candidate.language == "vf" else 1 if candidate.language == "vo" else 0
+    return (_AVAILABILITY_PRIORITY.get(candidate.scope, 10), language_score, 1 if candidate.is_upgrade else 0)
+
+
+def resolve_and_notify_availability(
     settings: Settings,
     req: MediaRequest,
     db: Session,
-    milestone_type: str,
-    season: int | None = None,
-    episode: int | None = None,
+    *,
+    candidates: list[AvailabilityCandidate],
 ) -> bool:
+    """Record all detected availability milestones and enqueue at most one notification."""
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    unique_candidates = list({_candidate_key(candidate): candidate for candidate in candidates}.values())
+    if not unique_candidates:
+        return False
 
-    if direction == "simple":
-        # Suivi épisode indépendant de la langue : pas de gate VF (notify_vf_*), on
-        # respecte simplement le flag standard "disponibilité" de l'utilisateur.
-        if req.media_type != "show":
-            return False
-        if _milestone_exists(db, req, direction, milestone_type, season, episode):
-            return False
+    eligible: list[AvailabilityCandidate] = []
+    for candidate in unique_candidates:
+        if candidate.language is not None:
+            if not _user_wants_vf(user_obj, req.vf_category):
+                continue
+            if req.media_type == "movie" and not _resolve_movie_notify_language(settings, user_obj):
+                continue
+        eligible.append(candidate)
+    if not eligible:
+        return False
+
+    new_candidates: list[AvailabilityCandidate] = []
+    for candidate in eligible:
+        direction = candidate.language or "simple"
+        if _milestone_exists(db, req, direction, candidate.scope, candidate.season_number, candidate.episode_number):
+            continue
         db.add(
             NotificationMilestone(
                 req_id=req.id,
                 plex_user_id=req.plex_user_id,
                 direction=direction,
-                milestone_type=milestone_type,
-                season_number=season,
-                episode_number=episode,
+                milestone_type=candidate.scope,
+                language=candidate.language,
+                is_upgrade=bool(candidate.is_upgrade),
+                season_number=candidate.season_number,
+                episode_number=candidate.episode_number,
             )
         )
-        db.commit()
-        recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
-        enqueue_notification(
-            "episode_track", req.id, recipients, _milestone_reason(direction, milestone_type, season, episode)
-        )
-        return True
-
-    if not _user_wants_vf(user_obj, req.vf_category):
-        return False
-    if req.media_type == "movie" and not _resolve_movie_notify(direction, settings, user_obj):
-        return False
-    if _milestone_exists(db, req, direction, milestone_type, season, episode):
-        return False
-
-    db.add(
-        NotificationMilestone(
-            req_id=req.id,
-            plex_user_id=req.plex_user_id,
-            direction=direction,
-            milestone_type=milestone_type,
-            season_number=season,
-            episode_number=episode,
-        )
-    )
+        new_candidates.append(candidate)
     db.commit()
 
-    email_flag = settings.email_on_vf_available if direction == "vf" else True
-    recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
-    event = "vf_available" if direction == "vf" else "vo_only"
-    if req.media_type == "movie" and direction == "vo" and milestone_type == "movie" and req.available_mail_sent:
-        event = "available_vo_tracking"
-    enqueue_notification(event, req.id, recipients, _milestone_reason(direction, milestone_type, season, episode))
+    if not new_candidates:
+        return False
+
+    winner = max(new_candidates, key=_candidate_priority)
+    email_flag = settings.email_on_vf_available if winner.is_upgrade else settings.email_on_available
+    if winner.language is not None:
+        recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
+    else:
+        recipients = _get_recipients(user_obj, settings, "available") if email_flag else []
+
+    enqueue_notification(
+        "available",
+        req.id,
+        recipients,
+        {
+            "scope": winner.scope,
+            "language": winner.language,
+            "is_upgrade": bool(winner.is_upgrade),
+            "season_number": winner.season_number,
+            "episode_number": winner.episode_number,
+        },
+    )
     return True
 
 
-def _queue_language_progress_notifications(
-    direction: str,
+def _queue_milestone(
     settings: Settings,
     req: MediaRequest,
     db: Session,
+    *,
+    scope: str,
+    language: str | None = None,
+    season: int | None = None,
+    episode: int | None = None,
+) -> bool:
+    """Empile UNE notification de disponibilité pour un jalon précis, avec dédup par
+    NotificationMilestone (clé : req + destinataire + langue + jalon + saison/épisode).
+
+    `language` None = suivi sans distinction de langue (granularité seule, remplace
+    l'ancien mode "simple"). `scope="movie"|"episode"|"season_start"|"season_complete"|
+    "series_complete"`. C'est le point de passage UNIQUE pour toute notification de
+    disponibilité avec jalon — garantit qu'un seul mail part par jalon réel, jamais un
+    générique "available" en plus (voir _notify, qui ne sert plus que de repli quand
+    aucun suivi fin n'est actif pour ce média).
+    """
+    return resolve_and_notify_availability(
+        settings,
+        req,
+        db,
+        candidates=[
+            AvailabilityCandidate(
+                scope=scope,
+                language=language,
+                is_upgrade=language == "vf",
+                season_number=season,
+                episode_number=episode,
+            )
+        ],
+    )
+def _queue_show_milestones(
+    settings: Settings,
+    req: MediaRequest,
+    db: Session,
+    *,
+    language: str | None,
     episode_status: dict | None = None,
     has_vf_full: bool = False,
     season_aired_counts: dict[int, int] | None = None,
 ) -> int:
+    """Calcule et empile les jalons d'une série selon la granularité configurée.
+
+    `language` : "vf"/"vo" si l'appelant vient du scan VF (audio Plex), ou None si
+    l'appelant vient du suivi "sans langue" (présence d'épisode seule, indépendant de
+    vff_enabled — voir check_episode_tracking).
+    """
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    if not _user_wants_vf(user_obj, req.vf_category):
+    if language is not None and not _user_wants_vf(user_obj, req.vf_category):
         return 0
-    if req.media_type != "show":
-        if _resolve_movie_tracking_mode(settings, user_obj) == "classic":
-            if not req.available_mail_sent:
-                _notify("available", settings, req, db)
-            return 0
-        return int(_queue_vf_milestone(direction, settings, req, db, "movie"))
-
-    tracking_mode = _resolve_series_tracking_mode(settings, user_obj)
-    if tracking_mode == "simple":
-        # Le suivi "simple" (check_episode_tracking) couvre déjà ce cas — sans ce
-        # garde-fou, un utilisateur en mode simple recevrait aussi les jalons VO/VF
-        # calculés ici, en plus de ses propres jalons épisode/saison (doublon).
-        return 0
-    if tracking_mode == "classic":
-        if not req.available_mail_sent:
-            _notify("available", settings, req, db)
-        return 0
-
-    mode = _resolve_series_notify_mode(direction, settings, user_obj)
-    count = 0
-    for milestone_type, season, episode in _series_language_milestones(
-        direction, mode, episode_status, has_vf_full, season_aired_counts
-    ):
-        if _queue_vf_milestone(direction, settings, req, db, milestone_type, season, episode):
-            count += 1
-    return count
-
-
-def _queue_episode_progress_notifications(
-    settings: Settings,
-    req: MediaRequest,
-    db: Session,
-    episode_status: dict | None,
-    season_aired_counts: dict[int, int] | None = None,
-) -> int:
-    """Équivalent de `_queue_language_progress_notifications` pour le mode "simple"
-    (suivi épisode/saison indépendant de la langue, voir `_resolve_series_tracking_mode`).
-    """
-    if req.media_type != "show":
-        return 0
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    mode = _resolve_episode_notify_mode(settings, user_obj)
-    count = 0
-    for milestone_type, season, episode in _series_language_milestones(
-        "simple", mode, episode_status, False, season_aired_counts
-    ):
-        if _queue_vf_milestone("simple", settings, req, db, milestone_type, season, episode):
-            count += 1
-    return count
-
-
-def _notify_vf(event: str, settings: Settings, req: MediaRequest, db: Session):
-    """Empile une notification VF ("vo_only" ou "vf_available") dans la queue.
-
-    Respecte les flags anti-doublon (vo_only_mail_sent / vf_available_mail_sent) et
-    les préférences de notification VF par utilisateur et par type de média.
-    """
-    if event == "vo_only" and req.vo_only_mail_sent:
-        return
-    if event == "vf_available" and req.vf_available_mail_sent:
-        return
-    email_flag = settings.email_on_vf_available if event == "vf_available" else True
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
-    queued_event = event
-    if event == "vo_only" and req.media_type == "movie" and req.available_mail_sent:
-        queued_event = "available_vo_tracking"
-    enqueue_notification(queued_event, req.id, recipients, "")
-
-
-def _resolve_partial_notify_frequency(settings: Settings, user_obj: PlexUser | None) -> str:
-    """Fréquence de notification pour une série en disponibilité partielle.
-
-    Le réglage par utilisateur (PlexUser.partial_notify_frequency) prime sur le
-    réglage global (Settings.partial_notify_frequency) s'il est défini.
-    """
-    if user_obj and user_obj.partial_notify_frequency:
-        return user_obj.partial_notify_frequency
-    return settings.partial_notify_frequency or "milestones"
-
-
-def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
-    """Empile une notification « disponibilité partielle » (série en cours de diffusion).
-
-    Respecte le flag notify_on_available par utilisateur (même portée que la notif
-    « disponible » classique — c'est toujours une annonce de disponibilité, partielle
-    ou non).
-    """
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
-    reason = f"{req.episodes_available_count or 0}/{req.episodes_aired_count or 0}"
-    enqueue_notification("partially_available", req.id, recipients, reason)
-
-
-async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
-    """Décide et envoie la notification de disponibilité pour une série suivie par
-    compteurs d'épisodes (Sonarr direct — pas de suivi partiel via Seer).
-
-    - episodes_available_count >= episodes_total_count : série complète -> notif
-      "available" classique (une seule fois, via available_mail_sent).
-    - Sinon (encore partielle) selon la fréquence choisie (globale ou par utilisateur) :
-        · "milestones" (défaut) : une notif à la 1ère dispo partielle seulement.
-        · "every_episode" : une notif à chaque nouvel épisode téléchargé.
-
-    Si aucune donnée de progression n'est disponible (ex: média géré par Seer), la
-    demande garde le comportement historique : une notif "available" classique.
-    """
-    # Import local pour éviter un cycle : vff_scanner importe déjà plusieurs symboles
-    # de ce module (voir plan de session).
-    from .vff_scanner import scan_and_notify_availability
-
-    if req.media_type != "show" or not req.episodes_total_count:
-        if not req.available_mail_sent:
-            _notify("available", settings, req, db)
-        return
-
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    tracking_mode = _resolve_series_tracking_mode(settings, user_obj)
-    # Un suivi de série est "actif" s'il va effectivement tourner et notifier la complétion
-    # via son propre jalon "série complète" : le mode "simple" tourne toujours
-    # (check_episode_tracking, indépendant de vff_enabled) ; le mode "langue" ne tourne
-    # que si VFF est activé (check_vf_statuses). Sinon, aucun autre mécanisme ne préviendra
-    # jamais l'utilisateur — il ne faut alors pas supprimer le mail "Disponible" classique.
-    tracking_active = tracking_mode == "simple" or (tracking_mode == "language" and settings.vff_enabled)
-
-    is_complete = (req.episodes_available_count or 0) >= req.episodes_total_count
-    if is_complete:
-        if tracking_active:
-            # Le suivi de série annonce déjà la complétion via son jalon "série complète" —
-            # tente un scan Plex immédiat pour l'envoyer maintenant plutôt que d'attendre
-            # le prochain scan planifié (best-effort, pas de mail générique en secours ici).
-            await scan_and_notify_availability(req, settings, db)
-            return
-        if not req.available_mail_sent:
-            _notify("available", settings, req, db)
-        return
-
-    if (req.episodes_available_count or 0) <= 0:
-        return  # aucun fichier pour l'instant, rien à notifier
-
-    if tracking_active:
-        # Le suivi de série (VFF en mode langue, ou "simple") couvre déjà "nouvel épisode" /
-        # "saison démarrée" à partir du scan Plex — avec en plus l'info de langue (VO/VF)
-        # pour le mode langue. La notif "disponibilité partielle" (issue des compteurs
-        # Sonarr, sans langue) ferait doublon pour le même événement — même garde-fou que
-        # pour la complétion ci-dessus. Tente un scan immédiat plutôt que d'attendre le
-        # prochain scan planifié ; sans effet si le média n'est pas encore indexé (le scan
-        # planifié prendra le relais comme avant).
-        await scan_and_notify_availability(req, settings, db)
-        return
-
-    frequency = _resolve_partial_notify_frequency(settings, user_obj)
-
-    if frequency == "every_episode":
-        if (req.episodes_available_count or 0) > (req.last_notified_episode_count or 0):
-            _notify_partial(settings, req, db)
-    else:  # "milestones"
-        if not req.partial_available_mail_sent:
-            _notify_partial(settings, req, db)
+    granularity = _resolve_series_granularity(settings, user_obj)
+    candidates = [
+        AvailabilityCandidate(
+            scope=scope,
+            language=language,
+            is_upgrade=language == "vf",
+            season_number=season,
+            episode_number=episode,
+        )
+        for scope, season, episode in _series_milestones(
+            granularity, episode_status, has_vf_full, language, season_aired_counts
+        )
+    ]
+    return int(resolve_and_notify_availability(settings, req, db, candidates=candidates))
 
 
 def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
-    """Empile une notification dans la queue après résolution des destinataires.
+    """Notification générique (repli) : pas de jalon précis, ou évènement simple
+    (request/failed). Ne doit JAMAIS être appelée en plus d'un `_queue_milestone` pour le
+    même changement d'état — c'est le rôle de l'appelant (vff_scanner/webhook/arr_tracker)
+    de choisir l'un ou l'autre selon qu'un suivi fin est actif pour ce média.
 
     force=True ignore les flags *_mail_sent (renvoi manuel demandé par l'utilisateur).
     """
@@ -614,9 +512,6 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
             return
         if event == "available" and req.available_mail_sent:
             return
-    queued_event = event
-    if event == "available" and req.has_vf is True:
-        queued_event = "available_vf"
     if event in ("failed", "failure"):
         email_flag = getattr(settings, "email_on_failure", True)
     elif event == "request":
@@ -625,7 +520,79 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
         email_flag = settings.email_on_available
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
     recipients = _get_recipients(user_obj, settings, event) if email_flag else []
-    enqueue_notification(queued_event, req.id, recipients, reason)
+
+    if event in ("failed", "failure"):
+        enqueue_notification("failed", req.id, recipients, {"reason": reason})
+        return
+    if event == "request":
+        enqueue_notification("request", req.id, recipients, None)
+        return
+
+    # "available" générique : aucun jalon précis (mode sans langue à granularité "minimal",
+    # ou média sans suivi fin possible pour l'instant). language déduit du dernier état connu.
+    language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
+    scope = "movie" if req.media_type == "movie" else "series_complete"
+    resolve_and_notify_availability(
+        settings,
+        req,
+        db,
+        candidates=[AvailabilityCandidate(scope=scope, language=language, is_upgrade=False)],
+    )
+
+
+def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
+    """Notification « disponibilité partielle » via les compteurs Sonarr (VFF désactivé,
+    pas de scan Plex possible — seul filet de sécurité restant, sans langue)."""
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
+    resolve_and_notify_availability(
+        settings,
+        req,
+        db,
+        candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)],
+    )
+
+
+async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
+    """Décide et envoie la notification de disponibilité pour une série.
+
+    Le suivi fin (jalons épisode/saison, avec ou sans langue) tourne dès que Plex est
+    configuré (`vff_enabled`) — la granularité "minimal" y compris, qui se traduit
+    simplement par un seul jalon "series_complete". Seul un `vff_enabled=False` bascule
+    sur les compteurs Sonarr bruts (aucun scan Plex possible, donc aucune langue connue).
+    """
+    from .vff_scanner import scan_and_notify_availability
+
+    if req.media_type != "show" or not req.episodes_total_count:
+        if not req.available_mail_sent:
+            _notify("available", settings, req, db)
+        return
+
+    if settings.vff_enabled:
+        # Tente un scan Plex immédiat pour envoyer maintenant plutôt que d'attendre le
+        # prochain scan planifié ; sans effet si le média n'est pas encore indexé (le
+        # prochain scan planifié prend le relais, jamais de mail générique en secours ici
+        # pour éviter tout doublon avec le jalon qui finira par partir).
+        await scan_and_notify_availability(req, settings, db)
+        return
+
+    # VFF désactivé : pas de scan Plex possible, repli sur les compteurs Sonarr seuls.
+    is_complete = (req.episodes_available_count or 0) >= req.episodes_total_count
+    if is_complete:
+        if not req.available_mail_sent:
+            _notify("available", settings, req, db)
+        return
+    if (req.episodes_available_count or 0) <= 0:
+        return
+
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    granularity = _resolve_series_granularity(settings, user_obj)
+    if granularity == "tout":
+        if (req.episodes_available_count or 0) > (req.last_notified_episode_count or 0):
+            _notify_partial(settings, req, db)
+    else:  # "jalons"/"minimal" : une notif à la 1ère dispo partielle seulement
+        if not req.partial_available_mail_sent:
+            _notify_partial(settings, req, db)
 
 
 # ---------------------------------------------------------------------------

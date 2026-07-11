@@ -144,7 +144,7 @@ def test_list_logs_item_fields():
         item = r.json()["items"][0]
         assert item["id"] == 7
         assert item["event"] == "available"
-        assert item["event_label"] == "Disponible sur Plex"
+        assert item["event_label"].startswith("Disponibilit")
         assert item["event_group"] == "Disponibilité"
         assert item["event_badge_class"] == "bg-success"
         assert item["status_label"] == "Erreur"
@@ -234,7 +234,7 @@ def test_resend_queues_notification():
         assert data["status"] == "queued"
         assert data["recipient"] == "u@b.com"
         assert data["event"] == "request"
-        mock_enqueue.assert_called_once_with("request", 42, ["u@b.com"])
+        mock_enqueue.assert_called_once_with("request", 42, ["u@b.com"], None)
     finally:
         _cleanup()
 

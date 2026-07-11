@@ -9,9 +9,13 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
-from ..notification_queue import enqueue as enqueue_notification
 from ..services import radarr, sonarr
 from ..services.download_history import record_completed
+from ..services.notification_orchestrator import (
+    AvailabilityCandidate,
+    _resolve_movie_notify_language,
+    resolve_and_notify_availability,
+)
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
 from ..utils import now_utc
 
@@ -39,6 +43,20 @@ def _check_webhook_secret(request: Request, settings: Settings | None) -> None:
     provided = request.headers.get("X-Webhook-Secret") or request.query_params.get("secret") or ""
     if not hmac.compare_digest(expected, provided):
         raise HTTPException(status_code=401, detail="Secret de webhook invalide")
+
+
+def _has_fallback_mechanism(settings: Settings, req: MediaRequest, user_obj) -> bool:
+    """True si un suivi fin (scan VF ou suivi épisode sans langue) couvre ce média — dans
+    ce cas on n'envoie JAMAIS le mail générique "available" en secours, même si le scan
+    immédiat n'a rien trouvé cette fois : le prochain scan planifié enverra le bon jalon,
+    sans jamais faire doublon avec ce mail générique (c'était la cause du "3 mails pour
+    1 épisode" : le générique partait en plus du jalon, dès que le scan immédiat ratait la
+    fenêtre d'indexation Plex)."""
+    if not settings.vff_enabled:
+        return False
+    if req.media_type == "movie":
+        return _resolve_movie_notify_language(settings, user_obj)
+    return True  # séries : toujours couvertes (scan langue ou suivi sans langue)
 
 
 def _get_recipients(user_obj, settings: Settings) -> list[str]:
@@ -146,13 +164,26 @@ async def _mark_available_and_notify(
         )
         # Scan Plex immédiat avant d'envoyer le mail générique : propose directement le
         # bon mail (VF/VO/jalon série) si VFF est actif, sans attendre le prochain scan
-        # planifié. Si le scan ne conclut pas (VFF désactivé, mode "classic", média pas
-        # encore indexé...), on retombe sur l'ancien comportement ci-dessous.
+        # planifié. Le mail générique ne part QUE si aucun suivi fin ne couvrira jamais ce
+        # média (_has_fallback_mechanism) — sinon on laisse le prochain scan planifié
+        # envoyer le bon jalon, pour ne jamais faire doublon.
         handled = await scan_and_notify_availability(req, settings, db) if settings else False
-        if not handled and settings and settings.email_on_available and not req.available_mail_sent:
-            user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-            recipients = _get_recipients(user_obj, settings)
-            enqueue_notification("available", req.id, recipients)
+        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+        if (
+            not handled
+            and settings
+            and not _has_fallback_mechanism(settings, req, user_obj)
+            and settings.email_on_available
+            and not req.available_mail_sent
+        ):
+            resolve_and_notify_availability(
+                settings,
+                req,
+                db,
+                candidates=[
+                    AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")
+                ],
+            )
     return len(requests)
 
 
@@ -471,10 +502,22 @@ async def plex_webhook(request: Request):
                 request_id=req.id,
             )
             handled = await scan_and_notify_availability(req, settings, db) if settings else False
-            if not handled and settings and settings.email_on_available and not req.available_mail_sent:
-                user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-                recipients = _get_recipients(user_obj, settings)
-                enqueue_notification("available", req.id, recipients)
+            user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+            if (
+                not handled
+                and settings
+                and not _has_fallback_mechanism(settings, req, user_obj)
+                and settings.email_on_available
+                and not req.available_mail_sent
+            ):
+                resolve_and_notify_availability(
+                    settings,
+                    req,
+                    db,
+                    candidates=[
+                        AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")
+                    ],
+                )
 
         # « library.new » est le signal le plus fiable qui existe pour savoir que Plex a
         # fini d'indexer un média (contrairement au webhook *arr, qui peut arriver avant

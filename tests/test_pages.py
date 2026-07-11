@@ -154,7 +154,7 @@ def test_settings_page_returns_200_html(client, db):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Se connecter avec Plex (SSO)" in resp.text
-    assert "Canal email (SMTP)" in resp.text
+    assert "Email (SMTP)" in resp.text
 
 
 def test_settings_page_disables_legacy_inline_template_script(client, db):
@@ -162,8 +162,7 @@ def test_settings_page_disables_legacy_inline_template_script(client, db):
     _seed(db)
     resp = client.get("/settings")
     assert resp.status_code == 200
-    assert '<script src="/static/js/settings.js?v=templates-20260708"></script>' in resp.text
-    assert '<script type="text/plain" id="legacy-template-script-disabled">' in resp.text
+    assert '<script src="/static/js/settings.js?v=conn-hub-20260710"></script>' in resp.text
     assert "<script>\n// ── Templates tab" not in resp.text
 
 
@@ -587,7 +586,7 @@ def test_setup_post_creates_account(client_no_auth, db):
         data={"username": "admin", "password": "secret123", "password_confirm": "secret123"},
     )
     assert resp.status_code == 302
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/setup/wizard?first=1"
     from app.models import Settings
 
     s = db.query(Settings).first()

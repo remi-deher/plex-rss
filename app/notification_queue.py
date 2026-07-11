@@ -14,22 +14,11 @@ Cycle de vie :
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 
 from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
-from .services.email_service import (
-    send_available_notification,
-    send_available_vf_notification,
-    send_available_vo_tracking_notification,
-    send_episode_track_notification,
-    send_failure_notification,
-    send_partially_available_notification,
-    send_request_notification,
-    send_vf_available_notification,
-    send_vo_only_notification,
-)
+from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
 from .services.notifications import (
     send_discord,
@@ -49,35 +38,48 @@ _worker_task: asyncio.Task | None = None
 _RETRY_DELAYS = [2, 5]  # secondes entre chaque tentative
 
 
+async def _send_request(settings, req, recipient, context, display_name):
+    await send_request_notification(settings, req, recipient, display_name)
+
+
+async def _send_available(settings, req, recipient, context, display_name):
+    context = context if isinstance(context, dict) else {}
+    await send_available_notification(
+        settings,
+        req,
+        recipient,
+        display_name,
+        scope=context.get("scope", "movie"),
+        language=context.get("language"),
+        is_upgrade=bool(context.get("is_upgrade")),
+        season_number=context.get("season_number"),
+        episode_number=context.get("episode_number"),
+    )
+
+
+async def _send_failed(settings, req, recipient, context, display_name):
+    context = context if isinstance(context, dict) else {"reason": str(context or "")}
+    await send_failure_notification(settings, req, recipient, context.get("reason", ""), display_name)
+
+
+# Catalogue réduit à 3 évènements réels (voir notification_catalog.py) : toutes les
+# variantes de disponibilité passent par "available" avec un contexte structuré
+# (scope/language/is_upgrade/season/episode), plutôt qu'une fonction d'envoi dédiée.
 EMAIL_SENDERS = {
-    "request": lambda settings, req, recipient, reason, display_name: send_request_notification(
-        settings, req, recipient, display_name
-    ),
-    "available": lambda settings, req, recipient, reason, display_name: send_available_notification(
-        settings, req, recipient, display_name
-    ),
-    "available_vf": lambda settings, req, recipient, reason, display_name: send_available_vf_notification(
-        settings, req, recipient, display_name
-    ),
-    "available_vo_tracking": lambda settings, req, recipient, reason, display_name: (
-        send_available_vo_tracking_notification(settings, req, recipient, display_name)
-    ),
-    "vo_only": lambda settings, req, recipient, reason, display_name: send_vo_only_notification(
-        settings, req, recipient, display_name, reason
-    ),
-    "vf_available": lambda settings, req, recipient, reason, display_name: send_vf_available_notification(
-        settings, req, recipient, display_name, reason
-    ),
-    "episode_track": lambda settings, req, recipient, reason, display_name: send_episode_track_notification(
-        settings, req, recipient, display_name, reason
-    ),
-    "partially_available": lambda settings, req, recipient, reason, display_name: send_partially_available_notification(
-        settings, req, recipient, reason, display_name
-    ),
-    "failed": lambda settings, req, recipient, reason, display_name: send_failure_notification(
-        settings, req, recipient, reason, display_name
-    ),
+    "request": _send_request,
+    "available": _send_available,
+    "failed": _send_failed,
 }
+
+
+def _normalize_event_context(event: str, context: dict | str | None) -> tuple[str, dict]:
+    if isinstance(context, dict):
+        normalized_context = dict(context)
+    else:
+        normalized_context = {"reason": context} if context else {}
+    if event == "failure":
+        return "failed", normalized_context
+    return event, normalized_context
 
 
 def _event_group(event: str) -> str:
@@ -94,18 +96,27 @@ def _push_allowed(settings: Settings, channel: str, event: str) -> bool:
     return bool(getattr(settings, f"{channel}_send_{_event_group(event)}", True))
 
 
-def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
+def enqueue(event: str, req_id: int, recipients: list[str], context: dict | str | None = None):
     """Empile une notification dans la queue (synchrone, sans await).
+
+    `context` porte les données structurées du jalon (scope/language/is_upgrade/
+    season_number/episode_number pour "available", reason pour "failed") — remplace
+    l'ancien texte libre `reason` reparsé par regex côté email_service.py. Sérialisé en
+    JSON dans la colonne `reason` (texte) de `PendingNotification`, pour éviter une
+    migration sur cette table de queue éphémère.
 
     Persiste d'abord la notification en base (`PendingNotification`) pour qu'elle
     survive à un crash/redémarrage entre l'empilement et son traitement par le worker
     (la queue asyncio en mémoire serait sinon vidée silencieusement). La ligne est
     supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
     """
+    event, context = _normalize_event_context(event, context)
     pending_id = None
     db = SessionLocal()
     try:
-        row = PendingNotification(event=event, req_id=req_id, recipients=json.dumps(recipients), reason=reason)
+        row = PendingNotification(
+            event=event, req_id=req_id, recipients=json.dumps(recipients), reason=json.dumps(context)
+        )
         db.add(row)
         db.commit()
         pending_id = row.id
@@ -113,7 +124,7 @@ def enqueue(event: str, req_id: int, recipients: list[str], reason: str = ""):
         logger.error(f"Impossible de persister la notification en attente [{event}] req#{req_id}: {e}")
     finally:
         db.close()
-    _queue.put_nowait((pending_id, event, req_id, recipients, reason))
+    _queue.put_nowait((pending_id, event, req_id, recipients, context))
 
 
 def _delete_pending(pending_id: int | None):
@@ -140,7 +151,13 @@ def _load_pending():
                 recipients = json.loads(row.recipients)
             except Exception:
                 recipients = []
-            _queue.put_nowait((row.id, row.event, row.req_id, recipients, row.reason or ""))
+            try:
+                context = json.loads(row.reason) if row.reason else {}
+                if not isinstance(context, dict):
+                    context = {}
+            except Exception:
+                context = {}
+            _queue.put_nowait((row.id, row.event, row.req_id, recipients, context))
         if rows:
             logger.info(f"{len(rows)} notification(s) en attente rechargée(s) après redémarrage")
     except Exception as e:
@@ -150,7 +167,7 @@ def _load_pending():
 
 
 async def _send_with_retry(
-    settings: Settings, req: MediaRequest, event: str, recipient: str, reason: str, display_name: str | None = None
+    settings: Settings, req: MediaRequest, event: str, recipient: str, context: dict, display_name: str | None = None
 ) -> tuple[bool, str | None]:
     """Tente d'envoyer un email avec retry automatique.
 
@@ -162,7 +179,7 @@ async def _send_with_retry(
         try:
             sender = EMAIL_SENDERS.get(event)
             if sender:
-                await sender(settings, req, recipient, reason, display_name)
+                await sender(settings, req, recipient, context, display_name)
             logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
             return True, None
         except Exception as e:
@@ -179,7 +196,8 @@ async def _send_with_retry(
     return False, error_msg
 
 
-async def _process(event: str, req_id: int, recipients: list[str], reason: str):
+async def _process(event: str, req_id: int, recipients: list[str], context: dict):
+    event, context = _normalize_event_context(event, context)
     db = SessionLocal()
     try:
         settings = db.query(Settings).first()
@@ -198,7 +216,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         # Envoi email à chaque destinataire avec retry automatique
         all_ok = True
         for recipient in recipients:
-            success, error_msg = await _send_with_retry(settings, req, event, recipient, reason, display_name)
+            success, error_msg = await _send_with_retry(settings, req, event, recipient, context, display_name)
             if not success:
                 all_ok = False
             db.add(
@@ -212,6 +230,11 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
                     success=success,
                     error_msg=error_msg,
                     req_id=req.id,
+                    scope=context.get("scope"),
+                    language=context.get("language"),
+                    is_upgrade=bool(context.get("is_upgrade")),
+                    season_number=context.get("season_number"),
+                    episode_number=context.get("episode_number"),
                 )
             )
 
@@ -220,7 +243,7 @@ async def _process(event: str, req_id: int, recipients: list[str], reason: str):
         if all_ok:
             for attr in event_mail_flags(event):
                 setattr(req, attr, True)
-            if event == "partially_available":
+            if event == "available" and context.get("scope") == "episode" and req.episodes_available_count is not None:
                 req.last_notified_episode_count = req.episodes_available_count
         db.commit()
 
@@ -251,9 +274,9 @@ async def _worker():
     logger.info("Notification worker démarré")
     while True:
         try:
-            pending_id, event, req_id, recipients, reason = await _queue.get()
+            pending_id, event, req_id, recipients, context = await _queue.get()
             try:
-                await _process(event, req_id, recipients, reason)
+                await _process(event, req_id, recipients, context)
             finally:
                 _delete_pending(pending_id)
         except asyncio.CancelledError:

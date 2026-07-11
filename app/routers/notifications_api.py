@@ -13,7 +13,6 @@ from ..serializers import format_datetime
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
-    add_email_footer,
     render_subject,
     render_template,
 )
@@ -205,7 +204,7 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
     else:
         html = header_html + html
 
-    return HTMLResponse(content=add_email_footer(html))
+    return HTMLResponse(content=html)
 
 
 @router.get("/notifications/log")
@@ -248,5 +247,20 @@ async def resend_notification(log_id: int, db: Session = Depends(get_db)):
     if not log.req_id:
         raise HTTPException(400, "req_id manquant sur cette entrée de log (envoi antérieur à la v2.1)")
     req = get_or_404(db, MediaRequest, log.req_id, "Demande originale introuvable")
-    enqueue_notification(log.event, req.id, [log.recipient])
-    return {"status": "queued", "recipient": log.recipient, "event": log.event}
+    # Les anciens évènements de disponibilité (available_vf, vo_only, vf_available,
+    # episode_track, partially_available, available_vo_tracking — retirés du catalogue,
+    # voir notification_catalog.py) sont tous fusionnés dans "available" aujourd'hui.
+    event = log.event if log.event in ("request", "available", "failed") else "available"
+    context = (
+        {
+            "scope": log.scope,
+            "language": log.language,
+            "is_upgrade": log.is_upgrade,
+            "season_number": log.season_number,
+            "episode_number": log.episode_number,
+        }
+        if event == "available"
+        else None
+    )
+    enqueue_notification(event, req.id, [log.recipient], context)
+    return {"status": "queued", "recipient": log.recipient, "event": event}

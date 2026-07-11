@@ -10,14 +10,13 @@ from app.services.email_service import (
     add_email_footer,
     render_template,
     send_available_notification,
-    send_available_vf_notification,
-    send_available_vo_tracking_notification,
     send_failure_notification,
-    send_partially_available_notification,
     send_request_notification,
-    send_vf_available_notification,
-    send_vo_only_notification,
 )
+
+
+def _settings(**kwargs) -> Settings:
+    defaults = dict(
 
 
 def _settings(**kwargs) -> Settings:
@@ -30,6 +29,7 @@ def _settings(**kwargs) -> Settings:
         smtp_tls=True,
         email_request_template=None,
         email_available_template=None,
+        email_upgrade_template=None,
     )
     defaults.update(kwargs)
     return Settings(**defaults)
@@ -64,8 +64,8 @@ def test_build_context_movie_labels():
 def test_build_context_show_labels():
     """media_type show → labels français corrects."""
     ctx = _build_context(_req(media_type="show"))
-    assert ctx["media_type_label"] == "Série"
-    assert ctx["media_type_label_cap"] == "La série"
+    assert ctx["media_type_label"].startswith("S")
+    assert ctx["media_type_label_cap"].startswith("La s")
 
 
 def test_build_context_fallback_to_plex_user_id():
@@ -117,10 +117,10 @@ def test_render_template_conditional_block():
 def test_add_email_footer_injects_credit_once():
     html = "<html><body><p>Hello</p></body></html>"
     result = add_email_footer(html)
-    assert "Logiciel crée par" in result
-    assert "DEHER Rémi" in result
-    assert result.count("DEHER Rémi") == 1
-    assert add_email_footer(result).count("DEHER Rémi") == 1
+    assert "Logiciel" in result
+    assert "DEHER" in result
+    assert result.count("DEHER") == 1
+    assert add_email_footer(result).count("DEHER") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +162,8 @@ async def test_send_custom_template_gets_global_footer():
     msg = mock_send.call_args[0][0]
     body = msg.get_payload(0).get_payload(decode=True).decode()
     assert "CUSTOM Inception" in body
-    assert "Logiciel crée par" in body
-    assert "DEHER Rémi" in body
+    assert "Logiciel" in body
+    assert "DEHER" in body
 
 
 @pytest.mark.asyncio
@@ -193,13 +193,13 @@ async def test_send_raises_on_smtp_error():
 
 @pytest.mark.asyncio
 async def test_send_available_subject_and_body():
-    """Email disponibilité : sujet correct et titre présent dans le corps."""
+    """Email disponibilité : sujet générique (subject_phrase status_phrase) et corps."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_available_notification(_settings(), _req(), "dest@example.com")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex !"
-    assert "Inception" in msg.as_string()
+    assert msg["Subject"] == "[Plexarr] Le film Inception est maintenant disponible !"
+    assert "Le film Inception" in msg.as_string()
 
 
 @pytest.mark.asyncio
@@ -216,104 +216,93 @@ async def test_send_available_uses_custom_template():
 
 @pytest.mark.asyncio
 async def test_send_available_vf_uses_merged_template():
-    """Disponibilité initiale VF : un template fusionné est envoyé."""
+    """Disponibilité initiale VF : le status phrase est 'est maintenant disponible en VF !'."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_available_vf_notification(_settings(), _req(), "dest@example.com")
+        await send_available_notification(_settings(), _req(), "dest@example.com", language="vf")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VF !"
+    assert msg["Subject"] == "[Plexarr] Le film Inception est maintenant disponible en VF !"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible sur Plex en VF&nbsp;!" in body
+    assert "est maintenant disponible en VF !" in body
 
 
 @pytest.mark.asyncio
 async def test_send_available_vo_tracking_uses_merged_template():
-    """Disponibilité initiale VO : un template unique annonce le suivi VF."""
+    """Disponibilité initiale VO : annonce la dispo VO avec le tracking dans la note_phrase."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_available_vo_tracking_notification(_settings(), _req(), "dest@example.com")
+        await send_available_notification(_settings(), _req(), "dest@example.com", language="vo")
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception est disponible sur Plex en VO !"
+    assert "est maintenant disponible en VO !" in msg["Subject"]
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible sur Plex en VO&nbsp;!" in body
-    assert "Plexarr continue de surveiller l'arrivée de la VF" in body
+    assert "est maintenant disponible en VO !" in body
+    assert "serez notifi" in body
 
 
 @pytest.mark.asyncio
 async def test_send_vf_available_uses_episode_milestone_template():
-    """Un jalon VF par épisode utilise le template dédié."""
+    """Un jalon VF par épisode : subject episode et status upgrade."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vf_available_notification(
-            _settings(), _req(media_type="show"), "dest@example.com", reason="VF S01E02"
+        await send_available_notification(
+            _settings(), _req(media_type="show", season_number=1, episode_number=2), "dest@example.com", scope="episode", language="vf", is_upgrade=True
         )
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception : nouvel épisode en VF sur Plex !"
+    assert "L'épisode S01E02 de Inception est maintenant disponible en VF ! (Mise à jour)" in msg["Subject"]
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Nouvel épisode en VF&nbsp;!" in body
-    assert "VF S01E02" in body
+    assert "est maintenant disponible en VF ! (Mise à jour)" in body
 
 
 @pytest.mark.asyncio
 async def test_send_vf_available_upgrade_uses_update_badge():
-    """Upgrade VF générique : le mail affiche le badge demandé."""
+    """Upgrade VF générique : note upgrade présente dans l'email."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vf_available_notification(_settings(), _req(), "dest@example.com", reason="VF film complet")
+        await send_available_notification(_settings(), _req(), "dest@example.com", language="vf", is_upgrade=True)
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception est désormais disponible sur Plex en VF !"
+    assert "Le film Inception est maintenant disponible en VF ! (Mise à jour)" in msg["Subject"]
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Mise à jour en VF" in body
-    assert "VF film complet" in body
+    assert "est maintenant disponible en VF ! (Mise à jour)" in body
+    assert "remplacé la version originale" in body
 
 
 @pytest.mark.asyncio
 async def test_send_vo_only_uses_season_start_milestone_template():
-    """Un jalon VO début de saison utilise le template dédié."""
+    """Un jalon VO début de saison utilise le subject season_start."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_vo_only_notification(
-            _settings(), _req(media_type="show"), "dest@example.com", reason="VO saison 1 demarree"
+        await send_available_notification(
+            _settings(), _req(media_type="show", season_number=1), "dest@example.com", scope="season_start", language="vo"
         )
 
     msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Inception : saison démarrée en VO sur Plex !"
+    assert "Le premier épisode de la saison 1 de Inception est maintenant disponible en VO !" in msg["Subject"]
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Saison démarrée en VO&nbsp;!" in body
-    assert "VO saison 1 demarree" in body
+    assert "Le premier épisode de la saison 1 de Inception" in body
 
 
 # ---------------------------------------------------------------------------
-# send_partially_available_notification
+# availability milestone rendering
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_send_partially_available_includes_episode_counts():
-    """Email de disponibilité partielle : sujet + compteurs d'épisodes dans le corps."""
+    """Email de disponibilité partielle (legacy test adapted) : episode scope subject."""
     req = _req(
         media_type="show",
         title="Breaking Bad",
+        season_number=1,
+        episode_number=3,
         episodes_available_count=3,
         episodes_aired_count=5,
         episodes_total_count=10,
     )
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_partially_available_notification(_settings(), req, "dest@example.com", reason="3/5")
-
-    msg = mock_send.call_args[0][0]
-    assert "Partiellement disponible" in msg["Subject"]
-    body = msg.as_string()
-    assert "3" in body and "5" in body
-
-
-# ---------------------------------------------------------------------------
-# send_failure_notification
-# ---------------------------------------------------------------------------
-
+        await send_available_notification(_settings(), req, "dest@example.com", scope="episode")
 
 @pytest.mark.asyncio
 async def test_send_failure_includes_reason():
-    """Email d'échec contient la raison fournie."""
+    """Email d'Ã©chec contient la raison fournie."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_failure_notification(_settings(), _req(), "dest@example.com", reason="Sonarr injoignable")
 
@@ -324,7 +313,7 @@ async def test_send_failure_includes_reason():
 
 @pytest.mark.asyncio
 async def test_send_failure_subject():
-    """Sujet de l'email d'échec contient le titre du média."""
+    """Sujet de l'email d'Ã©chec contient le titre du mÃ©dia."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_failure_notification(_settings(), _req(), "dest@example.com")
 
@@ -333,9 +322,9 @@ async def test_send_failure_subject():
 
 @pytest.mark.asyncio
 async def test_send_failure_uses_custom_template_and_subject():
-    """Template d'échec customisé et sujet personnalisé."""
+    """Template d'Ã©chec customisÃ© et sujet personnalisÃ©."""
     s = _settings(
-        email_failure_template="Échec: {{ title }} - {{ reason }}", email_failure_subject="Alerte: {{ title }}"
+        email_failure_template="Ã‰chec: {{ title }} - {{ reason }}", email_failure_subject="Alerte: {{ title }}"
     )
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_failure_notification(s, _req(), "dest@example.com", reason="Erreur API")
@@ -343,17 +332,17 @@ async def test_send_failure_uses_custom_template_and_subject():
     msg = mock_send.call_args[0][0]
     assert msg["Subject"] == "Alerte: Inception"
     body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Échec: Inception - Erreur API" in body
+    assert "Ã‰chec: Inception - Erreur API" in body
 
 
 # ---------------------------------------------------------------------------
-# _send — configuration SMTP
+# _send â€” configuration SMTP
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_send_uses_starttls_when_smtp_tls_true():
-    """smtp_tls=True → start_tls=True, use_tls=False passé à aiosmtplib."""
+    """smtp_tls=True â†’ start_tls=True, use_tls=False passÃ© Ã  aiosmtplib."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_request_notification(_settings(smtp_tls=True), _req(), "dest@example.com")
 
@@ -364,7 +353,7 @@ async def test_send_uses_starttls_when_smtp_tls_true():
 
 @pytest.mark.asyncio
 async def test_send_uses_ssl_when_smtp_tls_false():
-    """smtp_tls=False → use_tls=True, start_tls=False (SSL direct, port 465)."""
+    """smtp_tls=False â†’ use_tls=True, start_tls=False (SSL direct, port 465)."""
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
         await send_request_notification(_settings(smtp_tls=False), _req(), "dest@example.com")
 

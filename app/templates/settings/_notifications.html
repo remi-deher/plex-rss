@@ -395,126 +395,36 @@
           <div id="vf-rules-fields">
 
           <div class="settings-section-title">Films</div>
-          <div class="row g-3 mb-3">
+          <div class="row g-3 mb-4">
             <div class="col-12">
-              <div class="d-flex flex-wrap gap-2" role="group">
-                <input type="radio" class="btn-check" name="movie_tracking_mode" id="movie-tracking-mode-language" value="language"
-                       {% if (s.movie_tracking_mode or 'language') == 'language' %}checked{% endif %} onchange="toggleMovieTrackingMode()">
-                <label class="btn btn-outline-warning btn-sm" for="movie-tracking-mode-language">
-                  <i class="bi bi-translate me-1"></i>Par langue (VF / VO)
-                </label>
-                <input type="radio" class="btn-check" name="movie_tracking_mode" id="movie-tracking-mode-classic" value="classic"
-                       {% if s.movie_tracking_mode == 'classic' %}checked{% endif %} onchange="toggleMovieTrackingMode()">
-                <label class="btn btn-outline-warning btn-sm" for="movie-tracking-mode-classic">
-                  <i class="bi bi-envelope-check me-1"></i>Classique (mail générique « disponible »)
-                </label>
-              </div>
-            </div>
-          </div>
-          <div id="movie-tracking-mode-language-fields" class="row g-3 mb-4">
-            <div class="col-md-3">
-              <div class="form-check form-switch mt-4">
-                <input class="form-check-input" type="checkbox" name="movie_vo_notify" id="movie_vo_notify" {% if s.movie_vo_notify is not false %}checked{% endif %}>
-                <label class="form-check-label" for="movie_vo_notify">Film disponible en VO</label>
-              </div>
-            </div>
-            <div class="col-md-3">
-              <div class="form-check form-switch mt-4">
-                <input class="form-check-input" type="checkbox" name="movie_vf_notify" id="movie_vf_notify" {% if s.movie_vf_notify is not false %}checked{% endif %}>
-                <label class="form-check-label" for="movie_vf_notify">Film upgrade VF</label>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="movie_notify_language" id="movie_notify_language" {% if s.movie_notify_language is not false %}checked{% endif %}>
+                <label class="form-check-label" for="movie_notify_language">Suivre VO/VF (sinon mail générique « disponible »)</label>
               </div>
             </div>
           </div>
 
           <div class="settings-section-title">Séries</div>
-          <div class="row g-3 mb-3">
-            <div class="col-12">
-              <div class="d-flex flex-wrap gap-2" role="group">
-                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-language" value="language"
-                       {% if (s.series_tracking_mode or 'language') == 'language' %}checked{% endif %} onchange="toggleTrackingMode()">
-                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-language">
-                  <i class="bi bi-translate me-1"></i>Par langue (VF / VO)
-                </label>
-                <input type="radio" class="btn-check" name="series_tracking_mode" id="tracking-mode-simple" value="simple"
-                       {% if s.series_tracking_mode == 'simple' %}checked{% endif %} onchange="toggleTrackingMode()">
-                <label class="btn btn-outline-warning btn-sm" for="tracking-mode-simple">
-                  <i class="bi bi-collection-play me-1"></i>Simple (épisodes, sans distinction de langue)
-                </label>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-4">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="series_notify_language" id="series_notify_language" {% if s.series_notify_language is not false %}checked{% endif %}>
+                <label class="form-check-label" for="series_notify_language">Suivre VO/VF</label>
               </div>
-              <div class="form-text">
-                Mutuellement exclusifs pour une série donnée : « Par langue » prévient de l'arrivée
-                de la VO puis de la VF ; « Simple » prévient à chaque nouvel épisode/saison, sans
-                se soucier de la langue.
-              </div>
+              <div class="form-text">Désactivé : suivi des épisodes/saisons sans distinction de langue.</div>
             </div>
-          </div>
-
-          <div id="tracking-mode-language-fields">
-            <div class="row g-3">
-              <div class="col-md-3">
-                <label class="form-label">Series VO</label>
-                <select class="form-select" name="series_vo_notify_mode">
-                  {% set vo_mode = s.series_vo_notify_mode or 'season_start_and_complete' %}
-                  <option value="every_episode" {% if vo_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
-                  <option value="season_complete" {% if vo_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
-                  <option value="series_complete" {% if vo_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
-                  <option value="season_start_and_complete" {% if vo_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
-                </select>
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Series VF</label>
-                <select class="form-select" name="series_vf_notify_mode">
-                  {% set vf_mode = s.series_vf_notify_mode or 'season_start_and_complete' %}
-                  <option value="every_episode" {% if vf_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
-                  <option value="season_complete" {% if vf_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
-                  <option value="series_complete" {% if vf_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
-                  <option value="season_start_and_complete" {% if vf_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div id="tracking-mode-simple-fields" style="display:none">
-            <div class="row g-3">
-              <div class="col-md-4">
-                <label class="form-label">Fréquence de suivi</label>
-                <select class="form-select" name="series_episode_notify_mode">
-                  {% set ep_mode = s.series_episode_notify_mode or 'season_start_and_complete' %}
-                  <option value="every_episode" {% if ep_mode == 'every_episode' %}selected{% endif %}>Chaque episode</option>
-                  <option value="season_complete" {% if ep_mode == 'season_complete' %}selected{% endif %}>Saison complete</option>
-                  <option value="series_complete" {% if ep_mode == 'series_complete' %}selected{% endif %}>Serie complete</option>
-                  <option value="season_start_and_complete" {% if ep_mode == 'season_start_and_complete' %}selected{% endif %}>Premier episode + saison complete</option>
-                </select>
-                <div class="form-text">Nécessite que la bibliothèque Plex soit configurée dans l'onglet VFF (analyse épisode par épisode).</div>
-              </div>
+            <div class="col-md-5">
+              <label class="form-label">Fréquence des notifications</label>
+              <select class="form-select" name="series_notify_granularity">
+                {% set granularity = s.series_notify_granularity or 'jalons' %}
+                <option value="minimal" {% if granularity == 'minimal' %}selected{% endif %}>Minimal (une seule notif à la disponibilité finale)</option>
+                <option value="jalons" {% if granularity == 'jalons' %}selected{% endif %}>Jalons (début/fin de saison)</option>
+                <option value="tout" {% if granularity == 'tout' %}selected{% endif %}>Tout (chaque épisode)</option>
+              </select>
             </div>
           </div>
 
           </div><!-- /vf-rules-fields -->
-
-          <hr class="my-4">
-
-          <div id="partial-availability-card">
-            <div class="settings-section-title">Disponibilité partielle (séries en cours de diffusion)</div>
-            <p class="text-muted small mb-3">
-              Une série en cours de diffusion peut être « partiellement disponible » (certains épisodes
-              téléchargés, d'autres pas encore diffusés).
-            </p>
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label">Fréquence des notifications</label>
-                <select class="form-select" name="partial_notify_frequency">
-                  <option value="milestones" {% if (s.partial_notify_frequency or 'milestones') == 'milestones' %}selected{% endif %}>
-                    Étapes clés uniquement (1ère dispo partielle + dispo complète)
-                  </option>
-                  <option value="every_episode" {% if s.partial_notify_frequency == 'every_episode' %}selected{% endif %}>
-                    À chaque nouvel épisode disponible
-                  </option>
-                </select>
-                <div class="form-text">Sans effet en mode de suivi série « Simple » (couvert directement par ce mode).</div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 

@@ -1,0 +1,112 @@
+/* Page /templates - editeur de modeles d'emails */
+
+.custom-pills .nav-link { color: #ccc; }
+.custom-pills .nav-link.active { background-color: #e5a00d; color: #fff; }
+
+.tmpl-mode-switch .btn.active {
+  background-color: #e5a00d;
+  border-color: #e5a00d;
+  color: #fff;
+}
+
+.tmpl-var-item { display: inline-block; padding: 4px 10px; margin: 2px; background: #2a2a2a; border-radius: 4px; cursor: pointer; border: 1px solid #444; font-size: 0.85rem; }
+.tmpl-var-item:hover { background: #333; border-color: #e5a00d; }
+.tmpl-var-item code { color: #e5a00d; }
+
+.tmpl-textarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.tmpl-shared-inline {
+  background: #181818;
+  border: 1px dashed #3a3a3a;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.tmpl-preview-frame-wrap { min-height: 70vh; }
+.tmpl-preview-frame-wrap iframe { width: 100%; height: 100%; min-height: 70vh; border: none; background: #fff; }
+
+/* Mockup de la coquille email, par onglet */
+.tmpl-mockup {
+  border: 1px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #141414;
+}
+
+.tmpl-mockup-header {
+  background: #1a1a1a;
+  padding: 8px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8rem;
+}
+.tmpl-mockup-brand { color: #e5a00d; font-weight: bold; letter-spacing: 1px; }
+.tmpl-mockup-subtitle { color: #666; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .5px; }
+
+.tmpl-mockup-banner {
+  padding: 16px 14px;
+  text-align: center;
+  transition: background-color .15s ease;
+}
+.tmpl-banner-badge { color: #fff; font-size: 0.7rem; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; }
+.tmpl-banner-headline { color: #fff; font-size: 1.15rem; font-weight: bold; margin-top: 4px; }
+
+.tmpl-banner-controls {
+  padding: 10px 14px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  align-items: end;
+}
+.tmpl-banner-controls .form-control-color { width: 3rem; height: calc(1.5em + .5rem + 2px); padding: 2px; }
+
+.tmpl-mockup-fixed {
+  padding: 14px;
+  background: #171717;
+  opacity: 0.82;
+  border-bottom: 1px solid #2a2a2a;
+}
+.tmpl-mockup-fixed-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 8px;
+}
+.tmpl-mockup-poster { width: 70px; height: auto; border-radius: 6px; border: 1px solid #444; flex-shrink: 0; }
+.tmpl-mockup-title { color: #fff; font-size: 1rem; font-weight: bold; }
+.tmpl-mockup-tag {
+  display: inline-block;
+  background: #2a2a2a;
+  color: #bbb;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin: 0 4px 4px 0;
+}
+.tmpl-mockup-tag-accent { background: #242424; }
+.tmpl-mockup-synopsis { color: #999; }
+
+.tmpl-content-box {
+  margin: 14px;
+  padding: 10px 12px;
+  background: #1c1c1c;
+  border-left: 3px solid #e5a00d;
+  border-radius: 2px;
+  transition: border-color .15s ease;
+}
+.tmpl-content-box .tmpl-textarea { min-height: 160px; }
+
+.tmpl-mockup-footer-note {
+  padding: 10px 14px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #666;
+  border-top: 1px solid #2a2a2a;
+  font-style: italic;
+}

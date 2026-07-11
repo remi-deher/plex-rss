@@ -56,11 +56,7 @@
       <i class="bi bi-circle-fill text-warning tab-warn-dot d-none" id="warn-notifications" title="Sections incomplètes"></i>
     </button>
   </li>
-  <li class="nav-item" role="presentation">
-    <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-templates" type="button" role="tab" id="tab-btn-templates" onclick="onTemplatesTabShow()">
-      <i class="bi bi-envelope-paper"></i> Templates
-    </button>
-  </li>
+  
   <li class="nav-item" role="presentation">
     <button class="nav-link d-flex align-items-center gap-2" data-bs-toggle="tab" data-bs-target="#tab-avance" type="button" role="tab">
       <i class="bi bi-gear"></i> Avancé
@@ -98,7 +94,7 @@
   
   {% include "settings/_connexions.html" %}
   {% include "settings/_notifications.html" %}
-  {% include "settings/_templates.html" %}
+  
   {% include "settings/_avance.html" %}
   {% include "settings/_vff.html" %}
   {% include "settings/_conflits.html" %}
@@ -311,12 +307,7 @@
 <script src="/static/js/settings.js?v=conn-hub-20260710"></script>
 
 <!-- CodeMirror pour l'onglet Templates -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/theme/monokai.min.css">
-<style>
-#tab-templates .CodeMirror { height: 100% !important; font-family: var(--bs-font-monospace); font-size: 13px; }
-</style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/xml/xml.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>

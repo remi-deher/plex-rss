@@ -13,13 +13,11 @@ from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestSt
 from ..utils import now_utc, now_utc_naive
 from . import radarr, sonarr, vff
 from .notification_orchestrator import (
-    _handle_show_progress_notification,
     _notify,
-    _notify_vf,
-    _queue_episode_progress_notifications,
-    _queue_language_progress_notifications,
-    _resolve_movie_tracking_mode,
-    _resolve_series_tracking_mode,
+    _queue_milestone,
+    _queue_show_milestones,
+    _resolve_movie_notify_language,
+    _resolve_series_notify_language,
 )
 from .radarr import search_movie
 from .sonarr import get_season_aired_episode_counts, search_series
@@ -385,6 +383,42 @@ async def trigger_plex_library_refresh(
         logger.warning(f"Déclenchement du scan Plex échoué : {e}")
 
 
+def _queue_availability_progress(
+    settings: Settings,
+    req: MediaRequest,
+    db: Session,
+    *,
+    language: str,
+    episode_status: dict | None = None,
+    has_vf_full: bool = False,
+    season_aired_counts: dict[int, int] | None = None,
+) -> int:
+    """Point d'entrée unique pour les notifications de progression VO/VF (films et
+    séries) — remplace l'ancien `_queue_language_progress_notifications`. Respecte le
+    mode "classic" (movie_notify_language/series_notify_language désactivé) et le suivi
+    "sans langue" des séries (délégué à `check_episode_tracking`, jamais les deux à la
+    fois pour éviter un double suivi du même évènement)."""
+    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    if req.media_type != "show":
+        if not _resolve_movie_notify_language(settings, user_obj):
+            if not req.available_mail_sent:
+                _notify("available", settings, req, db)
+            return 0
+        return int(_queue_milestone(settings, req, db, scope="movie", language=language))
+
+    if not _resolve_series_notify_language(settings, user_obj):
+        return 0
+    return _queue_show_milestones(
+        settings,
+        req,
+        db,
+        language=language,
+        episode_status=episode_status,
+        has_vf_full=has_vf_full,
+        season_aired_counts=season_aired_counts,
+    )
+
+
 def _apply_vf_result(
     req: MediaRequest,
     has_vf: bool,
@@ -423,11 +457,11 @@ def _apply_vf_result(
             # Transition VO → VF : on prévient
             req.vf_available_at = now
             db.commit()
-            vf_delta = _queue_language_progress_notifications(
-                "vf",
+            vf_delta = _queue_availability_progress(
                 settings,
                 req,
                 db,
+                language="vf",
                 episode_status=episode_status,
                 has_vf_full=True,
                 season_aired_counts=season_aired_counts,
@@ -449,11 +483,11 @@ def _apply_vf_result(
                 # pour éviter tout doublon « available » ultérieur.
                 req.available_mail_sent = True
                 db.commit()
-                vo_delta = _queue_language_progress_notifications(
-                    "vo",
+                vo_delta = _queue_availability_progress(
                     settings,
                     req,
                     db,
+                    language="vo",
                     episode_status=episode_status,
                     has_vf_full=False,
                     season_aired_counts=season_aired_counts,
@@ -465,11 +499,11 @@ def _apply_vf_result(
             trigger_search = bool(settings.vff_auto_search)
         else:
             db.commit()
-            vf_delta = _queue_language_progress_notifications(
-                "vf",
+            vf_delta = _queue_availability_progress(
                 settings,
                 req,
                 db,
+                language="vf",
                 episode_status=episode_status,
                 has_vf_full=False,
                 season_aired_counts=season_aired_counts,
@@ -495,13 +529,12 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         return False
 
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    series_no_language = False
     if req.media_type == "movie":
-        if _resolve_movie_tracking_mode(settings, user_obj) == "classic":
+        if not _resolve_movie_notify_language(settings, user_obj):
             return False
     else:
-        tracking_mode = _resolve_series_tracking_mode(settings, user_obj)
-        if tracking_mode == "classic":
-            return False
+        series_no_language = not _resolve_series_notify_language(settings, user_obj)
 
     libs = _parse_vff_libraries(settings)
     if not libs:
@@ -538,8 +571,8 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         _persist_episode_status(db, "request", req.id, episode_status, now)
         db.commit()
 
-    if req.media_type == "show" and _resolve_series_tracking_mode(settings, user_obj) == "simple":
-        _queue_episode_progress_notifications(settings, req, db, episode_status)
+    if req.media_type == "show" and series_no_language:
+        _queue_show_milestones(settings, req, db, language=None, episode_status=episode_status)
         return True
 
     season_aired_counts = None
@@ -847,11 +880,11 @@ async def check_new_vf_availability() -> None:
 
 
 async def check_episode_tracking():
-    """Job de suivi épisode/saison en mode "simple" (voir `_resolve_series_tracking_mode`).
+    """Job de suivi épisode/saison "sans langue" (voir `_resolve_series_notify_language`).
 
     Contrairement à `check_vf_statuses`, ne dépend pas de `settings.vff_enabled` : seules
-    les demandes dont le mode de suivi résolu (global ou par utilisateur) vaut "simple"
-    sont scannées. Réutilise le même scanner Plex (`_scan_vf_blocking`) — la présence
+    les demandes dont `series_notify_language` résolu (global ou par utilisateur) vaut
+    False sont scannées. Réutilise le même scanner Plex (`_scan_vf_blocking`) — la présence
     d'un épisode dans `episode_status` (retourné par le scan, indépendamment de sa valeur
     has_vf) suffit à prouver sa présence dans la bibliothèque Plex, langue non prise en
     compte ici. Les jalons sont dédupliqués via `NotificationMilestone` (direction="simple"),
@@ -880,7 +913,7 @@ async def check_episode_tracking():
             episode_scan_state["status"] = "idle"
             return
 
-        global_simple = _resolve_series_tracking_mode(settings, None) == "simple"
+        global_no_language = not _resolve_series_notify_language(settings, None)
         candidates_q = (
             db.query(MediaRequest)
             .filter(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
@@ -888,13 +921,13 @@ async def check_episode_tracking():
         )
         users_by_id = {u.plex_user_id: u for u in db.query(PlexUser).all()}
 
-        def _wants_simple(req: MediaRequest) -> bool:
+        def _wants_no_language(req: MediaRequest) -> bool:
             user_obj = users_by_id.get(req.plex_user_id)
-            if user_obj and user_obj.series_tracking_mode:
-                return user_obj.series_tracking_mode == "simple"
-            return global_simple
+            if user_obj and user_obj.series_notify_language is not None:
+                return not user_obj.series_notify_language
+            return global_no_language
 
-        candidates_q = [r for r in candidates_q if _wants_simple(r)]
+        candidates_q = [r for r in candidates_q if _wants_no_language(r)]
         if not candidates_q:
             episode_scan_state["status"] = "idle"
             episode_scan_state["finished_at"] = now_utc().isoformat()
@@ -932,8 +965,13 @@ async def check_episode_tracking():
             if episode_status:
                 _persist_episode_status(db, "request", req.id, episode_status, now)
                 db.commit()
-            notified += _queue_episode_progress_notifications(
-                settings, req, db, episode_status, season_aired_counts=season_counts_by_req_id.get(req.id)
+            notified += _queue_show_milestones(
+                settings,
+                req,
+                db,
+                language=None,
+                episode_status=episode_status,
+                season_aired_counts=season_counts_by_req_id.get(req.id),
             )
 
         logger.info(f"Suivi épisode : analyse terminée ({notified} notification(s) déclenchée(s))")

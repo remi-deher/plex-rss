@@ -266,77 +266,30 @@
 
               <div class="row g-2 mb-3">
                 <div class="col-md-6">
-                  <label class="form-label small mb-1">Mode de suivi des films</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieTrackingMode" onchange="onMovieTrackingModeChange()">
-                    <option value="">Par langue (VF / VO) — reglage par defaut</option>
-                    <option value="classic">Classique (pas de distinction VO/VF)</option>
-                  </select>
-                </div>
-                <div class="col-md-6" id="fMovieVoNotifyWrap">
-                  <label class="form-label small mb-1">Films VO</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVoNotify">
-                    <option value="">Reglage global</option>
-                    <option value="true">Notifier</option>
-                    <option value="false">Ne pas notifier</option>
-                  </select>
-                </div>
-                <div class="col-md-6" id="fMovieVfNotifyWrap">
-                  <label class="form-label small mb-1">Films upgrade VF</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieVfNotify">
-                    <option value="">Reglage global</option>
-                    <option value="true">Notifier</option>
-                    <option value="false">Ne pas notifier</option>
+                  <label class="form-label small mb-1">Films — suivi VO/VF</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fMovieNotifyLanguage">
+                    <option value="">Réglage global</option>
+                    <option value="true">Suivre VO/VF</option>
+                    <option value="false">Classique (mail générique)</option>
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label small mb-1">Mode de suivi des series</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesTrackingMode" onchange="onSeriesTrackingModeChange()">
-                    <option value="">Reglage global</option>
-                    <option value="language">Par langue (VF / VO)</option>
-                    <option value="simple">Simple (episodes, sans distinction de langue)</option>
-                    <option value="classic">Classique (pas de distinction VO/VF)</option>
+                  <label class="form-label small mb-1">Séries — suivi VO/VF</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesNotifyLanguage">
+                    <option value="">Réglage global</option>
+                    <option value="true">Suivre VO/VF</option>
+                    <option value="false">Sans distinction de langue</option>
                   </select>
                 </div>
-                <div class="col-md-6" id="fSeriesEpisodeNotifyModeWrap" style="display:none">
-                  <label class="form-label small mb-1">Frequence de suivi (mode simple)</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesEpisodeNotifyMode">
-                    <option value="">Reglage global</option>
-                    <option value="every_episode">Chaque episode</option>
-                    <option value="season_complete">Saison complete</option>
-                    <option value="series_complete">Serie complete</option>
-                    <option value="season_start_and_complete">Premier episode + saison complete</option>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Séries — fréquence des notifications</label>
+                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesNotifyGranularity">
+                    <option value="">Réglage global</option>
+                    <option value="minimal">Minimal (disponibilité finale uniquement)</option>
+                    <option value="jalons">Jalons (début/fin de saison)</option>
+                    <option value="tout">Tout (chaque épisode)</option>
                   </select>
                 </div>
-                <div class="col-md-6" id="fSeriesVoNotifyModeWrap">
-                  <label class="form-label small mb-1">Series VO</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVoNotifyMode">
-                    <option value="">Reglage global</option>
-                    <option value="every_episode">Chaque episode</option>
-                    <option value="season_complete">Saison complete</option>
-                    <option value="series_complete">Serie complete</option>
-                    <option value="season_start_and_complete">Premier episode + saison complete</option>
-                  </select>
-                </div>
-                <div class="col-md-6" id="fSeriesVfNotifyModeWrap">
-                  <label class="form-label small mb-1">Series VF</label>
-                  <select class="form-select form-select-sm bg-dark text-light border-secondary" id="fSeriesVfNotifyMode">
-                    <option value="">Reglage global</option>
-                    <option value="every_episode">Chaque episode</option>
-                    <option value="season_complete">Saison complete</option>
-                    <option value="series_complete">Serie complete</option>
-                    <option value="season_start_and_complete">Premier episode + saison complete</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="mb-3" id="fPartialNotifyFrequencyWrap">
-                <label class="form-label small mb-1"><i class="bi bi-hourglass-split me-1"></i>Disponibilité partielle (séries en diffusion)</label>
-                <select class="form-select bg-dark text-light border-secondary" id="fPartialNotifyFrequency">
-                  <option value="">Réglage global par défaut</option>
-                  <option value="milestones">Étapes clés uniquement (1ère dispo partielle + dispo complète)</option>
-                  <option value="every_episode">À chaque nouvel épisode disponible</option>
-                </select>
-                <div class="form-text">Sans effet en mode de suivi série « Simple » (couvert directement par ce mode).</div>
               </div>
             </div><!-- /vf-user-rules -->
 
@@ -700,23 +653,6 @@ async function loadSeerUsers() {
 
 function escHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
 
-function onSeriesTrackingModeChange() {
-  const mode = document.getElementById('fSeriesTrackingMode').value;
-  const simple = mode === 'simple';
-  const language = mode === '' || mode === 'language';
-  document.getElementById('fSeriesEpisodeNotifyModeWrap').style.display = simple ? '' : 'none';
-  document.getElementById('fSeriesVoNotifyModeWrap').style.display = language ? '' : 'none';
-  document.getElementById('fSeriesVfNotifyModeWrap').style.display = language ? '' : 'none';
-  // Couvert directement par le mode Simple (nouvel épisode/saison depuis Plex) : redondant sinon.
-  document.getElementById('fPartialNotifyFrequencyWrap').classList.toggle('d-none', simple);
-}
-
-function onMovieTrackingModeChange() {
-  const classic = document.getElementById('fMovieTrackingMode').value === 'classic';
-  document.getElementById('fMovieVoNotifyWrap').style.display = classic ? 'none' : '';
-  document.getElementById('fMovieVfNotifyWrap').style.display = classic ? 'none' : '';
-}
-
 // Les règles VO/VF/amélioration ne servent à rien si l'utilisateur ne reçoit pas
 // de notification de disponibilité (n'afficher que si pertinent).
 function onNotifyAvailableChange() {
@@ -753,16 +689,9 @@ function _setFields(u) {
   document.getElementById('fNotifyVfMovie').checked = u.notify_vf_movie !== false;
   document.getElementById('fNotifyVfSeries').checked = u.notify_vf_series !== false;
   document.getElementById('fNotifyVfAnime').checked = !!u.notify_vf_anime;
-  setNullableBoolSelect('fMovieVoNotify', u.movie_vo_notify);
-  setNullableBoolSelect('fMovieVfNotify', u.movie_vf_notify);
-  document.getElementById('fMovieTrackingMode').value = u.movie_tracking_mode || '';
-  onMovieTrackingModeChange();
-  document.getElementById('fSeriesVoNotifyMode').value = u.series_vo_notify_mode || '';
-  document.getElementById('fSeriesVfNotifyMode').value = u.series_vf_notify_mode || '';
-  document.getElementById('fSeriesTrackingMode').value = u.series_tracking_mode || '';
-  document.getElementById('fSeriesEpisodeNotifyMode').value = u.series_episode_notify_mode || '';
-  onSeriesTrackingModeChange();
-  document.getElementById('fPartialNotifyFrequency').value = u.partial_notify_frequency || '';
+  setNullableBoolSelect('fMovieNotifyLanguage', u.movie_notify_language);
+  setNullableBoolSelect('fSeriesNotifyLanguage', u.series_notify_language);
+  document.getElementById('fSeriesNotifyGranularity').value = u.series_notify_granularity || '';
   document.getElementById('fSonarrInstance').value = u.sonarr_instance_id || '';
   document.getElementById('fRadarrInstance').value = u.radarr_instance_id || '';
   document.getElementById('fDiscordWebhook').value = u.discord_webhook_url || '';
@@ -1328,14 +1257,9 @@ async function saveUser() {
     notify_vf_movie: document.getElementById('fNotifyVfMovie').checked,
     notify_vf_series: document.getElementById('fNotifyVfSeries').checked,
     notify_vf_anime: document.getElementById('fNotifyVfAnime').checked,
-    movie_vo_notify: nullableBoolSelect('fMovieVoNotify'),
-    movie_vf_notify: nullableBoolSelect('fMovieVfNotify'),
-    movie_tracking_mode: document.getElementById('fMovieTrackingMode').value || null,
-    series_vo_notify_mode: document.getElementById('fSeriesVoNotifyMode').value || null,
-    series_vf_notify_mode: document.getElementById('fSeriesVfNotifyMode').value || null,
-    series_tracking_mode: document.getElementById('fSeriesTrackingMode').value || null,
-    series_episode_notify_mode: document.getElementById('fSeriesEpisodeNotifyMode').value || null,
-    partial_notify_frequency: document.getElementById('fPartialNotifyFrequency').value || null,
+    movie_notify_language: nullableBoolSelect('fMovieNotifyLanguage'),
+    series_notify_language: nullableBoolSelect('fSeriesNotifyLanguage'),
+    series_notify_granularity: document.getElementById('fSeriesNotifyGranularity').value || null,
     discord_webhook_url: document.getElementById('fDiscordWebhook').value.trim() || null,
     telegram_chat_id: document.getElementById('fTelegramChatId').value.trim() || null,
     sonarr_instance_id: parseInt(document.getElementById('fSonarrInstance').value) || null,
