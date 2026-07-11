@@ -6,9 +6,10 @@ Create Date: 2026-07-11 04:26:04.927795
 
 """
 from typing import Sequence, Union
-from alembic import op
+
 import sqlalchemy as sa
 
+from alembic import op
 
 revision: str = 'a5c324f3ae2d'
 down_revision: Union[str, None] = '0056_merge_email_templates'

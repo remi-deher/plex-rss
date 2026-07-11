@@ -177,11 +177,11 @@ def test_settings_page_has_closed_tab_panes(client, db):
 
 
 def test_email_templates_page_redirects(client, db):
-    """GET /settings/email-templates → 301 redirect vers /settings#tab-templates."""
+    """GET /settings/email-templates → 301 redirect vers /templates."""
     _seed(db)
     resp = client.get("/settings/email-templates", follow_redirects=False)
     assert resp.status_code == 301
-    assert "/settings" in resp.headers["location"]
+    assert resp.headers["location"] == "/templates"
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +402,15 @@ def test_users_page_shows_rss_only_badge_when_no_seer(client, db):
 # ---------------------------------------------------------------------------
 
 
-def test_requests_page_filter_by_user(client, db):
-    """GET /requests?user=alice → uniquement les demandes d'Alice."""
+def test_requests_page_filter_by_user(client, db, monkeypatch):
+    """GET /requests?user=alice → uniquement les demandes d'Alice.
+
+    Le filtre ?user= n'est honoré que pour une session admin (une session non-admin
+    est forcée sur sa propre identité, voir library_page) — _is_admin_session lit
+    directement request.session, en dehors des dependency_overrides require_admin
+    bypassés par le fixture `client`, d'où le monkeypatch ici.
+    """
+    monkeypatch.setattr(pages_router, "_is_admin_session", lambda request: True)
     _seed(db)
     db.add(PlexUser(plex_user_id="bob", display_name="Bob", enabled=True))
     db.add(

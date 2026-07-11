@@ -248,10 +248,14 @@ def get_event_visuals(settings, event_type: str) -> dict:
     """Bandeau (couleur/badge/titre/synopsis) pour un type d'évènement donné."""
     defaults = _EVENT_VISUAL_DEFAULTS[event_type]
     return {
-        "_accent_color": _setting_str(settings, f"email_{event_type}_accent_color", defaults["accent_color"]),
-        "_badge_text": _setting_str(settings, f"email_{event_type}_badge_text", defaults["badge_text"]),
-        "_headline_text": _setting_str(settings, f"email_{event_type}_headline_text", defaults["headline_text"]),
-        "_show_synopsis": _setting_bool(settings, f"email_{event_type}_show_synopsis", defaults["show_synopsis"]),
+        "_accent_color": _setting_str(settings, f"email_{event_type}_accent_color", str(defaults["accent_color"])),
+        "_badge_text": _setting_str(settings, f"email_{event_type}_badge_text", str(defaults["badge_text"])),
+        "_headline_text": _setting_str(
+            settings, f"email_{event_type}_headline_text", str(defaults["headline_text"])
+        ),
+        "_show_synopsis": _setting_bool(
+            settings, f"email_{event_type}_show_synopsis", bool(defaults["show_synopsis"])
+        ),
     }
 
 
@@ -262,7 +266,7 @@ def build_tmdb_url(request: MediaRequest | LibraryItem) -> str | None:
     return f"https://www.themoviedb.org/{kind}/{request.tmdb_id}"
 
 
-def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest) -> str | None:
+def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest | LibraryItem) -> str | None:
     """Bloquant (plexapi) : à appeler uniquement via asyncio.to_thread."""
     plex = vff.connect(settings.plex_url, settings.plex_token)
     section_type = "show" if request.media_type == "show" else "movie"
@@ -282,7 +286,9 @@ def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest) -> s
     return f"https://app.plex.tv/desktop/#!/server/{plex.machineIdentifier}/details?key=/library/metadata/{item.ratingKey}"
 
 
-async def resolve_plex_deep_link(settings: Settings, request: MediaRequest, timeout: float = 6.0) -> str | None:
+async def resolve_plex_deep_link(
+    settings: Settings, request: MediaRequest | LibraryItem, timeout: float = 6.0
+) -> str | None:
     """Résout un lien profond vers l'item exact dans Plex, pour le bouton "Lire sur Plex".
 
     Best-effort : ne doit jamais faire échouer l'envoi de l'email. Toute erreur (serveur
@@ -306,7 +312,7 @@ def _format_corrections(corrections: list[str] | tuple[str, ...] | None) -> str:
 
 def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = None, scope: str = "movie", language: str | None = None, is_upgrade: bool = False, season_number: int | None = None, episode_number: int | None = None, reason: str = "", corrections: list[str] | tuple[str, ...] | None = None, correction_note: str = "") -> dict:
     is_show = request.media_type == "show"
-    
+
     type_media = "Le film"
     if is_show:
         type_media = "La série"
@@ -322,7 +328,7 @@ def _build_tags(request: MediaRequest | LibraryItem, display_name: str | None = 
         elif scope == 'season_complete':
             details_se = f"(Saison {season_number} complète)"
         elif scope == 'series_complete':
-            details_se = f"(Série complète)"
+            details_se = "(Série complète)"
 
     langue_str = ""
     if language == 'vo':
@@ -367,13 +373,13 @@ def render_template(template_str: str, tags: dict, jinja_ctx: dict) -> str:
     rendered_md = template_str
     for tag, value in tags.items():
         rendered_md = rendered_md.replace(tag, str(value))
-    
+
     # Nettoyage des espaces inutiles
     rendered_md = rendered_md.replace("  ", " ")
 
     # 2. Conversion Markdown -> HTML
     html_content = markdown.markdown(rendered_md)
-    
+
     # 3. Injection dans la coquille Jinja2 globale
     try:
         html = _EMAIL_SHELL.replace("__CONTENT__", html_content)
@@ -406,13 +412,13 @@ async def _send_templated(
     jinja_ctx = _build_jinja_ctx(request, display_name)
     if extra_jinja_ctx:
         jinja_ctx.update(extra_jinja_ctx)
-        
+
     template_str = _resolve_str_setting(settings, template_field) or default_template
     html = render_template(template_str, tags, jinja_ctx)
-    
+
     subject_str = _resolve_str_setting(settings, subject_field) or default_subject
     subject = render_subject(subject_str, tags, fallback=subject_fallback)
-    
+
     await _send(settings, recipient, subject, html)
 
 async def send_request_notification(

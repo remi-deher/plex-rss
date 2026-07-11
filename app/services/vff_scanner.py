@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import ColumnElement, true
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -565,14 +566,14 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         logger.warning(f"Scan eager VFF échec pour '{req.title}': {e}")
         return False
 
-    res = results[0] if results else {"found": False}
+    res: dict[str, Any] = results[0] if results else {"found": False}
     if not res.get("found"):
         # Pas encore indexé côté Plex (course avec le scan Sonarr/Radarr → Plex) : on ne
         # force rien, le prochain scan planifié (et son filet de sécurité) prendra le relais.
         return False
 
     now = now_utc_naive()
-    episode_status = res.get("episode_status")
+    episode_status: dict[int, dict[int, bool]] | None = res.get("episode_status")
     if episode_status:
         _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
         db.commit()
@@ -698,9 +699,11 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
             db.commit()
             logger.info(f"VFF ({label}) : {promoted} demande(s) promue(s) 'disponible' via la bibliothèque Plex")
 
+        req_has_vf_filter: ColumnElement[bool]
+        lib_has_vf_filter: ColumnElement[bool]
         if force:
-            req_has_vf_filter = True
-            lib_has_vf_filter = True
+            req_has_vf_filter = true()
+            lib_has_vf_filter = true()
         else:
             req_has_vf_filter = (
                 MediaRequest.has_vf.is_(None)

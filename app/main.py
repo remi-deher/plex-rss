@@ -15,19 +15,19 @@ from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 
 import itsdangerous
-from fastapi import FastAPI, Request, Depends
+from fastapi import Depends, FastAPI, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from itsdangerous.exc import BadSignature
+from sqlalchemy.orm import Session as SqlSession
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import Session
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from sqlalchemy.orm import Session as SqlSession
 
-from .database import init_db, get_db
+from .database import get_db, init_db
 from .dependencies import require_admin
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
@@ -115,7 +115,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
     """Corps synchrone de la résolution de rôle (exécuté hors event loop via to_thread)."""
     from .database import SessionLocal
-    from .models import Settings, PlexUser
+    from .models import PlexUser, Settings
 
     db = SessionLocal()
     try:

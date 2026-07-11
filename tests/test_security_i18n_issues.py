@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -96,9 +98,10 @@ def test_i18n_catalog_english():
 def test_api_docs_requires_authentication():
     # Without dependency overrides (require_admin, require_auth), they should fail / redirect
     db = _db()
-    from app.dependencies import require_admin
     # Create client without overrides
     from fastapi.testclient import TestClient
+
+    from app.dependencies import require_admin
     app.dependency_overrides[get_db] = lambda: db
     client = TestClient(app, raise_server_exceptions=False)
     try:
@@ -109,8 +112,6 @@ def test_api_docs_requires_authentication():
         app.dependency_overrides.pop(get_db, None)
         db.close()
 
-
-from unittest.mock import AsyncMock, patch
 
 @patch("app.routers.library_api.sonarr.search_series", new_callable=AsyncMock)
 def test_retry_issue_media_search_endpoint(mock_search_series):

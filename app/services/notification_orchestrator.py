@@ -548,8 +548,6 @@ def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reas
 def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
     """Notification « disponibilité partielle » via les compteurs Sonarr (VFF désactivé,
     pas de scan Plex possible — seul filet de sécurité restant, sans langue)."""
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings, "available") if settings.email_on_available else []
     resolve_and_notify_availability(
         settings,
         req,

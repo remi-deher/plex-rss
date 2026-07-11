@@ -1,17 +1,19 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-import pytest
+
+# In-memory SQLite DB for tests
+from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
 from app.dependencies import current_user
 from app.main import app
-from app.models import Base, PlexUser, Settings, PasskeyCredential
+from app.models import Base, PasskeyCredential, PlexUser, Settings
 from app.services.auth import hash_password, verify_password
 
-# In-memory SQLite DB for tests
-from sqlalchemy.pool import StaticPool
 engine = create_engine(
     "sqlite://",
     connect_args={"check_same_thread": False},
@@ -64,7 +66,7 @@ def test_password_and_totp_security():
         app.dependency_overrides[current_user] = lambda: {"id": user1.id, "role": "user"}
         resp = client.post(f"/api/users/{user1.id}/password", json={"password": "newpass"})
         assert resp.status_code == 200
-        
+
         # Verify password changed
         db.refresh(user1)
         assert verify_password("newpass", user1.password_hash)
@@ -75,7 +77,7 @@ def test_password_and_totp_security():
         data = resp.json()
         assert "secret" in data
         assert "uri" in data
-        
+
         db.refresh(user1)
         assert user1.totp_secret == data["secret"]
         assert user1.totp_enabled is False

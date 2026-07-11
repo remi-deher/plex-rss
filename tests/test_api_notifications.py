@@ -428,7 +428,7 @@ def test_preview_defaults_to_request_event():
 def test_preview_uses_custom_template():
     """Si settings a un template custom, il est utilisé dans la preview."""
     settings = _make_settings()
-    settings.email_request_template = "CUSTOM_TEMPLATE_{{title}}"
+    settings.email_request_template = "CUSTOM_TEMPLATE_{titre}"
 
     db = MagicMock()
     db.query.return_value.first.return_value = settings
@@ -446,7 +446,7 @@ def test_preview_uses_custom_template():
 def test_preview_uses_custom_subject_and_user():
     """Preview utilise l'objet custom et les informations de l'utilisateur spécifié."""
     settings = _make_settings()
-    settings.email_request_subject = "Alerte pour {{ plex_user }} - {{ title }}"
+    settings.email_request_subject = "Alerte pour {nom_utilisateur} - {titre}"
 
     user = _make_user(user_id=12, custom_name="Bob L'Eponge", notification_email="bob@bikini.bottom")
 

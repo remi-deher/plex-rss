@@ -259,21 +259,6 @@ async def get_auth_pin(forward_url: str = "") -> dict:
         return {"id": pin_id, "code": code, "auth_url": auth_url}
 
 
-async def check_auth_pin(pin_id: int) -> Optional[str]:
-    """Vérifie si le code PIN a été validé par l'utilisateur sur Plex.
-
-    Returns:
-        Le Plex Token s'il est disponible, None sinon.
-    """
-    headers = {"Accept": "application/json", "X-Plex-Client-Identifier": CLIENT_IDENTIFIER}
-    async with httpx.AsyncClient(timeout=10) as client:
-        # Utilisation de l'API v2 officielle de Plex pour vérifier les PINs
-        resp = await client.get(f"{PLEX_TV_BASE}/api/v2/pins/{pin_id}", headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("authToken")
-
-
 async def has_server_access(
     admin_token: str, user_username: str, user_email: str | None, user_uuid: str | None
 ) -> bool:

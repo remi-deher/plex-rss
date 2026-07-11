@@ -27,6 +27,12 @@ _LANG_NAMES = {"french", "français", "francais"}
 _TITLE_WORDS = {"vf", "vff", "french", "français", "francais", "truefrench"}
 
 
+def _truthy_attr(value) -> bool:
+    if isinstance(value, str):
+        return value.lower().strip() in {"1", "true", "yes", "selected", "default"}
+    return bool(value)
+
+
 def _stream_is_french(stream) -> bool:
     """Retourne True si cette piste audio est en français.
 
@@ -144,6 +150,42 @@ def item_has_french_audio(item) -> bool:
     return has_fr
 
 
+def get_french_audio_state(item) -> dict:
+    """Etat compact de priorite audio FR pour un film ou episode Plex."""
+    has_fr, tracks = get_audio_info(item)
+    if not has_fr:
+        return {"has_fr": False, "fr_is_default": False, "tracks": tracks}
+
+    try:
+        first_audio_is_fr = None
+        fr_marked_default = False
+        any_marked_default = False
+        for media in item.media:
+            for part in media.parts:
+                for stream in part.audioStreams():
+                    is_fr = _stream_is_french(stream)
+                    if first_audio_is_fr is None:
+                        first_audio_is_fr = is_fr
+                    is_default = any(
+                        _truthy_attr(getattr(stream, attr, None))
+                        for attr in ("selected", "default", "defaultAudioStream")
+                    )
+                    if is_default:
+                        any_marked_default = True
+                        if is_fr:
+                            fr_marked_default = True
+        if fr_marked_default:
+            return {"has_fr": True, "fr_is_default": True, "tracks": tracks}
+        if any_marked_default:
+            return {"has_fr": True, "fr_is_default": False, "tracks": tracks}
+        if first_audio_is_fr is None:
+            return {"has_fr": True, "fr_is_default": True, "tracks": tracks}
+        return {"has_fr": True, "fr_is_default": bool(first_audio_is_fr), "tracks": tracks}
+    except Exception as exc:
+        logger.warning("Erreur lecture priorite audio pour %r: %s", getattr(item, "title", "?"), exc)
+        return {"has_fr": True, "fr_is_default": True, "tracks": tracks}
+
+
 def _reload(item, label: str = "item") -> None:
     """Appelle item.reload() pour récupérer les métadonnées complètes (pistes audio).
 
@@ -164,7 +206,7 @@ def movie_has_french_audio(item) -> bool:
 
 def show_has_full_french_audio(
     show, known_vf: Optional[dict[int, set[int]]] = None
-) -> tuple[bool, bool, int, int, dict[int, dict[int, bool]]]:
+) -> tuple[bool, bool, int, int, dict[int, dict[int, bool]], dict[int, dict[int, bool]]]:
     """Analyse tous les épisodes d'une série.
 
     `known_vf` : {season_number: {episode_number déjà confirmés VF lors d'un scan
@@ -183,6 +225,7 @@ def show_has_full_french_audio(
     with_vf = 0
     seasons_info = {}
     episode_status: dict[int, dict[int, bool]] = {}
+    french_default_status: dict[int, dict[int, bool]] = {}
 
     try:
         for season in show.seasons():
@@ -191,6 +234,7 @@ def show_has_full_french_audio(
                 continue
             seasons_info[sn] = {"total": 0, "vf": 0}
             episode_status[sn] = {}
+            french_default_status[sn] = {}
             known_season = known_vf.get(sn, set())
             for ep in season.episodes():
                 en = getattr(ep, "index", None)
@@ -201,10 +245,14 @@ def show_has_full_french_audio(
                 if en in known_season:
                     # Déjà confirmé VF lors d'un scan précédent : pas de re-scan Plex.
                     has_fr = True
+                    fr_is_default = True
                 else:
                     _reload(ep, "episode")
-                    has_fr = item_has_french_audio(ep)
+                    audio_state = get_french_audio_state(ep)
+                    has_fr = audio_state["has_fr"]
+                    fr_is_default = audio_state["fr_is_default"]
                 episode_status[sn][en] = has_fr
+                french_default_status[sn][en] = fr_is_default
                 if has_fr:
                     with_vf += 1
                     seasons_info[sn]["vf"] += 1
@@ -214,7 +262,7 @@ def show_has_full_french_audio(
     complete = total > 0 and with_vf == total
 
     if complete:
-        return True, False, with_vf, total, episode_status
+        return True, False, with_vf, total, episode_status, french_default_status
 
     # Calcul du nombre de saisons qui ont au moins 1 VF
     vf_seasons = {sn for sn, info in seasons_info.items() if info["vf"] > 0}
@@ -239,7 +287,7 @@ def show_has_full_french_audio(
                 should_track = True
                 break
 
-    return complete, should_track, with_vf, total, episode_status
+    return complete, should_track, with_vf, total, episode_status, french_default_status
 
 
 def compute_vf_granularity(episode_status: dict[int, dict[int, bool]] | None) -> str:
@@ -377,24 +425,23 @@ def get_show_episode_vf_blocking(
         return {"found": False}
 
     ep_map: dict[int, dict[int, bool]] = {}
+    priority_map: dict[int, dict[int, bool]] = {}
     try:
         for season in item.seasons():
             sn = getattr(season, "seasonNumber", None)
             if sn is None:
                 continue
-            known_season = known_vf.get(sn, set())
             for ep in season.episodes():
                 en = getattr(ep, "index", None)
                 if en is None:
                     continue
-                if en in known_season:
-                    ep_map.setdefault(sn, {})[en] = True
-                    continue
                 _reload(ep, "episode")
-                ep_map.setdefault(sn, {})[en] = item_has_french_audio(ep)
+                audio_state = get_french_audio_state(ep)
+                ep_map.setdefault(sn, {})[en] = audio_state["has_fr"]
+                priority_map.setdefault(sn, {})[en] = audio_state["fr_is_default"]
     except Exception as exc:
         logger.warning("Erreur détail épisodes VF pour %r: %s", getattr(item, "title", "?"), exc)
-    return {"found": True, "episodes": ep_map}
+    return {"found": True, "episodes": ep_map, "french_default": priority_map}
 
 
 def find_item_in_libraries(
@@ -529,12 +576,13 @@ def scan_media_vf(
             break
     if not item:
         return {"found": False}
-    complete, should_track, _, _, episode_status = show_has_full_french_audio(item, known_vf=known_vf)
+    complete, should_track, _, _, episode_status, french_default = show_has_full_french_audio(item, known_vf=known_vf)
     return {
         "found": True,
         "has_vf": complete or (not should_track),
         "category": category,
         "episode_status": episode_status,
+        "french_default": french_default,
     }
 
 

@@ -62,14 +62,13 @@ def test_show_has_full_french_audio_rules():
         # Season 2 has VO episodes, but since N_vf_seasons == 1, we do NOT track Season 2.
         # So should_track should be False!
 
-        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
-                if ep == mock_ep_s1_e1 or ep == mock_ep_s1_e2:
-                    return True
-                return False
+                has_fr = ep == mock_ep_s1_e1 or ep == mock_ep_s1_e2
+                return {"has_fr": has_fr, "fr_is_default": has_fr, "tracks": []}
 
-            mock_item_has_vf.side_effect = side_effect
+            mock_audio_state.side_effect = side_effect
 
             mock_s1 = MagicMock()
             mock_s1.seasonNumber = 1
@@ -82,7 +81,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1, mock_s2]
 
-            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status, _french_default = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is False  # Rule 3: Only 1 season has VF, so we don't track other seasons
             assert with_vf == 2
@@ -96,14 +95,13 @@ def test_show_has_full_french_audio_rules():
 
         mock_ep_s3_e1 = MagicMock()
 
-        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
-                if ep in (mock_ep_s1_e1, mock_ep_s1_e2, mock_ep_s2_e1):
-                    return True
-                return False
+                has_fr = ep in (mock_ep_s1_e1, mock_ep_s1_e2, mock_ep_s2_e1)
+                return {"has_fr": has_fr, "fr_is_default": has_fr, "tracks": []}
 
-            mock_item_has_vf.side_effect = side_effect
+            mock_audio_state.side_effect = side_effect
 
             mock_s1 = MagicMock()
             mock_s1.seasonNumber = 1
@@ -120,7 +118,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1, mock_s2, mock_s3]
 
-            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status, _french_default = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is True  # Rule 2: At least 2 seasons have VF, so we track Season 3
             assert with_vf == 3
@@ -131,14 +129,13 @@ def test_show_has_full_french_audio_rules():
         # Season 1 has VO episodes, and info["vf"] > 0.
         # So should_track should be True (Rule 1).
 
-        with patch("app.services.vff.item_has_french_audio") as mock_item_has_vf:
+        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
-                if ep == mock_ep_s1_e1:
-                    return True
-                return False
+                has_fr = ep == mock_ep_s1_e1
+                return {"has_fr": has_fr, "fr_is_default": has_fr, "tracks": []}
 
-            mock_item_has_vf.side_effect = side_effect
+            mock_audio_state.side_effect = side_effect
 
             mock_s1 = MagicMock()
             mock_s1.seasonNumber = 1
@@ -147,7 +144,7 @@ def test_show_has_full_french_audio_rules():
             mock_show = MagicMock()
             mock_show.seasons.return_value = [mock_s1]
 
-            complete, should_track, with_vf, total, _episode_status = show_has_full_french_audio(mock_show)
+            complete, should_track, with_vf, total, _episode_status, _french_default = show_has_full_french_audio(mock_show)
             assert complete is False
             assert should_track is True  # Rule 1: Season partially in VF, so we track it
             assert with_vf == 1

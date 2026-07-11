@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import or_
+from sqlalchemy import false, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -105,7 +105,7 @@ def _arr_event_query(
         return q.filter(or_(*candidates))
     if title:
         return q.filter(MediaRequest.title.ilike(f"%{title}%"))
-    return q.filter(False)
+    return q.filter(false())
 
 
 async def _mark_available_and_notify(

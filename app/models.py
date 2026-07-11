@@ -11,7 +11,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Text, UniqueConstraint, ForeignKey
+from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .crypto import EncryptedText

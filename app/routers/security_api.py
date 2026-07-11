@@ -11,6 +11,7 @@ from webauthn import (
     verify_registration_response,
 )
 from webauthn.helpers import options_to_json
+from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 from ..database import get_db
 from ..dependencies import current_user
@@ -159,10 +160,7 @@ async def register_options(
     exclude_credentials = []
     for k in existing_keys:
         try:
-            exclude_credentials.append({
-                "id": b64decode(k.credential_id),
-                "type": "public-key"
-            })
+            exclude_credentials.append(PublicKeyCredentialDescriptor(id=b64decode(k.credential_id)))
         except Exception:
             pass
 
@@ -201,7 +199,6 @@ async def register_verify(
     if rp_id == "127.0.0.1":
         rp_id = "localhost"
 
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.url.netloc)
     expected_origin = [
         f"https://{host}",

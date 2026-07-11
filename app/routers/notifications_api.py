@@ -13,6 +13,9 @@ from ..serializers import format_datetime
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    _build_tags,
+    get_event_visuals,
+    get_shared_email_parts,
     render_subject,
     render_template,
 )
@@ -145,18 +148,7 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
         overview="Paul Atréides s'unit aux Fremen pour mener la guerre sainte contre ceux qui ont détruit sa famille.",
         poster_url="https://image.tmdb.org/t/p/w300/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg",
     )
-    ctx = {
-        "title": fake.title,
-        "year": fake.year,
-        "poster_url": fake.poster_url,
-        "plex_user": fake.plex_user,
-        "media_type": fake.media_type,
-        "media_type_label": "Film",
-        "media_type_label_cap": "Le film",
-        "overview": fake.overview,
-        "genres": "Science-Fiction, Aventure",
-        "language_reason": "VF film complet",
-    }
+    tags = _build_tags(fake, plex_user_name, language="vf")
 
     if event == "available":
         tpl = (
@@ -168,23 +160,25 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
             settings.email_available_subject
             if (settings and isinstance(settings.email_available_subject, str))
             else None
-        ) or "[Plexarr] {{ title }} est disponible sur Plex !"
+        ) or "[Plexarr] {titre} est disponible sur Plex !"
     else:
         tpl = (
             settings.email_request_template if (settings and isinstance(settings.email_request_template, str)) else None
         ) or DEFAULT_REQUEST_TEMPLATE
         subject_tmpl = (
             settings.email_request_subject if (settings and isinstance(settings.email_request_subject, str)) else None
-        ) or "[Plexarr] Nouvelle demande : {{ title }}"
+        ) or "[Plexarr] Nouvelle demande : {titre}"
 
     fallback_subject = (
         f"[Plexarr] Nouvelle demande : {fake.title}"
         if event == "request"
         else f"[Plexarr] {fake.title} est disponible sur Plex !"
     )
-    rendered_subject = render_subject(subject_tmpl, ctx, fallback=fallback_subject)
+    rendered_subject = render_subject(subject_tmpl, tags, fallback=fallback_subject)
 
-    html = render_template(tpl, ctx)
+    jinja_ctx = get_shared_email_parts(settings)
+    jinja_ctx.update(get_event_visuals(settings, event if event == "available" else "request"))
+    html = render_template(tpl, tags, jinja_ctx)
 
     header_html = f"""
     <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">

@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
+from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_CORRECTION_TEMPLATE,
@@ -343,9 +343,25 @@ def library_page(
         if available_dates:
             vm["available_sort_at"] = max(available_dates)
 
+    library_ids = [v["library_id"] for v in items if v["in_library"] and v["library_id"]]
+    vf_secondary_library_ids: set[int] = set()
+    if library_ids:
+        vf_secondary_library_ids = {
+            source_id
+            for (source_id,) in db.query(VfEpisodeStatus.source_id)
+            .filter(
+                VfEpisodeStatus.source_type == "library_item",
+                VfEpisodeStatus.source_id.in_(library_ids),
+                VfEpisodeStatus.has_vf.is_(True),
+                VfEpisodeStatus.fr_is_default.is_(False),
+            )
+            .distinct()
+        }
+
     counts = {
         "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
         "vo": sum(1 for v in items if v["in_library"] and v["has_vf"] is False),
+        "vf_secondary": sum(1 for v in items if v["library_id"] in vf_secondary_library_ids),
         "season_partial": sum(
             1 for v in items if v["in_library"] and v["has_vf"] is False and v["vf_granularity"] == "season_partial"
         ),
@@ -392,6 +408,8 @@ def library_page(
         ]
     elif vf == "vo":
         items = [v for v in items if v["in_library"] and v["has_vf"] is False]
+    elif vf == "vf_secondary":
+        items = [v for v in items if v["library_id"] in vf_secondary_library_ids]
     elif vf == "unchecked":
         items = [v for v in items if v["in_library"] and v["has_vf"] is None]
     elif vf == "requested":
@@ -587,7 +605,6 @@ def settings_page(request: Request, _: None = Depends(require_admin), db: Sessio
     """Page de configuration globale de l'application."""
     s = db.query(Settings).first()
     base_url = str(request.base_url).rstrip("/")
-    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
     return templates.TemplateResponse(
         request,
         "settings.html",

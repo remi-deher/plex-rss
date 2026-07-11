@@ -106,7 +106,7 @@ def _coerce_value(model, key: str, value):
     return value
 
 
-def _apply_fields(obj, model, data: dict, skip: set[str] = frozenset({"id"})) -> None:
+def _apply_fields(obj, model, data: dict, skip: frozenset[str] = frozenset({"id"})) -> None:
     for k, v in data.items():
         if k in skip or not hasattr(obj, k):
             continue

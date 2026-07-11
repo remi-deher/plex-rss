@@ -247,7 +247,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
         user = db.query(PlexUser).filter(PlexUser.plex_user_id == account["username"]).first()
         if user:
             logger.info("SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id)
-            
+
     s = db.query(Settings).first()
     is_admin_username = bool(s and s.auth_username and account["username"] == s.auth_username)
     logger.info("SSO Login check: is_admin_username check: %s (auth_username: %s)", is_admin_username, s.auth_username if s else "None")
@@ -353,7 +353,6 @@ async def webauthn_login_verify(
     if rp_id == "127.0.0.1":
         rp_id = "localhost"
 
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.url.netloc)
     expected_origin = [
         f"https://{host}",

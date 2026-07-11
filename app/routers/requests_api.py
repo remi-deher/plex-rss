@@ -1,6 +1,6 @@
 import json as _json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -306,7 +306,7 @@ async def approve_request(request_id: int, request: Request, db: Session = Depen
 
     settings = db.query(Settings).first()
     user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    item = {
+    item: dict[str, Any] = {
         "title": req.title,
         "year": req.year,
         "media_type": req.media_type,

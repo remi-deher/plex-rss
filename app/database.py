@@ -81,7 +81,8 @@ def seed_defaults():
     dès le départ, sans étape manuelle.
     """
     import secrets
-    from .models import Settings, PlexUser
+
+    from .models import PlexUser
 
     db = SessionLocal()
     try:

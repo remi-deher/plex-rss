@@ -9,23 +9,23 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_settings_or_404, require_admin
-from ..models import PlexUser, Settings, MediaRequest
+from ..models import MediaRequest, PlexUser, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_CORRECTION_TEMPLATE,
-    DEFAULT_UPGRADE_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_UPGRADE_TEMPLATE,
     FONT_FAMILY_PRESETS,
     SYNOPSIS_FONT_SIZE_PRESETS,
+    _build_jinja_ctx,
+    _build_tags,
     build_tmdb_url,
     get_event_visuals,
     get_shared_email_parts,
     render_subject,
     render_template,
     resolve_plex_deep_link,
-    _build_tags,
-    _build_jinja_ctx,
 )
 from ..services.email_service import _send as smtp_send
 from ..services.notification_catalog import get_event
@@ -61,7 +61,7 @@ def _create_dummy_request() -> MediaRequest:
     req.media_type = "show"
     req.poster_url = "https://image.tmdb.org/t/p/w300/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"
     req.overview = "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille."
-    req.genres = "Crime, Drame, Thriller"
+    setattr(req, "genres", "Crime, Drame, Thriller")  # attribut dynamique, non déclaré sur MediaRequest (voir _build_jinja_ctx)
     req.tmdb_id = "1396"  # vrai ID TMDB de Breaking Bad, pour que le lien TMDB de démo soit réel
     return req
 
