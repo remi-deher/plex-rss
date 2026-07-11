@@ -1,6 +1,6 @@
 import logging
-from html import escape
 from datetime import datetime
+from html import escape
 from typing import Optional
 
 import httpx
