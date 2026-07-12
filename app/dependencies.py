@@ -2,13 +2,14 @@ import hmac
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from .database import get_db, get_db_async
+from .database import get_db_async, get_db_async
 from .models import PlexUser, Settings
 
 
-def get_settings_or_404(db: Session = Depends(get_db)) -> Settings:
+async def get_settings_or_404(db: AsyncSession = Depends(get_db_async)) -> Settings:
     """Récupère les paramètres de l'application ou lève une erreur 404."""
     s = db.query(Settings).first()
     if not s:
@@ -23,7 +24,7 @@ async def async_get_settings_or_404(db = Depends(get_db_async)) -> Settings:
     return s
 
 
-def _valid_api_key(request: Request, db: Session) -> bool:
+async def _valid_api_key(request: Request, db: AsyncSession) -> bool:
     """Vrai si l'en-tête X-Api-Key correspond au token API (niveau admin)."""
     token = request.headers.get("X-Api-Key")
     if not token:
@@ -38,18 +39,18 @@ def _configured_api_scopes(settings: Settings | None) -> set[str]:
     return {scope.strip() for scope in settings.api_token_scopes.split(",") if scope.strip()}
 
 
-def _api_key_has_scope(request: Request, db: Session, required_scope: str) -> bool:
+async def _api_key_has_scope(request: Request, db: AsyncSession, required_scope: str) -> bool:
     token = request.headers.get("X-Api-Key")
     if not token:
         return False
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     if not settings or not settings.api_token or not hmac.compare_digest(settings.api_token, token):
         return False
     scopes = _configured_api_scopes(settings)
     return "*" in scopes or required_scope in scopes
 
 
-def current_user(request: Request, db: Session = Depends(get_db)) -> dict | None:
+async def current_user(request: Request, db: AsyncSession = Depends(get_db_async)) -> dict | None:
     """Décrit l'appelant authentifié par session (pour les pages et l'affichage conditionnel).
     
     Retourne None si non authentifié. L'API token n'accorde plus le statut d'admin global
@@ -70,7 +71,7 @@ def _is_admin(user: dict | None) -> bool:
     return bool(user and (user.get("is_owner") or user.get("role") == "admin"))
 
 
-def require_auth(request: Request, db: Session = Depends(get_db)):
+async def require_auth(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Dépendance : n'importe quel utilisateur authentifié (session ou token API)."""
     if request.session.get("authenticated") or _valid_api_key(request, db):
         return
@@ -78,7 +79,7 @@ def require_auth(request: Request, db: Session = Depends(get_db)):
 
 
 def require_api_scope(scope: str) -> Callable:
-    def _dependency(request: Request, db: Session = Depends(get_db)):
+    async def _dependency(request: Request, db: AsyncSession = Depends(get_db_async)):
         if request.session.get("authenticated"):
             return
         if not request.headers.get("X-Api-Key"):
@@ -90,7 +91,7 @@ def require_api_scope(scope: str) -> Callable:
     return _dependency
 
 
-def require_admin(request: Request, db: Session = Depends(get_db)):
+async def require_admin(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Dépendance : réservé aux administrateurs (owner, rôle admin, ou token API).
 
     Les comptes Plex avec le rôle 'user' sont refusés (403) — ils n'accèdent qu'à
@@ -104,7 +105,7 @@ def require_admin(request: Request, db: Session = Depends(get_db)):
     raise HTTPException(status_code=401, detail="Non authentifié")
 
 
-def get_current_plex_user(request: Request, db: Session = Depends(get_db)) -> PlexUser | None:
+async def get_current_plex_user(request: Request, db: AsyncSession = Depends(get_db_async)) -> PlexUser | None:
     """Retourne l'enregistrement PlexUser de l'appelant, si connecté via Plex SSO."""
     uid = request.session.get("plex_user_id")
     if not uid:
