@@ -1,18 +1,21 @@
+import sqlalchemy
 import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import require_admin
 from ..models import MediaIssue, MediaRequest, NotificationMilestone, PasskeyCredential, PlexUser, Settings
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
 from ..services.seer import get_user_requests as seer_get_user_requests
 from ..services.seer import get_users as seer_get_users
-from ..utils import get_or_404
+from ..utils import async_get_or_404
 
 # Réutilise la validation du mode de notification définie dans settings_api
 from .settings_api import _validate_notify_settings
@@ -97,8 +100,8 @@ def _validate_portal_profile(payload: dict) -> None:
         raise HTTPException(400, "Role utilisateur invalide.")
 
 
-def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
-    settings = db.query(Settings).first()
+async def _build_user_diagnostic(user: PlexUser, stats: dict, db: AsyncSession) -> dict:
+    settings = (await db.execute(select(Settings))).scalars().first()
     seer_configured = bool(settings and settings.seer_url and settings.seer_api_key)
     seer_requests_enabled = bool(
         settings and settings.seer_send_requests and settings.seer_url and settings.seer_api_key
@@ -107,9 +110,7 @@ def _build_user_diagnostic(user: PlexUser, stats: dict, db: Session) -> dict:
     plex_api_configured = bool(settings and settings.plex_token)
 
     co_request_count = 0
-    for (extra_requesters,) in db.query(MediaRequest.extra_requesters).filter(
-        MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]"
-    ):
+    for (extra_requesters,) in (await db.execute(select(MediaRequest.extra_requesters).filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]"))).all():
         try:
             extras = json.loads(extra_requesters or "[]")
         except Exception:
@@ -216,22 +217,14 @@ def _activity_row(req: MediaRequest, role: str) -> dict:
     }
 
 
-def _build_user_activity(user: PlexUser, db: Session, limit: int = 12) -> dict:
+async def _build_user_activity(user: PlexUser, db: AsyncSession, limit: int = 12) -> dict:
     rows: dict[int, dict] = {}
-    primary = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.plex_user_id == user.plex_user_id)
-        .order_by(MediaRequest.requested_at.desc())
-        .limit(limit * 2)
-        .all()
-    )
+    primary = (await db.execute(select(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).order_by(MediaRequest.requested_at.desc()).limit(limit * 2))).scalars().all()
     for req in primary:
         rows[req.id] = _activity_row(req, "primary")
 
     co_candidates = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
-        .all()
+        (await db.execute(select(MediaRequest).filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]"))).scalars().all()
     )
     for req in co_candidates:
         try:
@@ -246,19 +239,15 @@ def _build_user_activity(user: PlexUser, db: Session, limit: int = 12) -> dict:
 
 
 @router.get("/users")
-def list_users(db: Session = Depends(get_db)):
-    return db.query(PlexUser).all()
+async def list_users(db: AsyncSession = Depends(get_db_async)):
+    return (await db.execute(select(PlexUser))).scalars().all()
 
 
 @router.get("/users/{user_id}")
-def get_user(user_id: int, db: Session = Depends(get_db)):
+async def get_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     """Détail complet d'un utilisateur + ses stats de demandes (pour la modale hub)."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
-    rows = (
-        db.query(MediaRequest.status, MediaRequest.requested_at)
-        .filter(MediaRequest.plex_user_id == user.plex_user_id)
-        .all()
-    )
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
+    rows = (await db.execute(select(MediaRequest.status, MediaRequest.requested_at).filter(MediaRequest.plex_user_id == user.plex_user_id))).all()
     stats = {"total": 0, "available": 0, "failed": 0, "sent": 0, "pending": 0, "last_requested_at": None}
     for status, req_at in rows:
         stats["total"] += 1
@@ -271,8 +260,8 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
             stats["last_requested_at"] = req_at
 
     # Utilise le sérialiseur centralisé
-    diagnostic = _build_user_diagnostic(user, stats.copy(), db)
-    activity = _build_user_activity(user, db)
+    diagnostic = await _build_user_diagnostic(user, stats.copy(), db)
+    activity = await _build_user_activity(user, db)
     data = serialize_plex_user(user, stats)
     data["diagnostic"] = diagnostic
     data["activity"] = activity
@@ -280,23 +269,23 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/users")
-def create_user(data: UserCreate, db: Session = Depends(get_db)):
+async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db_async)):
     payload = data.model_dump()
     _validate_notify_settings(payload)
     _validate_portal_profile(payload)
-    existing = db.query(PlexUser).filter(PlexUser.plex_user_id == data.plex_user_id).first()
+    existing = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == data.plex_user_id))).scalars().first()
     if existing:
         raise HTTPException(409, "User already exists")
     user = PlexUser(**payload)
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
     return user
 
 
 @router.put("/users/{user_id}")
-def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+async def update_user(user_id: int, data: UserCreate, db: AsyncSession = Depends(get_db_async)):
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     payload = data.model_dump()
     _validate_notify_settings(payload)
     _validate_portal_profile(payload)
@@ -304,25 +293,25 @@ def update_user(user_id: int, data: UserCreate, db: Session = Depends(get_db)):
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
     resolved = data.display_name or user.plex_user_id
-    db.query(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).update({"plex_user": resolved})
-    db.commit()
+    await db.execute(sqlalchemy.update(MediaRequest).where(MediaRequest.plex_user_id == user.plex_user_id).values({"plex_user": resolved}))
+    await db.commit()
     return user
 
 
 @router.put("/users/{user_id}/enabled")
-def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: Session = Depends(get_db)):
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+async def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: AsyncSession = Depends(get_db_async)):
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     user.enabled = data.enabled
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
     return {"status": "ok", "enabled": user.enabled}
 
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     db.delete(user)
-    db.commit()
+    await db.commit()
     return {"status": "deleted"}
 
 
@@ -355,14 +344,14 @@ async def seer_sync():
 
 
 @router.get("/seer/users")
-async def list_seer_users(db: Session = Depends(get_db)):
+async def list_seer_users(db: AsyncSession = Depends(get_db_async)):
     """Retourne la liste des utilisateurs Seer avec leur statut de liaison."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.seer_url or not s.seer_api_key:
         return {"seer_users": [], "error": "Seer non configuré"}
 
     seer_users = await seer_get_users(s.seer_url, s.seer_api_key)
-    linked_ids = {u.seer_user_id for u in db.query(PlexUser).filter(PlexUser.seer_user_id.isnot(None)).all()}
+    linked_ids = {u.seer_user_id for u in (await db.execute(select(PlexUser).filter(PlexUser.seer_user_id.isnot(None)))).scalars().all()}
 
     result = []
     for email, info in seer_users.items():
@@ -383,9 +372,9 @@ async def list_seer_users(db: Session = Depends(get_db)):
 
 
 @router.put("/users/{user_id}/seer-link")
-def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
+async def link_seer_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db_async)):
     """Lie manuellement un PlexUser à un compte Seer."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     seer_id = data.get("seer_user_id")
     seer_email = data.get("seer_email")
     if seer_id is None:
@@ -396,25 +385,25 @@ def link_seer_user(user_id: int, data: dict, db: Session = Depends(get_db)):
     # Liaison Seer = désactiver les emails par défaut (Seer gère ses propres notifs)
     user.notify_on_request = False
     user.notify_on_available = False
-    db.commit()
+    await db.commit()
     return {"status": "linked", "seer_user_id": user.seer_user_id}
 
 
 @router.delete("/users/{user_id}/seer-link")
-def unlink_seer_user(user_id: int, db: Session = Depends(get_db)):
+async def unlink_seer_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     """Supprime la liaison Seer d'un PlexUser."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     user.seer_user_id = None
     user.seer_active = None
-    db.commit()
+    await db.commit()
     return {"status": "unlinked"}
 
 
 @router.post("/users/{user_id}/seer-automatch")
-async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
+async def seer_automatch_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     """Lance l'automatch Seer (3 passes) pour un seul utilisateur."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
-    s = db.query(Settings).first()
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.seer_url or not s.seer_api_key:
         raise HTTPException(400, "Seer non configuré")
 
@@ -424,7 +413,7 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
 
     matched_ids = {
         u.seer_user_id
-        for u in db.query(PlexUser).filter(PlexUser.id != user_id, PlexUser.seer_user_id.isnot(None)).all()
+        for u in (await db.execute(select(PlexUser).filter(PlexUser.id != user_id, PlexUser.seer_user_id.isnot(None)))).scalars().all()
     }
     by_plex_username = {
         (info.get("plex_username") or "").lower().strip(): info
@@ -450,9 +439,7 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
 
     if not info:
         rows = (
-            db.query(MediaRequest.tmdb_id)
-            .filter(MediaRequest.plex_user_id == user.plex_user_id, MediaRequest.tmdb_id.isnot(None))
-            .all()
+            (await db.execute(select(MediaRequest.tmdb_id).filter(MediaRequest.plex_user_id == user.plex_user_id, MediaRequest.tmdb_id.isnot(None)))).all()
         )
         user_tmdb_ids = {r[0] for r in rows}
         if len(user_tmdb_ids) >= 2:
@@ -469,7 +456,7 @@ async def seer_automatch_user(user_id: int, db: Session = Depends(get_db)):
     if info:
         user.seer_user_id = info["id"]
         user.seer_active = info["request_count"] > 0
-        db.commit()
+        await db.commit()
         return {"matched": True, "method": method, "seer_user_id": info["id"], "display_name": info["display_name"]}
 
     return {"matched": False, "method": None}
@@ -494,7 +481,7 @@ _MERGE_FILL_FIELDS = [
 ]
 
 
-def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
+async def _merge_users(db: AsyncSession, source: PlexUser, keeper: PlexUser) -> dict:
     """Fusionne `source` dans `keeper` : déplace toutes les données rattachées puis
     supprime `source`. Conserve proprement les données des deux comptes dans le keeper.
 
@@ -508,21 +495,15 @@ def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
     new_name = keeper.custom_name or keeper.display_name or new
 
     # 1. Demandes : demandeur principal + nom affiché.
-    requests_moved = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.plex_user_id == old)
-        .update({"plex_user_id": new, "plex_user": new_name}, synchronize_session=False)
-    )
+    res = await db.execute(sqlalchemy.update(MediaRequest).where(MediaRequest.plex_user_id == old).values({"plex_user_id": new, "plex_user": new_name})); requests_moved = res.rowcount
 
     # 2. Demandes approuvées par la source (approbation admin).
-    db.query(MediaRequest).filter(MediaRequest.approved_by == old).update(
-        {"approved_by": new}, synchronize_session=False
-    )
+    await db.execute(sqlalchemy.update(MediaRequest).where(MediaRequest.approved_by == old).values({"approved_by": new}))
 
     # 3. Co-demandeurs (extra_requesters JSON) : remap old→new, puis dédoublonnage et
     #    retrait de l'entrée si elle correspond désormais au demandeur principal.
     extras_updated = 0
-    for req in db.query(MediaRequest).filter(MediaRequest.extra_requesters.like(f"%{old}%")).all():
+    for req in (await db.execute(select(MediaRequest).filter(MediaRequest.extra_requesters.like(f"%{old}%")))).scalars().all():
         try:
             extras = json.loads(req.extra_requesters or "[]")
         except Exception:
@@ -547,10 +528,10 @@ def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
     #    (req_id, plex_user_id, direction, milestone_type, season_number, episode_number).
     keeper_keys = {
         (m.req_id, m.direction, m.milestone_type, m.season_number, m.episode_number)
-        for m in db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == new)
+        for m in (await db.execute(select(NotificationMilestone).filter(NotificationMilestone.plex_user_id == new))).scalars().all()
     }
     milestones_moved = 0
-    for m in db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == old).all():
+    for m in (await db.execute(select(NotificationMilestone).filter(NotificationMilestone.plex_user_id == old))).scalars().all():
         key = (m.req_id, m.direction, m.milestone_type, m.season_number, m.episode_number)
         if key in keeper_keys:
             db.delete(m)  # déjà couvert par le keeper → on jette le doublon
@@ -560,14 +541,10 @@ def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
             milestones_moved += 1
 
     # 5. Signalements de média.
-    db.query(MediaIssue).filter(MediaIssue.reporter_plex_user_id == old).update(
-        {"reporter_plex_user_id": new}, synchronize_session=False
-    )
+    await db.execute(sqlalchemy.update(MediaIssue).where(MediaIssue.reporter_plex_user_id == old).values({"reporter_plex_user_id": new}))
 
     # 6. Passkeys (référencées par PlexUser.id).
-    db.query(PasskeyCredential).filter(PasskeyCredential.user_id == source.id).update(
-        {"user_id": keeper.id}, synchronize_session=False
-    )
+    await db.execute(sqlalchemy.update(PasskeyCredential).where(PasskeyCredential.user_id == source.id).values({"user_id": keeper.id}))
 
     # 7. Consolidation du profil : combler les trous du keeper depuis la source.
     for field in _MERGE_FILL_FIELDS:
@@ -600,40 +577,40 @@ def _merge_users(db: Session, source: PlexUser, keeper: PlexUser) -> dict:
 
 
 @router.post("/users/{source_id}/merge-into/{keeper_id}")
-def merge_users_endpoint(source_id: int, keeper_id: int, db: Session = Depends(get_db)):
+async def merge_users_endpoint(source_id: int, keeper_id: int, db: AsyncSession = Depends(get_db_async)):
     """Fusionne l'utilisateur `source_id` dans `keeper_id` (le keeper est conservé, la
     source supprimée). Fusion générale : fonctionne pour n'importe quels deux comptes
     (Seer-only, Plex API, RSS…), en préservant les données des deux côtés."""
-    source = get_or_404(db, PlexUser, source_id, "Utilisateur source introuvable")
-    keeper = get_or_404(db, PlexUser, keeper_id, "Utilisateur à conserver introuvable")
+    source = await async_get_or_404(db, PlexUser, source_id, "Utilisateur source introuvable")
+    keeper = await async_get_or_404(db, PlexUser, keeper_id, "Utilisateur à conserver introuvable")
     try:
-        result = _merge_users(db, source, keeper)
-        db.commit()
+        result = await _merge_users(db, source, keeper)
+        await db.commit()
     except HTTPException:
-        db.rollback()
+        await db.rollback()
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(500, f"Échec de la fusion : {e}")
     return result
 
 
 @router.put("/users/{user_id}/custom-name")
-def update_custom_name(user_id: int, data: dict, db: Session = Depends(get_db)):
+async def update_custom_name(user_id: int, data: dict, db: AsyncSession = Depends(get_db_async)):
     """Met à jour le nom d'usage personnalisé d'un utilisateur."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     user.custom_name = data.get("custom_name") or None
-    db.commit()
+    await db.commit()
     return {"status": "ok", "custom_name": user.custom_name}
 
 
 @router.post("/users/{user_id}/seer-complete")
-async def seer_complete_user(user_id: int, db: Session = Depends(get_db)):
+async def seer_complete_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     """Complète les infos d'un PlexUser depuis son compte Seer lié."""
-    user = get_or_404(db, PlexUser, user_id, "User not found")
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     if not user.seer_user_id:
         raise HTTPException(400, "Utilisateur non lié à Seer")
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.seer_url or not s.seer_api_key:
         raise HTTPException(400, "Seer non configuré")
 
@@ -660,25 +637,25 @@ async def seer_complete_user(user_id: int, db: Session = Depends(get_db)):
         if not user.notification_email:
             user.notification_email = seer_email
             changes["notification_email"] = user.notification_email
-    db.commit()
+    await db.commit()
     return {"status": "ok", "changes": changes}
 
 
 @router.post("/users/discover")
-async def discover_users(db: Session = Depends(get_db)):
+async def discover_users(db: AsyncSession = Depends(get_db_async)):
     """Scanne le flux RSS, auto-crée les nouveaux utilisateurs et retourne un résumé."""
     from ..scheduler import sync_users_from_feed
     from ..services.plex_rss import fetch_watchlist_rss
 
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.plex_rss_url:
         raise HTTPException(400, "URL RSS non configurée")
 
-    known_before = {u.plex_user_id for u in db.query(PlexUser).all()}
+    known_before = {u.plex_user_id for u in (await db.execute(select(PlexUser))).scalars().all()}
     items = await fetch_watchlist_rss(s.plex_rss_url)
     await sync_users_from_feed(items, db)
 
-    all_users = db.query(PlexUser).all()
+    all_users = (await db.execute(select(PlexUser))).scalars().all()
     new_ids = {u.plex_user_id for u in all_users} - known_before
 
     return {
@@ -691,9 +668,9 @@ async def discover_users(db: Session = Depends(get_db)):
 
 
 @router.post("/users/{user_id}/test-email")
-async def send_test_email(user_id: int, db: Session = Depends(get_db)):
-    user = get_or_404(db, PlexUser, user_id, "User not found")
-    settings = db.query(Settings).first()
+async def send_test_email(user_id: int, db: AsyncSession = Depends(get_db_async)):
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:
         raise HTTPException(500, "Settings manquants")
     recipient = user.notification_email or user.plex_email
@@ -717,11 +694,11 @@ async def send_test_email(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/users/bulk/notifications")
-def bulk_update_notifications(payload: BulkNotificationUpdate, db: Session = Depends(get_db)):
+async def bulk_update_notifications(payload: BulkNotificationUpdate, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
 
-    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:
         raise HTTPException(404, "Aucun utilisateur trouvé pour ces identifiants.")
 
@@ -749,28 +726,28 @@ def bulk_update_notifications(payload: BulkNotificationUpdate, db: Session = Dep
         for field, value in update_fields.items():
             setattr(user, field, value)
 
-    db.commit()
+    await db.commit()
     return {"updated": len(users)}
 
 
 @router.put("/users/bulk/status")
-def bulk_update_status(payload: BulkStatusUpdate, db: Session = Depends(get_db)):
+async def bulk_update_status(payload: BulkStatusUpdate, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
-    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:
         raise HTTPException(404, "Aucun utilisateur trouvé.")
     for user in users:
         user.enabled = payload.enabled
-    db.commit()
+    await db.commit()
     return {"updated": len(users)}
 
 
 @router.put("/users/bulk/permissions")
-def bulk_update_permissions(payload: BulkPermissionsUpdate, db: Session = Depends(get_db)):
+async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
-    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:
         raise HTTPException(404, "Aucun utilisateur trouvé.")
     
@@ -786,16 +763,16 @@ def bulk_update_permissions(payload: BulkPermissionsUpdate, db: Session = Depend
     for user in users:
         for field, value in update_fields.items():
             setattr(user, field, value)
-    db.commit()
+    await db.commit()
     return {"updated": len(users)}
 
 
 @router.post("/users/bulk/delete")
-def bulk_delete_users(payload: BulkDeleteUpdate, db: Session = Depends(get_db)):
+async def bulk_delete_users(payload: BulkDeleteUpdate, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
     # Fetch them to trigger cascades if needed, or just delete
-    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:
         raise HTTPException(404, "Aucun utilisateur trouvé.")
     count = len(users)
@@ -803,5 +780,5 @@ def bulk_delete_users(payload: BulkDeleteUpdate, db: Session = Depends(get_db)):
         # Also clean up credentials
         db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).delete()
         db.delete(user)
-    db.commit()
+    await db.commit()
     return {"deleted": count}
