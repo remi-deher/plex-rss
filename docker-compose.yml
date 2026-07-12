@@ -14,19 +14,21 @@ services:
     stop_grace_period: 30s
     environment:
       - TZ=Europe/Paris
-      # - DATABASE_URL=postgresql://plexrss:plexrss@db:5432/plexrss
+      - DATABASE_URL=postgresql://plexrss:plexrss@db:5432/plexrss
+    depends_on:
+      - db
 
-#   db:
-#     image: postgres:15-alpine
-#     container_name: plex-rss-db
-#     environment:
-#       POSTGRES_USER: plexrss
-#       POSTGRES_PASSWORD: plexrss
-#       POSTGRES_DB: plexrss
-#     volumes:
-#       - pgdata:/var/lib/postgresql/data
-#     restart: unless-stopped
-#
-# volumes:
-#   pgdata:
+  db:
+    image: postgres:15-alpine
+    container_name: plex-rss-db
+    environment:
+      POSTGRES_USER: plexrss
+      POSTGRES_PASSWORD: plexrss
+      POSTGRES_DB: plexrss
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
 

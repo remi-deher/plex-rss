@@ -9,34 +9,41 @@ a longer busy timeout for normal SQLite lock contention.
 
 import logging
 import os
-
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-from .models import Settings
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/plex_rss.db")
 
-logger = logging.getLogger(__name__)
+# Ajustement pour aiosqlite / asyncpg
+is_sqlite = DATABASE_URL.startswith("sqlite")
+if is_sqlite:
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite:///", "sqlite+aiosqlite:///")
+    connect_args = {"check_same_thread": False, "timeout": 30}
+    engine_kwargs = {"pool_pre_ping": True}
+else:
+    # psycopg2 vers asyncpg
+    ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+    connect_args = {}
+    engine_kwargs = {}
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///./data/plex_rss.db"
-
-connect_args = {}
-engine_kwargs = {}
-if DATABASE_URL.startswith("sqlite"):
-    connect_args["check_same_thread"] = False
-    connect_args["timeout"] = 30
-    engine_kwargs.update(
-        {
-            "pool_pre_ping": True,
-        }
-    )
-
+# Moteurs synchrones (pour les threads APScheduler)
 engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Moteurs asynchrones (pour FastAPI)
+async_engine = create_async_engine(ASYNC_DATABASE_URL, connect_args=connect_args, **engine_kwargs)
+AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False, class_=AsyncSession)
+
+Base = declarative_base()
+
+async def get_db_async():
+    async with AsyncSessionLocal() as db:
+        yield db
 
 if DATABASE_URL.startswith("sqlite"):
+    from sqlalchemy import event
 
     @event.listens_for(engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):

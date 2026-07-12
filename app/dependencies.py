@@ -4,12 +4,20 @@ from collections.abc import Callable
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from .database import get_db
+from .database import get_db, get_db_async
 from .models import PlexUser, Settings
 
 
 def get_settings_or_404(db: Session = Depends(get_db)) -> Settings:
+    """Récupère les paramètres de l'application ou lève une erreur 404."""
     s = db.query(Settings).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Paramètres non initialisés")
+    return s
+
+async def async_get_settings_or_404(db = Depends(get_db_async)) -> Settings:
+    from sqlalchemy.future import select
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(status_code=404, detail="Paramètres non initialisés")
     return s

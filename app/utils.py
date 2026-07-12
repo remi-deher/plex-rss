@@ -32,6 +32,13 @@ def get_or_404(db: Session, model: type[_T], obj_id: Any, detail: str = "Not fou
         raise HTTPException(status_code=404, detail=detail)
     return obj
 
+async def async_get_or_404(db, model: type[_T], obj_id: Any, detail: str = "Not found") -> _T:
+    from sqlalchemy.future import select
+    obj = (await db.execute(select(model).filter(model.id == obj_id))).scalars().first()
+    if not obj:
+        raise HTTPException(status_code=404, detail=detail)
+    return obj
+
 
 def parse_email_list(raw: str | None) -> list[str]:
     """Parse une chaîne d'emails séparés par virgules en liste nettoyée.
