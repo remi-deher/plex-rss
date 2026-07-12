@@ -139,7 +139,9 @@ def _media_identity_filter(db: Session, item) -> list[MediaRequest]:
     return sorted(matches.values(), key=lambda r: r.requested_at or datetime.min, reverse=True)
 
 
-def _resolve_correction_media(db: Session, library_id: Optional[int], request_id: Optional[int]) -> LibraryItem | MediaRequest:
+def _resolve_correction_media(
+    db: Session, library_id: Optional[int], request_id: Optional[int]
+) -> LibraryItem | MediaRequest:
     if library_id:
         return get_or_404(db, LibraryItem, library_id, "Library item not found")
     if request_id:
@@ -164,7 +166,9 @@ def _correction_recipient(user: PlexUser) -> tuple[str, str]:
     return recipient, display_name
 
 
-def _validated_correction_target(body: MediaCorrectionRequest, media: LibraryItem | MediaRequest) -> tuple[str, int | None, int | None]:
+def _validated_correction_target(
+    body: MediaCorrectionRequest, media: LibraryItem | MediaRequest
+) -> tuple[str, int | None, int | None]:
     scope = (body.scope or "media").strip()
     if media.media_type != "show":
         return "movie", None, None
@@ -443,9 +447,7 @@ def library_metrics(media_type: Optional[str] = None, db: Session = Depends(get_
             "complete": _lib_count(lambda item: item.has_vf is True),
             "pending": _lib_count(lambda item: item.has_vf is False),
             "unchecked": _lib_count(lambda item: item.has_vf is None),
-            "season_partial": _lib_count(
-                lambda item: item.has_vf is False and item.vf_granularity == "season_partial"
-            ),
+            "season_partial": _lib_count(lambda item: item.has_vf is False and item.vf_granularity == "season_partial"),
             "episode_partial": _lib_count(
                 lambda item: item.has_vf is False and item.vf_granularity == "episode_partial"
             ),
@@ -566,7 +568,9 @@ def create_media_issue(
     if not body.library_id and not body.request_id:
         raise HTTPException(400, "library_id or request_id is required")
     library_item = db.query(LibraryItem).filter(LibraryItem.id == body.library_id).first() if body.library_id else None
-    media_request = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first() if body.request_id else None
+    media_request = (
+        db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first() if body.request_id else None
+    )
     if body.library_id and not library_item:
         raise HTTPException(404, "Library item not found")
     if body.request_id and not media_request:
@@ -854,7 +858,9 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
     return normalized
 
 
-def _needs_approval(db: Session, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]) -> bool:
+def _needs_approval(
+    db: Session, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]
+) -> bool:
     """Détermine si une demande doit passer par la file de validation admin.
 
     Jamais pour un admin/owner (ni un appel token API). Sinon uniquement si
