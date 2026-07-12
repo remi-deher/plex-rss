@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import bindparam, text
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import current_user, require_admin
 from ..models import AdminActionLog, MediaRequest, NotificationLog, PlexUser, Settings
 from ..notification_queue import enqueue as enqueue_notification
@@ -24,7 +26,7 @@ from ..services.email_service import (
     render_template,
 )
 from ..services.notification_catalog import event_badge_class, event_mail_flags, get_event
-from ..utils import get_or_404, now_utc, now_utc_naive
+from ..utils import async_get_or_404, now_utc, now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(require_admin)])
 
@@ -34,8 +36,8 @@ class PendingNotificationPurge(BaseModel):
     mark_handled: bool = False
 
 
-def _log_admin_action(
-    db: Session,
+async def _log_admin_action(
+    db: AsyncSession,
     request: Request,
     *,
     action: str,
@@ -57,11 +59,11 @@ def _log_admin_action(
 
 
 @router.get("/activity")
-def activity_log(db: Session = Depends(get_db)):
+async def activity_log(db: AsyncSession = Depends(get_db_async)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
     cutoff = now_utc_naive() - timedelta(days=7)
     reqs = (
-        db.query(MediaRequest)
+        select(MediaRequest)
         .filter(
             (MediaRequest.requested_at >= cutoff)
             | (MediaRequest.available_at >= cutoff)
@@ -71,7 +73,7 @@ def activity_log(db: Session = Depends(get_db)):
         .limit(120)
         .all()
     )
-    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
 
     events: list[dict[str, Any]] = []
 
@@ -109,7 +111,7 @@ def activity_log(db: Session = Depends(get_db)):
             add_event(r, "vf_available", r.vf_available_at, "VF disponible", "Upgrade VF detecte")
 
     logs = (
-        db.query(NotificationLog)
+        select(NotificationLog)
         .filter(NotificationLog.sent_at >= cutoff)
         .order_by(NotificationLog.sent_at.desc())
         .limit(80)
@@ -137,16 +139,16 @@ def activity_log(db: Session = Depends(get_db)):
 
 
 @router.get("/notifications/recent-available")
-def recent_available(since: str = None, db: Session = Depends(get_db)):
+async def recent_available(since: str = None, db: AsyncSession = Depends(get_db_async)):
     """Retourne les médias devenus disponibles depuis `since` (ISO 8601)."""
-    q = db.query(MediaRequest).filter(MediaRequest.status == "available")
+    q = select(MediaRequest).filter(MediaRequest.status == "available")
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
             q = q.filter(MediaRequest.available_at >= since_dt)
         except ValueError:
             pass
-    items = q.order_by(MediaRequest.available_at.desc()).limit(10).all()
+    items = (await db.execute(q.order_by(MediaRequest.available_at.desc()).limit(10))).scalars().all()
     return [{"id": r.id, "title": r.title, "available_at": format_datetime(r.available_at)} for r in items]
 
 
@@ -159,14 +161,14 @@ def get_logs(_: None = Depends(require_admin)):
 
 
 @router.get("/email/preview")
-def preview_email_template(event: str = "request", user_id: Optional[int] = None, db: Session = Depends(get_db)):
+async def preview_email_template(event: str = "request", user_id: Optional[int] = None, db: AsyncSession = Depends(get_db_async)):
     """Rend le template email avec des données fictives et retourne le HTML."""
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
 
     plex_user_name = "Jean Dupont"
     recipient_email = "jean.dupont@plex.local"
     if user_id:
-        user = db.query(PlexUser).filter(PlexUser.id == user_id).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == user_id))).scalars().first()
         if user:
             plex_user_name = user.custom_name or user.display_name or user.plex_user_id
             recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
@@ -233,10 +235,10 @@ def preview_email_template(event: str = "request", user_id: Optional[int] = None
 
 
 @router.get("/notifications/log")
-def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depends(get_db)):
-    q = db.query(NotificationLog).order_by(NotificationLog.sent_at.desc())
-    total = q.count()
-    logs = q.offset(offset).limit(min(limit, 200)).all()
+async def list_notification_logs(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db_async)):
+    q = select(NotificationLog).order_by(NotificationLog.sent_at.desc())
+    total = (await db.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(q.subquery()))).scalar()
+    logs = (await db.execute(q.offset(offset).limit(min(limit, 200)))).scalars().all()
     return {
         "total": total,
         "offset": offset,
@@ -265,18 +267,18 @@ def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depen
 
 
 @router.get("/admin-action-logs")
-def list_admin_action_logs(
+async def list_admin_action_logs(
     limit: int = 50,
     offset: int = 0,
     action: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
-    q = db.query(AdminActionLog)
+    q = select(AdminActionLog)
     if action:
         q = q.filter(AdminActionLog.action == action)
     q = q.order_by(AdminActionLog.created_at.desc())
-    total = q.count()
-    logs = q.offset(offset).limit(min(limit, 200)).all()
+    total = (await db.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(q.subquery()))).scalar()
+    logs = (await db.execute(q.offset(offset).limit(min(limit, 200)))).scalars().all()
 
     def _details(raw: str | None) -> dict:
         if not raw:
@@ -307,7 +309,7 @@ def list_admin_action_logs(
 
 
 @router.get("/notifications/pending")
-def list_pending_notifications(db: Session = Depends(get_db)):
+async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
     rows = db.execute(
         text("SELECT id, created_at, event, req_id, recipients, reason FROM pending_notifications ORDER BY id DESC")
     ).fetchall()
@@ -319,7 +321,7 @@ def list_pending_notifications(db: Session = Depends(get_db)):
             pass
     titles = {
         req.id: {"title": req.title, "media_type": req.media_type}
-        for req in db.query(MediaRequest).filter(MediaRequest.id.in_(req_ids)).all()
+        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(req_ids)))).scalars().all()
     }
 
     def _json_value(raw, fallback):
@@ -355,13 +357,13 @@ def list_pending_notifications(db: Session = Depends(get_db)):
     return {"total": len(items), "invalid": invalid, "items": items}
 
 
-def _pending_rows_for_purge(db: Session, ids: list[int]) -> list:
+async def _pending_rows_for_purge(db: AsyncSession, ids: list[int]) -> list:
     if ids:
         stmt = text(
             "SELECT id, event, req_id, recipients, reason FROM pending_notifications WHERE id IN :ids"
         ).bindparams(bindparam("ids", expanding=True))
-        return db.execute(stmt, {"ids": [int(i) for i in ids]}).fetchall()
-    return db.execute(text("SELECT id, event, req_id, recipients, reason FROM pending_notifications")).fetchall()
+        return await db.execute(stmt, {"ids": [int(i) for i in ids]}).fetchall()
+    return await db.execute(text("SELECT id, event, req_id, recipients, reason FROM pending_notifications")).fetchall()
 
 
 def _safe_json_value(raw, fallback):
@@ -372,7 +374,7 @@ def _safe_json_value(raw, fallback):
         return fallback
 
 
-def _mark_pending_rows_handled(db: Session, rows: list) -> int:
+async def _mark_pending_rows_handled(db: AsyncSession, rows: list) -> int:
     req_ids = []
     for row in rows:
         try:
@@ -384,7 +386,7 @@ def _mark_pending_rows_handled(db: Session, rows: list) -> int:
 
     reqs = {
         req.id: req
-        for req in db.query(MediaRequest).filter(MediaRequest.id.in_(sorted(set(req_ids)))).all()
+        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(sorted(set(req_ids)))))).scalars().all()
     }
     handled = 0
     for row in rows:
@@ -420,18 +422,18 @@ def _mark_pending_rows_handled(db: Session, rows: list) -> int:
 
 
 @router.post("/notifications/pending/purge")
-def purge_pending_notifications(
+async def purge_pending_notifications(
     body: PendingNotificationPurge,
     request: Request,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     ids = body.ids or []
-    pending_rows = _pending_rows_for_purge(db, ids)
-    handled = _mark_pending_rows_handled(db, pending_rows) if body.mark_handled else 0
+    pending_rows = await _pending_rows_for_purge(db, ids)
+    handled = await _mark_pending_rows_handled(db, pending_rows) if body.mark_handled else 0
     if body.mark_handled:
-        db.commit()
+        await db.commit()
     else:
-        db.rollback()
+        await db.rollback()
     if ids:
         deleted = cancel_pending(ids)
         action = "notification_queue_delete"
@@ -444,19 +446,19 @@ def purge_pending_notifications(
         if body.mark_handled:
             summary += f", {handled} demande(s) marquee(s) traitee(s)"
         details = {"purge_all": True, "mark_handled": body.mark_handled, "handled_requests": handled}
-    _log_admin_action(db, request, action=action, summary=summary, target_count=deleted, details=details)
-    db.commit()
+    await _log_admin_action(db, request, action=action, summary=summary, target_count=deleted, details=details)
+    await db.commit()
     return {"status": "success", "deleted": deleted, "handled_requests": handled}
 
 
 @router.post("/notifications/{log_id}/resend")
-async def resend_notification(log_id: int, db: Session = Depends(get_db)):
-    log = db.query(NotificationLog).filter(NotificationLog.id == log_id).first()
+async def resend_notification(log_id: int, db: AsyncSession = Depends(get_db_async)):
+    log = (await db.execute(select(NotificationLog).filter(NotificationLog.id == log_id))).scalars().first()
     if not log:
         raise HTTPException(404, "Log introuvable")
     if not log.req_id:
         raise HTTPException(400, "req_id manquant sur cette entrée de log (envoi antérieur à la v2.1)")
-    req = get_or_404(db, MediaRequest, log.req_id, "Demande originale introuvable")
+    req = await async_get_or_404(db, MediaRequest, log.req_id, "Demande originale introuvable")
     # Les anciens évènements de disponibilité (available_vf, vo_only, vf_available,
     # episode_track, partially_available, available_vo_tracking — retirés du catalogue,
     # voir notification_catalog.py) sont tous fusionnés dans "available" aujourd'hui.
