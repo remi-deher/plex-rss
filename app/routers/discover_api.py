@@ -9,9 +9,11 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import current_user, require_auth
 from ..models import LibraryItem, MediaRequest, PlexUser, Settings
 from ..serializers import request_status_value, serialize_media_request
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/discover", tags=["discover"], dependencies=[Depends(require_auth)])
 
 
-def _annotate(db: Session, items: list[dict]) -> list[dict]:
+async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
     """Ajoute l'état local (bibliothèque/demande/VF) à chaque item, pour badge + lien
     vers la fiche Library (qui porte déjà tout le reste : recherche interactive, ajout
     de demandeur, relance, anomalie Plex, suppression — pas de duplication ici)."""
@@ -36,10 +38,10 @@ def _annotate(db: Session, items: list[dict]) -> list[dict]:
     for mt, ids in ids_by_type.items():
         if not ids:
             continue
-        for li in db.query(LibraryItem).filter(LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)).all():
+        for li in (await db.execute(select(LibraryItem).filter(LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)))).scalars().all():
             if li.tmdb_id:
                 lib[(mt, li.tmdb_id)] = li
-        for req in db.query(MediaRequest).filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids)).all():
+        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids)))).scalars().all():
             if req.tmdb_id:
                 reqs[(mt, req.tmdb_id)] = req
 
@@ -66,20 +68,20 @@ def _annotate(db: Session, items: list[dict]) -> list[dict]:
 
 
 @router.get("/status")
-def discover_status(db: Session = Depends(get_db)):
+async def discover_status(db: AsyncSession = Depends(get_db_async)):
     """Indique si TMDB est configuré (pour l'affichage conditionnel de la page)."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     return {"configured": bool(s and (s.tmdb_api_key or "").strip())}
 
 
 @router.get("/requesters")
-def discover_requesters(request: Request, db: Session = Depends(get_db)):
+async def discover_requesters(request: Request, db: AsyncSession = Depends(get_db_async)):
     caller = current_user(request, db)
     if caller and not (caller.get("is_owner") or caller.get("role") == "admin"):
         uid = caller.get("plex_user_id")
-        user = db.query(PlexUser).filter(PlexUser.plex_user_id == uid, PlexUser.enabled).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == uid, PlexUser.enabled))).scalars().first()
         return [user] if user else []
-    return db.query(PlexUser).filter(PlexUser.enabled).order_by(PlexUser.display_name).all()
+    return (await db.execute(select(PlexUser).filter(PlexUser.enabled).order_by(PlexUser.display_name))).scalars().all()
 
 
 def _guard(exc: Exception):
@@ -90,31 +92,31 @@ def _guard(exc: Exception):
 
 
 @router.get("/trending")
-async def get_trending(media_type: str = "all", window: str = "week", db: Session = Depends(get_db)):
+async def get_trending(media_type: str = "all", window: str = "week", db: AsyncSession = Depends(get_db_async)):
     try:
-        return _annotate(db, await tmdb.trending(db, media_type, window))
+        return await _annotate(db, await tmdb.trending(db, media_type, window))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/popular")
-async def get_popular(media_type: str = "movie", page: int = 1, db: Session = Depends(get_db)):
+async def get_popular(media_type: str = "movie", page: int = 1, db: AsyncSession = Depends(get_db_async)):
     try:
-        return _annotate(db, await tmdb.popular(db, media_type, page))
+        return await _annotate(db, await tmdb.popular(db, media_type, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/coming-soon")
-async def get_coming_soon(media_type: str = "movie", page: int = 1, db: Session = Depends(get_db)):
+async def get_coming_soon(media_type: str = "movie", page: int = 1, db: AsyncSession = Depends(get_db_async)):
     try:
-        return _annotate(db, await tmdb.coming_soon(db, media_type, page))
+        return await _annotate(db, await tmdb.coming_soon(db, media_type, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/genres")
-async def get_genres(media_type: str = "movie", db: Session = Depends(get_db)):
+async def get_genres(media_type: str = "movie", db: AsyncSession = Depends(get_db_async)):
     try:
         return await tmdb.genres(db, media_type)
     except Exception as e:
@@ -130,34 +132,34 @@ async def get_discover(
     db: Session = Depends(get_db),
 ):
     try:
-        return _annotate(db, await tmdb.discover(db, media_type, genre, sort_by, page))
+        return await _annotate(db, await tmdb.discover(db, media_type, genre, sort_by, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/search")
-async def get_search(query: str = Query(..., min_length=1), page: int = 1, db: Session = Depends(get_db)):
+async def get_search(query: str = Query(..., min_length=1), page: int = 1, db: AsyncSession = Depends(get_db_async)):
     try:
-        return _annotate(db, await tmdb.search(db, query, page))
+        return await _annotate(db, await tmdb.search(db, query, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/detail")
-async def get_detail(media_type: str, tmdb_id: int, db: Session = Depends(get_db)):
+async def get_detail(media_type: str, tmdb_id: int, db: AsyncSession = Depends(get_db_async)):
     try:
         d = await tmdb.detail(db, media_type, tmdb_id)
-        _annotate(db, [d])
+        await _annotate(db, [d])
         if d.get("request_id"):
-            req = db.query(MediaRequest).filter(MediaRequest.id == d["request_id"]).first()
+            req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == d["request_id"]))).scalars().first()
             if req:
                 users = {
                     u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id)
-                    for u in db.query(PlexUser).all()
+                    for u in (await db.execute(select(PlexUser))).scalars().all()
                 }
                 d["requesters"] = serialize_media_request(req, users)["requesters"]
-        d["recommendations"] = _annotate(db, d.get("recommendations", []))
-        d["similar"] = _annotate(db, d.get("similar", []))
+        d["recommendations"] = await _annotate(db, d.get("recommendations", []))
+        d["similar"] = await _annotate(db, d.get("similar", []))
         return d
     except Exception as e:
         _guard(e)
