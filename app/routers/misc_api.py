@@ -7,9 +7,11 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import get_current_plex_user, require_admin, require_auth
 from ..i18n import SUPPORTED_LOCALES, catalog, normalize_locale
 from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeStatus
@@ -43,10 +45,10 @@ async def image_proxy(url: str):
 
 
 @router.get("/i18n/catalog", dependencies=[Depends(require_auth)])
-def i18n_catalog(
-    request: Request, db: Session = Depends(get_db), user: PlexUser | None = Depends(get_current_plex_user)
+async def i18n_catalog(
+    request: Request, db: AsyncSession = Depends(get_db_async), user: PlexUser | None = Depends(get_current_plex_user)
 ):
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     requested = request.query_params.get("locale")
     locale = normalize_locale(
         requested or (user.locale if user else None) or (settings.default_locale if settings else None)
@@ -54,20 +56,18 @@ def i18n_catalog(
     return {"locale": locale, "supported": sorted(SUPPORTED_LOCALES), "messages": catalog(locale)}
 
 
-def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
     """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
-    db.query(VfEpisodeStatus).filter(
-        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
-    ).delete()
+    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 @router.get("/onboarding")
-def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def onboarding_status(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     """Retourne l'état d'avancement de la configuration initiale (checklist)."""
-    s = db.query(Settings).first()
-    users_count = db.query(PlexUser).count()
-    has_sonarr = db.query(ArrInstance).filter(ArrInstance.arr_type == "sonarr", ArrInstance.enabled).first() is not None
-    has_radarr = db.query(ArrInstance).filter(ArrInstance.arr_type == "radarr", ArrInstance.enabled).first() is not None
+    s = (await db.execute(select(Settings))).scalars().first()
+    users_count = (await db.execute(select(sqlalchemy.func.count()).select_from(PlexUser))).scalar()
+    has_sonarr = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == "sonarr", ArrInstance.enabled))).scalars().first() is not None
+    has_radarr = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == "radarr", ArrInstance.enabled))).scalars().first() is not None
     steps = [
         {"id": "rss", "label": "Flux RSS Plex configuré", "done": bool(s and s.plex_rss_url)},
         {"id": "sonarr", "label": "Sonarr configuré", "done": has_sonarr},
@@ -85,7 +85,7 @@ def onboarding_status(db: Session = Depends(get_db), _: None = Depends(require_a
 
 
 @router.get("/onboarding/context")
-def onboarding_context(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def onboarding_context(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     """Snapshot de la configuration actuelle pour pré-remplir l'assistant.
 
     Les secrets ne sont jamais renvoyés en clair : on expose seulement un booléen
@@ -93,7 +93,7 @@ def onboarding_context(db: Session = Depends(get_db), _: None = Depends(require_
     pour ne réécrire un secret que si l'utilisateur en saisit un nouveau (sinon le
     champ reste vide côté client → non transmis → non écrasé côté serveur).
     """
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
 
     def val(attr):
         return getattr(s, attr, None) if s else None
@@ -101,7 +101,7 @@ def onboarding_context(db: Session = Depends(get_db), _: None = Depends(require_
     def is_set(attr):
         return bool(getattr(s, attr, None)) if s else False
 
-    instances = db.query(ArrInstance).all()
+    instances = (await db.execute(select(ArrInstance))).scalars().all()
     return {
         "has_account": bool(s and s.auth_username),
         "plex": {
@@ -227,7 +227,7 @@ def _req_dict(r: MediaRequest) -> dict:
     }
 
 
-def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db):
+async def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db: AsyncSession):
     """Fusionne dup dans keeper : co-demandeurs + champs manquants."""
     extras: list[dict] = _json.loads(keeper.extra_requesters or "[]")
     existing_ids = {keeper.plex_user_id} | {e["plex_user_id"] for e in extras}
@@ -247,15 +247,15 @@ def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db):
     if not keeper.poster_url and dup.poster_url:
         keeper.poster_url = dup.poster_url
     keeper.extra_requesters = _json.dumps(extras, ensure_ascii=False)
-    db.delete(dup)
+    await db.delete(dup)
 
 
 @router.get("/conflicts")
-def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def list_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     """Retourne tous les conflits détectés, filtrés des ignorés."""
     ignored = _load_ignored()
-    all_reqs = db.query(MediaRequest).all()
-    known_user_ids = {u.plex_user_id for u in db.query(PlexUser).all()}
+    all_reqs = (await db.execute(select(MediaRequest))).scalars().all()
+    known_user_ids = {u.plex_user_id for u in (await db.execute(select(PlexUser))).scalars().all()}
     now = now_utc_naive()
 
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
@@ -314,26 +314,26 @@ def list_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admi
 
 
 @router.post("/conflicts/resolve")
-def resolve_conflict(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def resolve_conflict(body: dict, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     keep_id: int = body.get("keep_id")
     delete_ids: list[int] = body.get("delete_ids", [])
     if not keep_id or not delete_ids:
         raise HTTPException(400, "keep_id et delete_ids requis")
-    keeper = db.get(MediaRequest, keep_id)
+    keeper = await db.get(MediaRequest, keep_id)
     if not keeper:
         raise HTTPException(404, f"Entrée {keep_id} introuvable")
     for del_id in delete_ids:
-        dup = db.get(MediaRequest, del_id)
+        dup = await db.get(MediaRequest, del_id)
         if dup:
-            _merge_entries(keeper, dup, db)
-    db.commit()
+            await _merge_entries(keeper, dup, db)
+    await db.commit()
     return {"ok": True, "kept": keep_id, "deleted": delete_ids}
 
 
 @router.post("/conflicts/auto-resolve")
-def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+async def auto_resolve_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     """Résout automatiquement tous les conflits tmdb : garde l'entrée Seer."""
-    all_reqs = db.query(MediaRequest).all()
+    all_reqs = (await db.execute(select(MediaRequest))).scalars().all()
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
     for r in all_reqs:
         if r.tvdb_id:
@@ -348,10 +348,10 @@ def auto_resolve_conflicts(db: Session = Depends(get_db), _: None = Depends(requ
         keeper = seer or min(rows, key=lambda x: x.id)
         for dup in rows:
             if dup.id != keeper.id:
-                _merge_entries(keeper, dup, db)
+                await _merge_entries(keeper, dup, db)
         resolved += 1
 
-    db.commit()
+    await db.commit()
     return {"ok": True, "resolved": resolved}
 
 
@@ -377,24 +377,24 @@ def unignore_conflict(key: str, _: None = Depends(require_admin)):
 
 
 @router.delete("/conflicts/no-tmdb/{request_id}")
-def delete_no_tmdb(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    req = db.get(MediaRequest, request_id)
+async def delete_no_tmdb(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+    req = await db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")
     if req.tmdb_id:
         raise HTTPException(400, "Cette entrée a un tmdb_id — utilisez /conflicts/resolve")
-    _delete_vf_episode_cache(db, req.id)
-    db.delete(req)
-    db.commit()
+    await _delete_vf_episode_cache(db, req.id)
+    await db.delete(req)
+    await db.commit()
     return {"ok": True}
 
 
 @router.delete("/conflicts/orphan/{request_id}")
-def delete_orphan(request_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    req = db.get(MediaRequest, request_id)
+async def delete_orphan(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+    req = await db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")
-    _delete_vf_episode_cache(db, req.id)
-    db.delete(req)
-    db.commit()
+    await _delete_vf_episode_cache(db, req.id)
+    await db.delete(req)
+    await db.commit()
     return {"ok": True}
