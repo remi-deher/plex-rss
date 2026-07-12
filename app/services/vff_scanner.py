@@ -506,15 +506,16 @@ def _apply_vf_result(
             trigger_search = bool(settings.vff_auto_search)
         else:
             db.commit()
-            vf_delta = _queue_availability_progress(
-                settings,
-                req,
-                db,
-                language="vf",
-                episode_status=episode_status,
-                has_vf_full=False,
-                season_aired_counts=season_aired_counts,
-            )
+            if req.media_type != "movie":
+                vf_delta = _queue_availability_progress(
+                    settings,
+                    req,
+                    db,
+                    language="vf",
+                    episode_status=episode_status,
+                    has_vf_full=False,
+                    season_aired_counts=season_aired_counts,
+                )
     return trigger_search, vf_delta, vo_delta
 
 

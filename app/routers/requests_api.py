@@ -519,6 +519,7 @@ def cancel_own_request(request_id: int, request: Request, db: Session = Depends(
 def mark_request_processed(
     request_id: int,
     event: str = "available",
+    notify: bool = True,
     db: Session = Depends(get_db),
     _: None = Depends(require_admin),
 ):
@@ -527,12 +528,12 @@ def mark_request_processed(
     settings = db.query(Settings).first()
 
     if event == "request":
-        if settings:
+        if settings and notify:
             _notify("request", settings, req, db, force=True)
         req.request_mail_sent = True
     else:
         event = "available"
-        if settings:
+        if settings and notify:
             _notify("available", settings, req, db, force=True)
         req.status = RequestStatus.available
         req.available_mail_sent = True
@@ -544,6 +545,6 @@ def mark_request_processed(
     return {
         "status": "success",
         "message": "Demande marquée comme traitée",
-        "notified": True,
+        "notified": notify,
         "event": event,
     }

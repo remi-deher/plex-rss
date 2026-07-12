@@ -582,9 +582,17 @@ async def test_process_failed_event_calls_failure_notification():
 # ---------------------------------------------------------------------------
 
 
-def test_enqueue_puts_item_in_queue():
+@patch("app.notification_queue.SessionLocal")
+def test_enqueue_puts_item_in_queue(mock_session_local):
     """enqueue() dépose un tuple dans la queue sans bloquer."""
     from app.notification_queue import _queue
+    
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+    mock_row = MagicMock()
+    mock_row.id = 123
+    mock_db.add.side_effect = lambda row: setattr(row, "id", 123)
+    mock_session_local.return_value = mock_db
 
     initial_size = _queue.qsize()
     enqueue("request", 99, ["x@y.com"], "")

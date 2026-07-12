@@ -117,17 +117,33 @@ def enqueue(event: str, req_id: int, recipients: list[str], context: dict | str 
     pending_id = None
     db = SessionLocal()
     try:
+        recipients_json = json.dumps(recipients)
+        reason_json = json.dumps(context)
+        
+        existing = db.query(PendingNotification).filter(
+            PendingNotification.event == event,
+            PendingNotification.req_id == req_id,
+            PendingNotification.reason == reason_json
+        ).first()
+        
+        if existing:
+            logger.info(f"Notification [{event}] req#{req_id} déjà en attente, ignorée pour éviter un doublon.")
+            return
+
         row = PendingNotification(
-            event=event, req_id=req_id, recipients=json.dumps(recipients), reason=json.dumps(context)
+            event=event, req_id=req_id, recipients=recipients_json, reason=reason_json
         )
         db.add(row)
         db.commit()
         pending_id = row.id
     except Exception as e:
         logger.error(f"Impossible de persister la notification en attente [{event}] req#{req_id}: {e}")
+        return
     finally:
         db.close()
-    _queue.put_nowait((pending_id, event, req_id, recipients, context))
+        
+    if pending_id is not None:
+        _queue.put_nowait((pending_id, event, req_id, recipients, context))
 
 
 def _delete_pending(pending_id: int | None):

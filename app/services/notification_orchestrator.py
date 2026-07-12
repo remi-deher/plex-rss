@@ -386,6 +386,17 @@ def resolve_and_notify_availability(
                 continue
             if req.media_type == "movie" and not _resolve_movie_notify_language(settings, user_obj):
                 continue
+            
+            # --- INVARIANTS CENTRAUX (Audit) ---
+            if candidate.language == "vf":
+                # Un film notifié en VF doit être officiellement marqué has_vf = True
+                if req.media_type == "movie" and req.has_vf is not True:
+                    continue
+                # Une série notifiée en VF est autorisée même si has_vf=False car le statut peut être partiel.
+            
+            if candidate.is_upgrade and req.media_type == "movie" and req.has_vf is False:
+                continue
+                
         eligible.append(candidate)
     if not eligible:
         return False

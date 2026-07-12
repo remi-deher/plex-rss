@@ -50,14 +50,17 @@ def test_admin_role_session_passes_admin():
     require_admin(req, _db_with_token(None))  # ne lève pas
 
 
-def test_api_key_is_admin_level():
+def test_api_key_no_longer_admin_level():
     req = _request(api_key="secret")
     db = _db_with_token("secret")
-    require_auth(req, db)
-    require_admin(req, db)
+    require_auth(req, db)  # require_auth l'accepte toujours (pour api_v1)
+    
+    with pytest.raises(HTTPException) as exc:
+        require_admin(req, db)
+    assert exc.value.status_code == 401
+
     user = current_user(req, db)
-    assert user["is_owner"] is True
-    assert user["role"] == "admin"
+    assert user is None
 
 
 def test_current_user_none_when_anonymous():

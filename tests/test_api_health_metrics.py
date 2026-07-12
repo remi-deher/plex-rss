@@ -407,11 +407,11 @@ def test_generate_token_regenerates(client, db):
 
 
 def test_api_key_header_authenticates(client_real_auth, db):
-    """X-Api-Key valide → 200 sans session cookie."""
+    """X-Api-Key valide → 200 sans session cookie sur les routes /api/v1."""
     db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="secret-token"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "secret-token"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "secret-token"})
     assert resp.status_code == 200
 
 
@@ -420,7 +420,7 @@ def test_wrong_api_key_returns_401(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="correct"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "wrong"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "wrong"})
     assert resp.status_code == 401
 
 
@@ -429,7 +429,7 @@ def test_no_auth_returns_401(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts")
+    resp = client_real_auth.get("/api/v1/requests")
     assert resp.status_code == 401
 
 
@@ -438,7 +438,7 @@ def test_no_token_configured_rejects_any_key(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "anything"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "some-key"})
     assert resp.status_code == 401
 
 

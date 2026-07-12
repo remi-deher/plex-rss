@@ -42,10 +42,10 @@ def _api_key_has_scope(request: Request, db: Session, required_scope: str) -> bo
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> dict | None:
-    """Décrit l'appelant authentifié (pour les pages et l'affichage conditionnel).
-
-    Retourne None si non authentifié. Un appel par token API est traité comme un
-    admin sans identité utilisateur (`is_owner=True`).
+    """Décrit l'appelant authentifié par session (pour les pages et l'affichage conditionnel).
+    
+    Retourne None si non authentifié. L'API token n'accorde plus le statut d'admin global
+    sur l'interface interne (voir require_api_scope pour les routes d'API externes).
     """
     if request.session.get("authenticated"):
         return {
@@ -55,8 +55,6 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> dict | None
             "plex_user_id": request.session.get("plex_user_id"),
             "username": request.session.get("username"),
         }
-    if _valid_api_key(request, db):
-        return {"id": None, "is_owner": True, "role": "admin", "plex_user_id": None, "username": "api"}
     return None
 
 

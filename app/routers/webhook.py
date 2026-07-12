@@ -3,11 +3,12 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import false, or_
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
+from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
 from ..services.download_history import record_completed
@@ -544,7 +545,7 @@ async def plex_webhook(request: Request):
         db.close()
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_admin)])
 def webhook_status():
     """Retourne le statut des derniers tests reçus pour chaque webhook."""
 
@@ -607,7 +608,7 @@ async def _check_live_plex() -> dict:
     }
 
 
-@router.post("/check-live/{service}")
+@router.post("/check-live/{service}", dependencies=[Depends(require_admin)])
 async def check_live_webhook(service: str, instance_id: int | None = None):
     """Déclenche depuis Sonarr/Radarr un test réel du connecteur Webhook pointant vers cette app.
 
@@ -691,7 +692,7 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
         db.close()
 
 
-@router.get("/plex-connector-status/{service}")
+@router.get("/plex-connector-status/{service}", dependencies=[Depends(require_admin)])
 async def plex_connector_status(service: str, instance_id: int | None = None):
     """Vérifie si Sonarr/Radarr a déjà un connecteur natif "Plex Media Server" actif.
 
