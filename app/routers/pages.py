@@ -7,6 +7,7 @@ les mises à jour dynamiques passent par les endpoints API (api.py).
 """
 
 import json
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -32,6 +33,17 @@ from ..utils import identity_keys as _identity_keys
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else []
+
+
+def proxied_media_url(url: str | None) -> str:
+    if not url:
+        return ""
+    if str(url).lower().startswith("http://"):
+        return "/api/image-proxy?url=" + quote(str(url), safe="")
+    return str(url)
+
+
+templates.env.globals["proxied_media_url"] = proxied_media_url
 
 
 class RedirectException(Exception):

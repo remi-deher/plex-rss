@@ -17,6 +17,14 @@ function escHtml(s) {
   if (s == null) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
+function mediaUrl(url) {
+  if (!url) return '';
+  const raw = String(url);
+  if (window.location.protocol === 'https:' && raw.toLowerCase().startsWith('http://')) {
+    return `/api/image-proxy?url=${encodeURIComponent(raw)}`;
+  }
+  return raw;
+}
 function fmtDate(iso) {
   if (!iso) return '-';
   const d = new Date(String(iso).includes('T') ? iso : iso + 'T00:00:00');
@@ -149,7 +157,7 @@ async function recheckPlex(btn, requestId, libraryId) {
 function renderSummary(d) {
   const m = d.media, t = d.timeline || {};
   const poster = m.poster_url
-    ? `<img src="${escHtml(m.poster_url)}" class="img-fluid rounded" style="width:120px;object-fit:cover">`
+    ? `<img src="${escHtml(mediaUrl(m.poster_url))}" class="img-fluid rounded" style="width:120px;object-fit:cover">`
     : `<div class="rounded bg-secondary d-flex align-items-center justify-content-center" style="width:120px;height:180px"><i class="bi bi-image fs-2 text-muted"></i></div>`;
   const requestStatus = d.requests.length ? d.requests.map(r => statusBadge(r.status)).join(' ') : '<span class="badge bg-secondary">Aucune demande</span>';
   const requesterNames = [...new Set(d.requests.flatMap(r => r.requesters || []))].join(', ') || '-';
@@ -770,14 +778,14 @@ function renderVfTracks(d) {
 function episodeThumbHtml(url, fallbackUrl, icon = 'bi-tv') {
   const src = url || fallbackUrl;
   if (src) {
-    return `<img src="${escHtml(src)}" alt="" loading="lazy" style="width:72px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
+    return `<img src="${escHtml(mediaUrl(src))}" alt="" loading="lazy" style="width:72px;height:42px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
   }
   return `<div style="width:72px;height:42px;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi ${icon} text-muted"></i></div>`;
 }
 function seasonPosterHtml(url, fallbackUrl) {
   const src = url || fallbackUrl;
   if (src) {
-    return `<img src="${escHtml(src)}" alt="" loading="lazy" style="width:50px;height:75px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
+    return `<img src="${escHtml(mediaUrl(src))}" alt="" loading="lazy" style="width:50px;height:75px;object-fit:cover;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="flex-shrink-0">`;
   }
   return `<div style="width:50px;height:75px;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi bi-collection-play text-muted"></i></div>`;
 }
@@ -1172,6 +1180,16 @@ async function runBulkManualAction() {
   }
 }
 
+Object.assign(window, {
+  selectAllFilteredRequests,
+  openBulkManualModal,
+  runBulkManualAction,
+  syncBulkManualOptions,
+  rowSelectionChanged,
+  clearBulkSelection,
+  toggleSelectAll,
+});
+
 let _addUsers = [];
 window._addUsersPromise = (async function _loadUsers() {
   try { const r = await fetch('/api/users'); _addUsers = r.ok ? await r.json() : []; } catch (e) { _addUsers = []; }
@@ -1195,7 +1213,7 @@ function renderGlobalCalendar(events) {
   return Object.keys(byDay).sort().map(day => `<div class="mb-3"><h6 class="text-warning mb-2">${fmtDate(day)}</h6><div class="card p-2">${byDay[day].map(e => {
     const m = calReleaseMeta(e);
     const poster = e.poster_url
-      ? `<img src="${escHtml(e.poster_url)}" style="width:38px;height:57px;object-fit:cover;border-radius:4px" alt="">`
+      ? `<img src="${escHtml(mediaUrl(e.poster_url))}" style="width:38px;height:57px;object-fit:cover;border-radius:4px" alt="">`
       : `<div style="width:38px;height:57px;border-radius:4px;background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi ${m.icon}" style="color:${m.color}"></i></div>`;
     const badge = `<span class="badge" style="background:${m.color};color:${m.dark ? '#141414' : '#fff'}"><i class="bi ${m.icon} me-1"></i>${m.label}</span>`;
     const time = e.type === 'episode'

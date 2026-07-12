@@ -2,8 +2,11 @@ import json as _json
 import os as _os
 from collections import defaultdict
 from typing import Optional
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -14,6 +17,29 @@ from ..serializers import format_datetime
 from ..utils import now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["misc"])
+
+
+@router.get("/image-proxy", dependencies=[Depends(require_auth)])
+async def image_proxy(url: str):
+    """Proxy authenticated UI images to avoid HTTPS pages loading HTTP posters directly."""
+    parsed = urlparse(url or "")
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(400, "URL image invalide")
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=False) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(502, f"Image inaccessible: {e}") from e
+
+    content_type = resp.headers.get("content-type", "application/octet-stream").split(";")[0].strip().lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(415, "La ressource n'est pas une image")
+    return Response(
+        content=resp.content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("/i18n/catalog", dependencies=[Depends(require_auth)])

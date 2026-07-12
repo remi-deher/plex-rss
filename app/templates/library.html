@@ -230,7 +230,7 @@
       </div>
       {% endif %}
       {% if it.poster_url %}
-      <div style="position:absolute;inset:0;background:url('{{ it.poster_url }}') center/cover no-repeat"></div>
+      <div style="position:absolute;inset:0;background:url('{{ proxied_media_url(it.poster_url) }}') center/cover no-repeat"></div>
       <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(20,20,20,.1) 0%,rgba(20,20,20,.95) 72%)"></div>
       {% else %}
       <div style="position:absolute;inset:0;background:var(--pr-surface-2);display:flex;align-items:center;justify-content:center">
@@ -286,7 +286,7 @@
         {% for it in items %}
           <tr class="request-item" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}" role="button" onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
             {% if is_admin %}<td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="rowSelectionChanged()">{% endif %}</td>{% endif %}
-            <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
+            <td>{% if it.poster_url %}<img src="{{ proxied_media_url(it.poster_url) }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
             <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
             <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
             <td>{{ status_badge(it.request_status, it.media_type) }}{% if it.is_downloading %} <span class="badge bg-info text-dark" title="Téléchargement/import en cours côté Sonarr/Radarr"><i class="bi bi-cloud-arrow-down-fill me-1"></i>En cours de téléchargement</span>{% elif it.plex_anomaly %} <span class="badge bg-danger" title="Traité par Sonarr/Radarr mais introuvable dans Plex"><i class="bi bi-exclamation-triangle-fill me-1"></i>Anomalie Plex</span>{% endif %}</td>
@@ -404,7 +404,7 @@ window.PLEXARR_LIBRARY = {
   }
 };
 </script>
-<script src="/static/js/library.js?v=portal-20260710"></script>
+<script src="/static/js/library.js?v=portal-20260712-2"></script>
 <style>
 .hover-card { transition: transform .12s, box-shadow .12s; }
 .hover-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
