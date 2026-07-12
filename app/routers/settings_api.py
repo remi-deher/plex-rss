@@ -6,9 +6,12 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
 from ..models import Settings
 from ..scheduler import _send_digest, update_poll_interval
@@ -160,7 +163,7 @@ def get_settings(s: Settings = Depends(get_settings_or_404)):
 
 
 @router.put("/settings")
-def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
+async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
     """Met à jour la configuration. Ignore la valeur masquée du mot de passe SMTP."""
     # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
     _nullable_fields = {
@@ -188,7 +191,7 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
         if key == "notification_log_retention_days" and val == 0:
             val = None
         setattr(s, key, val)
-    db.commit()
+    await db.commit()
     # Priorité aux secondes (polling sous la minute) ; repli sur les minutes.
     if data.poll_interval_seconds:
         update_poll_interval(data.poll_interval_seconds)
@@ -218,9 +221,9 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db), s: Sett
 
 
 @router.post("/settings/token")
-def generate_api_token(body: ApiTokenCreate | None = None, db: Session = Depends(get_db)):
+async def generate_api_token(body: ApiTokenCreate | None = None, db: AsyncSession = Depends(get_db_async)):
     """Génère un nouveau token d'API et le stocke dans les paramètres."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     token = secrets.token_urlsafe(32)
@@ -228,99 +231,99 @@ def generate_api_token(body: ApiTokenCreate | None = None, db: Session = Depends
     scopes = [scope.strip() for scope in scopes if scope.strip()]
     s.api_token = token
     s.api_token_scopes = ",".join(scopes or ["*"])
-    db.commit()
+    await db.commit()
     return {"api_token": token, "scopes": scopes or ["*"]}
 
 
 @router.delete("/settings/token")
-def revoke_api_token(db: Session = Depends(get_db)):
+async def revoke_api_token(db: AsyncSession = Depends(get_db_async)):
     """Révoque le token d'API courant."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     s.api_token = None
     s.api_token_scopes = None
-    db.commit()
+    await db.commit()
     return {"status": "revoked"}
 
 
 @router.get("/settings/token")
-def get_api_token_status(db: Session = Depends(get_db)):
+async def get_api_token_status(db: AsyncSession = Depends(get_db_async)):
     """Indique si un token d'API est actif (sans révéler sa valeur)."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     scopes = [scope.strip() for scope in (s.api_token_scopes or "*").split(",") if scope.strip()] if s else []
     return {"active": bool(s and s.api_token), "scopes": scopes}
 
 
 @router.post("/settings/totp/setup")
-def setup_totp(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def setup_totp(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Parametres non initialises")
     secret = generate_secret()
     s.totp_secret = secret
     s.totp_enabled = False
-    db.commit()
+    await db.commit()
     account = s.auth_username or "admin"
     return {"secret": secret, "provisioning_uri": provisioning_uri(secret, account), "enabled": False}
 
 
 @router.post("/settings/totp/enable")
-def enable_totp(body: TotpEnableRequest, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def enable_totp(body: TotpEnableRequest, db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.totp_secret:
         raise HTTPException(400, "Aucun secret 2FA en attente")
     if not verify_code(s.totp_secret, body.code):
         raise HTTPException(400, "Code 2FA invalide")
     s.totp_enabled = True
-    db.commit()
+    await db.commit()
     return {"enabled": True}
 
 
 @router.delete("/settings/totp")
-def disable_totp(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def disable_totp(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Parametres non initialises")
     s.totp_secret = None
     s.totp_enabled = False
-    db.commit()
+    await db.commit()
     return {"enabled": False}
 
 
 @router.post("/settings/webhook-secret")
-def generate_webhook_secret(db: Session = Depends(get_db)):
+async def generate_webhook_secret(db: AsyncSession = Depends(get_db_async)):
     """Génère un nouveau secret de webhook et le stocke dans les paramètres."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     secret = secrets.token_urlsafe(32)
     s.webhook_secret = secret
-    db.commit()
+    await db.commit()
     return {"webhook_secret": secret}
 
 
 @router.delete("/settings/webhook-secret")
-def revoke_webhook_secret(db: Session = Depends(get_db)):
+async def revoke_webhook_secret(db: AsyncSession = Depends(get_db_async)):
     """Révoque le secret de webhook courant (désactive l'authentification des webhooks)."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
     s.webhook_secret = None
-    db.commit()
+    await db.commit()
     return {"status": "revoked"}
 
 
 @router.get("/settings/webhook-secret")
-def get_webhook_secret_status(db: Session = Depends(get_db)):
+async def get_webhook_secret_status(db: AsyncSession = Depends(get_db_async)):
     """Indique si un secret de webhook est actif (sans révéler sa valeur)."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     return {"active": bool(s and s.webhook_secret)}
 
 
 @router.post("/test/plex-api")
-async def test_plex_api(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_plex_api(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await plex_test(s.plex_url or "", s.plex_token or "", verify_ssl=s.plex_verify_ssl)
@@ -328,8 +331,8 @@ async def test_plex_api(db: Session = Depends(get_db)):
 
 
 @router.post("/test/plex-rss")
-async def test_plex_rss(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_plex_rss(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await test_rss(s.plex_rss_url or "")
@@ -337,8 +340,8 @@ async def test_plex_rss(db: Session = Depends(get_db)):
 
 
 @router.post("/test/sonarr")
-async def test_sonarr(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_sonarr(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await sonarr.check_connection(s.sonarr_url or "", s.sonarr_api_key or "")
@@ -346,8 +349,8 @@ async def test_sonarr(db: Session = Depends(get_db)):
 
 
 @router.post("/test/radarr")
-async def test_radarr(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_radarr(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         return {"success": False, "message": "Paramètres non initialisés"}
     ok, msg = await radarr.check_connection(s.radarr_url or "", s.radarr_api_key or "")
@@ -355,8 +358,8 @@ async def test_radarr(db: Session = Depends(get_db)):
 
 
 @router.post("/test/discord")
-async def test_discord(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_discord(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.discord_webhook_url:
         return {"success": False, "message": "Webhook Discord non configuré"}
 
@@ -370,8 +373,8 @@ async def test_discord(db: Session = Depends(get_db)):
 
 
 @router.post("/test/telegram")
-async def test_telegram(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_telegram(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.telegram_bot_token or not s.telegram_chat_id:
         return {"success": False, "message": "Telegram non configuré"}
 
@@ -388,8 +391,8 @@ async def test_telegram(db: Session = Depends(get_db)):
 
 
 @router.post("/test/ntfy")
-async def test_ntfy(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_ntfy(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.ntfy_url:
         return {"success": False, "message": "ntfy non configuré"}
 
@@ -401,8 +404,8 @@ async def test_ntfy(db: Session = Depends(get_db)):
 
 
 @router.post("/test/gotify")
-async def test_gotify(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_gotify(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.gotify_url or not s.gotify_token:
         return {"success": False, "message": "Gotify non configuré"}
 
@@ -414,7 +417,7 @@ async def test_gotify(db: Session = Depends(get_db)):
 
 
 @router.post("/test/tmdb")
-async def test_tmdb(db: Session = Depends(get_db)):
+async def test_tmdb(db: AsyncSession = Depends(get_db_async)):
     from ..services import tmdb as tmdb_service
 
     ok, msg = await tmdb_service.check_connection(db)
@@ -422,8 +425,8 @@ async def test_tmdb(db: Session = Depends(get_db)):
 
 
 @router.post("/test/seer")
-async def test_seer(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_seer(db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.seer_url or not s.seer_api_key:
         return {"success": False, "message": "Seer non configuré"}
     ok, msg = await seer_test(s.seer_url, s.seer_api_key)
@@ -431,7 +434,7 @@ async def test_seer(db: Session = Depends(get_db)):
 
 
 @router.post("/test/smtp")
-async def test_smtp(body: SmtpTestRequest, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def test_smtp(body: SmtpTestRequest, db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
     ok, msg = await email_service.test_smtp(s, body.recipient)
     return {"success": ok, "message": msg}
