@@ -9,6 +9,7 @@ from ..database import SessionLocal
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
 from . import watchlist_poller
+from .availability_service import has_plex_proof
 from .notification_orchestrator import _add_co_requester, _notify
 from .seer import _headers as _seer_headers
 from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
@@ -330,12 +331,19 @@ async def sync_seer_requests():
                             f"'{existing.title}' (seer_req #{req.get('seer_request_id')}): "
                             f"createdAt absent — requested_at non corrigé (valeur actuelle: {existing.requested_at})"
                         )
-                    if is_available and existing.status != RequestStatus.available:
+                    plex_confirmed = has_plex_proof(db, existing) if is_available else False
+                    if is_available and plex_confirmed and existing.status != RequestStatus.available:
                         existing.status = RequestStatus.available
                         existing.arr_id = existing.arr_id or req["seer_request_id"]
                         existing.available_at = seer_updated_at or now_utc_naive()
                         changed = True
-                    elif is_available and seer_updated_at and existing.available_at != seer_updated_at:
+                    elif (
+                        is_available
+                        and plex_confirmed
+                        and existing.status == RequestStatus.available
+                        and seer_updated_at
+                        and existing.available_at != seer_updated_at
+                    ):
                         # Déjà disponible mais available_at provient de notre polling — Seer est plus précis
                         existing.available_at = seer_updated_at
                         changed = True
@@ -354,9 +362,9 @@ async def sync_seer_requests():
                             arr_id=req["seer_request_id"],
                             poster_url=req.get("poster_url"),
                             source="seer",
-                            status=req["status"],
+                            status=RequestStatus.sent_to_arr if is_available else req["status"],
                             requested_at=seer_requested_at,
-                            available_at=seer_updated_at if is_available else None,
+                            available_at=None,
                         )
                     )
                     total_upserted += 1

@@ -10,6 +10,7 @@ from ..database import SessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
+from .availability_service import has_plex_proof, note_arr_processed
 from .download_clients import delete_torrent, get_torrent_status
 from .download_history import record_completed
 from .notification_orchestrator import _handle_show_progress_notification
@@ -215,6 +216,13 @@ async def check_arr_statuses():
                             )
                             new_arr_id = new_arr_id or arr_new_id
                             new_slug = new_slug or arr_new_slug
+                    elif seer_checked and available and not has_plex_proof(db, req):
+                        logger.info(
+                            "Seer indique '%s' disponible, mais Plex ne confirme pas encore sa presence; "
+                            "la demande reste en attente.",
+                            req.title,
+                        )
+                        available = False
                 except Exception as e:
                     logger.warning(f"Status check error for '{req.title}': {e}")
                     errors_count += 1
@@ -272,6 +280,15 @@ async def check_arr_statuses():
 
                 was_already_available = req.status == RequestStatus.available
                 if available:
+                    if not has_plex_proof(db, req):
+                        note_arr_processed(req, arr_id=new_arr_id, arr_slug=new_slug, arr_instance_id=inst.id)
+                        logger.info(
+                            "'%s' est traite cote %s, en attente de confirmation Plex avant disponibilite.",
+                            req.title,
+                            inst.arr_type,
+                        )
+                        db.commit()
+                        continue
                     if not was_already_available:
                         req.status = RequestStatus.available
                         req.available_at = now_utc_naive()
@@ -285,7 +302,7 @@ async def check_arr_statuses():
                             title=req.title,
                             year=req.year,
                             media_type=req.media_type,
-                            source=inst.arr_type,
+                            source="plex_sync",
                             instance_name=inst.name,
                             poster_url=req.poster_url,
                             request_id=req.id,
@@ -393,24 +410,14 @@ async def check_torrent_statuses():
                 f"Torrent '{req.title}' status: {status['status']}, progress: {status['progress']:.1f}%, ratio: {status['ratio']:.2f}"
             )
 
-            # Transition vers disponible
             if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
                 if req.status != RequestStatus.available:
-                    req.status = RequestStatus.available
-                    req.available_at = now_utc_naive()
+                    req.is_downloading = False
                     db.commit()
-                    record_completed(
-                        db,
-                        title=req.title,
-                        year=req.year,
-                        media_type=req.media_type,
-                        source="torrent",
-                        instance_name=client.name,
-                        poster_url=req.poster_url,
-                        request_id=req.id,
+                    logger.info(
+                        "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
+                        req.title,
                     )
-                    notification_orchestrator._notify("available", settings, req, db)
-                    logger.info(f"Torrent '{req.title}' terminé et marqué comme disponible !")
 
             # Nettoyage automatique
             if status["status"] in ("seeding", "completed") or (status["progress"] >= 100.0):

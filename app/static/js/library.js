@@ -964,12 +964,66 @@ async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, bt
   } catch (e) { showToast('Echec : ' + e.message, 'danger'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; }
 }
 
-function getSelectedIds() { return Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => parseInt(cb.value)).filter(Boolean); }
-function toggleSelectAll(master) { document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = master.checked); updateBulkBar(); }
+let bulkAllFiltered = false;
+let bulkAllFilteredIds = [];
+function getSelectedIds() {
+  if (bulkAllFiltered) return bulkAllFilteredIds.slice();
+  return Array.from(document.querySelectorAll('.row-checkbox:checked')).map(cb => parseInt(cb.value)).filter(Boolean);
+}
+function resetBulkAllFiltered() {
+  bulkAllFiltered = false;
+  bulkAllFilteredIds = [];
+}
+function toggleSelectAll(master) {
+  resetBulkAllFiltered();
+  document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = master.checked);
+  updateBulkBar();
+}
 function updateBulkBar() {
   const count = getSelectedIds().length;
   document.getElementById('bulk-select-count').textContent = count;
+  document.getElementById('bulk-scope-badge')?.classList.toggle('d-none', !bulkAllFiltered);
   document.getElementById('bulk-actions-bar').style.setProperty('display', count ? 'flex' : 'none', 'important');
+}
+function clearBulkSelection() {
+  resetBulkAllFiltered();
+  document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
+  const master = document.getElementById('selectAll');
+  if (master) master.checked = false;
+  updateBulkBar();
+}
+function rowSelectionChanged() {
+  resetBulkAllFiltered();
+  const master = document.getElementById('selectAll');
+  if (master) master.checked = false;
+  updateBulkBar();
+}
+async function resolveFilteredRequestIds() {
+  const payload = { ...(LIBRARY_FILTERS || {}), view: ACTIVE_VIEW };
+  const r = await fetch('/api/requests/bulk/resolve', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || 'Erreur');
+  return (d.ids || []).map(x => parseInt(x)).filter(Boolean);
+}
+async function selectAllFilteredRequests() {
+  try {
+    const ids = await resolveFilteredRequestIds();
+    if (!ids.length) {
+      showToast('Aucune demande ne correspond aux filtres actuels', 'warning');
+      return;
+    }
+    bulkAllFiltered = true;
+    bulkAllFilteredIds = ids;
+    document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = ids.includes(parseInt(cb.value)));
+    showToast(`${ids.length} demande(s) selectionnee(s) dans tout le filtre`, 'success');
+    updateBulkBar();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
 }
 async function retryRequest(id, btn) {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
@@ -1056,6 +1110,68 @@ async function bulkDelete() {
 }
 
 // Utilisateurs (réutilisés par l'éditeur de demandeurs de la modale détail).
+function syncBulkManualOptions() {
+  const action = document.querySelector('input[name="bulk-manual-action"]:checked')?.value || 'silent';
+  document.getElementById('bulk-delete-options')?.classList.toggle('d-none', action !== 'delete');
+  const run = document.getElementById('bulk-manual-run');
+  if (!run) return;
+  run.classList.toggle('btn-danger', action === 'delete');
+  run.classList.toggle('btn-warning', action !== 'delete');
+  run.innerHTML = action === 'delete'
+    ? '<i class="bi bi-trash me-1"></i>Supprimer'
+    : '<i class="bi bi-play-fill me-1"></i>Executer';
+}
+async function openBulkManualModal() {
+  const ids = getSelectedIds();
+  if (!ids.length) {
+    showToast('Selectionne au moins une demande', 'warning');
+    return;
+  }
+  const count = document.getElementById('bulk-modal-count');
+  if (count) count.textContent = `${ids.length} demande(s)`;
+  syncBulkManualOptions();
+  new bootstrap.Modal(document.getElementById('bulkManualModal')).show();
+}
+async function runBulkManualAction() {
+  const ids = getSelectedIds();
+  if (!ids.length) return;
+  const action = document.querySelector('input[name="bulk-manual-action"]:checked')?.value || 'silent';
+  const btn = document.getElementById('bulk-manual-run');
+  const old = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Traitement...';
+  }
+  try {
+    let url = '/api/requests/bulk/mark-processed';
+    let payload = { ids };
+    let okType = 'success';
+    let label = 'traitee(s) sans notification';
+    if (action === 'retry') {
+      url = '/api/requests/bulk/retry';
+      okType = 'warning';
+      label = 'relancee(s)';
+    } else if (action === 'delete') {
+      url = '/api/requests/bulk/delete';
+      payload.delete_from_arr = !!document.getElementById('bulk-modal-arr')?.checked;
+      payload.delete_files = !!document.getElementById('bulk-modal-files')?.checked;
+      label = 'supprimee(s)';
+    }
+    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    const skipped = d.skipped && d.skipped.length ? ` (${d.skipped.length} non supprimee(s), *arr injoignable)` : '';
+    showToast(`${d.count || 0} demande(s) ${label}${skipped}`, action === 'delete' && skipped ? 'warning' : okType);
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = old;
+    }
+  }
+}
+
 let _addUsers = [];
 window._addUsersPromise = (async function _loadUsers() {
   try { const r = await fetch('/api/users'); _addUsers = r.ok ? await r.json() : []; } catch (e) { _addUsers = []; }

@@ -347,6 +347,26 @@ def test_bulk_mark_requests_processed(client, db):
     assert r2.available_at is not None
 
 
+def test_bulk_resolve_requests_uses_filters(client, db):
+    """POST /api/requests/bulk/resolve retourne toutes les demandes du filtre, pas seulement la page visible."""
+    r1 = _req(title="Dune", status=RequestStatus.sent_to_arr, media_type="movie", source="seer")
+    r2 = _req(title="Dune Part Two", status=RequestStatus.sent_to_arr, media_type="movie", source="seer")
+    r3 = _req(title="Dune Show", status=RequestStatus.sent_to_arr, media_type="show", source="seer")
+    r4 = _req(title="Inception", status=RequestStatus.failed, media_type="movie", source="rss")
+    db.add_all([r1, r2, r3, r4])
+    db.commit()
+
+    resp = client.post(
+        "/api/requests/bulk/resolve",
+        json={"type": "movie", "search": "Dune", "status": "sent_to_arr", "source": "seer"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 2
+    assert set(data["ids"]) == {r1.id, r2.id}
+
+
 def test_bulk_delete_requests(client, db):
     """POST /api/requests/bulk/delete supprime plusieurs demandes."""
     r1 = _req()

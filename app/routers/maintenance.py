@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..database import SessionLocal
 from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
-from ..utils import now_utc, now_utc_naive
+from ..utils import now_utc
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
 
@@ -155,6 +155,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
             is_movie_available,
             is_series_available,
         )
+        from ..services.availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
         from ..services.seer import is_request_available as seer_available
 
         settings = db.query(Settings).first()
@@ -200,11 +201,21 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                 continue
 
             if available:
-                req.status = RequestStatus.available
-                req.available_at = now_utc_naive()
-                db.commit()
-                emit.ok(f"✓ '{req.title}' — disponible")
-                newly_available += 1
+                if has_plex_proof(db, req):
+                    changed = await confirm_available_from_plex(
+                        settings,
+                        req,
+                        db,
+                        source="plex_sync",
+                    )
+                    if changed:
+                        newly_available += 1
+                    emit.ok(f"OK '{req.title}' - disponible confirme par Plex")
+                else:
+                    note_arr_processed(req)
+                    db.commit()
+                    emit.info(f"- '{req.title}' - traite cote service, attente Plex")
+                continue
             else:
                 emit.info(f"· '{req.title}' — toujours en attente")
 

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import check_arr_statuses, poll_watchlists, sync_users_from_feed
 
 # ---------------------------------------------------------------------------
@@ -365,10 +365,9 @@ async def test_check_arr_movie_becomes_available(db):
         await check_arr_statuses()
 
     req = db.query(MediaRequest).first()
-    assert req.status == RequestStatus.available
-    assert req.available_at is not None
-    mock_enqueue.assert_called_once()
-    assert mock_enqueue.call_args[0][0] == "available"
+    assert req.status == RequestStatus.sent_to_arr
+    assert req.available_at is None
+    mock_enqueue.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -412,10 +411,10 @@ async def test_check_arr_show_becomes_available(db):
         await check_arr_statuses()
 
     req = db.query(MediaRequest).first()
-    assert req.status == RequestStatus.available
+    assert req.status == RequestStatus.sent_to_arr
     assert req.episodes_available_count == 5
     assert req.episodes_total_count == 5
-    mock_enqueue.assert_called_once()
+    mock_enqueue.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -453,6 +452,49 @@ async def test_check_arr_seer_used_when_enabled(db):
 
     mock_seer.assert_called_once()
     mock_radarr.assert_not_called()
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+
+
+@pytest.mark.asyncio
+async def test_check_arr_seer_available_with_plex_match_becomes_available(db):
+    """Seer available + Plex match => local availability is confirmed."""
+    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(s)
+    db.add(_sent_request(source="seer"))
+    db.add(
+        LibraryItem(
+            title="Inception",
+            year=None,
+            media_type="movie",
+            tmdb_id="27205",
+            tvdb_id=None,
+            imdb_id=None,
+            plex_guid="plex://movie/inception",
+            poster_url=None,
+            overview="",
+            added_at=None,
+            arr_instance_id=None,
+            arr_id=None,
+            arr_slug=None,
+        )
+    )
+    db.commit()
+
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(True, 42, None))) as mock_seer,
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock()) as mock_radarr,
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses()
+
+    mock_seer.assert_called_once()
+    mock_radarr.assert_not_called()
+    req = db.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
+    assert req.status == RequestStatus.available
+    assert req.library_item_id is not None
+    mock_enqueue.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -475,9 +517,9 @@ async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
 
     mock_radarr.assert_called_once()
     req = db.query(MediaRequest).first()
-    assert req.status == RequestStatus.available
+    assert req.status == RequestStatus.sent_to_arr
     assert req.arr_slug == "inception"
-    mock_enqueue.assert_called_once()
+    mock_enqueue.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -507,8 +549,8 @@ async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
 
     mock_sonarr.assert_called_once()
     req = db.query(MediaRequest).first()
-    assert req.status == RequestStatus.available
-    mock_enqueue.assert_called_once()
+    assert req.status == RequestStatus.sent_to_arr
+    mock_enqueue.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -560,8 +602,8 @@ async def test_check_arr_exception_does_not_crash_loop(db):
         await check_arr_statuses()
 
     statuses = {r.title: r.status for r in db.query(MediaRequest).all()}
-    # Le second item est passé à available malgré l'échec du premier
-    assert statuses["Movie B"] == RequestStatus.available
+    # Le second item reste suivi, mais attend la preuve Plex avant availability.
+    assert statuses["Movie B"] == RequestStatus.sent_to_arr
 
 
 # ---------------------------------------------------------------------------

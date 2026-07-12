@@ -5,11 +5,12 @@ from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import current_user, require_admin, require_auth
-from ..models import AdminActionLog, ArrInstance, DownloadClient, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import _notify, check_arr_statuses, poll_watchlists
 from ..services import radarr, sonarr
 from ..utils import get_or_404, now_utc_naive, parse_email_list
@@ -45,6 +46,71 @@ class BulkAction(BaseModel):
     ids: list[int]
     delete_from_arr: bool = False
     delete_files: bool = False
+
+
+class BulkResolveFilters(BaseModel):
+    type: Optional[str] = None
+    view: Optional[str] = None
+    search: Optional[str] = None
+    user: Optional[str] = None
+    status: Optional[str] = None
+    source: Optional[str] = None
+    vf: Optional[str] = None
+
+
+def _bulk_request_ids_for_filters(db: Session, filters: BulkResolveFilters) -> list[int]:
+    q = db.query(MediaRequest)
+    if filters.type in ("movie", "show"):
+        q = q.filter(MediaRequest.media_type == filters.type)
+    if filters.search:
+        q = q.filter(MediaRequest.title.ilike(f"%{filters.search}%"))
+    if filters.user:
+        q = q.filter(
+            or_(
+                MediaRequest.plex_user_id == filters.user,
+                MediaRequest.extra_requesters.like(f'%"plex_user_id": "{filters.user}"%'),
+                MediaRequest.extra_requesters.like(f'%"plex_user_id":"{filters.user}"%'),
+            )
+        )
+    if filters.status:
+        q = q.filter(MediaRequest.status == filters.status)
+    if filters.source:
+        q = q.filter(MediaRequest.source == filters.source)
+
+    vf = filters.vf
+    if vf == "vf":
+        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(True))
+        q = q.filter(MediaRequest.library_item_id.in_(ids))
+    elif vf in ("vo", "season_partial", "episode_partial"):
+        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(False))
+        if vf != "vo":
+            ids = ids.filter(LibraryItem.vf_granularity == vf)
+        q = q.filter(MediaRequest.library_item_id.in_(ids))
+    elif vf == "vf_secondary":
+        ids = (
+            db.query(VfEpisodeStatus.source_id)
+            .filter(
+                VfEpisodeStatus.source_type == "library_item",
+                VfEpisodeStatus.has_vf.is_(True),
+                VfEpisodeStatus.fr_is_default.is_(False),
+            )
+            .distinct()
+        )
+        q = q.filter(MediaRequest.library_item_id.in_(ids))
+    elif vf == "unchecked":
+        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(None))
+        q = q.filter(MediaRequest.library_item_id.in_(ids))
+    elif vf == "requested":
+        q = q.filter(MediaRequest.library_item_id.is_(None))
+    elif vf == "plex_anomaly":
+        q = q.filter(
+            MediaRequest.status == RequestStatus.available,
+            MediaRequest.library_item_id.is_(None),
+            MediaRequest.is_downloading.is_(False),
+        )
+
+    rows = q.order_by(MediaRequest.requested_at.desc()).all()
+    return [r.id for r in rows]
 
 
 async def _delete_media_from_arr(db: Session, req: MediaRequest, delete_files: bool) -> tuple[bool, str]:
@@ -184,6 +250,12 @@ def list_pending_requests(db: Session = Depends(get_db)):
     )
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
     return [serialize_media_request(r, users) for r in reqs]
+
+
+@router.post("/requests/bulk/resolve", dependencies=[Depends(require_admin)])
+def resolve_bulk_requests(body: BulkResolveFilters, db: Session = Depends(get_db)):
+    ids = _bulk_request_ids_for_filters(db, body)
+    return {"status": "success", "count": len(ids), "ids": ids}
 
 
 @router.get("/requests/{request_id}")

@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import (
     _add_co_requester,
     _find_global_request,
@@ -385,7 +385,47 @@ async def test_seer_sync_status_updated_to_available(db):
         await sync_seer_requests()
 
     req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+
+
+@pytest.mark.asyncio
+async def test_seer_sync_status_updated_to_available_when_plex_confirms(db):
+    """Seer available + Plex library match marks the request available."""
+    alice = PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True)
+    db.add(alice)
+    db.add(_req(plex_user_id="alice", tmdb_id="27205", status=RequestStatus.sent_to_arr))
+    db.add(
+        LibraryItem(
+            title="Inception",
+            year=None,
+            media_type="movie",
+            tmdb_id="27205",
+            tvdb_id=None,
+            imdb_id=None,
+            plex_guid="plex://movie/inception",
+            poster_url=None,
+            overview="",
+            added_at=None,
+            arr_instance_id=None,
+            arr_id=None,
+            arr_slug=None,
+        )
+    )
+    settings = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(settings)
+    db.commit()
+
+    available_req = [{**SEER_REQUESTS[0], "status": "available"}]
+
+    with (
+        _patch_session(db),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
+    ):
+        await sync_seer_requests()
+
+    req = db.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
     assert req.status == RequestStatus.available
+    assert req.library_item_id is not None
 
 
 # ---------------------------------------------------------------------------

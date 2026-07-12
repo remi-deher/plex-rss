@@ -203,9 +203,10 @@
 {% if is_admin %}
 <div id="bulk-actions-bar" class="bg-dark border border-secondary rounded p-2 mb-3 align-items-center gap-2" style="display:none!important">
   <span class="text-white small ms-2"><strong id="bulk-select-count">0</strong> selectionne(s)</span>
-  <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkRetry()"><i class="bi bi-arrow-clockwise me-1"></i>Reessayer</button>
-  <button type="button" class="btn btn-sm btn-outline-success" onclick="bulkMarkProcessed()"><i class="bi bi-check-all me-1"></i>Traiter sans notifier</button>
-  <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick="bulkDelete()"><i class="bi bi-trash me-1"></i>Supprimer</button>
+  <span class="badge bg-secondary d-none" id="bulk-scope-badge">filtre complet</span>
+  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAllFilteredRequests()"><i class="bi bi-ui-checks-grid me-1"></i>Tout le filtre</button>
+  <button type="button" class="btn btn-sm btn-outline-success" onclick="openBulkManualModal()"><i class="bi bi-tools me-1"></i>Traitement manuel</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearBulkSelection()"><i class="bi bi-x-lg me-1"></i>Annuler</button>
 </div>
 {% endif %}
 {% if active_view == 'calendar' %}
@@ -225,7 +226,7 @@
          onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
       {% if is_admin and it.primary_request_id %}
       <div class="position-absolute" style="top:6px;left:6px;z-index:20" onclick="event.stopPropagation()">
-        <input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()" style="width:18px;height:18px;cursor:pointer;opacity:.9" data-grid-check>
+        <input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="rowSelectionChanged()" style="width:18px;height:18px;cursor:pointer;opacity:.9" data-grid-check>
       </div>
       {% endif %}
       {% if it.poster_url %}
@@ -284,7 +285,7 @@
         <tbody>
         {% for it in items %}
           <tr class="request-item" data-id="{{ it.primary_request_id or '' }}" data-status="{{ it.request_status or '' }}" data-type="{{ it.media_type }}" role="button" onclick="openMediaDetail({{ it.library_id if it.library_id else 'null' }}, {{ it.primary_request_id if it.primary_request_id else 'null' }})">
-            {% if is_admin %}<td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="updateBulkBar()">{% endif %}</td>{% endif %}
+            {% if is_admin %}<td onclick="event.stopPropagation()">{% if it.primary_request_id %}<input type="checkbox" class="row-checkbox form-check-input" value="{{ it.primary_request_id }}" onclick="rowSelectionChanged()">{% endif %}</td>{% endif %}
             <td>{% if it.poster_url %}<img src="{{ it.poster_url }}" style="width:40px;height:60px;object-fit:cover;border-radius:4px">{% else %}<div style="width:40px;height:60px;background:var(--pr-surface-2);border-radius:4px"></div>{% endif %}</td>
             <td><strong>{{ it.title }}</strong>{% if it.year %}<span class="text-muted"> ({{ it.year }})</span>{% endif %}<div class="text-muted small text-truncate" style="max-width:320px">{{ it.request_sources | join(', ') }}</div></td>
             <td>{% if it.media_type == 'show' %}<span class="badge bg-info text-dark">Serie</span>{% else %}<span class="badge bg-primary">Film</span>{% endif %}</td>
@@ -330,6 +331,60 @@
     </div>
   </div>
 </div>
+{% if is_admin %}
+<div class="modal fade" id="bulkManualModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark border-secondary text-white">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-tools me-2 text-warning"></i>Traitement manuel</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning py-2 small mb-3">
+          <strong id="bulk-modal-count">0 demande(s)</strong> seront traitees. Les actions ci-dessous sont reservees aux corrections administratives et aux rattrapages de scan.
+        </div>
+        <div class="vstack gap-2">
+          <label class="border border-secondary rounded p-2">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="bulk-manual-action" id="bulk-action-silent" value="silent" checked onchange="syncBulkManualOptions()">
+              <span class="form-check-label fw-semibold" for="bulk-action-silent"><i class="bi bi-check-all text-success me-1"></i>Traiter sans notifier</span>
+            </div>
+            <div class="text-muted small ms-4">Marque les demandes comme disponibles, bloque le renvoi des emails de disponibilite, et journalise l'action dans les logs admin.</div>
+          </label>
+          <label class="border border-secondary rounded p-2">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="bulk-manual-action" id="bulk-action-retry" value="retry" onchange="syncBulkManualOptions()">
+              <span class="form-check-label fw-semibold" for="bulk-action-retry"><i class="bi bi-arrow-clockwise text-warning me-1"></i>Relancer le traitement</span>
+            </div>
+            <div class="text-muted small ms-4">Repasse les demandes en erreur ou en attente en file de traitement, puis relance le polling.</div>
+          </label>
+          <label class="border border-secondary rounded p-2">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="bulk-manual-action" id="bulk-action-delete" value="delete" onchange="syncBulkManualOptions()">
+              <span class="form-check-label fw-semibold" for="bulk-action-delete"><i class="bi bi-trash text-danger me-1"></i>Supprimer les demandes</span>
+            </div>
+            <div class="text-muted small ms-4">Supprime les demandes locales. Optionnellement, tente aussi la suppression cote Sonarr/Radarr.</div>
+            <div id="bulk-delete-options" class="ms-4 mt-2 d-none">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="bulk-modal-arr">
+                <label class="form-check-label small" for="bulk-modal-arr">Supprimer aussi de Sonarr/Radarr</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="bulk-modal-files">
+                <label class="form-check-label small" for="bulk-modal-files">Supprimer aussi les fichiers deja telecharges</label>
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        <button type="button" class="btn btn-warning" id="bulk-manual-run" onclick="runBulkManualAction()"><i class="bi bi-play-fill me-1"></i>Executer</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 {% endblock %}
 {% block scripts %}

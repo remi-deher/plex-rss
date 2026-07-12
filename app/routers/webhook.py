@@ -11,6 +11,7 @@ from ..database import SessionLocal
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
+from ..services.availability_service import has_plex_proof, note_arr_processed
 from ..services.download_history import record_completed
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
@@ -144,6 +145,15 @@ async def _mark_available_and_notify(
             # planifié (jusqu'à `vff_recheck_interval_minutes`, 6h par défaut).
             if settings and req.has_vf is not True:
                 await scan_and_notify_availability(req, settings, db)
+            continue
+        if not has_plex_proof(db, req):
+            note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
+            db.commit()
+            logger.info(
+                "Webhook %s: '%s' traite cote *arr, attente confirmation Plex avant disponibilite",
+                source,
+                req.title,
+            )
             continue
         req.status = RequestStatus.available
         req.available_at = now_utc()
