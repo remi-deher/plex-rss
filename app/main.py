@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
         finally:
             await _db.close()
 
-        start_scheduler(poll_seconds=_seconds)
+        await start_scheduler(poll_seconds=_seconds)
         start_notif_worker()
         logging.info("Scheduler OK. App ready.")
     except Exception:

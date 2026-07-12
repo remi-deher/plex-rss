@@ -11,9 +11,11 @@ from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from .database import SessionLocal
+from .database import SessionLocalAsync
 from .models import ArrInstance, Settings
 
 # --- Imports des services pour réexportation (compatibilité ascendante) ---
@@ -82,14 +84,14 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-def start_scheduler(poll_seconds: int = 300):
+async def start_scheduler(poll_seconds: int = 300):
     """Enregistre les jobs et démarre le scheduler.
 
     `poll_seconds` : intervalle de polling de la watchlist Plex, en secondes
     (permet un rafraîchissement sous la minute, façon Overseerr/Jellyseerr).
     """
-    with db_session(SessionLocal) as db:
-        settings = db.query(Settings).first()
+    async with SessionLocalAsync() as db:
+        settings = (await db.execute(select(Settings))).scalars().first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
         vff_interval = (
             settings.vff_recheck_interval_minutes if settings and settings.vff_recheck_interval_minutes else 360
@@ -166,9 +168,10 @@ async def check_torrent_statuses():
     await _check()
 
 
-def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
+async def _check_and_seed_instances_from_settings(db: AsyncSession, settings: Settings):
     """Fallback / compatibilité pour les tests unitaires et les premières exécutions."""
-    if db.query(ArrInstance).count() == 0 and settings:
+    count = (await db.execute(select(sqlalchemy.func.count(ArrInstance.id)))).scalar()
+    if count == 0 and settings:
         if settings.sonarr_url and settings.sonarr_api_key:
             db.add(
                 ArrInstance(
@@ -196,4 +199,4 @@ def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
                     minimum_availability=settings.radarr_minimum_availability or "released",
                 )
             )
-        db.commit()
+        await db.commit()
