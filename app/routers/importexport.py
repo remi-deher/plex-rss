@@ -6,11 +6,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 from starlette.background import BackgroundTask
 
 from ..crypto import EncryptedText
-from ..database import DATABASE_URL, get_db
+from ..database import DATABASE_URL, get_db_async
 from ..dependencies import require_admin
 from ..models import (
     AdminActionLog,
@@ -118,13 +120,13 @@ def _apply_fields(obj, model, data: dict, skip: frozenset[str] = frozenset({"id"
 
 
 @router.get("/export")
-def export_data(include_secrets: bool = False, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
-    users = db.query(PlexUser).all()
-    requests = db.query(MediaRequest).all()
-    arr_instances = db.query(ArrInstance).all()
-    download_clients = db.query(DownloadClient).all()
-    passkeys = db.query(PasskeyCredential).all()
+async def export_data(include_secrets: bool = False, db: AsyncSession = Depends(get_db_async)):
+    s = (await db.execute(select(Settings))).scalars().first()
+    users = (await db.execute(select(PlexUser))).scalars().all()
+    requests = (await db.execute(select(MediaRequest))).scalars().all()
+    arr_instances = (await db.execute(select(ArrInstance))).scalars().all()
+    download_clients = (await db.execute(select(DownloadClient))).scalars().all()
+    passkeys = (await db.execute(select(PasskeyCredential))).scalars().all()
     users_by_id = {u.id: u.plex_user_id for u in users}
 
     def secret_exclude(model) -> set[str]:
@@ -147,7 +149,7 @@ def export_data(include_secrets: bool = False, db: Session = Depends(get_db)):
             for p in passkeys
         ],
         # Référence seulement — non réimportées (voir _REFERENCE_ONLY_MODELS).
-        **{key: [_row(o) for o in db.query(model).all()] for key, model in _REFERENCE_ONLY_MODELS.items()},
+        **{key: [_row(o) for o in (await db.execute(select(model))).scalars().all()] for key, model in _REFERENCE_ONLY_MODELS.items()},
     }
 
     content = json.dumps(payload, indent=2, default=str)
@@ -196,7 +198,7 @@ def backup_database():
 @router.post("/import")
 async def import_data(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     content = await file.read()
     try:
@@ -220,12 +222,12 @@ async def import_data(
     def _item_label(data: dict, *keys: str) -> str:
         return " / ".join(str(data.get(k)) for k in keys if data.get(k)) or "?"
 
-    def _run(table: str, label: str, fn) -> bool:
+    async def _run(table: str, label: str, fn) -> bool:
         """Isole chaque item dans un savepoint : une erreur n'annule que cet item (pas tout
         l'import), et est reportée dans `errors` avec assez de contexte pour la corriger."""
         try:
-            with db.begin_nested():
-                fn()
+            async with db.begin_nested():
+                await fn()
             return True
         except Exception as e:
             errors.append({"table": table, "item": label, "error": str(e)})
@@ -234,14 +236,14 @@ async def import_data(
     # Settings — merge sur la ligne unique
     if payload.get("settings"):
 
-        def _do_settings():
-            s = db.query(Settings).first()
+        async def _do_settings():
+            s = (await db.execute(select(Settings))).scalars().first()
             if not s:
                 s = Settings(id=1)
                 db.add(s)
             _apply_fields(s, Settings, {k: v for k, v in payload["settings"].items() if k not in _ALWAYS_EXCLUDED})
 
-        stats["settings"] = _run("settings", "settings", _do_settings)
+        stats["settings"] = await _run("settings", "settings", _do_settings)
 
     # Users — upsert par plex_user_id
     for u_data in payload.get("users", []):
@@ -249,20 +251,20 @@ async def import_data(
         if not uid:
             continue
 
-        def _do_user(u_data=u_data, uid=uid):
-            user = db.query(PlexUser).filter(PlexUser.plex_user_id == uid).first()
+        async def _do_user(u_data=u_data, uid=uid):
+            user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == uid))).scalars().first()
             if not user:
                 user = PlexUser()
                 db.add(user)
             _apply_fields(user, PlexUser, u_data)
 
-        if _run("users", _item_label(u_data, "plex_user_id", "display_name"), _do_user):
+        if await _run("users", _item_label(u_data, "plex_user_id", "display_name"), _do_user):
             stats["users_upserted"] += 1
 
     # Requests — upsert par (plex_user_id + title + media_type)
     for r_data in payload.get("requests", []):
 
-        def _do_request(r_data=r_data):
+        async def _do_request(r_data=r_data):
             existing = (
                 db.query(MediaRequest)
                 .filter(
@@ -277,7 +279,7 @@ async def import_data(
                 db.add(existing)
             _apply_fields(existing, MediaRequest, r_data)
 
-        if _run("requests", _item_label(r_data, "title", "media_type"), _do_request):
+        if await _run("requests", _item_label(r_data, "title", "media_type"), _do_request):
             stats["requests_upserted"] += 1
 
     # Arr instances — upsert par (name, arr_type)
@@ -286,14 +288,14 @@ async def import_data(
         if not name or not arr_type:
             continue
 
-        def _do_arr(a_data=a_data, name=name, arr_type=arr_type):
-            inst = db.query(ArrInstance).filter(ArrInstance.name == name, ArrInstance.arr_type == arr_type).first()
+        async def _do_arr(a_data=a_data, name=name, arr_type=arr_type):
+            inst = (await db.execute(select(ArrInstance).filter(ArrInstance.name == name, ArrInstance.arr_type == arr_type))).scalars().first()
             if not inst:
                 inst = ArrInstance()
                 db.add(inst)
             _apply_fields(inst, ArrInstance, a_data)
 
-        if _run("arr_instances", _item_label(a_data, "name", "arr_type"), _do_arr):
+        if await _run("arr_instances", _item_label(a_data, "name", "arr_type"), _do_arr):
             stats["arr_instances_upserted"] += 1
 
     # Download clients — upsert par (name, client_type)
@@ -302,7 +304,7 @@ async def import_data(
         if not name or not client_type:
             continue
 
-        def _do_client(c_data=c_data, name=name, client_type=client_type):
+        async def _do_client(c_data=c_data, name=name, client_type=client_type):
             client = (
                 db.query(DownloadClient)
                 .filter(DownloadClient.name == name, DownloadClient.client_type == client_type)
@@ -313,22 +315,22 @@ async def import_data(
                 db.add(client)
             _apply_fields(client, DownloadClient, c_data)
 
-        if _run("download_clients", _item_label(c_data, "name", "client_type"), _do_client):
+        if await _run("download_clients", _item_label(c_data, "name", "client_type"), _do_client):
             stats["download_clients_upserted"] += 1
 
     # Passkeys — upsert par credential_id, rattaché à l'utilisateur via plex_user_id
     # (user_id est un id local non portable entre deux bases différentes)
     if payload.get("passkey_credentials"):
-        db.flush()
-        user_by_plex_id = {u.plex_user_id: u.id for u in db.query(PlexUser).all()}
+        await db.flush()
+        user_by_plex_id = {u.plex_user_id: u.id for u in (await db.execute(select(PlexUser))).scalars().all()}
     for p_data in payload.get("passkey_credentials", []):
         credential_id = p_data.get("credential_id")
         target_user_id = user_by_plex_id.get(p_data.get("plex_user_id")) if credential_id else None
         if not credential_id or not target_user_id:
             continue
 
-        def _do_passkey(p_data=p_data, credential_id=credential_id, target_user_id=target_user_id):
-            cred = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == credential_id).first()
+        async def _do_passkey(p_data=p_data, credential_id=credential_id, target_user_id=target_user_id):
+            cred = (await db.execute(select(PasskeyCredential).filter(PasskeyCredential.credential_id == credential_id))).scalars().first()
             if not cred:
                 cred = PasskeyCredential(credential_id=credential_id, user_id=target_user_id)
                 db.add(cred)
@@ -336,8 +338,8 @@ async def import_data(
                 cred.user_id = target_user_id
             _apply_fields(cred, PasskeyCredential, {k: v for k, v in p_data.items() if k != "plex_user_id"})
 
-        if _run("passkey_credentials", _item_label(p_data, "credential_id", "name"), _do_passkey):
+        if await _run("passkey_credentials", _item_label(p_data, "credential_id", "name"), _do_passkey):
             stats["passkeys_upserted"] += 1
 
-    db.commit()
+    await db.commit()
     return {"status": "ok", "stats": stats, "errors": errors}
