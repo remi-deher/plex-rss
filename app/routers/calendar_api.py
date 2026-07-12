@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import require_auth
 from ..models import ArrInstance, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import radarr, sonarr
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["calendar"], dependencies=[Depends(requi
 
 
 @router.get("/upcoming")
-def upcoming_releases(db: Session = Depends(get_db), limit: int = 8):
+async def upcoming_releases(db: AsyncSession = Depends(get_db_async), limit: int = 8):
     """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles."""
     rows = (
         db.query(MediaRequest)
@@ -118,7 +119,7 @@ async def unified_calendar(
     status: Optional[str] = None,
     vf: Optional[str] = None,
     source: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Calendrier unifié : épisodes Sonarr + sorties Radarr sur une plage de dates."""
     now = now_utc()
@@ -134,7 +135,7 @@ async def unified_calendar(
     movies_by_tmdb: dict[str, dict] = {}
     library_items_by_id: dict[int, dict[str, Any]] = {}
 
-    for li in db.query(LibraryItem).all():
+    for li in (await db.execute(select(LibraryItem))).scalars().all():
         entry: dict[str, Any] = {
             "in_library": True,
             "library_item_id": li.id,
@@ -151,7 +152,7 @@ async def unified_calendar(
         elif li.media_type == "movie" and li.tmdb_id:
             movies_by_tmdb[li.tmdb_id] = entry
 
-    for r in db.query(MediaRequest).all():
+    for r in (await db.execute(select(MediaRequest))).scalars().all():
         matched = library_items_by_id.get(r.library_item_id) if r.library_item_id else None
         if not matched:
             if r.media_type == "show" and r.tvdb_id:
@@ -191,7 +192,7 @@ async def unified_calendar(
             elif r.media_type == "movie" and r.tmdb_id:
                 movies_by_tmdb[r.tmdb_id] = entry
 
-    instances = db.query(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])).all()
+    instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])))).scalars().all()
     events = []
     for inst in instances:
         try:
