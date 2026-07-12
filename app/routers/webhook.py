@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import false, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
@@ -72,10 +74,8 @@ def _get_recipients(user_obj, settings: Settings) -> list[str]:
     return recipients
 
 
-def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
-    db.query(VfEpisodeStatus).filter(
-        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
-    ).delete()
+async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
+    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 def _arr_event_query(
@@ -89,7 +89,7 @@ def _arr_event_query(
     title: str | None = None,
     instance_id: int | None = None,
 ):
-    q = db.query(MediaRequest).filter(MediaRequest.media_type == media_type)
+    q = select(MediaRequest).filter(MediaRequest.media_type == media_type)
     if instance_id:
         q = q.filter(MediaRequest.arr_instance_id == instance_id)
 
@@ -135,7 +135,7 @@ async def _mark_available_and_notify(
         title=title,
         instance_id=instance_id,
     )
-    requests = q.all()
+    requests = (await db.execute(q)).scalars().all()
     for req in requests:
         if req.status == RequestStatus.available:
             # Webhook répété sur une demande déjà disponible (ex. upgrade Sonarr/Radarr
@@ -146,9 +146,9 @@ async def _mark_available_and_notify(
             if settings and req.has_vf is not True:
                 await scan_and_notify_availability(req, settings, db)
             continue
-        if not has_plex_proof(db, req):
-            note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
-            db.commit()
+        if not await has_plex_proof(db, req):
+            await note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
+            await db.commit()
             logger.info(
                 "Webhook %s: '%s' traite cote *arr, attente confirmation Plex avant disponibilite",
                 source,
@@ -162,8 +162,8 @@ async def _mark_available_and_notify(
             req.arr_id = int(arr_id)
         if instance_id and not req.arr_instance_id:
             req.arr_instance_id = instance_id
-        db.commit()
-        record_completed(
+        await db.commit()
+        await record_completed(
             db,
             title=req.title,
             year=req.year,
@@ -179,7 +179,7 @@ async def _mark_available_and_notify(
         # média (_has_fallback_mechanism) — sinon on laisse le prochain scan planifié
         # envoyer le bon jalon, pour ne jamais faire doublon.
         handled = await scan_and_notify_availability(req, settings, db) if settings else False
-        user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+        user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
         if (
             not handled
             and settings
@@ -187,7 +187,7 @@ async def _mark_available_and_notify(
             and settings.email_on_available
             and not req.available_mail_sent
         ):
-            resolve_and_notify_availability(
+            await resolve_and_notify_availability(
                 settings,
                 req,
                 db,
@@ -196,7 +196,7 @@ async def _mark_available_and_notify(
     return len(requests)
 
 
-def _delete_arr_requests(
+async def _delete_arr_requests(
     db: Session,
     media_type: str,
     *,
@@ -219,10 +219,10 @@ def _delete_arr_requests(
     ).all()
     count = 0
     for req in requests:
-        _delete_vf_episode_cache(db, req.id)
-        db.delete(req)
+        await _delete_vf_episode_cache(db, req.id)
+        await db.delete(req)
         count += 1
-    db.commit()
+    await db.commit()
     return count
 
 
@@ -234,14 +234,14 @@ def _query_instance_id(request: Request) -> int | None:
         return None
 
 
-def _instance_name(db: Session, instance_id: int | None) -> str | None:
+async def _instance_name(db: AsyncSession, instance_id: int | None) -> str | None:
     if not instance_id:
         return None
-    inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id).first()
+    inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id))).scalars().first()
     return inst.name if inst else None
 
 
-def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) -> tuple[str, str, str] | None:
+async def _resolve_arr_connection(db: AsyncSession, service: str, instance_id: int | None) -> tuple[str, str, str] | None:
     """Résout (url, api_key, cache_key) pour l'instance *arr concernée par ce webhook.
 
     Utilisé pour vérifier si Sonarr/Radarr a déjà un connecteur natif "Plex Media Server"
@@ -249,7 +249,7 @@ def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) 
     réglages globaux legacy, comme le reste des résolutions d'instance de l'app.
     """
     if instance_id:
-        inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+        inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service))).scalars().first()
         if inst:
             return inst.url, inst.api_key, f"{service}:{inst.id}"
         return None
@@ -260,7 +260,7 @@ def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) 
     )
     if inst:
         return inst.url, inst.api_key, f"{service}:{inst.id}"
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     url = getattr(settings, f"{service}_url", None) if settings else None
     api_key = getattr(settings, f"{service}_api_key", None) if settings else None
     if url and api_key:
@@ -271,9 +271,9 @@ def _resolve_arr_connection(db: Session, service: str, instance_id: int | None) 
 @router.post("/sonarr")
 async def sonarr_webhook(request: Request):
     """Receives Sonarr OnImport/OnDownload/Test webhook events."""
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         _check_webhook_secret(request, settings)
 
         data = await request.json()
@@ -302,7 +302,7 @@ async def sonarr_webhook(request: Request):
 
         webhook_instance_id = _query_instance_id(request)
         if settings:
-            conn = _resolve_arr_connection(db, "sonarr", webhook_instance_id)
+            conn = await _resolve_arr_connection(db, "sonarr", webhook_instance_id)
             await trigger_plex_library_refresh(
                 settings,
                 "show",
@@ -330,15 +330,15 @@ async def sonarr_webhook(request: Request):
         )
         return {"status": "ok", "matched": matched}
     finally:
-        db.close()
+        await db.close()
 
 
 @router.post("/radarr")
 async def radarr_webhook(request: Request):
     """Receives Radarr OnDownload/OnImport/Test webhook events."""
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         _check_webhook_secret(request, settings)
 
         data = await request.json()
@@ -368,7 +368,7 @@ async def radarr_webhook(request: Request):
 
         instance_id = _query_instance_id(request)
         if settings and event in ("Download", "Import"):
-            conn = _resolve_arr_connection(db, "radarr", instance_id)
+            conn = await _resolve_arr_connection(db, "radarr", instance_id)
             await trigger_plex_library_refresh(
                 settings,
                 "movie",
@@ -398,7 +398,7 @@ async def radarr_webhook(request: Request):
         )
         return {"status": "ok", "matched": matched}
     finally:
-        db.close()
+        await db.close()
 
 
 @router.post("/plex")
@@ -412,11 +412,11 @@ async def plex_webhook(request: Request):
     - library.new       : nouveau média ajouté à la bibliothèque Plex
     - media.scrobble    : média regardé en entier (marqué comme vu)
     """
-    _db = SessionLocal()
+    _db = AsyncSessionLocal()
     try:
-        _check_webhook_secret(request, _db.query(Settings).first())
+        _check_webhook_secret(request, _(await db.execute(select(Settings))).scalars().first())
     finally:
-        _db.close()
+        await _db.close()
 
     try:
         form = await request.form()
@@ -486,24 +486,24 @@ async def plex_webhook(request: Request):
         return q.filter(MediaRequest.title.ilike(f"%{title}%"))
 
     # Recherche et mise à jour des demandes correspondantes
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         q = _identity_filter(
-            db.query(MediaRequest).filter(
+            select(MediaRequest).filter(
                 MediaRequest.status != RequestStatus.available,
                 MediaRequest.media_type == media_type,
             )
         )
 
-        requests = q.all()
+        requests = (await db.execute(q)).scalars().all()
         for req in requests:
             req.status = RequestStatus.available
             req.available_at = now_utc()
             req.is_downloading = False
-            db.commit()
+            await db.commit()
             logger.info(f"Plex webhook: '{req.title}' marqué disponible")
-            record_completed(
+            await record_completed(
                 db,
                 title=req.title,
                 year=req.year,
@@ -513,7 +513,7 @@ async def plex_webhook(request: Request):
                 request_id=req.id,
             )
             handled = await scan_and_notify_availability(req, settings, db) if settings else False
-            user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+            user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
             if (
                 not handled
                 and settings
@@ -521,7 +521,7 @@ async def plex_webhook(request: Request):
                 and settings.email_on_available
                 and not req.available_mail_sent
             ):
-                resolve_and_notify_availability(
+                await resolve_and_notify_availability(
                     settings,
                     req,
                     db,
@@ -540,19 +540,19 @@ async def plex_webhook(request: Request):
         rescanned = 0
         if event == "library.new" and settings:
             pending_vf_q = _identity_filter(
-                db.query(MediaRequest).filter(
+                select(MediaRequest).filter(
                     MediaRequest.status == RequestStatus.available,
                     MediaRequest.media_type == media_type,
                     or_(MediaRequest.has_vf.is_(None), MediaRequest.has_vf.is_(False)),
                 )
             )
-            for req in pending_vf_q.all():
+            for req in (await db.execute(pending_vf_q)).scalars().all():
                 if await scan_and_notify_availability(req, settings, db):
                     rescanned += 1
 
         return {"status": "ok", "event": event, "matched": len(requests), "rescanned": rescanned, "title": title}
     finally:
-        db.close()
+        await db.close()
 
 
 @router.get("/status", dependencies=[Depends(require_admin)])
@@ -583,11 +583,11 @@ async def _check_live_plex() -> dict:
     à chaque webhook Plex traité, y compris le ping de connectivité envoyé par Plex à
     l'enregistrement de l'URL).
     """
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
     finally:
-        db.close()
+        await db.close()
     if not settings or not settings.plex_url or not settings.plex_token:
         return {
             "instance": "Plex",
@@ -637,17 +637,17 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
     client = sonarr if service == "sonarr" else radarr
     webhook_path = f"/webhook/{service}"
 
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
         if instance_id is not None:
-            inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+            inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service))).scalars().first()
             if not inst:
                 raise HTTPException(status_code=404, detail="Instance introuvable")
             instances = [inst]
         else:
-            instances = db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled).all()
+            instances = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled))).scalars().all()
             if not instances:
-                settings = db.query(Settings).first()
+                settings = (await db.execute(select(Settings))).scalars().first()
                 url = getattr(settings, f"{service}_url", None) if settings else None
                 api_key = getattr(settings, f"{service}_api_key", None) if settings else None
                 if url and api_key:
@@ -699,7 +699,7 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
 
         return {"results": results}
     finally:
-        db.close()
+        await db.close()
 
 
 @router.get("/plex-connector-status/{service}", dependencies=[Depends(require_admin)])
@@ -715,17 +715,17 @@ async def plex_connector_status(service: str, instance_id: int | None = None):
 
     client = sonarr if service == "sonarr" else radarr
 
-    db: Session = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
         if instance_id is not None:
-            inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service).first()
+            inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service))).scalars().first()
             if not inst:
                 raise HTTPException(status_code=404, detail="Instance introuvable")
             instances = [inst]
         else:
-            instances = db.query(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled).all()
+            instances = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled))).scalars().all()
             if not instances:
-                settings = db.query(Settings).first()
+                settings = (await db.execute(select(Settings))).scalars().first()
                 url = getattr(settings, f"{service}_url", None) if settings else None
                 api_key = getattr(settings, f"{service}_api_key", None) if settings else None
                 if url and api_key:
@@ -781,4 +781,4 @@ async def plex_connector_status(service: str, instance_id: int | None = None):
 
         return {"results": results}
     finally:
-        db.close()
+        await db.close()
