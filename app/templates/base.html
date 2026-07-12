@@ -241,6 +241,9 @@
       <a href="/library?view=requests" class="nav-link d-flex align-items-center {% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}" title="Mes demandes">
         <i class="bi bi-inbox me-2"></i><span class="nav-label">Mes demandes</span>
       </a>
+      <a href="/notifications" class="nav-link d-flex align-items-center {% if page=='notifications' %}active{% endif %}" {% if page=='notifications' %}aria-current="page"{% endif %} title="Notifications">
+        <i class="bi bi-bell me-2"></i><span class="nav-label">Notifications</span>
+      </a>
       {% endif %}
       <a href="/calendar" class="nav-link d-flex align-items-center {% if page=='calendar' %}active{% endif %}" {% if page=='calendar' %}aria-current="page"{% endif %} title="Calendrier">
         <i class="bi bi-calendar3 me-2"></i><span class="nav-label">Calendrier</span>
@@ -251,6 +254,9 @@
       <a href="/downloads" class="nav-link d-flex align-items-center {% if page=='downloads' %}active{% endif %}" {% if page=='downloads' %}aria-current="page"{% endif %} title="Téléchargements">
         <i class="bi bi-download me-2"></i><span class="nav-label">Téléchargements</span>
         <span id="sidebar-badge-dl" class="badge bg-warning text-dark ms-auto" style="display:none" title="Téléchargements en cours"></span>
+      </a>
+      <a href="/notifications" class="nav-link d-flex align-items-center {% if page=='notifications' %}active{% endif %}" {% if page=='notifications' %}aria-current="page"{% endif %} title="Notifications">
+        <i class="bi bi-bell me-2"></i><span class="nav-label">Notifications</span>
       </a>
 
       <div class="sidebar-section">Administration</div>
@@ -399,8 +405,14 @@
   <a href="/library?view=requests" class="{% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}">
     <i class="bi bi-inbox"></i>Demandes
   </a>
+  <a href="/notifications" class="{% if page=='notifications' %}active{% endif %}">
+    <i class="bi bi-bell"></i>Notifs
+  </a>
   {% endif %}
   {% if is_admin %}
+  <a href="/notifications" class="{% if page=='notifications' %}active{% endif %}">
+    <i class="bi bi-bell"></i>Notifs
+  </a>
   <a href="/settings" class="{% if page=='settings' %}active{% endif %}">
     <i class="bi bi-gear"></i>Paramètres
   </a>

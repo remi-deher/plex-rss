@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">Notifications</h1>
+</div>
+
+{% if is_admin %}
+<ul class="nav nav-tabs mb-4 border-secondary-subtle">
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'mes_notifications' %}active bg-dark text-white border-bottom-0{% else %}text-muted border-0{% endif %}" href="?tab=mes_notifications">Mes notifications</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if active_tab == 'autres_utilisateurs' %}active bg-dark text-white border-bottom-0{% else %}text-muted border-0{% endif %}" href="?tab=autres_utilisateurs">Autres utilisateurs</a>
+    </li>
+</ul>
+{% endif %}
+
+<div class="card bg-dark border-secondary-subtle">
+    <div class="card-body p-0 table-responsive">
+        {% if logs %}
+        <table class="table table-dark table-hover mb-0 align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Date</th>
+                    <th>Événement</th>
+                    <th>Titre du média</th>
+                    <th>Destinataire</th>
+                    <th>Statut</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td class="text-nowrap text-muted small">
+                        <i class="bi bi-clock me-1"></i>
+                        {{ log.sent_at.strftime('%Y-%m-%d %H:%M') if log.sent_at else 'Inconnu' }}
+                    </td>
+                    <td>
+                        {% if log.event == 'request' %}
+                            <span class="badge bg-secondary"><i class="bi bi-envelope me-1"></i>Demande</span>
+                        {% elif log.event == 'available' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Disponible</span>
+                        {% elif log.event == 'upgrade' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-arrow-up-circle me-1"></i>Mise à jour</span>
+                        {% elif log.event == 'failure' %}
+                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Échec</span>
+                        {% elif log.event == 'correction' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-pencil me-1"></i>Correction</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ log.event }}</span>
+                        {% endif %}
+                        
+                        {% if log.scope == 'movie' %}
+                            <span class="badge border border-secondary text-secondary ms-1">Film</span>
+                        {% elif log.scope == 'episode' %}
+                            <span class="badge border border-secondary text-secondary ms-1">S{{ '%02d'|format(log.season_number) if log.season_number else '?' }}E{{ '%02d'|format(log.episode_number) if log.episode_number else '?' }}</span>
+                        {% elif log.scope == 'season_start' %}
+                            <span class="badge border border-secondary text-secondary ms-1">S{{ '%02d'|format(log.season_number) if log.season_number else '?' }}</span>
+                        {% elif log.scope == 'season_complete' %}
+                            <span class="badge border border-secondary text-secondary ms-1">Saison Complète</span>
+                        {% elif log.scope == 'series_complete' %}
+                            <span class="badge border border-secondary text-secondary ms-1">Série Complète</span>
+                        {% endif %}
+
+                        {% if log.language == 'vf' %}
+                            <span class="badge border border-secondary text-secondary ms-1">VF</span>
+                        {% elif log.language == 'vo' %}
+                            <span class="badge border border-secondary text-secondary ms-1">VO</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ log.media_title or 'N/A' }} 
+                        {% if log.media_type == 'movie' %}
+                            <i class="bi bi-film ms-1 text-muted" title="Film"></i>
+                        {% elif log.media_type == 'show' %}
+                            <i class="bi bi-tv ms-1 text-muted" title="Série"></i>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ log.recipient }}
+                        {% if log.is_admin %}
+                            <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65em;" title="Administrateur">Admin</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.success %}
+                            <span class="text-success"><i class="bi bi-check2-all me-1"></i>Envoyé</span>
+                        {% else %}
+                            <span class="text-danger" title="{{ log.error_msg or 'Erreur inconnue' }}">
+                                <i class="bi bi-exclamation-triangle me-1"></i>Erreur
+                            </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="p-5 text-center text-muted">
+            <i class="bi bi-inbox fs-1 d-block mb-3 opacity-50"></i>
+            <p class="mb-0">Aucune notification à afficher pour cet onglet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

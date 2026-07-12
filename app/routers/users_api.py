@@ -51,6 +51,35 @@ class UserEnabledUpdate(BaseModel):
     enabled: bool
 
 
+class BulkNotificationUpdate(BaseModel):
+    user_ids: list[int]
+    notify_admin: Optional[bool] = None
+    notify_on_request: Optional[bool] = None
+    notify_on_available: Optional[bool] = None
+    notify_digest: Optional[bool] = None
+    notify_vf_movie: Optional[bool] = None
+    notify_vf_series: Optional[bool] = None
+    notify_vf_anime: Optional[bool] = None
+    movie_notify_language: Optional[bool] = None
+    series_notify_language: Optional[bool] = None
+    series_notify_granularity: Optional[str] = None
+
+
+class BulkStatusUpdate(BaseModel):
+    user_ids: list[int]
+    enabled: bool
+
+
+class BulkPermissionsUpdate(BaseModel):
+    user_ids: list[int]
+    can_login: Optional[bool] = None
+    auto_approve: Optional[bool] = None
+
+
+class BulkDeleteUpdate(BaseModel):
+    user_ids: list[int]
+
+
 def _user_source_label(user: PlexUser) -> str:
     if user.source == "seer":
         return "Seer only"
@@ -685,3 +714,94 @@ async def send_test_email(user_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(500, f"Échec SMTP : {e}")
     return {"status": "sent", "recipient": recipient}
+
+
+@router.put("/users/bulk/notifications")
+def bulk_update_notifications(payload: BulkNotificationUpdate, db: Session = Depends(get_db)):
+    if not payload.user_ids:
+        raise HTTPException(400, "Aucun utilisateur sélectionné.")
+
+    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    if not users:
+        raise HTTPException(404, "Aucun utilisateur trouvé pour ces identifiants.")
+
+    update_fields = {}
+    for field in [
+        "notify_admin",
+        "notify_on_request",
+        "notify_on_available",
+        "notify_digest",
+        "notify_vf_movie",
+        "notify_vf_series",
+        "notify_vf_anime",
+        "movie_notify_language",
+        "series_notify_language",
+        "series_notify_granularity"
+    ]:
+        val = getattr(payload, field, None)
+        if val is not None:
+            update_fields[field] = val
+
+    if not update_fields:
+        return {"updated": 0}
+
+    for user in users:
+        for field, value in update_fields.items():
+            setattr(user, field, value)
+
+    db.commit()
+    return {"updated": len(users)}
+
+
+@router.put("/users/bulk/status")
+def bulk_update_status(payload: BulkStatusUpdate, db: Session = Depends(get_db)):
+    if not payload.user_ids:
+        raise HTTPException(400, "Aucun utilisateur sélectionné.")
+    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    if not users:
+        raise HTTPException(404, "Aucun utilisateur trouvé.")
+    for user in users:
+        user.enabled = payload.enabled
+    db.commit()
+    return {"updated": len(users)}
+
+
+@router.put("/users/bulk/permissions")
+def bulk_update_permissions(payload: BulkPermissionsUpdate, db: Session = Depends(get_db)):
+    if not payload.user_ids:
+        raise HTTPException(400, "Aucun utilisateur sélectionné.")
+    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    if not users:
+        raise HTTPException(404, "Aucun utilisateur trouvé.")
+    
+    update_fields = {}
+    if payload.can_login is not None:
+        update_fields["can_login"] = payload.can_login
+    if payload.auto_approve is not None:
+        update_fields["auto_approve"] = payload.auto_approve
+        
+    if not update_fields:
+        return {"updated": 0}
+        
+    for user in users:
+        for field, value in update_fields.items():
+            setattr(user, field, value)
+    db.commit()
+    return {"updated": len(users)}
+
+
+@router.post("/users/bulk/delete")
+def bulk_delete_users(payload: BulkDeleteUpdate, db: Session = Depends(get_db)):
+    if not payload.user_ids:
+        raise HTTPException(400, "Aucun utilisateur sélectionné.")
+    # Fetch them to trigger cascades if needed, or just delete
+    users = db.query(PlexUser).filter(PlexUser.id.in_(payload.user_ids)).all()
+    if not users:
+        raise HTTPException(404, "Aucun utilisateur trouvé.")
+    count = len(users)
+    for user in users:
+        # Also clean up credentials
+        db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).delete()
+        db.delete(user)
+    db.commit()
+    return {"deleted": count}

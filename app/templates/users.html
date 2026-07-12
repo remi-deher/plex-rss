@@ -36,6 +36,9 @@
     <input type="search" id="userSearch" class="form-control bg-dark border-secondary text-light" placeholder="Rechercher un utilisateur" oninput="filterUsers()">
   </div>
   <div class="d-flex flex-wrap gap-2 align-items-center">
+    <button id="btnBulkSelect" class="btn btn-sm btn-warning" onclick="toggleBulkSelectMode()">
+      <i class="bi bi-check2-square me-1"></i>Sélection
+    </button>
     <select class="form-select form-select-sm bg-dark border-secondary text-light user-filter" id="userStatusFilter" onchange="filterUsers()">
       <option value="">Tous les statuts</option>
       <option value="active">Actifs</option>
@@ -76,7 +79,7 @@
          data-enabled="{{ '1' if u.enabled else '0' }}"
          data-status="{{ 'active' if u.enabled else 'disabled' }}"
          style="cursor:pointer; transition:border-color .15s, transform .15s"
-         onclick="openUserHub({{ u.id }})" onkeydown="if(event.key==='Enter'){openUserHub({{ u.id }})}">
+         onclick="handleUserCardClick({{ u.id }}, this)" onkeydown="if(event.key==='Enter'){handleUserCardClick({{ u.id }}, this)}">
       <div class="card-body d-flex gap-3 align-items-center">
         <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 {{ av_bgs[ci] }} {{ av_colors[ci] }}"
              style="width:46px;height:46px;font-weight:600;font-size:16px">{{ initials }}</div>
@@ -1579,5 +1582,363 @@ function bufferEncode(value) {
   const base64 = btoa(binary);
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
+// --- Bulk Notifications ---
+let isBulkMode = false;
+const selectedUsers = new Set();
+
+function toggleBulkSelectMode() {
+  isBulkMode = !isBulkMode;
+  const btn = document.getElementById('btnBulkSelect');
+  const bar = document.getElementById('bulkActionBar');
+  
+  if (isBulkMode) {
+    btn.classList.replace('btn-warning', 'btn-primary');
+    bar.classList.remove('d-none');
+    document.querySelectorAll('.user-card').forEach(c => c.style.borderStyle = 'dashed');
+  } else {
+    btn.classList.replace('btn-primary', 'btn-warning');
+    bar.classList.add('d-none');
+    deselectAllBulk(); // Clean up visually and state
+    document.querySelectorAll('.user-card').forEach(c => c.style.borderStyle = 'solid');
+  }
+}
+
+function handleUserCardClick(id, cardEl) {
+  if (!isBulkMode) {
+    openUserHub(id);
+    return;
+  }
+  
+  if (selectedUsers.has(id)) {
+    selectedUsers.delete(id);
+    cardEl.classList.remove('border-primary', 'shadow-sm');
+    const check = cardEl.querySelector('.bulk-check-icon');
+    if(check) check.remove();
+  } else {
+    selectedUsers.add(id);
+    cardEl.classList.add('border-primary', 'shadow-sm');
+    const check = document.createElement('i');
+    check.className = 'bi bi-check-circle-fill text-primary position-absolute bulk-check-icon';
+    check.style.top = '10px'; check.style.right = '10px'; check.style.fontSize = '1.2rem';
+    cardEl.appendChild(check);
+  }
+  updateBulkCount();
+}
+
+function selectAllBulk() {
+  document.querySelectorAll('.user-card').forEach(cardEl => {
+    const wrapper = cardEl.closest('[id^="card-wrapper-"]');
+    if (wrapper && wrapper.style.display !== 'none') {
+      const id = parseInt(cardEl.getAttribute('data-user-id'));
+      if (!selectedUsers.has(id)) {
+        selectedUsers.add(id);
+        cardEl.classList.add('border-primary', 'shadow-sm');
+        const check = document.createElement('i');
+        check.className = 'bi bi-check-circle-fill text-primary position-absolute bulk-check-icon';
+        check.style.top = '10px'; check.style.right = '10px'; check.style.fontSize = '1.2rem';
+        cardEl.appendChild(check);
+      }
+    }
+  });
+  updateBulkCount();
+}
+
+function deselectAllBulk() {
+  document.querySelectorAll('.user-card').forEach(cardEl => {
+    const id = parseInt(cardEl.getAttribute('data-user-id'));
+    if (selectedUsers.has(id)) {
+      selectedUsers.delete(id);
+      cardEl.classList.remove('border-primary', 'shadow-sm');
+      const check = cardEl.querySelector('.bulk-check-icon');
+      if (check) check.remove();
+    }
+  });
+  updateBulkCount();
+}
+
+function updateBulkCount() {
+  document.getElementById('bulkSelectedCount').textContent = selectedUsers.size;
+  const btn = document.getElementById('btnBulkManage');
+  btn.disabled = selectedUsers.size === 0;
+}
+
+function openBulkNotificationModal() {
+  new bootstrap.Modal(document.getElementById('bulkNotificationModal')).show();
+}
+
+function openBulkPermissionsModal() {
+  new bootstrap.Modal(document.getElementById('bulkPermissionsModal')).show();
+}
+
+function openBulkDeleteModal() {
+  document.getElementById('bulkDeleteCount').textContent = selectedUsers.size;
+  new bootstrap.Modal(document.getElementById('bulkDeleteModal')).show();
+}
+
+async function bulkToggleStatus(enabled) {
+  if (!confirm(`Voulez-vous vraiment ${enabled ? 'activer' : 'désactiver'} ${selectedUsers.size} utilisateur(s) ?`)) return;
+  try {
+    const r = await fetch('/api/users/bulk/status', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_ids: Array.from(selectedUsers), enabled })
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Erreur');
+    showToast(`${res.updated} utilisateur(s) mis à jour.`, "success");
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function applyBulkPermissions() {
+  const payload = { user_ids: Array.from(selectedUsers) };
+  let hasChanges = false;
+  
+  const can_login = document.getElementById('bulk_can_login').value;
+  if (can_login !== "") { payload.can_login = (can_login === 'true'); hasChanges = true; }
+  
+  const auto_approve = document.getElementById('bulk_auto_approve').value;
+  if (auto_approve !== "") { payload.auto_approve = (auto_approve === 'true'); hasChanges = true; }
+  
+  if (!hasChanges) {
+    showToast("Aucune modification sélectionnée.", "warning");
+    return;
+  }
+  
+  try {
+    const r = await fetch('/api/users/bulk/permissions', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Erreur');
+    showToast(`${res.updated} utilisateur(s) mis à jour avec succès.`, "success");
+    bootstrap.Modal.getInstance(document.getElementById('bulkPermissionsModal')).hide();
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
+
+async function applyBulkDelete() {
+  const confirmText = document.getElementById('bulkDeleteConfirmInput').value;
+  if (confirmText !== "SUPPRIMER") {
+    showToast("Veuillez taper SUPPRIMER pour confirmer.", "danger");
+    return;
+  }
+  
+  try {
+    const btn = document.getElementById('btnBulkDeleteConfirm');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Suppression...';
+    
+    const r = await fetch('/api/users/bulk/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_ids: Array.from(selectedUsers) })
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Erreur');
+    showToast(`${res.deleted} utilisateur(s) supprimé(s).`, "success");
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+    document.getElementById('btnBulkDeleteConfirm').disabled = false;
+    document.getElementById('btnBulkDeleteConfirm').innerHTML = 'Confirmer la suppression';
+  }
+}
+
+async function applyBulkNotifications() {
+  const fields = [
+    'notify_admin', 'notify_on_request', 'notify_on_available', 'notify_digest',
+    'notify_vf_movie', 'notify_vf_series', 'notify_vf_anime'
+  ];
+  
+  const payload = { user_ids: Array.from(selectedUsers) };
+  let hasChanges = false;
+  
+  for (const field of fields) {
+    const val = document.getElementById('bulk_' + field).value;
+    if (val !== "") {
+      payload[field] = (val === 'true');
+      hasChanges = true;
+    }
+  }
+  
+  if (!hasChanges) {
+    showToast("Aucune modification sélectionnée.", "warning");
+    return;
+  }
+  
+  try {
+    const r = await fetch('/api/users/bulk/notifications', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail || 'Erreur');
+    showToast(`${res.updated} utilisateur(s) mis à jour avec succès.`, "success");
+    bootstrap.Modal.getInstance(document.getElementById('bulkNotificationModal')).hide();
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (e) {
+    showToast("Erreur : " + e.message, "danger");
+  }
+}
 </script>
+
+<!-- Bulk Action Bar -->
+<div id="bulkActionBar" class="fixed-bottom d-none bg-dark border-top border-secondary p-3 shadow-lg d-flex flex-wrap gap-3 justify-content-between align-items-center z-3">
+  <div class="d-flex align-items-center flex-wrap gap-2">
+    <div>
+      <span id="bulkSelectedCount" class="fw-bold">0</span> utilisateur(s) sélectionné(s)
+    </div>
+    <div class="d-inline-block ms-md-3 border-start border-secondary ps-md-3">
+      <button class="btn btn-sm btn-outline-light me-1" onclick="selectAllBulk()">Tout sélectionner</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="deselectAllBulk()">Désélectionner tout</button>
+    </div>
+  </div>
+  <div class="d-flex gap-2 align-items-center">
+    <button class="btn btn-outline-secondary" onclick="toggleBulkSelectMode()">Fermer</button>
+    <div class="dropdown dropup">
+      <button id="btnBulkManage" class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" disabled>
+        Actions groupées
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark">
+        <li><a class="dropdown-item" href="#" onclick="openBulkNotificationModal(); event.preventDefault()"><i class="bi bi-bell me-2"></i>Notifications</a></li>
+        <li><a class="dropdown-item" href="#" onclick="openBulkPermissionsModal(); event.preventDefault()"><i class="bi bi-shield-lock me-2"></i>Permissions</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item text-success" href="#" onclick="bulkToggleStatus(true); event.preventDefault()"><i class="bi bi-person-check me-2"></i>Activer les comptes</a></li>
+        <li><a class="dropdown-item text-warning" href="#" onclick="bulkToggleStatus(false); event.preventDefault()"><i class="bi bi-person-dash me-2"></i>Désactiver les comptes</a></li>
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item text-danger" href="#" onclick="openBulkDeleteModal(); event.preventDefault()"><i class="bi bi-trash me-2"></i>Supprimer</a></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Notification Modal -->
+<div class="modal fade" id="bulkNotificationModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--pr-surface); border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Édition en masse : Notifications</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-light">
+        <p class="text-muted small mb-4">Seuls les paramètres définis sur "Activer" ou "Désactiver" seront modifiés. Les autres resteront intacts pour les utilisateurs sélectionnés.</p>
+        
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Notifier l'administrateur</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_admin">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Mail lors de l'approbation</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_on_request">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Mail lors de la disponibilité</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_on_available">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Résumé bi-mensuel</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_digest">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        
+        <h6 class="mt-4 text-warning">Préférences VF</h6>
+        <div class="mb-2 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Mise à jour VF - Films</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_vf_movie">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-2 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Mise à jour VF - Séries</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_vf_series">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-2 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Mise à jour VF - Animes</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_notify_vf_anime">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        <button type="button" class="btn btn-warning" onclick="applyBulkNotifications()">Appliquer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Permissions Modal -->
+<div class="modal fade" id="bulkPermissionsModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--pr-surface); border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Édition en masse : Permissions</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-light">
+        <p class="text-muted small mb-4">Seuls les paramètres définis sur "Activer" ou "Désactiver" seront modifiés.</p>
+        
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Droit de connexion</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_can_login">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+        <div class="mb-3 d-flex justify-content-between align-items-center">
+          <label class="form-label mb-0">Approbation automatique</label>
+          <select class="form-select form-select-sm bg-dark border-secondary text-light w-50" id="bulk_auto_approve">
+            <option value="">Ignorer</option><option value="true">Activer</option><option value="false">Désactiver</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Fermer</button>
+        <button type="button" class="btn btn-warning" onclick="applyBulkPermissions()">Appliquer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Delete Modal -->
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--pr-surface); border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-danger">Suppression de masse</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-light">
+        <div class="alert alert-danger">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>Vous êtes sur le point de supprimer <strong><span id="bulkDeleteCount"></span> utilisateurs</strong>.
+        </div>
+        <p class="mb-2">Cette action est irréversible. Toutes leurs statistiques, préférences et clés d'accès seront effacées.</p>
+        <div class="mb-3 mt-4">
+          <label class="form-label">Tapez <strong>SUPPRIMER</strong> pour confirmer :</label>
+          <input type="text" class="form-control bg-dark text-light border-secondary" id="bulkDeleteConfirmInput" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger" id="btnBulkDeleteConfirm" onclick="applyBulkDelete()">Confirmer la suppression</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import ArrInstance, LibraryItem, MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
     DEFAULT_CORRECTION_TEMPLATE,
@@ -709,3 +709,53 @@ def profile_page(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse("/login", status_code=302)
 
     return templates.TemplateResponse(request, "profile.html", {"user": user})
+
+
+@router.get("/notifications", response_class=HTMLResponse)
+def notifications_page(request: Request, tab: str = "mes_notifications", db: Session = Depends(get_db)):
+    """Affiche la page des notifications avec séparation perso / autres utilisateurs."""
+    require_auth(request)
+    is_admin = _is_admin_session(request)
+
+    # Identifier l'utilisateur courant pour filtrer ses notifications
+    current_uid = request.session.get("plex_user_id")
+    current_user = None
+    if current_uid:
+        current_user = db.query(PlexUser).filter(PlexUser.plex_user_id == current_uid).first()
+    if not current_user and request.session.get("user_id"):
+        current_user = db.query(PlexUser).filter(PlexUser.id == request.session["user_id"]).first()
+
+    my_emails = []
+    if current_user:
+        if current_user.plex_email:
+            my_emails.append(current_user.plex_email)
+        if current_user.notification_email:
+            my_emails.append(current_user.notification_email)
+    
+    # Par sécurité, ne garder que les emails uniques
+    my_emails = list(set(my_emails))
+
+    # Récupérer les logs
+    if tab == "autres_utilisateurs" and is_admin:
+        # Logs de tout le monde sauf l'utilisateur courant
+        if my_emails:
+            logs = db.query(NotificationLog).filter(NotificationLog.recipient.notin_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+        else:
+            logs = db.query(NotificationLog).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+    else:
+        # Mes logs uniquement
+        if my_emails:
+            logs = db.query(NotificationLog).filter(NotificationLog.recipient.in_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+        else:
+            logs = []
+
+    return templates.TemplateResponse(
+        request,
+        "notifications.html",
+        {
+            "page": "notifications",
+            "is_admin": is_admin,
+            "active_tab": tab if (is_admin or tab == "mes_notifications") else "mes_notifications",
+            "logs": logs,
+        },
+    )
