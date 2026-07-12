@@ -1,14 +1,18 @@
+import json as _json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..dependencies import require_admin
-from ..models import MediaRequest, NotificationLog, PlexUser, Settings
+from ..dependencies import current_user, require_admin
+from ..models import AdminActionLog, MediaRequest, NotificationLog, PlexUser, Settings
 from ..notification_queue import enqueue as enqueue_notification
+from ..notification_queue import cancel_all_pending, cancel_pending
 from ..serializers import format_datetime
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
@@ -19,10 +23,37 @@ from ..services.email_service import (
     render_subject,
     render_template,
 )
-from ..services.notification_catalog import event_badge_class, get_event
+from ..services.notification_catalog import event_badge_class, event_mail_flags, get_event
 from ..utils import get_or_404, now_utc, now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(require_admin)])
+
+
+class PendingNotificationPurge(BaseModel):
+    ids: list[int] | None = None
+    mark_handled: bool = False
+
+
+def _log_admin_action(
+    db: Session,
+    request: Request,
+    *,
+    action: str,
+    summary: str,
+    target_count: int,
+    details: dict | None = None,
+) -> None:
+    actor = current_user(request, db) or {}
+    db.add(
+        AdminActionLog(
+            action=action,
+            actor_user_id=actor.get("id"),
+            actor_name=actor.get("username") or actor.get("plex_user_id") or "api",
+            summary=summary,
+            target_count=target_count,
+            details=_json.dumps(details or {}, ensure_ascii=False),
+        )
+    )
 
 
 @router.get("/activity")
@@ -231,6 +262,191 @@ def list_notification_logs(limit: int = 50, offset: int = 0, db: Session = Depen
             for log in logs
         ],
     }
+
+
+@router.get("/admin-action-logs")
+def list_admin_action_logs(
+    limit: int = 50,
+    offset: int = 0,
+    action: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(AdminActionLog)
+    if action:
+        q = q.filter(AdminActionLog.action == action)
+    q = q.order_by(AdminActionLog.created_at.desc())
+    total = q.count()
+    logs = q.offset(offset).limit(min(limit, 200)).all()
+
+    def _details(raw: str | None) -> dict:
+        if not raw:
+            return {}
+        try:
+            return _json.loads(raw)
+        except Exception:
+            return {"raw": raw}
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "id": log.id,
+                "created_at": format_datetime(log.created_at),
+                "action": log.action,
+                "actor_user_id": log.actor_user_id,
+                "actor_name": log.actor_name,
+                "summary": log.summary,
+                "target_count": log.target_count,
+                "details": _details(log.details),
+            }
+            for log in logs
+        ],
+    }
+
+
+@router.get("/notifications/pending")
+def list_pending_notifications(db: Session = Depends(get_db)):
+    rows = db.execute(
+        text("SELECT id, created_at, event, req_id, recipients, reason FROM pending_notifications ORDER BY id DESC")
+    ).fetchall()
+    req_ids = []
+    for row in rows:
+        try:
+            req_ids.append(int(row.req_id))
+        except Exception:
+            pass
+    titles = {
+        req.id: {"title": req.title, "media_type": req.media_type}
+        for req in db.query(MediaRequest).filter(MediaRequest.id.in_(req_ids)).all()
+    }
+
+    def _json_value(raw, fallback):
+        try:
+            value = _json.loads(raw) if raw else fallback
+            return value if value is not None else fallback
+        except Exception:
+            return fallback
+
+    items = []
+    invalid = 0
+    for row in rows:
+        recipients = _json_value(row.recipients, [])
+        context = _json_value(row.reason, {})
+        is_valid = row.event in ("request", "available", "failed") and isinstance(recipients, list)
+        if not is_valid:
+            invalid += 1
+        media = titles.get(row.req_id, {})
+        items.append(
+            {
+                "id": row.id,
+                "created_at": str(row.created_at or ""),
+                "event": row.event,
+                "event_label": get_event(row.event).label,
+                "req_id": row.req_id,
+                "media_title": media.get("title"),
+                "media_type": media.get("media_type"),
+                "recipients": recipients if isinstance(recipients, list) else [],
+                "context": context if isinstance(context, dict) else {},
+                "valid": is_valid,
+            }
+        )
+    return {"total": len(items), "invalid": invalid, "items": items}
+
+
+def _pending_rows_for_purge(db: Session, ids: list[int]) -> list:
+    if ids:
+        stmt = text(
+            "SELECT id, event, req_id, recipients, reason FROM pending_notifications WHERE id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True))
+        return db.execute(stmt, {"ids": [int(i) for i in ids]}).fetchall()
+    return db.execute(text("SELECT id, event, req_id, recipients, reason FROM pending_notifications")).fetchall()
+
+
+def _safe_json_value(raw, fallback):
+    try:
+        value = _json.loads(raw) if raw else fallback
+        return value if value is not None else fallback
+    except Exception:
+        return fallback
+
+
+def _mark_pending_rows_handled(db: Session, rows: list) -> int:
+    req_ids = []
+    for row in rows:
+        try:
+            req_ids.append(int(row.req_id))
+        except Exception:
+            pass
+    if not req_ids:
+        return 0
+
+    reqs = {
+        req.id: req
+        for req in db.query(MediaRequest).filter(MediaRequest.id.in_(sorted(set(req_ids)))).all()
+    }
+    handled = 0
+    for row in rows:
+        event = "failed" if row.event == "failure" else row.event
+        try:
+            req = reqs.get(int(row.req_id))
+        except Exception:
+            req = None
+        if not req:
+            continue
+
+        changed = False
+        for attr in event_mail_flags(event):
+            if hasattr(req, attr) and not getattr(req, attr):
+                setattr(req, attr, True)
+                changed = True
+
+        if event == "available":
+            context = _safe_json_value(row.reason, {})
+            scope = context.get("scope") if isinstance(context, dict) else None
+            if scope in ("episode", "season_start", "season_complete") and not req.partial_available_mail_sent:
+                req.partial_available_mail_sent = True
+                changed = True
+            if req.episodes_available_count is not None:
+                current = req.last_notified_episode_count or 0
+                if req.episodes_available_count > current:
+                    req.last_notified_episode_count = req.episodes_available_count
+                    changed = True
+
+        if changed:
+            handled += 1
+    return handled
+
+
+@router.post("/notifications/pending/purge")
+def purge_pending_notifications(
+    body: PendingNotificationPurge,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    ids = body.ids or []
+    pending_rows = _pending_rows_for_purge(db, ids)
+    handled = _mark_pending_rows_handled(db, pending_rows) if body.mark_handled else 0
+    if body.mark_handled:
+        db.commit()
+    else:
+        db.rollback()
+    if ids:
+        deleted = cancel_pending(ids)
+        action = "notification_queue_delete"
+        summary = f"{deleted} notification(s) en attente supprimée(s)"
+        details = {"ids": ids, "mark_handled": body.mark_handled, "handled_requests": handled}
+    else:
+        deleted = cancel_all_pending()
+        action = "notification_queue_purge_handled" if body.mark_handled else "notification_queue_purge"
+        summary = f"{deleted} notification(s) en attente purgée(s)"
+        if body.mark_handled:
+            summary += f", {handled} demande(s) marquee(s) traitee(s)"
+        details = {"purge_all": True, "mark_handled": body.mark_handled, "handled_requests": handled}
+    _log_admin_action(db, request, action=action, summary=summary, target_count=deleted, details=details)
+    db.commit()
+    return {"status": "success", "deleted": deleted, "handled_requests": handled}
 
 
 @router.post("/notifications/{log_id}/resend")

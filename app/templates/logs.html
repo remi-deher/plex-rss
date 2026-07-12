@@ -13,6 +13,16 @@
       <i class="bi bi-clock-history"></i> Historique des polls
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" id="admin-actions-tab" data-bs-toggle="tab" data-bs-target="#tab-admin-actions" type="button" role="tab" onclick="loadAdminActions()">
+      <i class="bi bi-person-gear"></i> Actions admin
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link d-flex align-items-center gap-2" id="pending-notifications-tab" data-bs-toggle="tab" data-bs-target="#tab-pending-notifications" type="button" role="tab" onclick="loadPendingNotifications()">
+      <i class="bi bi-hourglass-split"></i> Queue notifications
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="logTabContent">
@@ -63,6 +73,82 @@
   </div>
 
   <!-- ════════════════════════ TAB : HISTORIQUE POLLS ════════════════════════ -->
+  <div class="tab-pane fade" id="tab-admin-actions" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Actions persistantes</h5>
+      <div class="d-flex align-items-center gap-2">
+        <select id="adminActionFilter" class="form-select form-select-sm bg-dark text-light border-secondary" style="width:auto" onchange="loadAdminActions()">
+          <option value="">Toutes les actions</option>
+          <option value="bulk_mark_processed_silent">Traiter sans notifier</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadAdminActions()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-dark align-middle mb-0" style="font-size: 13px">
+            <thead>
+              <tr>
+                <th class="text-muted fw-semibold">Date / Heure</th>
+                <th class="text-muted fw-semibold">Action</th>
+                <th class="text-muted fw-semibold">Admin</th>
+                <th class="text-muted fw-semibold">Resume</th>
+                <th class="text-muted fw-semibold">Elements</th>
+              </tr>
+            </thead>
+            <tbody id="admin-actions-body">
+              <tr><td colspan="5" class="text-center text-muted py-5">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-pending-notifications" role="tabpanel">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Notifications en attente</h5>
+        <div class="text-muted small" id="pending-notifications-summary"></div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadPendingNotifications()">
+          <i class="bi bi-arrow-clockwise me-1"></i>Actualiser
+        </button>
+        <button class="btn btn-sm btn-outline-danger" onclick="purgePendingNotifications()">
+          <i class="bi bi-trash me-1"></i>Purger toute la queue
+        </button>
+        <button class="btn btn-sm btn-danger" onclick="purgePendingNotifications(true)">
+          <i class="bi bi-check2-circle me-1"></i>Purger et marquer traitées
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-dark align-middle mb-0" style="font-size: 13px">
+            <thead>
+              <tr>
+                <th class="text-muted fw-semibold">ID</th>
+                <th class="text-muted fw-semibold">Créée</th>
+                <th class="text-muted fw-semibold">Événement</th>
+                <th class="text-muted fw-semibold">Média</th>
+                <th class="text-muted fw-semibold">Destinataires</th>
+                <th class="text-muted fw-semibold text-end">Action</th>
+              </tr>
+            </thead>
+            <tbody id="pending-notifications-body">
+              <tr><td colspan="6" class="text-center text-muted py-5">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-pane fade" id="tab-poll-history" role="tabpanel">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h5 class="mb-0 text-muted small text-uppercase fw-semibold" style="letter-spacing:.08em">Historique des exécutions</h5>
@@ -205,6 +291,113 @@ function toggleAuto() {
 }
 
 // ── Poll History ──────────────────────────────────────────────────────────────
+async function loadAdminActions() {
+  const body = document.getElementById('admin-actions-body');
+  const action = document.getElementById('adminActionFilter')?.value || '';
+  body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...</td></tr>';
+  try {
+    const qs = new URLSearchParams({ limit: '100' });
+    if (action) qs.set('action', action);
+    const r = await fetch(`/api/admin-action-logs?${qs.toString()}`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    const rows = data.items || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-5">Aucune action admin persistée</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(item => {
+      const details = item.details || {};
+      const children = details.items || [];
+      const toggleId = `admin-action-${item.id}`;
+      const actionLabel = item.action === 'bulk_mark_processed_silent'
+        ? '<span class="badge bg-success"><i class="bi bi-check-all me-1"></i>Traiter sans notifier</span>'
+        : `<span class="badge bg-secondary">${escHtml(item.action)}</span>`;
+      const detailsRow = `
+        <tr class="collapse border-0" id="${toggleId}">
+          <td colspan="5" class="bg-dark p-3" style="background-color: rgba(255,255,255,0.01) !important">
+            <div class="small text-muted mb-2">Aucune notification envoyée</div>
+            <div class="d-flex flex-column gap-1">
+              ${children.map(child => `<div class="d-flex flex-wrap gap-2 align-items-center">
+                <span class="badge bg-secondary">#${child.id}</span>
+                <span class="text-white">${escHtml(child.title || '?')}</span>
+                <span class="text-muted">${escHtml(child.media_type || '')}</span>
+                <span class="text-muted">${escHtml(child.status_before || '?')} → ${escHtml(child.status_after || '?')}</span>
+              </div>`).join('') || '<span class="text-muted">Aucun détail</span>'}
+            </div>
+          </td>
+        </tr>`;
+      return `
+        <tr onclick="bootstrap.Collapse.getOrCreateInstance(document.getElementById('${toggleId}')).toggle()" style="cursor:pointer">
+          <td class="text-muted"><i class="bi bi-chevron-down me-2 small opacity-50"></i>${escHtml(item.created_at || '')}</td>
+          <td>${actionLabel}</td>
+          <td>${escHtml(item.actor_name || 'api')}</td>
+          <td>${escHtml(item.summary || '')}</td>
+          <td><span class="badge bg-secondary">${item.target_count || 0}</span></td>
+        </tr>
+        ${detailsRow}`;
+    }).join('');
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="5" class="text-danger py-5">Erreur : ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function loadPendingNotifications() {
+  const body = document.getElementById('pending-notifications-body');
+  const summary = document.getElementById('pending-notifications-summary');
+  body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm text-warning me-2"></div>Chargement...</td></tr>';
+  try {
+    const r = await fetch('/api/notifications/pending');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    summary.textContent = `${data.total || 0} en attente${data.invalid ? `, ${data.invalid} invalide(s)` : ''}`;
+    const rows = data.items || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5">Aucune notification en attente</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(item => {
+      const validBadge = item.valid ? '' : '<span class="badge bg-danger ms-1">Invalide</span>';
+      const recips = (item.recipients || []).map(r => `<span class="badge bg-secondary me-1">${escHtml(r)}</span>`).join('');
+      return `<tr>
+        <td><span class="badge bg-dark border border-secondary">#${item.id}</span></td>
+        <td class="text-muted">${escHtml(item.created_at || '')}</td>
+        <td><span class="badge bg-info text-dark">${escHtml(item.event_label || item.event || '?')}</span>${validBadge}</td>
+        <td><div class="fw-semibold">${escHtml(item.media_title || 'Demande introuvable')}</div><div class="text-muted small">req #${escHtml(item.req_id || '?')} ${escHtml(item.media_type || '')}</div></td>
+        <td>${recips || '<span class="text-muted">Aucun</span>'}</td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="deletePendingNotification(${item.id})"><i class="bi bi-trash"></i></button></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="6" class="text-danger py-5">Erreur : ${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function deletePendingNotification(id) {
+  if (!confirm(`Supprimer la notification en attente #${id} ? Aucun email ne sera envoyé pour cette entrée.`)) return;
+  const r = await fetch('/api/notifications/pending/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: [id] }),
+  });
+  if (!r.ok) alert('Suppression impossible');
+  await loadPendingNotifications();
+}
+
+async function purgePendingNotifications(markHandled = false) {
+  const message = markHandled
+    ? 'Purger toute la queue et marquer les demandes correspondantes comme déjà notifiées ? Ces anciens emails ne seront pas recréés au prochain scan.'
+    : 'Purger toute la queue de notifications ? Aucun email en attente ne sera envoyé, mais un vieux contenu encore non marqué peut être recréé au prochain scan.';
+  if (!confirm(message)) return;
+  const r = await fetch('/api/notifications/pending/purge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mark_handled: markHandled }),
+  });
+  if (!r.ok) alert('Purge impossible');
+  await loadPendingNotifications();
+}
+
 let allPollHistory = [];
 
 async function loadPollHistory() {

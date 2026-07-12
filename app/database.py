@@ -1,11 +1,10 @@
 """
-Couche d'accès à la base de données SQLite via SQLAlchemy.
+Database access layer for SQLAlchemy.
 
-- Le moteur est configuré avec check_same_thread=False car FastAPI utilise
-  plusieurs threads pour les requêtes synchrones, alors que SQLite interdit
-  par défaut l'accès multi-thread sur un même connexion.
-- Les migrations sont exécutées dans un sous-processus pour éviter un conflit
-  de verrou entre le moteur SQLAlchemy de l'app et le moteur interne d'Alembic.
+SQLite is used by default. On Windows/Docker bind mounts, multiple concurrent
+SQLite WAL shared-memory files can trigger "unable to open database file" on
+some Windows/Docker bind mounts, so WAL is deliberately disabled while keeping
+a longer busy timeout for normal SQLite lock contention.
 """
 
 import logging
@@ -23,10 +22,17 @@ if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./data/plex_rss.db"
 
 connect_args = {}
+engine_kwargs = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    connect_args["timeout"] = 30
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+        }
+    )
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -34,36 +40,15 @@ if DATABASE_URL.startswith("sqlite"):
 
     @event.listens_for(engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):
-        """Applique busy_timeout + tente le mode WAL sur chaque connexion SQLite.
-
-        Sous contention (ex. synchro Plex de milliers d'items en tâche de fond),
-        une lecture attend jusqu'à 5 s la libération du verrou au lieu d'échouer
-        immédiatement en "database is locked". Le mode WAL réduit cette contention
-        (lecteurs et writer ne se bloquent plus mutuellement), mais sa mémoire
-        partagée (-shm, mmap) n'est pas supportée sur certains bind-mounts
-        Windows/Docker ("unable to open database file"). On tente donc WAL et on
-        vérifie le mode réellement appliqué : en cas d'échec, on retombe
-        silencieusement sur le mode par défaut (comportement identique à avant),
-        avec juste un log d'avertissement pour le diagnostic.
-        """
+        """Use SQLite settings that behave well on Windows/Docker bind mounts."""
         cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA busy_timeout=5000")
-        try:
-            cur.execute("PRAGMA journal_mode=WAL")
-            mode = cur.fetchone()
-            if not mode or str(mode[0]).lower() != "wal":
-                logger.warning(f"Mode WAL non actif (retour: {mode}), mode journal par défaut conservé")
-        except Exception as e:
-            logger.warning(f"Mode WAL indisponible ({e}), mode journal par défaut conservé")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA journal_mode=DELETE")
         cur.close()
 
 
 def run_migrations():
-    """Applique les migrations Alembic dans un sous-processus.
-
-    L'exécution en subprocess évite que le moteur de l'app et celui d'Alembic
-    se marchent dessus sur le fichier SQLite (erreur "database is locked").
-    """
+    """Run Alembic migrations in a subprocess."""
     import subprocess
 
     subprocess.run(
@@ -74,12 +59,7 @@ def run_migrations():
 
 
 def seed_defaults():
-    """Insère la ligne Settings par défaut (id=1) si la table est vide.
-
-    Génère aussi un webhook_secret au premier démarrage (ou après une mise à jour
-    qui l'a laissé vide) pour que les endpoints /webhook/* soient authentifiés
-    dès le départ, sans étape manuelle.
-    """
+    """Create default Settings and local admin user rows when needed."""
     import secrets
 
     from .models import PlexUser
@@ -94,7 +74,6 @@ def seed_defaults():
         if not s.webhook_secret:
             s.webhook_secret = secrets.token_urlsafe(32)
 
-        # Seed local admin PlexUser row
         if s.auth_username:
             admin_user = db.query(PlexUser).filter(PlexUser.plex_user_id == s.auth_username).first()
             if not admin_user:
@@ -111,7 +90,6 @@ def seed_defaults():
                 )
                 db.add(admin_user)
             else:
-                # Sync credentials from Settings table if updated
                 if admin_user.password_hash != s.auth_password_hash:
                     admin_user.password_hash = s.auth_password_hash
                 if admin_user.totp_secret != s.totp_secret:
@@ -125,13 +103,13 @@ def seed_defaults():
 
 
 def init_db():
-    """Initialise la DB : migrations puis seed."""
+    """Initialize the DB: migrations, then defaults."""
     run_migrations()
     seed_defaults()
 
 
 def get_db():
-    """Dépendance FastAPI : fournit une session et la ferme après la requête."""
+    """FastAPI dependency providing a short-lived SQLAlchemy session."""
     db = SessionLocal()
     try:
         yield db

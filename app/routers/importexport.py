@@ -13,6 +13,7 @@ from ..crypto import EncryptedText
 from ..database import DATABASE_URL, get_db
 from ..dependencies import require_admin
 from ..models import (
+    AdminActionLog,
     ArrInstance,
     DownloadClient,
     DownloadHistory,
@@ -47,6 +48,7 @@ _ALWAYS_EXCLUDED = {
 # les jobs planifiés (cache VF, sync bibliothèque).
 _REFERENCE_ONLY_MODELS = {
     "notification_logs": NotificationLog,
+    "admin_action_logs": AdminActionLog,
     "notification_milestones": NotificationMilestone,
     "poll_history": PollHistory,
     "download_history": DownloadHistory,

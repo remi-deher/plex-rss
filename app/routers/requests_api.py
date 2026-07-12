@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import current_user, require_admin, require_auth
-from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import AdminActionLog, ArrInstance, DownloadClient, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import _notify, check_arr_statuses, poll_watchlists
 from ..services import radarr, sonarr
 from ..utils import get_or_404, now_utc_naive, parse_email_list
@@ -252,16 +252,39 @@ async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
 
 
 @router.post("/requests/bulk/mark-processed", dependencies=[Depends(require_admin)])
-def bulk_mark_requests_processed(body: BulkAction, db: Session = Depends(get_db)):
+def bulk_mark_requests_processed(body: BulkAction, request: Request, db: Session = Depends(get_db)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
     reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
     now = now_utc_naive()
+    items = []
     for req in reqs:
+        before_status = req.status.value if hasattr(req.status, "value") else req.status
         req.status = "available"
         req.request_mail_sent = True
         req.available_mail_sent = True
         if not req.available_at:
             req.available_at = now
+        items.append(
+            {
+                "id": req.id,
+                "title": req.title,
+                "media_type": req.media_type,
+                "status_before": before_status,
+                "status_after": "available",
+                "notification_sent": False,
+            }
+        )
+    actor = current_user(request, db) or {}
+    db.add(
+        AdminActionLog(
+            action="bulk_mark_processed_silent",
+            actor_user_id=actor.get("id"),
+            actor_name=actor.get("username") or actor.get("plex_user_id") or "api",
+            summary=f"{len(reqs)} demande(s) traitee(s) sans notification",
+            target_count=len(reqs),
+            details=_json.dumps({"items": items, "notification_sent": False}, ensure_ascii=False),
+        )
+    )
     db.commit()
     return {"status": "success", "count": len(reqs)}
 

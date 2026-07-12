@@ -394,6 +394,19 @@ class PendingNotification(Base):
     reason: Mapped[str] = mapped_column(default="")
 
 
+class AdminActionLog(Base):
+    __tablename__ = "admin_action_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc, index=True)
+    action: Mapped[str] = mapped_column(index=True)
+    actor_user_id: Mapped[Optional[int]] = mapped_column(default=None)
+    actor_name: Mapped[Optional[str]] = mapped_column(default=None)
+    summary: Mapped[str]
+    target_count: Mapped[int] = mapped_column(default=0)
+    details: Mapped[Optional[str]] = mapped_column(Text, default=None)
+
+
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
 

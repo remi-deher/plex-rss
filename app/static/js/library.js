@@ -1038,9 +1038,9 @@ async function bulkRetry() {
 }
 async function bulkMarkProcessed() {
   const ids = getSelectedIds(); if (!ids.length) return;
-  if (!await confirmAction({ title:'Marquer traite', body:`Marquer ${ids.length} demande(s) comme disponibles ?`, okLabel:'Marquer' })) return;
+  if (!await confirmAction({ title:'Traiter sans notifier', body:`Marquer ${ids.length} demande(s) comme disponibles sans envoyer d'email ?`, okLabel:'Traiter sans notifier' })) return;
   const r = await fetch('/api/requests/bulk/mark-processed', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ids}) });
-  const d = await r.json(); showToast(`${d.count || 0} demande(s) traitee(s)`, r.ok ? 'success' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
+  const d = await r.json(); showToast(`${d.count || 0} demande(s) traitee(s) sans notification`, r.ok ? 'success' : 'danger'); if (r.ok) setTimeout(() => location.reload(), 900);
 }
 async function bulkDelete() {
   const ids = getSelectedIds(); if (!ids.length) return;

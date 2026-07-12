@@ -15,7 +15,7 @@ import asyncio
 import json
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from . import metrics as app_metrics
 from .database import SessionLocal
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 _queue: asyncio.Queue = asyncio.Queue()
 _worker_task: asyncio.Task | None = None
+_cancelled_pending_ids: set[int] = set()
 
 _RETRY_DELAYS = [2, 5]  # secondes entre chaque tentative
 
@@ -134,10 +135,51 @@ def _delete_pending(pending_id: int | None):
         return
     db = SessionLocal()
     try:
-        db.query(PendingNotification).filter(PendingNotification.id == pending_id).delete()
+        db.execute(text("DELETE FROM pending_notifications WHERE id = :id"), {"id": int(pending_id)})
         db.commit()
     except Exception as e:
         logger.error(f"Impossible de supprimer la notification en attente #{pending_id}: {e}")
+    finally:
+        db.close()
+
+
+def cancel_pending(ids: list[int]) -> int:
+    """Supprime des notifications persistées et annule celles déjà rechargées en mémoire."""
+    clean_ids = [int(i) for i in ids if i is not None]
+    if not clean_ids:
+        return 0
+    _cancelled_pending_ids.update(clean_ids)
+    db = SessionLocal()
+    try:
+        stmt = text("DELETE FROM pending_notifications WHERE id IN :ids").bindparams(
+            bindparam("ids", expanding=True)
+        )
+        result = db.execute(stmt, {"ids": clean_ids})
+        db.commit()
+        deleted = result.rowcount
+        return int(deleted or 0)
+    except Exception as e:
+        logger.error(f"Impossible d'annuler les notifications en attente {clean_ids}: {e}")
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+def cancel_all_pending() -> int:
+    """Vide toute la queue persistée et annule les entrées déjà en mémoire."""
+    db = SessionLocal()
+    try:
+        ids = [row[0] for row in db.execute(text("SELECT id FROM pending_notifications")).fetchall()]
+        _cancelled_pending_ids.update(int(i) for i in ids)
+        result = db.execute(text("DELETE FROM pending_notifications"))
+        db.commit()
+        deleted = result.rowcount
+        return int(deleted or 0)
+    except Exception as e:
+        logger.error(f"Impossible de purger la queue de notifications: {e}")
+        db.rollback()
+        return 0
     finally:
         db.close()
 
@@ -302,7 +344,11 @@ async def _worker():
         try:
             pending_id, event, req_id, recipients, context = await _queue.get()
             try:
-                await _process(event, req_id, recipients, context)
+                if pending_id in _cancelled_pending_ids:
+                    logger.info(f"Notification en attente #{pending_id} annulée avant envoi")
+                    _cancelled_pending_ids.discard(pending_id)
+                else:
+                    await _process(event, req_id, recipients, context)
             finally:
                 _delete_pending(pending_id)
         except asyncio.CancelledError:

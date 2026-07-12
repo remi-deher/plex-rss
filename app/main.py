@@ -246,6 +246,11 @@ class DynamicSecureSessionMiddleware:
 app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
+
 @app.get("/api/docs", include_in_schema=False)
 async def get_documentation(request: Request, db: SqlSession = Depends(get_db)):
     require_admin(request, db)
