@@ -5,10 +5,12 @@ from datetime import timedelta
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
 from .. import metrics as app_metrics
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
@@ -26,15 +28,13 @@ async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
     return ok, msg, round((time.monotonic() - t0) * 1000, 1)
 
 
-def _preferred_instance(db: Session, arr_type: str) -> ArrInstance | None:
+async def _preferred_instance(db: AsyncSession, arr_type: str) -> ArrInstance | None:
     inst = (
-        db.query(ArrInstance)
-        .filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default)
-        .first()
+        (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default))).scalars().first()
     )
     if inst:
         return inst
-    return db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled).first()
+    return (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled))).scalars().first()
 
 
 def _not_configured(message: str = "Non configure") -> dict:
@@ -59,8 +59,8 @@ def _disabled(message: str = "Desactive") -> dict:
     }
 
 
-def _missing_arr_state(db: Session, arr_type: str) -> dict:
-    exists = db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type).first() is not None
+async def _missing_arr_state(db: AsyncSession, arr_type: str) -> dict:
+    exists = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == arr_type))).scalars().first() is not None
     return _disabled("Instance configuree mais desactivee") if exists else _not_configured("Aucune instance configuree")
 
 
@@ -71,13 +71,13 @@ async def _timed_prowlarr_check(inst: ArrInstance) -> tuple[bool | None, str, fl
 
 
 @router.get("/health")
-async def health_check(db: Session = Depends(get_db)):
+async def health_check(db: AsyncSession = Depends(get_db_async)):
     """État structuré de tous les services connectés avec latences."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     checks: dict[str, tuple] = {}
-    sonarr_inst = _preferred_instance(db, "sonarr")
-    radarr_inst = _preferred_instance(db, "radarr")
-    prowlarr_inst = _preferred_instance(db, "prowlarr")
+    sonarr_inst = await _preferred_instance(db, "sonarr")
+    radarr_inst = await _preferred_instance(db, "radarr")
+    prowlarr_inst = await _preferred_instance(db, "prowlarr")
     if sonarr_inst:
         checks["sonarr"] = ("failed", _timed_check(sonarr.check_connection(sonarr_inst.url, sonarr_inst.api_key)))
     if radarr_inst:
@@ -98,7 +98,7 @@ async def health_check(db: Session = Depends(get_db)):
     for name in ("sonarr", "radarr", "prowlarr", "seer", "plex"):
         if name not in checks:
             if name in ("sonarr", "radarr", "prowlarr"):
-                services[name] = _missing_arr_state(db, name)
+                services[name] = await _missing_arr_state(db, name)
             elif name == "seer" and seer_disabled:
                 services[name] = _disabled("Demandes via Seer desactivees")
             elif name == "plex":
@@ -154,12 +154,12 @@ async def health_check(db: Session = Depends(get_db)):
 
 
 @router.get("/metrics")
-def get_metrics(db: Session = Depends(get_db)):
+async def get_metrics(db: AsyncSession = Depends(get_db_async)):
     """Métriques runtime (session courante) + agrégats DB (total historique)."""
-    total = db.query(MediaRequest).count()
-    available = db.query(MediaRequest).filter(MediaRequest.status == "available").count()
-    failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").count()
-    notif_sent = db.query(MediaRequest).filter(MediaRequest.available_mail_sent.is_(True)).count()
+    total = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest))).scalar()
+    available = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "available"))).scalar()
+    failed = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "failed"))).scalar()
+    notif_sent = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.available_mail_sent.is_(True)))).scalar()
     notif_missed = (
         db.query(MediaRequest)
         .filter(
@@ -204,12 +204,12 @@ def next_poll_info():
 
 
 @router.get("/poll-history")
-def get_poll_history(limit: int = 50, job: Optional[str] = None, db: Session = Depends(get_db)):
+async def get_poll_history(limit: int = 50, job: Optional[str] = None, db: AsyncSession = Depends(get_db_async)):
     """Retourne l'historique des exécutions du scheduler."""
-    q = db.query(PollHistory)
+    q = select(PollHistory)
     if job:
         q = q.filter(PollHistory.job == job)
-    items = q.order_by(PollHistory.started_at.desc()).limit(limit).all()
+    items = (await db.execute(q.order_by(PollHistory.started_at.desc()).limit(limit))).scalars().all()
     from ..serializers import format_datetime
 
     return [
@@ -229,17 +229,17 @@ def get_poll_history(limit: int = 50, job: Optional[str] = None, db: Session = D
 
 
 @router.get("/metrics/prometheus", response_class=__import__("fastapi").responses.PlainTextResponse)
-def prometheus_metrics(db: Session = Depends(get_db)):
+async def prometheus_metrics(db: AsyncSession = Depends(get_db_async)):
     """Expose les métriques au format Prometheus text (scraping externe)."""
     from fastapi.responses import PlainTextResponse
 
     snap = app_metrics.snapshot()
 
-    total = db.query(MediaRequest).count()
-    available = db.query(MediaRequest).filter(MediaRequest.status == "available").count()
-    failed_db = db.query(MediaRequest).filter(MediaRequest.status == "failed").count()
-    pending = db.query(MediaRequest).filter(MediaRequest.status == "pending").count()
-    sent = db.query(MediaRequest).filter(MediaRequest.status == "sent_to_arr").count()
+    total = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest))).scalar()
+    available = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "available"))).scalar()
+    failed_db = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "failed"))).scalar()
+    pending = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "pending"))).scalar()
+    sent = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "sent_to_arr"))).scalar()
 
     lines = [
         "# HELP plex_rss_poll_total Total number of watchlist polls since startup",
@@ -281,21 +281,13 @@ def prometheus_metrics(db: Session = Depends(get_db)):
 
 
 @router.get("/stats/timeline")
-def stats_timeline(db: Session = Depends(get_db)):
+async def stats_timeline(db: AsyncSession = Depends(get_db_async)):
     """Retourne le nombre de demandes par jour sur les 30 derniers jours."""
     from sqlalchemy import func
 
     days = 30
     start = now_utc() - timedelta(days=days)
-    rows = (
-        db.query(
-            func.date(MediaRequest.requested_at).label("day"),
-            func.count().label("count"),
-        )
-        .filter(MediaRequest.requested_at >= start)
-        .group_by(func.date(MediaRequest.requested_at))
-        .all()
-    )
+    rows = (await db.execute(select(func.date(MediaRequest.requested_at).label("day"), func.count().label("count")).filter(MediaRequest.requested_at >= start).group_by(func.date(MediaRequest.requested_at)))).all()
     data = {r.day: r.count for r in rows}
     labels, values = [], []
     for i in range(days):
@@ -306,17 +298,12 @@ def stats_timeline(db: Session = Depends(get_db)):
 
 
 @router.get("/stats/by-user")
-def stats_by_user(db: Session = Depends(get_db)):
+async def stats_by_user(db: AsyncSession = Depends(get_db_async)):
     """Retourne le nombre de demandes par utilisateur, trié par volume décroissant."""
     from sqlalchemy import func
 
-    rows = (
-        db.query(MediaRequest.plex_user_id, func.count().label("total"))
-        .group_by(MediaRequest.plex_user_id)
-        .order_by(func.count().desc())
-        .all()
-    )
-    users = {u.plex_user_id: (u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    rows = (await db.execute(select(MediaRequest.plex_user_id, func.count().label("total")).group_by(MediaRequest.plex_user_id).order_by(func.count().desc()))).all()
+    users = {u.plex_user_id: (u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
     return [
         {"plex_user_id": r.plex_user_id, "display_name": users.get(r.plex_user_id, r.plex_user_id), "total": r.total}
         for r in rows
@@ -324,15 +311,11 @@ def stats_by_user(db: Session = Depends(get_db)):
 
 
 @router.get("/stats/counts")
-def stats_counts(db: Session = Depends(get_db)):
+async def stats_counts(db: AsyncSession = Depends(get_db_async)):
     """Retourne les compteurs par statut, globaux et ventilés par type de média."""
     from sqlalchemy import func
 
-    rows = (
-        db.query(MediaRequest.media_type, MediaRequest.status, func.count().label("n"))
-        .group_by(MediaRequest.media_type, MediaRequest.status)
-        .all()
-    )
+    rows = (await db.execute(select(MediaRequest.media_type, MediaRequest.status, func.count().label("n")).group_by(MediaRequest.media_type, MediaRequest.status))).all()
 
     def _empty():
         return {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0, "total": 0}
@@ -352,7 +335,7 @@ def stats_counts(db: Session = Depends(get_db)):
 
 
 @router.get("/stats/top-requested")
-def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
+async def stats_top_requested(db: AsyncSession = Depends(get_db_async), limit: int = 5):
     """Retourne les demandes ayant le plus de co-demandeurs (les plus réclamées)."""
     rows = (
         db.query(MediaRequest)
@@ -380,7 +363,7 @@ def stats_top_requested(db: Session = Depends(get_db), limit: int = 5):
 
 
 @router.get("/disk-space")
-async def disk_space(db: Session = Depends(get_db)):
+async def disk_space(db: AsyncSession = Depends(get_db_async)):
     """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin."""
     volumes: dict[str, dict] = {}
 
@@ -396,10 +379,7 @@ async def disk_space(db: Session = Depends(get_db)):
             pass
 
     instances = (
-        db.query(ArrInstance)
-        .filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"]))
-        .order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name)
-        .all()
+        (await db.execute(select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])).order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name))).scalars().all()
     )
     for inst in instances:
         label = f"{inst.name} ({inst.arr_type.title()})"
