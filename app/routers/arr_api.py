@@ -565,6 +565,72 @@ async def delete_arr_queue_item(
     return {"status": "ok", "message": msg}
 
 
+class ManualImportRequest(BaseModel):
+    instance_id: int
+    media_type: str  # "movie" | "show"
+    title: str
+    arr_id: int  # seriesId (sonarr) ou movieId (radarr) — déjà connu de l'instance *arr
+    year: Optional[int] = None
+    tmdb_id: Optional[int] = None
+    tvdb_id: Optional[int] = None
+    poster_url: Optional[str] = None
+
+
+@router.post("/downloads/manual-import")
+def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_db)):
+    """Attache manuellement un item de la file *arr à une MediaRequest quand le
+    rapprochement automatique (instance_id, arr_media_id) n'a rien trouvé — ex. média
+    ajouté directement dans Sonarr/Radarr sans passer par l'app. Ne renvoie pas la
+    notification "Nouvelle demande" : c'est un rattachement rétroactif, pas une vraie
+    nouvelle demande utilisateur.
+    """
+    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
+    expected_type = "sonarr" if body.media_type == "show" else "radarr"
+    if inst.arr_type != expected_type:
+        raise HTTPException(400, f"L'instance {inst.name} n'est pas de type {expected_type}")
+
+    tmdb_str = str(body.tmdb_id) if body.tmdb_id else None
+    tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
+
+    existing = (
+        db.query(MediaRequest)
+        .filter(MediaRequest.arr_instance_id == inst.id, MediaRequest.arr_id == body.arr_id)
+        .first()
+    )
+    if not existing and tmdb_str:
+        existing = db.query(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str).first()
+    if not existing and tvdb_str:
+        existing = db.query(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str).first()
+
+    if existing:
+        if not existing.arr_instance_id:
+            existing.arr_instance_id = inst.id
+        if not existing.arr_id:
+            existing.arr_id = body.arr_id
+        if body.poster_url and not existing.poster_url:
+            existing.poster_url = body.poster_url
+        db.commit()
+        return {"status": "linked", "request_id": existing.id}
+
+    req = MediaRequest(
+        plex_user_id="manual",
+        plex_user="Import manuel",
+        title=body.title,
+        year=body.year,
+        media_type=body.media_type,
+        tmdb_id=tmdb_str,
+        tvdb_id=tvdb_str,
+        status=RequestStatus.sent_to_arr,
+        source="manual_import",
+        arr_id=body.arr_id,
+        arr_instance_id=inst.id,
+        poster_url=body.poster_url,
+    )
+    db.add(req)
+    db.commit()
+    return {"status": "created", "request_id": req.id}
+
+
 @router.get("/downloads/direct")
 async def direct_downloads(db: Session = Depends(get_db)):
     """Torrents poussés en direct-client (hors *arr), suivis via download_client_id + torrent_hash sur les demandes."""

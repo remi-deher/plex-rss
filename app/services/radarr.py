@@ -317,11 +317,12 @@ async def grab_release(radarr_url: str, api_key: str, guid: str, indexer_id: int
         return False, str(e)
 
 
-def _normalize_queue_record(r: dict, title: str) -> dict:
+def _normalize_queue_record(r: dict, title: str, *, movie: dict | None = None) -> dict:
     """Réduit un enregistrement de file d'attente *arr à un format compact pour l'UI."""
     size = r.get("size") or 0
     sizeleft = r.get("sizeleft") or 0
     progress = round((size - sizeleft) / size * 100, 1) if size else 0
+    movie = movie or {}
     return {
         "queue_id": r.get("id"),
         "arr_media_id": r.get("movieId"),
@@ -337,6 +338,18 @@ def _normalize_queue_record(r: dict, title: str) -> dict:
         "indexer": r.get("indexer"),
         "protocol": r.get("protocol"),
         "error": r.get("errorMessage"),
+        # Métadonnées portées par la file (déjà connues de Radarr) — utilisées pour
+        # pré-remplir l'import manuel quand le lien vers une MediaRequest est absent.
+        "year": movie.get("year"),
+        "tmdb_id": movie.get("tmdbId"),
+        "poster_url": next(
+            (
+                img.get("remoteUrl") or img.get("url")
+                for img in movie.get("images", [])
+                if img.get("coverType") == "poster"
+            ),
+            None,
+        ),
     }
 
 
@@ -357,8 +370,9 @@ async def get_queue(radarr_url: str, api_key: str) -> list[dict]:
         return []
     out = []
     for r in records:
-        title = (r.get("movie") or {}).get("title") or r.get("title") or "?"
-        out.append(_normalize_queue_record(r, title))
+        movie = r.get("movie") or {}
+        title = movie.get("title") or r.get("title") or "?"
+        out.append(_normalize_queue_record(r, title, movie=movie))
     return out
 
 

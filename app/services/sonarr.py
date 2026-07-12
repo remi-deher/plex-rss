@@ -482,11 +482,13 @@ async def get_season_aired_episode_counts(sonarr_url: str, api_key: str, series_
     return counts
 
 
-def _normalize_queue_record(r: dict, title: str) -> dict:
+def _normalize_queue_record(r: dict, title: str, *, series: dict | None = None, episode: dict | None = None) -> dict:
     """Réduit un enregistrement de file d'attente Sonarr à un format compact pour l'UI."""
     size = r.get("size") or 0
     sizeleft = r.get("sizeleft") or 0
     progress = round((size - sizeleft) / size * 100, 1) if size else 0
+    series = series or {}
+    episode = episode or {}
     return {
         "queue_id": r.get("id"),
         "arr_media_id": r.get("seriesId"),
@@ -502,6 +504,21 @@ def _normalize_queue_record(r: dict, title: str) -> dict:
         "indexer": r.get("indexer"),
         "protocol": r.get("protocol"),
         "error": r.get("errorMessage"),
+        # Métadonnées portées par la file (déjà connues de Sonarr) — utilisées pour
+        # pré-remplir l'import manuel quand le lien vers une MediaRequest est absent.
+        "series_title": series.get("title"),
+        "year": series.get("year"),
+        "tvdb_id": series.get("tvdbId"),
+        "season_number": episode.get("seasonNumber"),
+        "episode_number": episode.get("episodeNumber"),
+        "poster_url": next(
+            (
+                img.get("remoteUrl") or img.get("url")
+                for img in series.get("images", [])
+                if img.get("coverType") == "poster"
+            ),
+            None,
+        ),
     }
 
 
@@ -522,14 +539,15 @@ async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
         return []
     out = []
     for r in records:
-        series = (r.get("series") or {}).get("title")
+        series_obj = r.get("series") or {}
+        series = series_obj.get("title")
         ep = r.get("episode") or {}
         sn, en = ep.get("seasonNumber"), ep.get("episodeNumber")
         if series and sn is not None and en is not None:
             title = f"{series} — S{sn:02d}E{en:02d}"
         else:
             title = series or r.get("title") or "?"
-        out.append(_normalize_queue_record(r, title))
+        out.append(_normalize_queue_record(r, title, series=series_obj, episode=ep))
     return out
 
 

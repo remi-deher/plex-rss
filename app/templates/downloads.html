@@ -42,6 +42,55 @@
   <div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm text-info"></span></div>
 </div>
 
+<!-- Modale : import manuel (associer un téléchargement non reconnu à un film/série) -->
+<div class="modal fade" id="manualImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--pr-surface);border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-link-45deg me-2"></i>Associer ce téléchargement</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small" id="mi-detected-hint"></p>
+        <div class="row g-2 mb-2">
+          <div class="col-8">
+            <label class="form-label small mb-1">Titre</label>
+            <input type="text" class="form-control form-control-sm" id="mi-title">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-1">Année</label>
+            <input type="number" class="form-control form-control-sm" id="mi-year">
+          </div>
+        </div>
+        <div class="row g-2 mb-3" id="mi-episode-row" style="display:none">
+          <div class="col-6">
+            <label class="form-label small mb-1">Saison</label>
+            <input type="number" min="0" class="form-control form-control-sm" id="mi-season" disabled>
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-1">Épisode</label>
+            <input type="number" min="0" class="form-control form-control-sm" id="mi-episode" disabled>
+          </div>
+        </div>
+        <div class="form-text mb-2" id="mi-episode-hint" style="display:none">
+          Saison/épisode indicatifs (déjà connus de l'instance *arr) — le suivi VF par épisode se
+          fera automatiquement une fois le fichier importé, pas besoin de les modifier ici.
+        </div>
+        <hr class="border-secondary">
+        <div class="input-group input-group-sm mb-2">
+          <input type="text" class="form-control" id="mi-search-input" placeholder="Le titre détecté est faux ? Rechercher..." onkeydown="if(event.key==='Enter'){event.preventDefault();miSearch();}">
+          <button class="btn btn-outline-secondary" type="button" onclick="miSearch()"><i class="bi bi-search"></i></button>
+        </div>
+        <div id="mi-search-results" class="d-flex flex-column gap-1" style="max-height:220px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-warning" id="mi-submit-btn" onclick="submitManualImport()">Associer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -106,6 +155,7 @@ function notifyNewErrors(items){
 }
 
 let _allItems = [];
+let _recIndex = {}; // itemKey -> rec, pour retrouver les métadonnées lors de l'import manuel
 
 function renderSummary(items){
   const counts = { error: 0, downloading: 0, queued: 0, paused: 0 };
@@ -161,10 +211,16 @@ function renderRow(rec){
   const speed = computeSpeed(rec);
   const speedHtml = speed ? `<div class="text-info" style="font-size:11px">${fmtSpeed(speed)}</div>` : '';
   const canAct = rec.instance_id != null && rec.queue_id != null;
-  const actions = canAct ? `
+  const unmatched = rec.request_id == null && rec.library_id == null && (rec.arr_type === 'sonarr' || rec.arr_type === 'radarr');
+  if (unmatched) _recIndex[itemKey(rec)] = rec;
+  const linkBtn = unmatched
+    ? `<button class="btn btn-sm btn-outline-info py-0 px-1" title="Associer manuellement à un film/série" onclick="openManualImport('${itemKey(rec).replace(/'/g, "\\'")}')"><i class="bi bi-link-45deg"></i></button>`
+    : '';
+  const actions = (canAct || unmatched) ? `
     <div class="d-flex gap-1">
-      <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Blocklister et relancer une recherche" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, true, true, this)"><i class="bi bi-arrow-repeat"></i></button>
-      <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Retirer de la file" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, false, false, this)"><i class="bi bi-x-lg"></i></button>
+      ${linkBtn}
+      ${canAct ? `<button class="btn btn-sm btn-outline-warning py-0 px-1" title="Blocklister et relancer une recherche" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, true, true, this)"><i class="bi bi-arrow-repeat"></i></button>` : ''}
+      ${canAct ? `<button class="btn btn-sm btn-outline-danger py-0 px-1" title="Retirer de la file" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, false, false, this)"><i class="bi bi-x-lg"></i></button>` : ''}
     </div>` : '';
   return `<tr>
     <td style="min-width:240px">
@@ -324,5 +380,111 @@ loadQueue();
 loadHistory();
 setInterval(loadQueue, 5000);
 setInterval(loadHistory, 30000);
+
+// ── Import manuel : associer un téléchargement non reconnu à un film/série ──────
+let _miCurrent = null; // { instance_id, media_type, arr_id, tmdb_id, tvdb_id, poster_url }
+let _miResults = [];
+
+function openManualImport(key){
+  const rec = _recIndex[key];
+  if (!rec) return;
+  const mediaType = rec.arr_type === 'sonarr' ? 'show' : 'movie';
+  _miCurrent = {
+    instance_id: rec.instance_id,
+    media_type: mediaType,
+    arr_id: rec.arr_media_id,
+    tmdb_id: rec.tmdb_id || null,
+    tvdb_id: rec.tvdb_id || null,
+    poster_url: rec.poster_url || null,
+  };
+  document.getElementById('mi-title').value = rec.series_title || rec.title || '';
+  document.getElementById('mi-year').value = rec.year || '';
+  const epRow = document.getElementById('mi-episode-row');
+  const epHint = document.getElementById('mi-episode-hint');
+  if (mediaType === 'show') {
+    epRow.style.display = 'flex';
+    epHint.style.display = 'block';
+    document.getElementById('mi-season').value = rec.season_number ?? '';
+    document.getElementById('mi-episode').value = rec.episode_number ?? '';
+  } else {
+    epRow.style.display = 'none';
+    epHint.style.display = 'none';
+  }
+  document.getElementById('mi-detected-hint').textContent = _miCurrent.arr_id
+    ? `Non lié à une demande dans Plexarr, mais déjà connu de ${rec.instance || 'l\'instance *arr'} — vérifie le titre ci-dessous avant de valider.`
+    : `Aucune correspondance trouvée par ${rec.instance || 'l\'instance *arr'}.`;
+  document.getElementById('mi-search-results').innerHTML = '';
+  document.getElementById('mi-search-input').value = '';
+  _miResults = [];
+  new bootstrap.Modal(document.getElementById('manualImportModal')).show();
+}
+
+async function miSearch(){
+  const q = document.getElementById('mi-search-input').value.trim();
+  if (!q || !_miCurrent) return;
+  const container = document.getElementById('mi-search-results');
+  container.innerHTML = '<div class="text-muted small">Recherche...</div>';
+  try {
+    const results = await fetch(`/api/media/lookup?query=${encodeURIComponent(q)}&type=${_miCurrent.media_type}`).then(r => r.json());
+    _miResults = results;
+    if (!results.length) { container.innerHTML = '<div class="text-muted small">Aucun résultat.</div>'; return; }
+    container.innerHTML = results.map((r, i) => `
+      <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 text-start" onclick="miPick(${i})">
+        ${r.poster ? `<img src="${escHtml(r.poster)}" style="width:24px;height:36px;object-fit:cover;border-radius:2px" alt="">` : ''}
+        <span>${escHtml(r.title)}${r.year ? ` (${r.year})` : ''}</span>
+      </button>`).join('');
+  } catch(e) {
+    container.innerHTML = '<div class="text-danger small">Erreur de recherche.</div>';
+  }
+}
+
+function miPick(i){
+  const r = _miResults[i];
+  if (!r || !_miCurrent) return;
+  document.getElementById('mi-title').value = r.title;
+  document.getElementById('mi-year').value = r.year || '';
+  // arr_id n'est PAS écrasé : c'est l'identifiant *arr du téléchargement en cours
+  // (fiable par construction), pas celui — possiblement absent — du résultat de recherche.
+  _miCurrent.tmdb_id = r.tmdb_id || null;
+  _miCurrent.tvdb_id = r.tvdb_id || null;
+  _miCurrent.poster_url = r.poster || _miCurrent.poster_url;
+  showToast('Titre sélectionné : ' + r.title, 'success');
+}
+
+async function submitManualImport(){
+  if (!_miCurrent) return;
+  const btn = document.getElementById('mi-submit-btn');
+  const body = {
+    instance_id: _miCurrent.instance_id,
+    media_type: _miCurrent.media_type,
+    title: document.getElementById('mi-title').value.trim(),
+    arr_id: _miCurrent.arr_id,
+    year: document.getElementById('mi-year').value ? parseInt(document.getElementById('mi-year').value, 10) : null,
+    tmdb_id: _miCurrent.tmdb_id,
+    tvdb_id: _miCurrent.tvdb_id,
+    poster_url: _miCurrent.poster_url,
+  };
+  if (!body.title || !body.arr_id) {
+    showToast('Titre et identifiant *arr requis.', 'danger');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/downloads/manual-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(d.status === 'created' ? 'Demande créée et associée.' : 'Téléchargement associé à la demande existante.', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('manualImportModal'))?.hide();
+    loadQueue();
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+  }
+}
 </script>
 {% endblock %}
