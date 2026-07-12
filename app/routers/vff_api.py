@@ -3,9 +3,11 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
 from ..models import LibraryItem, MediaRequest, RequestStatus, Settings
 from ..scheduler import (
@@ -24,7 +26,7 @@ from ..serializers import format_datetime
 from ..services import vff as vff_svc
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
-from ..utils import get_or_404, now_utc_naive
+from ..utils import async_get_or_404, now_utc_naive
 from .arr_api import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
@@ -50,9 +52,9 @@ def _arr_image_url(images: list[dict] | None, *cover_types: str) -> str | None:
     return None
 
 
-async def _vf_detail_payload(db: Session, req):
+async def _vf_detail_payload(db: AsyncSession, req):
     """Détail VF (modale) : pistes audio (film) ou statut par saison/épisode (série)."""
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:
         return {"enabled": False}
 
@@ -65,7 +67,7 @@ async def _vf_detail_payload(db: Session, req):
     if req.media_type == "movie":
         release_date = None
         try:
-            radarr_inst = _resolve_arr_instance(db, req.arr_instance_id, "radarr")
+            radarr_inst = await _resolve_arr_instance(db, req.arr_instance_id, "radarr")
             movie_data = await lookup_movie(
                 radarr_inst.url, radarr_inst.api_key, arr_id=req.arr_id, tmdb_id=req.tmdb_id, imdb_id=req.imdb_id
             )
@@ -91,7 +93,7 @@ async def _vf_detail_payload(db: Session, req):
         )
         return {"enabled": True, "media_type": "movie", "vf_available": True, "release_date": release_date, **res}
 
-    known_vf = _load_known_vf_episodes(db, source_type, [req.id]).get(req.id, {})
+    known_vf = await _load_known_vf_episodes(db, source_type, [req.id]).get(req.id, {})
     plex_task = (
         asyncio.to_thread(
             vff_svc.get_show_episode_vf_blocking,
@@ -115,7 +117,7 @@ async def _vf_detail_payload(db: Session, req):
     series_poster_url = getattr(req, "poster_url", None)
     season_posters: dict[int, str] = {}
     try:
-        inst = _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
+        inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
         series_id = None
         data = None
         if req.tvdb_id:
@@ -142,8 +144,8 @@ async def _vf_detail_payload(db: Session, req):
     plex_eps = plex_res.get("episodes", {}) if plex_res.get("found") else {}
     plex_fr_default = plex_res.get("french_default", {}) if plex_res.get("found") else {}
     if plex_eps:
-        _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive(), plex_fr_default)
-        db.commit()
+        await _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive(), plex_fr_default)
+        await db.commit()
 
     def _status(in_plex, has_file, fr_is_default=None):
         if vf_detected:
@@ -225,7 +227,7 @@ async def _vf_detail_payload(db: Session, req):
 
 
 @router.get("/vff/counts")
-def vff_counts(db: Session = Depends(get_db)):
+async def vff_counts(db: AsyncSession = Depends(get_db_async)):
     """Compteurs VFF sur la bibliothèque."""
     base = db.query(LibraryItem)
     vo_pending = base.filter(LibraryItem.has_vf.is_(False)).count()
@@ -235,7 +237,7 @@ def vff_counts(db: Session = Depends(get_db)):
 
 
 @router.post("/vff/scan", dependencies=[Depends(require_admin)])
-async def vff_scan_all(force: bool = False, db: Session = Depends(get_db)):
+async def vff_scan_all(force: bool = False, db: AsyncSession = Depends(get_db_async)):
     """Déclenche immédiatement le scan global VFF en arrière-plan.
 
     `force` : vide le cache par épisode avant de lancer le scan, pour re-vérifier aussi
@@ -244,8 +246,8 @@ async def vff_scan_all(force: bool = False, db: Session = Depends(get_db)):
     from ..scheduler import trigger_vff_scan_background
 
     if force:
-        _invalidate_vf_cache(db)
-        db.commit()
+        await _invalidate_vf_cache(db)
+        await db.commit()
 
     trigger_vff_scan_background(force=force)
     return {"status": "started"}
@@ -282,8 +284,8 @@ async def vff_scan_single_request(
     db: Session = Depends(get_db),
 ):
     """Déclenche immédiatement une analyse VFF pour une demande spécifique."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
-    settings = db.query(Settings).first()
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:
         raise HTTPException(400, "Settings not initialized")
     if not settings.vff_enabled:
@@ -292,8 +294,8 @@ async def vff_scan_single_request(
         raise HTTPException(400, "Plex is not configured")
 
     if force:
-        _invalidate_vf_cache(db, "request", req.id, season_number=season, episode_number=episode)
-        db.commit()
+        await _invalidate_vf_cache(db, "request", req.id, season_number=season, episode_number=episode)
+        await db.commit()
 
     libs = _parse_vff_libraries(settings)
     if not libs:
@@ -301,7 +303,7 @@ async def vff_scan_single_request(
 
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
-    known_vf = _load_known_vf_episodes(db, "request", [req.id]).get(req.id, {})
+    known_vf = await _load_known_vf_episodes(db, "request", [req.id]).get(req.id, {})
 
     def _scan_single_blocking():
         try:
@@ -336,7 +338,7 @@ async def vff_scan_single_request(
     req.vf_checked_at = now
     episode_status = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
+        await _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
 
     has_vf_new = res["has_vf"]
     if has_vf_new:
@@ -344,30 +346,30 @@ async def vff_scan_single_request(
         req.vf_granularity = "full"
         if was_tracking:
             req.vf_available_at = now
-            db.commit()
+            await db.commit()
             scope = "movie" if req.media_type == "movie" else "series_complete"
-            _queue_milestone(settings, req, db, scope=scope, language="vf")
+            await _queue_milestone(settings, req, db, scope=scope, language="vf")
         else:
-            db.commit()
-            _notify("available", settings, req, db)
+            await db.commit()
+            await _notify("available", settings, req, db)
     else:
         req.has_vf = False
         req.vf_granularity = vff_svc.compute_vf_granularity(episode_status)
         if not was_tracking:
             if not req.available_mail_sent:
                 req.available_mail_sent = True
-                db.commit()
+                await db.commit()
                 scope = "movie" if req.media_type == "movie" else "series_complete"
-                _queue_milestone(settings, req, db, scope=scope, language="vo")
+                await _queue_milestone(settings, req, db, scope=scope, language="vo")
             else:
-                db.commit()
+                await db.commit()
             if settings.vff_auto_search:
                 await _trigger_vf_search(db, settings, req)
         else:
-            db.commit()
+            await db.commit()
 
     if req.library_item_id:
-        li = db.query(LibraryItem).filter(LibraryItem.id == req.library_item_id).first()
+        li = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
         if li:
             prev_li_vf = li.has_vf
             li.vf_category = req.vf_category or li.vf_category
@@ -376,7 +378,7 @@ async def vff_scan_single_request(
             li.vf_granularity = req.vf_granularity
             if li.has_vf and prev_li_vf is False:
                 li.vf_available_at = now
-            db.commit()
+            await db.commit()
 
     return {
         "status": "ok",
@@ -387,25 +389,25 @@ async def vff_scan_single_request(
 
 
 @router.post("/requests/{request_id}/vff-ignore", dependencies=[Depends(require_admin)])
-async def vff_ignore_request(request_id: int, db: Session = Depends(get_db)):
+async def vff_ignore_request(request_id: int, db: AsyncSession = Depends(get_db_async)):
     """Arrête manuellement le suivi VFF pour une demande spécifique."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     req.has_vf = True
-    db.commit()
+    await db.commit()
     return {"status": "ok", "has_vf": req.has_vf}
 
 
 @router.get("/requests/{request_id}/vf-detail")
-async def request_vf_detail(request_id: int, db: Session = Depends(get_db)):
+async def request_vf_detail(request_id: int, db: AsyncSession = Depends(get_db_async)):
     """Détail VF d'une demande."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     return await _vf_detail_payload(db, req)
 
 
 @router.get("/library/{item_id}/vf-detail")
-async def library_vf_detail(item_id: int, db: Session = Depends(get_db)):
+async def library_vf_detail(item_id: int, db: AsyncSession = Depends(get_db_async)):
     """Détail VF d'un élément de bibliothèque."""
-    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
     return await _vf_detail_payload(db, item)
 
 
@@ -418,23 +420,23 @@ async def library_vff_scan(
     db: Session = Depends(get_db),
 ):
     """Analyse VFF immédiate d'un élément de bibliothèque (met à jour son état VF)."""
-    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
-    settings = db.query(Settings).first()
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
     if not settings or not settings.vff_enabled:
         raise HTTPException(400, "VFF tracking is disabled")
     if not settings.plex_url or not settings.plex_token:
         raise HTTPException(400, "Plex is not configured")
 
     if force:
-        _invalidate_vf_cache(db, "library_item", item.id, season_number=season, episode_number=episode)
-        db.commit()
+        await _invalidate_vf_cache(db, "library_item", item.id, season_number=season, episode_number=episode)
+        await db.commit()
 
     libs = _parse_vff_libraries(settings)
     if not libs:
         raise HTTPException(400, "No Plex libraries configured for VFF")
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
-    known_vf = _load_known_vf_episodes(db, "library_item", [item.id]).get(item.id, {})
+    known_vf = await _load_known_vf_episodes(db, "library_item", [item.id]).get(item.id, {})
 
     def _blocking():
         try:
@@ -473,16 +475,16 @@ async def library_vff_scan(
     item.updated_at = now
     episode_status = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "library_item", item.id, episode_status, now, res.get("french_default"))
-    db.commit()
+        await _persist_episode_status(db, "library_item", item.id, episode_status, now, res.get("french_default"))
+    await db.commit()
     return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
 
 
 @router.post("/library/{item_id}/vff-ignore", dependencies=[Depends(require_admin)])
-async def library_vff_ignore(item_id: int, db: Session = Depends(get_db)):
+async def library_vff_ignore(item_id: int, db: AsyncSession = Depends(get_db_async)):
     """Arrête le suivi VFF d'un élément de bibliothèque (force has_vf = True)."""
-    item = get_or_404(db, LibraryItem, item_id, "Library item not found")
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
     item.has_vf = True
     item.updated_at = now_utc_naive()
-    db.commit()
+    await db.commit()
     return {"status": "ok", "has_vf": item.has_vf}
