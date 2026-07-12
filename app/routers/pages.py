@@ -12,9 +12,11 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..models import ArrInstance, LibraryItem, MediaRequest, NotificationLog, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
@@ -76,13 +78,13 @@ def require_admin(request: Request):
         raise RedirectException("/discover")
 
 
-def build_users_map(db: Session) -> dict:
+async def build_users_map(db: AsyncSession) -> dict:
     """Retourne {plex_user_id: nom lisible} pour tous les utilisateurs connus.
 
     Utilisé pour résoudre les IDs hex en noms lisibles dans les templates.
     Priorité : nom d'usage (custom_name) → display_name → plex_user_id.
     """
-    return {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    return {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
 
 
 def _status_value(req: MediaRequest) -> str:
@@ -127,20 +129,14 @@ def _request_summary(req: MediaRequest, users_map: dict[str, str]) -> dict:
 
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def dashboard(request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Page principale : stats globales + 10 demandes récentes + graphique timeline (JS).
 
     Réservée aux admins ; un utilisateur 'user' est redirigé vers /discover."""
-    settings = db.query(Settings).first()
-    recent = db.query(MediaRequest).order_by(MediaRequest.requested_at.desc()).limit(10).all()
-    pending_approval = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.status == RequestStatus.pending_approval)
-        .order_by(MediaRequest.requested_at.desc())
-        .limit(10)
-        .all()
-    )
-    all_requests = db.query(MediaRequest).all()
+    settings = (await db.execute(select(Settings))).scalars().first()
+    recent = (await db.execute(select(MediaRequest).order_by(MediaRequest.requested_at.desc()).limit(10))).scalars().all()
+    pending_approval = (await db.execute(select(MediaRequest).filter(MediaRequest.status == RequestStatus.pending_approval).order_by(MediaRequest.requested_at.desc()).limit(10))).scalars().all()
+    all_requests = (await db.execute(select(MediaRequest))).scalars().all()
     stats = {
         "total": len(all_requests),
         "sent": sum(1 for r in all_requests if r.status == RequestStatus.sent_to_arr),
@@ -155,13 +151,13 @@ def dashboard(request: Request, _: None = Depends(require_admin), db: Session = 
             "recent_requests": recent,
             "pending_approval": pending_approval,
             "stats": stats,
-            "users_map": build_users_map(db),
+            "users_map": await build_users_map(db),
         },
     )
 
 
 @router.get("/requests", response_class=HTMLResponse)
-def requests_page(
+async def requests_page(
     request: Request,
     user: str = None,
     search: str = None,
@@ -174,7 +170,7 @@ def requests_page(
     sort: str = "date",
     order: str = "desc",
     _: None = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Page des demandes avec tri, recherche et pagination côté serveur."""
     from urllib.parse import urlencode
@@ -202,7 +198,7 @@ def requests_page(
 
 
 @router.get("/library", response_class=HTMLResponse)
-def library_page(
+async def library_page(
     request: Request,
     type: str = None,
     vf: str = None,
@@ -216,7 +212,7 @@ def library_page(
     sort: str = "date",
     order: str = "desc",
     _: None = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Bibliothèque : union des médias présents dans Plex (library_items) et des
     demandes non encore en bibliothèque, avec état VF/VFF. Films et Séries sont
@@ -232,31 +228,31 @@ def library_page(
     # pour un login mot de passe : repli sur l'enregistrement PlexUser via user_id).
     current_uid = request.session.get("plex_user_id")
     if not current_uid and request.session.get("user_id"):
-        _u = db.query(PlexUser).filter(PlexUser.id == request.session["user_id"]).first()
+        _u = (await db.execute(select(PlexUser).filter(PlexUser.id == request.session["user_id"]))).scalars().first()
         current_uid = _u.plex_user_id if _u else None
     # « Mes demandes » : un non-admin ne voit que les siennes (on ignore un ?user= forgé).
     if not is_admin and view == "requests":
         user = current_uid
 
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
 
     # Séparation complète Films / Séries : hors recherche globale, un type est
     # toujours actif (Films par défaut).
     if type not in ("movie", "show") and view != "requests":
         type = "movie"
 
-    lib_q = db.query(LibraryItem)
-    req_q = db.query(MediaRequest)
+    lib_q = select(LibraryItem)
+    req_q = select(MediaRequest)
     if type in ("movie", "show"):
         lib_q = lib_q.filter(LibraryItem.media_type == type)
         req_q = req_q.filter(MediaRequest.media_type == type)
 
-    users_map = build_users_map(db)
+    users_map = await build_users_map(db)
     index: dict = {}
     by_library_id: dict[int, dict] = {}
     items: list = []
 
-    for li in lib_q.all():
+    for li in (await db.execute(lib_q)).scalars().all():
         vm = {
             "kind": "library",
             "ref_id": li.id,
@@ -283,7 +279,7 @@ def library_page(
         for k in _identity_keys(li):
             index.setdefault(k, vm)
 
-    request_rows = req_q.all()
+    request_rows = (await db.execute(req_q)).scalars().all()
     for r in request_rows:
         matched = by_library_id.get(r.library_item_id) if r.library_item_id else None
         if not matched:
@@ -360,14 +356,14 @@ def library_page(
     if library_ids:
         vf_secondary_library_ids = {
             source_id
-            for (source_id,) in db.query(VfEpisodeStatus.source_id)
+            for source_id in select(VfEpisodeStatus.source_id)
             .filter(
                 VfEpisodeStatus.source_type == "library_item",
                 VfEpisodeStatus.source_id.in_(library_ids),
                 VfEpisodeStatus.has_vf.is_(True),
                 VfEpisodeStatus.fr_is_default.is_(False),
             )
-            .distinct()
+            
         }
 
     counts = {
@@ -445,7 +441,7 @@ def library_page(
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = max(1, min(page, total_pages))
     page_items = items[(page - 1) * per_page : page * per_page]
-    distinct_sources = [r[0] for r in db.query(MediaRequest.source).distinct().all() if r[0]]
+    distinct_sources = [r[0] for r in (await db.execute(select(MediaRequest.source))).scalars().all() if r[0]]
 
     return templates.TemplateResponse(
         request,
@@ -466,8 +462,8 @@ def library_page(
             "counts": counts,
             "status_counts": status_counts,
             "users_map": users_map,
-            "users_obj_map": {u.plex_user_id: u for u in db.query(PlexUser).all()},
-            "all_users": db.query(PlexUser).order_by(PlexUser.display_name).all(),
+            "users_obj_map": {u.plex_user_id: u for u in (await db.execute(select(PlexUser))).scalars().all()},
+            "all_users": (await db.execute(select(PlexUser).order_by(PlexUser.display_name))).scalars().all(),
             "sources": distinct_sources,
             "vff_enabled": bool(settings and settings.vff_enabled),
             "sonarr_url": (settings.sonarr_url or "").rstrip("/") if settings else "",
@@ -484,13 +480,13 @@ def library_page(
 
 
 @router.get("/users", response_class=HTMLResponse)
-def users_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def users_page(request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Page des utilisateurs avec compteurs de demandes par statut."""
-    users = db.query(PlexUser).all()
+    users = (await db.execute(select(PlexUser))).scalars().all()
 
     # Calcul en Python pour éviter plusieurs sous-requêtes SQL
     counts_map: dict[str, dict] = {}
-    for r in db.query(MediaRequest.plex_user_id, MediaRequest.status, MediaRequest.requested_at).all():
+    for r in (await db.execute(select(MediaRequest.plex_user_id, MediaRequest.status, MediaRequest.requested_at))).scalars().all():
         uid = r.plex_user_id
         if uid not in counts_map:
             counts_map[uid] = {"total": 0, "available": 0, "failed": 0, "sent": 0, "last_requested_at": None}
@@ -506,7 +502,7 @@ def users_page(request: Request, _: None = Depends(require_admin), db: Session =
         ):
             counts_map[uid]["last_requested_at"] = r.requested_at
 
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     seer_enabled = bool(settings and settings.seer_url and settings.seer_api_key)
     user_summary = {
         "total": len(users),
@@ -516,7 +512,7 @@ def users_page(request: Request, _: None = Depends(require_admin), db: Session =
         "seer_only": sum(1 for u in users if u.source == "seer"),
     }
 
-    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
     sonarr_instances = [i for i in instances if i.arr_type == "sonarr"]
     radarr_instances = [i for i in instances if i.arr_type == "radarr"]
 
@@ -536,18 +532,13 @@ def users_page(request: Request, _: None = Depends(require_admin), db: Session =
 
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)
-def user_detail_page(user_id: int, request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def user_detail_page(user_id: int, request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Page de détail d'un utilisateur : stats et historique complet de ses demandes."""
-    user = db.get(PlexUser, user_id)
+    user = await db.get(PlexUser, user_id)
     if not user:
         return RedirectResponse("/users", status_code=302)
 
-    user_requests = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.plex_user_id == user.plex_user_id)
-        .order_by(MediaRequest.requested_at.desc())
-        .all()
-    )
+    user_requests = (await db.execute(select(MediaRequest).filter(MediaRequest.plex_user_id == user.plex_user_id).order_by(MediaRequest.requested_at.desc()))).scalars().all()
     stats = {
         "total": len(user_requests),
         "available": sum(1 for r in user_requests if r.status == RequestStatus.available),
@@ -579,9 +570,9 @@ def calendar_page(request: Request, _: None = Depends(require_auth)):
 
 
 @router.get("/discover", response_class=HTMLResponse)
-def discover_page(request: Request, _: None = Depends(require_auth), db: Session = Depends(get_db)):
+async def discover_page(request: Request, _: None = Depends(require_auth), db: AsyncSession = Depends(get_db_async)):
     """Page Découvrir : catalogue TMDB (tendances, populaires, genres, recherche)."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     return templates.TemplateResponse(
         request,
         "discover.html",
@@ -600,7 +591,7 @@ def logs_page(request: Request, _: None = Depends(require_admin)):
 
 
 @router.get("/setup/wizard", response_class=HTMLResponse)
-def setup_wizard_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def setup_wizard_page(request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Assistant de configuration rapide, adaptatif et rejouable.
 
     Accessible aux admins à tout moment (bouton dans /settings) et affiché
@@ -613,9 +604,9 @@ def setup_wizard_page(request: Request, _: None = Depends(require_admin), db: Se
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def settings_page(request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Page de configuration globale de l'application."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     base_url = str(request.base_url).rstrip("/")
     return templates.TemplateResponse(
         request,
@@ -629,10 +620,10 @@ def settings_page(request: Request, _: None = Depends(require_admin), db: Sessio
 
 
 @router.get("/templates", response_class=HTMLResponse)
-def templates_page(request: Request, _: None = Depends(require_admin), db: Session = Depends(get_db)):
+async def templates_page(request: Request, _: None = Depends(require_admin), db: AsyncSession = Depends(get_db_async)):
     """Page de configuration des modèles d'emails (Markdown)."""
-    s = db.query(Settings).first()
-    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
+    s = (await db.execute(select(Settings))).scalars().first()
+    users = (await db.execute(select(PlexUser).order_by(PlexUser.display_name))).scalars().all()
     shared = get_shared_email_parts(s)
 
     tab_defs = [
@@ -706,16 +697,16 @@ def templates_page(request: Request, _: None = Depends(require_admin), db: Sessi
 
 
 @router.get("/profile", response_class=HTMLResponse)
-def profile_page(request: Request, db: Session = Depends(get_db)):
+async def profile_page(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Affiche la page de profil et de sécurité de l'utilisateur connecté."""
     require_auth(request)
     username = request.session.get("username")
     plex_user_id = request.session.get("plex_user_id")
 
     if plex_user_id:
-        user = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == plex_user_id))).scalars().first()
     else:
-        user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == username))).scalars().first()
 
     if not user:
         return RedirectResponse("/login", status_code=302)
@@ -724,7 +715,7 @@ def profile_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/notifications", response_class=HTMLResponse)
-def notifications_page(request: Request, tab: str = "mes_notifications", db: Session = Depends(get_db)):
+async def notifications_page(request: Request, tab: str = "mes_notifications", db: AsyncSession = Depends(get_db_async)):
     """Affiche la page des notifications avec séparation perso / autres utilisateurs."""
     require_auth(request)
     is_admin = _is_admin_session(request)
@@ -733,9 +724,9 @@ def notifications_page(request: Request, tab: str = "mes_notifications", db: Ses
     current_uid = request.session.get("plex_user_id")
     current_user = None
     if current_uid:
-        current_user = db.query(PlexUser).filter(PlexUser.plex_user_id == current_uid).first()
+        current_user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == current_uid))).scalars().first()
     if not current_user and request.session.get("user_id"):
-        current_user = db.query(PlexUser).filter(PlexUser.id == request.session["user_id"]).first()
+        current_user = (await db.execute(select(PlexUser).filter(PlexUser.id == request.session["user_id"]))).scalars().first()
 
     my_emails = []
     if current_user:
@@ -751,13 +742,13 @@ def notifications_page(request: Request, tab: str = "mes_notifications", db: Ses
     if tab == "autres_utilisateurs" and is_admin:
         # Logs de tout le monde sauf l'utilisateur courant
         if my_emails:
-            logs = db.query(NotificationLog).filter(NotificationLog.recipient.notin_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+            logs = (await db.execute(select(NotificationLog).filter(NotificationLog.recipient.notin_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200))).scalars().all()
         else:
-            logs = db.query(NotificationLog).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+            logs = (await db.execute(select(NotificationLog).order_by(NotificationLog.sent_at.desc()).limit(200))).scalars().all()
     else:
         # Mes logs uniquement
         if my_emails:
-            logs = db.query(NotificationLog).filter(NotificationLog.recipient.in_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200).all()
+            logs = (await db.execute(select(NotificationLog).filter(NotificationLog.recipient.in_(my_emails)).order_by(NotificationLog.sent_at.desc()).limit(200))).scalars().all()
         else:
             logs = []
 
