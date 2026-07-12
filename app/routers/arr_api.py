@@ -704,6 +704,10 @@ async def sonarr_manual_import(body: SonarrManualImportBody, db: Session = Depen
     )
     if not ok:
         raise HTTPException(400, msg)
+    # L'import Sonarr est asynchrone (commande en file) : invalide le cache de la file
+    # pour que le prochain GET /arr/queue reflète l'état réel plutôt qu'une version
+    # jusqu'à 60s périmée montrant encore l'item en erreur.
+    _queue_cache["data"] = None
     return {"status": "ok", "message": msg}
 
 
