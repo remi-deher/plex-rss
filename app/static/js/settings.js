@@ -49,12 +49,23 @@ function refreshConnHub() {
   _setHub('plex', plexOk ? 'ok' : 'off', plexOk ? 'Configuré' : 'Non configuré', plexOk);
   const seerOk = !!(val('seer_url') && val('seer_api_key'));
   _setHub('seer', seerOk ? 'ok' : 'opt', seerOk ? 'Configuré' : 'Optionnel · non configuré', seerOk);
+  const seerSwitch = document.getElementById('hub-switch-seer');
+  if (seerSwitch) {
+    seerSwitch.checked = !!document.getElementById('seer_send_requests')?.checked;
+    seerSwitch.disabled = !seerOk;
+  }
   const insts = _arrInstances || [];
   ['sonarr', 'radarr', 'prowlarr'].forEach(t => {
-    const n = insts.filter(i => i.arr_type === t).length;
+    const typeInsts = insts.filter(i => i.arr_type === t);
+    const n = typeInsts.length;
     const optional = t === 'prowlarr';
     const label = n ? `${n} instance${n > 1 ? 's' : ''}` : (optional ? 'Optionnel · non configuré' : 'Non configuré');
     _setHub(t, n ? 'ok' : (optional ? 'opt' : 'off'), label, n > 0);
+    const sw = document.getElementById('hub-switch-' + t);
+    if (sw) {
+      sw.checked = typeInsts.some(i => i.enabled);
+      sw.disabled = n === 0;
+    }
   });
   const nc = (_downloadClients || []).length;
   _setHub('torrent', nc ? 'ok' : 'off', nc ? `${nc} client${nc > 1 ? 's' : ''}` : 'Non configuré', nc > 0);
@@ -1162,9 +1173,10 @@ async function loadArrInstances() {
         ? '<span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Défaut</span>'
         : '<span class="text-muted">—</span>';
         
-      const statusBadge = inst.enabled
-        ? '<span class="badge bg-success">Actif</span>'
-        : '<span class="badge bg-secondary">Désactivé</span>';
+      const statusBadge = `
+        <div class="form-check form-switch mb-0 d-inline-block" title="${inst.enabled ? 'Désactiver' : 'Activer'} cette instance">
+          <input class="form-check-input" type="checkbox" role="switch" ${inst.enabled ? 'checked' : ''} onchange="toggleArrInstance(${inst.id})">
+        </div>`;
       const rootFolder = (inst.arr_type === 'sonarr' || inst.arr_type === 'radarr') && inst.root_folder
         ? `<code class="small text-muted">${_esc(inst.root_folder)}</code>${inst.is_default ? ' <span class="badge bg-secondary ms-1">Dossier par défaut</span>' : ''}`
         : '<span class="text-muted">—</span>';
@@ -1187,6 +1199,50 @@ async function loadArrInstances() {
     tbody.innerHTML = `<tr><td colspan="7" class="text-danger py-3">Erreur lors du chargement : ${e.message}</td></tr>`;
   }
   try { refreshConnHub(); } catch (e) {}
+}
+
+async function toggleArrInstance(id) {
+  try {
+    await fetch(`/api/arr-instances/${id}/toggle`, { method: 'PATCH' });
+    await loadArrInstances();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+    await loadArrInstances();
+  }
+}
+
+async function toggleArrTypeHub(arrType, event) {
+  event?.stopPropagation();
+  try {
+    const r = await fetch(`/api/arr-instances/by-type/${arrType}/toggle`, { method: 'PATCH' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast(`${arrType} ${d.enabled ? 'activé' : 'désactivé'} (${d.count} instance${d.count > 1 ? 's' : ''}).`, 'success');
+    await loadArrInstances();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
+}
+
+async function toggleSeerHub(event) {
+  event?.stopPropagation();
+  const checkbox = document.getElementById('seer_send_requests');
+  if (!checkbox) return;
+  const next = !checkbox.checked;
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seer_send_requests: next }),
+    });
+    if (!r.ok) throw new Error('Erreur');
+    checkbox.checked = next;
+    updateSeerMode();
+    showToast(`Seer ${next ? 'activé' : 'désactivé'}.`, 'success');
+    document.getElementById('hub-switch-seer').checked = next;
+  } catch (e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  }
 }
 
 function openArrInstanceModal() {

@@ -226,6 +226,27 @@ def delete_arr_instance(instance_id: int, db: Session = Depends(get_db)):
     return {"status": "deleted"}
 
 
+@router.patch("/arr-instances/{instance_id}/toggle")
+def toggle_arr_instance(instance_id: int, db: Session = Depends(get_db)):
+    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    inst.enabled = not inst.enabled
+    db.commit()
+    return {"id": inst.id, "enabled": inst.enabled}
+
+
+@router.patch("/arr-instances/by-type/{arr_type}/toggle")
+def toggle_arr_instances_by_type(arr_type: str, db: Session = Depends(get_db)):
+    """Active/désactive en un clic toutes les instances d'un type (carte de la vue Connexions)."""
+    instances = db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type).all()
+    if not instances:
+        raise HTTPException(404, f"Aucune instance {arr_type} configurée")
+    new_state = not any(i.enabled for i in instances)
+    for inst in instances:
+        inst.enabled = new_state
+    db.commit()
+    return {"arr_type": arr_type, "enabled": new_state, "count": len(instances)}
+
+
 @router.post("/test/arr-instance")
 async def test_arr_instance(body: TestArrInstanceBody):
     if body.arr_type == "prowlarr":

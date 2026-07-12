@@ -56,7 +56,12 @@
       <button type="button" class="conn-card" data-bs-toggle="modal" data-bs-target="#modal-seer">
         <span class="conn-card-ico"><i class="bi bi-send"></i></span>
         <span class="conn-card-body">
-          <span class="conn-card-name">Seer <span class="tag-opt">Optionnel</span></span>
+          <span class="conn-card-name">
+            Seer <span class="tag-opt">Optionnel</span>
+            <span class="form-check form-switch mb-0 ms-auto" onclick="event.stopPropagation()" title="Activer/désactiver l'envoi des demandes via Seer">
+              <input class="form-check-input" type="checkbox" role="switch" id="hub-switch-seer" onchange="toggleSeerHub(event)" onclick="event.stopPropagation()">
+            </span>
+          </span>
           <span id="hub-st-seer" class="hub-pill opt">Non configuré</span>
           <span class="conn-card-desc">Overseerr / Jellyseerr comme passerelle de demandes.</span>
         </span>
@@ -74,7 +79,12 @@
         <button type="button" class="conn-card" data-bs-toggle="modal" data-bs-target="#modal-arr" onclick="prepArrAdd('sonarr')">
           <span class="conn-card-ico"><i class="bi bi-tv"></i></span>
           <span class="conn-card-body">
-            <span class="conn-card-name">Sonarr</span>
+            <span class="conn-card-name">
+              Sonarr
+              <span class="form-check form-switch mb-0 ms-auto" onclick="event.stopPropagation()" title="Activer/désactiver toutes les instances Sonarr">
+                <input class="form-check-input" type="checkbox" role="switch" id="hub-switch-sonarr" onchange="toggleArrTypeHub('sonarr', event)" onclick="event.stopPropagation()">
+              </span>
+            </span>
             <span id="hub-st-sonarr" class="hub-pill off">Non configuré</span>
             <span class="conn-card-desc">Séries — profil qualité et dossier racine.</span>
           </span>
@@ -83,7 +93,12 @@
         <button type="button" class="conn-card" data-bs-toggle="modal" data-bs-target="#modal-arr" onclick="prepArrAdd('radarr')">
           <span class="conn-card-ico"><i class="bi bi-film"></i></span>
           <span class="conn-card-body">
-            <span class="conn-card-name">Radarr</span>
+            <span class="conn-card-name">
+              Radarr
+              <span class="form-check form-switch mb-0 ms-auto" onclick="event.stopPropagation()" title="Activer/désactiver toutes les instances Radarr">
+                <input class="form-check-input" type="checkbox" role="switch" id="hub-switch-radarr" onchange="toggleArrTypeHub('radarr', event)" onclick="event.stopPropagation()">
+              </span>
+            </span>
             <span id="hub-st-radarr" class="hub-pill off">Non configuré</span>
             <span class="conn-card-desc">Films — profil qualité et dossier racine.</span>
           </span>
@@ -92,7 +107,12 @@
         <button type="button" class="conn-card" data-bs-toggle="modal" data-bs-target="#modal-arr" onclick="prepArrAdd('prowlarr')">
           <span class="conn-card-ico"><i class="bi bi-search"></i></span>
           <span class="conn-card-body">
-            <span class="conn-card-name">Prowlarr <span class="tag-opt">Optionnel</span></span>
+            <span class="conn-card-name">
+              Prowlarr <span class="tag-opt">Optionnel</span>
+              <span class="form-check form-switch mb-0 ms-auto" onclick="event.stopPropagation()" title="Activer/désactiver toutes les instances Prowlarr">
+                <input class="form-check-input" type="checkbox" role="switch" id="hub-switch-prowlarr" onchange="toggleArrTypeHub('prowlarr', event)" onclick="event.stopPropagation()">
+              </span>
+            </span>
             <span id="hub-st-prowlarr" class="hub-pill opt">Non configuré</span>
             <span class="conn-card-desc">Indexeurs partagés pour les *arr.</span>
           </span>
