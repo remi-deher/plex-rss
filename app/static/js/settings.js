@@ -193,6 +193,35 @@ async function resendNotif(logId, btn) {
 // Chargement automatique à l'ouverture de l'onglet Notifications
 document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', () => loadNotifLog(0));
 
+// ── Deep-link par hash (/settings#tab-vff) et synchronisation du sous-menu
+// Paramètres de la sidebar avec l'onglet réellement affiché ────────────────────
+const SETTINGS_TAB_IDS = ['tab-connexions', 'tab-notifications', 'tab-avance', 'tab-vff', 'tab-conflits', 'tab-maintenance', 'tab-issues'];
+
+function activateSettingsTabFromHash() {
+  const hash = window.location.hash.slice(1);
+  if (!SETTINGS_TAB_IDS.includes(hash)) return;
+  document.querySelector(`#settingsTabs button[data-bs-target="#${hash}"]`)?.click();
+}
+
+function syncSettingsSidebarActiveTab() {
+  const hash = window.location.hash.slice(1) || 'tab-connexions';
+  document.querySelectorAll('#settingsSidebarSubmenu a[data-tab]').forEach(a => {
+    a.classList.toggle('active', a.dataset.tab === hash);
+  });
+}
+
+document.querySelectorAll('#settingsTabs button[data-bs-toggle="tab"]').forEach(btn => {
+  btn.addEventListener('shown.bs.tab', (e) => {
+    const target = e.target.getAttribute('data-bs-target').replace('#', '');
+    history.replaceState(null, '', '#' + target);
+    syncSettingsSidebarActiveTab();
+  });
+});
+
+activateSettingsTabFromHash();
+syncSettingsSidebarActiveTab();
+window.addEventListener('hashchange', () => { activateSettingsTabFromHash(); syncSettingsSidebarActiveTab(); });
+
 // ── Section incomplete warnings ───────────────────────────────────────────────
 function checkSectionWarnings() {
   const emailOn = document.getElementById('email_req').checked || document.getElementById('email_av').checked;

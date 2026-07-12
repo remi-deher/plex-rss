@@ -2,7 +2,10 @@
 <html lang="fr" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover requis pour que env(safe-area-inset-*) renvoie une vraie
+       valeur sur iOS Safari (sans ça, ces variables valent toujours 0 et la barre
+       du bas empiète sur la zone sûre — home indicator iPhone, geste Android). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Plexarr</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23e5a00d'/%3E%3Cpolygon points='13,9 25,16 13,23' fill='%23141414'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
@@ -142,11 +145,20 @@
     }
     .bottom-nav a i { font-size: 20px; }
     .bottom-nav a.active, .bottom-nav a:hover { color: var(--pr-accent); }
+    /* Le sous-menu doit occuper exactement la même cellule que les <a> voisins
+       (même zone tactile, sans marge morte) : flex:1 sur le wrapper ET l'ancre
+       interne, stretch (défaut flex) pour qu'elle remplisse toute la hauteur. */
+    .bottom-nav .dropup { flex: 1; display: flex; }
+    .bottom-nav .dropup > a { flex: 1; width: 100%; margin: 0; }
+    .bottom-nav .dropup .dropdown-menu { bottom: 100%; top: auto; margin-bottom: 8px; }
 
     @media (max-width: 767px) {
       .sidebar { display: none !important; }
       .bottom-nav { display: flex; }
-      main { padding-bottom: 80px !important; }
+      /* La barre grandit de env(safe-area-inset-bottom) sur les écrans à encoche
+         (home indicator iPhone) : sans en tenir compte ici, le bas du contenu
+         resterait caché derrière la barre opaque sur ces appareils. */
+      main { padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important; }
       .navbar-brand { font-size: 15px; }
     }
 
@@ -245,21 +257,54 @@
       <a href="/users" class="nav-link {% if page=='users' %}active{% endif %}" {% if page=='users' %}aria-current="page"{% endif %} title="Utilisateurs">
         <i class="bi bi-people me-2"></i><span class="nav-label">Utilisateurs</span>
       </a>
-      <!-- Menu déroulant Paramètres -->
+      <!-- Menu déroulant Paramètres : reflète les onglets de /settings un à un, pour
+           un accès direct sans passer par l'onglet par défaut puis chercher le bon. -->
       <a href="#settingsCollapse" data-bs-toggle="collapse" class="nav-link d-flex align-items-center justify-content-between {% if page not in ['settings', 'email-templates'] %}collapsed{% endif %}" role="button" aria-expanded="{% if page in ['settings', 'email-templates'] %}true{% else %}false{% endif %}" aria-controls="settingsCollapse" title="Paramètres">
         <div><i class="bi bi-gear me-2"></i><span class="nav-label">Paramètres</span></div>
         <i class="bi bi-chevron-down nav-label transition-icon"></i>
       </a>
       <div class="collapse {% if page in ['settings', 'email-templates'] %}show{% endif %}" id="settingsCollapse">
-        <ul class="nav flex-column ms-3 mt-1 mb-2">
+        <ul class="nav flex-column ms-3 mt-1 mb-2" id="settingsSidebarSubmenu">
+          <li class="sidebar-section" style="padding-left:.5rem">Configuration</li>
           <li class="nav-item">
-            <a href="/settings" class="nav-link py-1 {% if page=='settings' %}active{% endif %}" style="font-size: 0.9em; padding-left: 0.5rem;" title="Général">
-              <i class="bi bi-sliders me-2"></i><span class="nav-label">Général</span>
+            <a href="/settings#tab-connexions" data-tab="tab-connexions" class="nav-link py-1 {% if page=='settings' %}active{% endif %}" style="font-size: 0.9em; padding-left: 0.5rem;" title="Connexions">
+              <i class="bi bi-plug me-2"></i><span class="nav-label">Connexions</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings#tab-notifications" data-tab="tab-notifications" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="Notifications">
+              <i class="bi bi-bell me-2"></i><span class="nav-label">Notifications</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings#tab-avance" data-tab="tab-avance" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="Avancé">
+              <i class="bi bi-gear me-2"></i><span class="nav-label">Avancé</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings#tab-vff" data-tab="tab-vff" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="VFF">
+              <i class="bi bi-translate me-2"></i><span class="nav-label">VFF</span>
             </a>
           </li>
           <li class="nav-item">
             <a href="/templates" class="nav-link py-1 {% if page=='email-templates' %}active{% endif %}" style="font-size: 0.9em; padding-left: 0.5rem;" title="Modèles d'emails">
-              <i class="bi bi-envelope-paper me-2"></i><span class="nav-label">Modèles</span>
+              <i class="bi bi-envelope-paper me-2"></i><span class="nav-label">Modèles d'emails</span>
+            </a>
+          </li>
+          <li class="sidebar-section" style="padding-left:.5rem">Outils</li>
+          <li class="nav-item">
+            <a href="/settings#tab-conflits" data-tab="tab-conflits" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="Conflits">
+              <i class="bi bi-exclamation-triangle me-2"></i><span class="nav-label">Conflits</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings#tab-maintenance" data-tab="tab-maintenance" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="Maintenance">
+              <i class="bi bi-tools me-2"></i><span class="nav-label">Maintenance</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="/settings#tab-issues" data-tab="tab-issues" class="nav-link py-1" style="font-size: 0.9em; padding-left: 0.5rem;" title="Signalements">
+              <i class="bi bi-flag me-2"></i><span class="nav-label">Signalements</span>
             </a>
           </li>
         </ul>
@@ -297,28 +342,65 @@
 </div>
 
 <!-- Bottom nav mobile -->
+{% set lib_active = page=='library' and request.query_params.get('view')!='requests' %}
 <nav class="bottom-nav">
+  {% if is_admin %}
+  <a href="/" class="{% if page=='dashboard' %}active{% endif %}">
+    <i class="bi bi-speedometer2"></i>Dashboard
+  </a>
+  {% endif %}
+  {% if is_admin %}
+  <div class="dropup">
+    <a href="#" class="dropdown-toggle {% if page in ['discover', 'downloads'] %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-compass"></i>Découvrir
+    </a>
+    <ul class="dropdown-menu">
+      <li>
+        <a class="dropdown-item {% if page=='discover' %}active{% endif %}" href="/discover">
+          <i class="bi bi-compass me-2"></i>Découvrir
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item {% if page=='downloads' %}active{% endif %}" href="/downloads">
+          <i class="bi bi-download me-2"></i>Téléchargements
+          <span id="sidebar-badge-dl-mobile-item" class="badge bg-warning text-dark ms-1" style="display:none"></span>
+        </a>
+      </li>
+    </ul>
+  </div>
+  {% else %}
   <a href="/discover" class="{% if page=='discover' %}active{% endif %}">
     <i class="bi bi-compass"></i>Découvrir
   </a>
-  <a href="/library?type=movie{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')!='show' and request.query_params.get('view')!='requests' %}active{% endif %}">
-    <i class="bi bi-film"></i>Films
-  </a>
-  <a href="/library?type=show{{ lib_qs }}" class="{% if page=='library' and request.query_params.get('type')=='show' and request.query_params.get('view')!='requests' %}active{% endif %}">
-    <i class="bi bi-tv"></i>Séries
-  </a>
+  {% endif %}
+  <div class="dropup">
+    <a href="#" class="dropdown-toggle {% if lib_active or page=='calendar' %}active{% endif %}" data-bs-toggle="dropdown" aria-expanded="false">
+      <i class="bi bi-collection"></i>Bibliothèque
+    </a>
+    <ul class="dropdown-menu">
+      <li>
+        <a class="dropdown-item {% if lib_active and request.query_params.get('type')!='show' %}active{% endif %}" href="/library?type=movie{{ lib_qs }}">
+          <i class="bi bi-film me-2"></i>Films
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item {% if lib_active and request.query_params.get('type')=='show' %}active{% endif %}" href="/library?type=show{{ lib_qs }}">
+          <i class="bi bi-tv me-2"></i>Séries
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item {% if page=='calendar' %}active{% endif %}" href="/calendar">
+          <i class="bi bi-calendar3 me-2"></i>Calendrier
+        </a>
+      </li>
+    </ul>
+  </div>
   {% if not is_admin %}
   <a href="/library?view=requests" class="{% if page=='library' and request.query_params.get('view')=='requests' %}active{% endif %}">
     <i class="bi bi-inbox"></i>Demandes
   </a>
   {% endif %}
-  <a href="/calendar" class="{% if page=='calendar' %}active{% endif %}">
-    <i class="bi bi-calendar3"></i>Calendrier
-  </a>
   {% if is_admin %}
-  <a href="/templates" class="{% if page=='email-templates' %}active{% endif %}">
-    <i class="bi bi-envelope-paper"></i>Emails
-  </a>
   <a href="/settings" class="{% if page=='settings' %}active{% endif %}">
     <i class="bi bi-gear"></i>Paramètres
   </a>
@@ -444,11 +526,8 @@ async function loadGlobalStats() {
       fetch('/api/downloads/direct').then(r => r.ok ? r.json() : []),
     ]);
     const active = [...q, ...dir].filter(x => (x.progress || 0) < 100).length;
-    const dlBadge = document.getElementById('sidebar-badge-dl');
-    if (dlBadge) {
-      if (active > 0) { dlBadge.textContent = active; dlBadge.style.display = ''; }
-      else { dlBadge.style.display = 'none'; }
-    }
+    setBadge('sidebar-badge-dl', active);
+    setBadge('sidebar-badge-dl-mobile-item', active);
   } catch(e) {}
 }
 loadGlobalStats();

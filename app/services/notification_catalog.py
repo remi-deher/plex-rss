@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -83,9 +83,35 @@ UNKNOWN_EVENT = NotificationEvent(
     description="Ancien événement ou événement non catalogué.",
 )
 
+# Anciennes clés persistées dans NotificationLog.event avant la fusion du catalogue
+# (voir commentaire au-dessus d'EVENTS) — ne correspondent plus à un évènement
+# réellement enqueué aujourd'hui, mais restent en base pour l'historique. Un simple
+# libellé lisible, dérivé de "available", au lieu de tomber sur UNKNOWN_EVENT.
+LEGACY_EVENT_LABELS: dict[str, str] = {
+    "episode_track": "Suivi épisode (sans distinction de langue)",
+    "vo_only": "Disponible en VO",
+    "vf_available": "VF disponible (mise à jour)",
+    "available_vf": "Disponible en VF",
+    "available_vo_tracking": "Disponible en VO, VF suivie",
+    "partially_available": "Disponibilité partielle",
+    "language_vo": "Disponible en VO",
+    "language_vf": "Disponible en VF",
+}
+
 
 def get_event(key: str) -> NotificationEvent:
-    return EVENTS.get(key) or UNKNOWN_EVENT
+    if key in EVENTS:
+        return EVENTS[key]
+    legacy_label = LEGACY_EVENT_LABELS.get(key)
+    if legacy_label:
+        base = EVENTS["available"]
+        return replace(
+            base,
+            key=key,
+            label=legacy_label,
+            description=f"Ancien évènement (fusionné depuis dans « {base.label} »).",
+        )
+    return UNKNOWN_EVENT
 
 
 def event_label(key: str) -> str:

@@ -26,6 +26,19 @@ def test_catalog_template_fields_are_reduced_to_three_event_families():
     ]
 
 
-def test_legacy_availability_events_are_no_longer_catalogued():
-    assert get_event("vf_available").key == "unknown"
-    assert event_mail_flags("available_vo_tracking") == ()
+def test_legacy_availability_events_are_no_longer_configurable_but_stay_labeled():
+    """Les anciennes clés (pré-fusion du catalogue) ne sont plus des évènements
+    configurables (pas de template_fields propre, pas de mail_flags), mais restent
+    lisibles dans l'historique au lieu de retomber sur "Événement inconnu"."""
+    event = get_event("vf_available")
+    assert event.key == "vf_available"
+    assert event.label == "VF disponible (mise à jour)"
+    assert event.group == "Disponibilité"
+    # Hérite du comportement de "available" (même évènement réel, seul le libellé diffère).
+    assert event_mail_flags("available_vo_tracking") == ("available_mail_sent",)
+
+
+def test_unrecognized_event_still_falls_back_to_unknown():
+    event = get_event("totally_made_up_event")
+    assert event.key == "unknown"
+    assert event.label == "Événement inconnu"
