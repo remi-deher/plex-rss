@@ -5,7 +5,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -13,12 +14,12 @@ from webauthn import (
 from webauthn.helpers import options_to_json
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import current_user
 from ..models import PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password
 from ..services.totp import generate_secret, verify_code
-from ..utils import get_or_404
+from ..utils import async_get_or_404
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["security"])
@@ -61,15 +62,15 @@ async def change_password(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    user = get_or_404(db, PlexUser, id)
+    user = await async_get_or_404(db, PlexUser, id)
     user.password_hash = hash_password(payload.password)
 
     # Si c'est l'admin local, synchroniser aussi la table Settings
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if s and s.auth_username == user.plex_user_id:
         s.auth_password_hash = user.password_hash
 
-    db.commit()
+    await db.commit()
     return {"success": True}
 
 
@@ -80,12 +81,12 @@ async def totp_setup(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    user = get_or_404(db, PlexUser, id)
+    user = await async_get_or_404(db, PlexUser, id)
 
     secret = generate_secret()
     user.totp_secret = secret
     user.totp_enabled = False  # pas encore activé (en attente de vérification)
-    db.commit()
+    await db.commit()
 
     username_clean = user.plex_user_id.replace(" ", "")
     uri = f"otpauth://totp/Plexarr:{username_clean}?secret={secret}&issuer=Plexarr"
@@ -100,7 +101,7 @@ async def totp_enable(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    user = get_or_404(db, PlexUser, id)
+    user = await async_get_or_404(db, PlexUser, id)
 
     if not user.totp_secret:
         raise HTTPException(status_code=400, detail="TOTP non configuré. Initialisez d'abord.")
@@ -111,12 +112,12 @@ async def totp_enable(
     user.totp_enabled = True
 
     # Si c'est l'admin local, synchroniser aussi la table Settings
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if s and s.auth_username == user.plex_user_id:
         s.totp_secret = user.totp_secret
         s.totp_enabled = True
 
-    db.commit()
+    await db.commit()
     return {"success": True}
 
 
@@ -127,17 +128,17 @@ async def totp_disable(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    user = get_or_404(db, PlexUser, id)
+    user = await async_get_or_404(db, PlexUser, id)
     user.totp_secret = None
     user.totp_enabled = False
 
     # Si c'est l'admin local, synchroniser aussi la table Settings
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if s and s.auth_username == user.plex_user_id:
         s.totp_secret = None
         s.totp_enabled = False
 
-    db.commit()
+    await db.commit()
     return {"success": True}
 
 
@@ -149,14 +150,14 @@ async def register_options(
     curr: dict = Depends(current_user),
 ):
     _check_permission(payload.user_id, curr)
-    user = get_or_404(db, PlexUser, payload.user_id)
+    user = await async_get_or_404(db, PlexUser, payload.user_id)
 
     rp_id = request.url.hostname
     if rp_id == "127.0.0.1":
         rp_id = "localhost"
 
     # Récupérer les clés existantes pour les exclure
-    existing_keys = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).all()
+    existing_keys = (await db.execute(select(PasskeyCredential).filter(PasskeyCredential.user_id == user.id))).scalars().all()
     exclude_credentials = []
     for k in existing_keys:
         try:
@@ -187,7 +188,7 @@ async def register_verify(
     curr: dict = Depends(current_user),
 ):
     _check_permission(payload.user_id, curr)
-    user = get_or_404(db, PlexUser, payload.user_id)
+    user = await async_get_or_404(db, PlexUser, payload.user_id)
 
     challenge = request.session.pop("reg_challenge", None)
     sess_user_id = request.session.pop("reg_user_id", None)
@@ -225,7 +226,7 @@ async def register_verify(
             name=payload.name or "Passkey",
         )
     )
-    db.commit()
+    await db.commit()
 
     return {"success": True}
 
@@ -237,7 +238,7 @@ async def list_passkeys(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    keys = db.query(PasskeyCredential).filter(PasskeyCredential.user_id == id).all()
+    keys = (await db.execute(select(PasskeyCredential).filter(PasskeyCredential.user_id == id))).scalars().all()
     return [
         {
             "credential_id": k.credential_id,
@@ -265,5 +266,5 @@ async def delete_passkey(
         raise HTTPException(status_code=404, detail="Passkey introuvable.")
 
     db.delete(key)
-    db.commit()
+    await db.commit()
     return {"success": True}
