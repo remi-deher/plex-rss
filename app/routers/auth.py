@@ -18,14 +18,16 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func
 from webauthn import (
     generate_authentication_options,
     verify_authentication_response,
 )
 from webauthn.helpers import options_to_json
 
-from ..database import get_db
+from ..database import get_db_async
 from ..models import LoginAttempt, PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
 from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
@@ -41,29 +43,29 @@ _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 600
 
 
-def _is_rate_limited(db: Session, ip: str) -> bool:
+async def _is_rate_limited(db: AsyncSession, ip: str) -> bool:
     cutoff = now_utc() - timedelta(seconds=_WINDOW_SECONDS)
-    count = (
-        db.query(LoginAttempt)
+    res = await db.execute(
+        select(func.count(LoginAttempt.id))
         .filter(
             LoginAttempt.ip_address == ip,
             LoginAttempt.success == False,  # noqa: E712
             LoginAttempt.attempted_at >= cutoff,
         )
-        .count()
     )
+    count = res.scalar()
     return count >= _MAX_ATTEMPTS
 
 
-def _record_login_attempt(db: Session, ip: str, username: str | None, success: bool, reason: str | None = None) -> None:
+async def _record_login_attempt(db: AsyncSession, ip: str, username: str | None, success: bool, reason: str | None = None) -> None:
     db.add(LoginAttempt(ip_address=ip, username=username, success=success, reason=reason, attempted_at=now_utc()))
-    db.commit()
+    await db.commit()
 
 
 @router.get("/setup", response_class=HTMLResponse)
-def setup_get(request: Request, db: Session = Depends(get_db)):
+async def setup_get(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Affiche le wizard si aucun compte n'est défini. Redirige sinon."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if s and s.auth_username:
         return RedirectResponse("/", status_code=302)
     return templates.TemplateResponse(request, "setup.html", {"error": None})
@@ -75,10 +77,10 @@ async def setup_post(
     username: str = Form(...),
     password: str = Form(...),
     password_confirm: str = Form(...),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Crée le compte admin. Redirige vers le login une fois enregistré."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
 
     # Ne pas permettre de redéfinir les identifiants via ce wizard
     if s and s.auth_username:
@@ -101,7 +103,7 @@ async def setup_post(
 
     s.auth_username = username
     s.auth_password_hash = hash_password(password)
-    db.commit()
+    await db.commit()
 
     # Connecter l'utilisateur immédiatement après la création du compte
     request.session["authenticated"] = True
@@ -113,9 +115,9 @@ async def setup_post(
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_get(request: Request, next: str = "/", db: Session = Depends(get_db)):
+async def login_get(request: Request, next: str = "/", db: AsyncSession = Depends(get_db_async)):
     """Affiche le formulaire de connexion. Redirige vers /setup si aucun compte."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.auth_username:
         return RedirectResponse("/setup", status_code=302)
     if request.session.get("authenticated"):
@@ -130,14 +132,14 @@ async def login_post(
     password: str = Form(...),
     otp_code: str = Form(default=""),
     next: str = Form(default="/"),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Vérifie les identifiants et ouvre une session."""
     ip = request.client.host if request.client else "unknown"
-    if _is_rate_limited(db, ip):
+    if await _is_rate_limited(db, ip):
         raise HTTPException(status_code=429, detail="Trop de tentatives. Réessayez dans 10 minutes.")
 
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
 
     def error(msg: str):
         return templates.TemplateResponse(request, "login.html", {"next": next, "error": msg})
@@ -146,17 +148,17 @@ async def login_post(
         return RedirectResponse("/setup", status_code=302)
 
     # 1. Vérifier dans la table PlexUser si l'utilisateur existe localement
-    user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+    user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == username))).scalars().first()
     if user and user.password_hash:
         if not user.enabled or not user.can_login:
             return error("Ce compte n'est pas autorisé à se connecter.")
 
         if not verify_password(password, user.password_hash):
-            _record_login_attempt(db, ip, username, False, "bad_credentials")
+            await _record_login_attempt(db, ip, username, False, "bad_credentials")
             return error("Identifiants incorrects.")
 
         if user.totp_enabled and not verify_code(user.totp_secret, otp_code):
-            _record_login_attempt(db, ip, username, False, "bad_totp")
+            await _record_login_attempt(db, ip, username, False, "bad_totp")
             return error("Code 2FA incorrect.")
 
         request.session["authenticated"] = True
@@ -165,21 +167,21 @@ async def login_post(
         request.session["role"] = user.role or "user"
         request.session["plex_user_id"] = user.plex_user_id if user.source == "plex_sso" else None
         request.session["user_id"] = user.id
-        _record_login_attempt(db, ip, username, True)
+        await _record_login_attempt(db, ip, username, True)
 
         safe_next = next if next and next.startswith("/") else "/"
         return RedirectResponse(safe_next, status_code=302)
 
     # 2. Repli historique (Settings global admin)
     if not hmac.compare_digest(username, s.auth_username) or not verify_password(password, s.auth_password_hash):
-        _record_login_attempt(db, ip, username, False, "bad_credentials")
+        await _record_login_attempt(db, ip, username, False, "bad_credentials")
         return error("Identifiants incorrects.")
 
     if s.totp_enabled and not verify_code(s.totp_secret, otp_code):
-        _record_login_attempt(db, ip, username, False, "bad_totp")
+        await _record_login_attempt(db, ip, username, False, "bad_totp")
         return error("Code 2FA incorrect.")
 
-    admin_user = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+    admin_user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == username))).scalars().first()
     user_id = admin_user.id if admin_user else None
 
     request.session["authenticated"] = True
@@ -209,7 +211,7 @@ async def login_plex_pin(request: Request):
 
 
 @router.get("/login/plex/check/{pin_id}")
-async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(get_db)):
+async def login_plex_check(pin_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Vérifie si le PIN Plex a été validé ; si oui, ouvre la session du bon utilisateur.
 
     Le token Plex ne sert qu'à identifier le compte (plex.tv /api/v2/user) — il n'est
@@ -240,7 +242,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
     # Rattachement : uuid stable en priorité, sinon username (users legacy RSS/API).
     user = None
     if account["uuid"]:
-        user = db.query(PlexUser).filter(PlexUser.plex_account_uuid == account["uuid"]).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.plex_account_uuid == account["uuid"]))).scalars().first()
         if user:
             logger.info(
                 "SSO Login check: matched existing user by UUID: id=%s, plex_user_id=%s", user.id, user.plex_user_id
@@ -252,7 +254,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
                 "SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id
             )
 
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     is_admin_username = bool(s and s.auth_username and account["username"] == s.auth_username)
     logger.info(
         "SSO Login check: is_admin_username check: %s (auth_username: %s)",
@@ -289,7 +291,7 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
             source="plex_sso",
         )
         db.add(user)
-        db.flush()
+        await db.flush()
         logger.info("SSO Login check: new user created with id=%s, role=%s", user.id, user.role)
     else:
         # Enrichit / met à jour l'enregistrement existant sans écraser les choix admin.
@@ -309,13 +311,13 @@ async def login_plex_check(pin_id: int, request: Request, db: Session = Depends(
             user.enabled,
             user.can_login,
         )
-        db.commit()
+        await db.commit()
         raise HTTPException(
             status_code=403, detail="Ce compte n'est pas autorisé à se connecter. Contactez l'administrateur."
         )
 
     user.last_login_at = now_utc()
-    db.commit()
+    await db.commit()
 
     request.session["authenticated"] = True
     request.session["is_owner"] = user.role == "admin"
@@ -336,7 +338,7 @@ def logout(request: Request):
 @router.post("/api/webauthn/login/options")
 async def webauthn_login_options(
     request: Request,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     rp_id = request.url.hostname
     if rp_id == "127.0.0.1":
@@ -354,7 +356,7 @@ async def webauthn_login_options(
 async def webauthn_login_verify(
     request: Request,
     credential: dict,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     challenge = request.session.pop("auth_challenge", None)
     if not challenge:
@@ -368,11 +370,11 @@ async def webauthn_login_verify(
     expected_origin = [f"https://{host}", f"http://{host}"]
 
     cred_id_str = credential.get("id")
-    db_cred = db.query(PasskeyCredential).filter(PasskeyCredential.credential_id == cred_id_str).first()
+    db_cred = (await db.execute(select(PasskeyCredential).filter(PasskeyCredential.credential_id == cred_id_str))).scalars().first()
     if not db_cred:
         raise HTTPException(status_code=401, detail="Passkey non reconnue.")
 
-    user = db.query(PlexUser).filter(PlexUser.id == db_cred.user_id).first()
+    user = (await db.execute(select(PlexUser).filter(PlexUser.id == db_cred.user_id))).scalars().first()
     if not user or not user.enabled or not user.can_login:
         raise HTTPException(status_code=403, detail="Ce compte n'est pas autorisé à se connecter.")
 
@@ -391,7 +393,7 @@ async def webauthn_login_verify(
         raise HTTPException(status_code=400, detail=f"Échec de la validation de la Passkey: {e}")
 
     db_cred.sign_count = verification.new_sign_count
-    db.commit()
+    await db.commit()
 
     request.session["authenticated"] = True
     request.session["username"] = user.plex_user_id
