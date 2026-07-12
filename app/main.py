@@ -97,8 +97,11 @@ async def lifespan(app: FastAPI):
         logging.exception("STARTUP FAILED")
         raise
     yield
-    stop_notif_worker()
+    logging.info("Shutting down: stopping notification worker...")
+    await stop_notif_worker()
+    logging.info("Shutting down: stopping scheduler (waits for any running job to finish)...")
     scheduler.shutdown()
+    logging.info("Shutdown complete.")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

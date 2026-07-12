@@ -7,6 +7,11 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+    # Docker's default is 10s before SIGKILL — too short if a scheduler job (Plex/*arr
+    # network call) is mid-flight on shutdown. A process killed mid SQLite write is a
+    # real corruption risk, so give the graceful-shutdown path (see app/main.py lifespan)
+    # enough room to let the current job/notification finish and commit cleanly.
+    stop_grace_period: 30s
     environment:
       - TZ=Europe/Paris
       # - DATABASE_URL=postgresql://plexrss:plexrss@db:5432/plexrss

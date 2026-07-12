@@ -15,6 +15,8 @@ import asyncio
 import json
 import logging
 
+from sqlalchemy import text
+
 from . import metrics as app_metrics
 from .database import SessionLocal
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
@@ -142,24 +144,48 @@ def _delete_pending(pending_id: int | None):
 
 def _load_pending():
     """Recharge dans la queue asyncio les notifications persistées non traitées
-    (typiquement après un redémarrage/crash survenu entre `enqueue()` et leur envoi)."""
+    (typiquement après un redémarrage/crash survenu entre `enqueue()` et leur envoi).
+
+    Lit les colonnes brutes via SQL plutôt que l'ORM : une seule ligne corrompue
+    (ex. `created_at` non parsable en datetime) ferait sinon échouer l'hydratation
+    ORM de la requête entière (`.all()`), et avec elle la relecture de TOUTE ligne
+    valide présente au même moment — perte silencieuse de vraies notifications en
+    attente. Chaque ligne invalide est ignorée individuellement à la place.
+    """
     db = SessionLocal()
     try:
-        rows = db.query(PendingNotification).order_by(PendingNotification.created_at).all()
-        for row in rows:
+        raw_rows = db.execute(
+            text("SELECT id, event, req_id, recipients, reason FROM pending_notifications ORDER BY id")
+        ).fetchall()
+        loaded = 0
+        skipped = 0
+        for row_id, event, req_id, recipients_raw, reason_raw in raw_rows:
+            if event not in EMAIL_SENDERS:
+                skipped += 1
+                continue
             try:
-                recipients = json.loads(row.recipients)
+                req_id = int(req_id)
+            except (TypeError, ValueError):
+                skipped += 1
+                continue
+            try:
+                recipients = json.loads(recipients_raw)
+                if not isinstance(recipients, list):
+                    recipients = []
             except Exception:
                 recipients = []
             try:
-                context = json.loads(row.reason) if row.reason else {}
+                context = json.loads(reason_raw) if reason_raw else {}
                 if not isinstance(context, dict):
                     context = {}
             except Exception:
                 context = {}
-            _queue.put_nowait((row.id, row.event, row.req_id, recipients, context))
-        if rows:
-            logger.info(f"{len(rows)} notification(s) en attente rechargée(s) après redémarrage")
+            _queue.put_nowait((row_id, event, req_id, recipients, context))
+            loaded += 1
+        if loaded:
+            logger.info(f"{loaded} notification(s) en attente rechargée(s) après redémarrage")
+        if skipped:
+            logger.warning(f"{skipped} ligne(s) invalide(s) ignorée(s) dans pending_notifications au rechargement")
     except Exception as e:
         logger.error(f"Impossible de recharger les notifications en attente: {e}")
     finally:
@@ -298,6 +324,20 @@ def start_worker():
     return _worker_task
 
 
-def stop_worker():
-    if _worker_task and not _worker_task.done():
-        _worker_task.cancel()
+async def stop_worker():
+    """Annule le worker et attend sa sortie (bornée) avant de rendre la main.
+
+    Sans ce await, `lifespan` (main.py) rendait la main à uvicorn immédiatement
+    après `.cancel()`, sans savoir si le worker était en plein milieu d'un
+    `db.commit()` (traitement d'une notification) au moment de l'arrêt — un
+    process tué (SIGKILL, timeout d'arrêt Docker dépassé) pendant une écriture
+    SQLite en cours est un facteur de corruption. Le timeout court reste un
+    filet de sécurité : mieux vaut couper après 5 s qu'empêcher tout arrêt.
+    """
+    if not _worker_task or _worker_task.done():
+        return
+    _worker_task.cancel()
+    try:
+        await asyncio.wait_for(_worker_task, timeout=5)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass

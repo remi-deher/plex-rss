@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from sqlalchemy import text
 
 from app.notification_queue import _process, enqueue
 
@@ -590,3 +591,189 @@ def test_enqueue_puts_item_in_queue():
     assert _queue.qsize() == initial_size + 1
     # Vide la queue pour ne pas polluer d'autres tests
     _queue.get_nowait()
+
+
+# ---------------------------------------------------------------------------
+# Cas : _load_pending — une ligne corrompue ne doit jamais faire perdre les
+# autres (voir notification_queue.py : incident réel où des lignes poll_history
+# mal insérées dans pending_notifications faisaient échouer tout le rechargement).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def pending_db():
+    import json as _json
+
+    from sqlalchemy import create_engine
+    from sqlalchemy import text as _text
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import Base
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    def _insert(event, req_id, recipients, reason=""):
+        session.execute(
+            _text(
+                "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+                "VALUES (:created_at, :event, :req_id, :recipients, :reason)"
+            ),
+            {
+                "created_at": "2026-07-11 21:19:56.602985",
+                "event": event,
+                "req_id": req_id,
+                "recipients": _json.dumps(recipients),
+                "reason": reason,
+            },
+        )
+        session.commit()
+
+    def _insert_garbage():
+        # Reproduit exactement l'incident : des données shape "poll_history" dans
+        # les colonnes de pending_notifications (created_at contient "watchlist",
+        # event contient un timestamp).
+        session.execute(
+            _text(
+                "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+                "VALUES ('watchlist', '2026-07-11 21:19:56.602985', 2192, '70', '0')"
+            )
+        )
+        session.commit()
+
+    session.insert = _insert
+    session.insert_garbage = _insert_garbage
+    yield session
+    session.close()
+
+
+def test_load_pending_skips_garbage_rows_without_losing_valid_ones(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_db.insert_garbage()
+    pending_db.insert("available", 2, ["bob@example.com"], reason='{"scope": "movie"}')
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.SessionLocal", return_value=pending_db):
+        _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    events = {item[1] for item in loaded}
+    assert events == {"request", "available"}
+    assert len(loaded) == 2
+
+
+def test_load_pending_skips_row_with_invalid_req_id(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.execute(
+        text(
+            "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+            "VALUES ('2026-07-11 21:19:56', 'request', 'not-an-id', '[]', '')"
+        )
+    )
+    pending_db.commit()
+    pending_db.insert("request", 3, ["carol@example.com"])
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.SessionLocal", return_value=pending_db):
+        _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    assert len(loaded) == 1
+    assert loaded[0][2] == 3
+
+
+def test_load_pending_recovers_all_rows_when_none_are_corrupt(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.insert("request", 10, ["a@example.com"])
+    pending_db.insert("available", 11, ["b@example.com"])
+    pending_db.insert("failed", 12, ["c@example.com"], reason="Sonarr down")
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.SessionLocal", return_value=pending_db):
+        _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    assert len(loaded) == 3
+
+
+# ---------------------------------------------------------------------------
+# Cas : stop_worker — doit attendre la sortie effective du worker (pas juste
+# demander l'annulation) avant de rendre la main à l'appelant (lifespan).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_waits_for_task_to_actually_finish():
+    import asyncio as _asyncio
+
+    import app.notification_queue as nq
+
+    finished = _asyncio.Event()
+
+    async def fake_worker():
+        try:
+            await _asyncio.sleep(100)
+        except _asyncio.CancelledError:
+            finished.set()
+            raise
+
+    nq._worker_task = _asyncio.create_task(fake_worker())
+    await _asyncio.sleep(0)  # laisse le worker démarrer et atteindre son premier await, comme en prod
+    await nq.stop_worker()
+
+    assert finished.is_set()
+    assert nq._worker_task.done()
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_is_noop_without_running_task():
+    import app.notification_queue as nq
+
+    nq._worker_task = None
+    await nq.stop_worker()  # ne doit pas lever
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_gives_up_after_timeout_if_task_ignores_cancellation():
+    """stop_worker() ne doit jamais bloquer indéfiniment, même si le worker met du
+    temps à répondre à l'annulation (ex. bloqué dans un envoi SMTP) — il rend la
+    main après son timeout de 5s plutôt que d'empêcher tout arrêt du process."""
+    import asyncio as _asyncio
+
+    import app.notification_queue as nq
+
+    ignored_once = _asyncio.Event()
+
+    async def slow_to_cancel_worker():
+        # Ignore une seule annulation (simule un travail en cours qui ne peut pas
+        # être interrompu instantanément), puis se termine normalement à la suivante
+        # — sans quoi ce test laisserait une tâche orpheline tourner indéfiniment.
+        try:
+            await _asyncio.sleep(100)
+        except _asyncio.CancelledError:
+            ignored_once.set()
+        await _asyncio.sleep(100)
+
+    nq._worker_task = _asyncio.create_task(slow_to_cancel_worker())
+    await _asyncio.sleep(0)  # laisse le worker démarrer, comme en prod
+
+    started = _asyncio.get_event_loop().time()
+    await _asyncio.wait_for(nq.stop_worker(), timeout=7)
+    elapsed = _asyncio.get_event_loop().time() - started
+
+    assert ignored_once.is_set()
+    assert elapsed < 7  # a bien rendu la main via son propre timeout (~5s), pas via wait_for
+
+    # Nettoyage réel pour ne pas polluer les autres tests.
+    nq._worker_task.cancel()
+    try:
+        await nq._worker_task
+    except _asyncio.CancelledError:
+        pass
