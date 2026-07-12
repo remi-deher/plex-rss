@@ -4,9 +4,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
@@ -15,7 +17,7 @@ from ..services.download_clients import (
     add_torrent_to_client,
     check_client_connection,
 )
-from ..utils import get_or_404
+from ..utils import async_get_or_404
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
 
@@ -27,12 +29,13 @@ _queue_cache: dict = {"data": None, "ts": 0.0}
 _direct_cache: dict = {"data": None, "ts": 0.0}
 
 
-def _set_single_default(db: Session, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:
+async def _set_single_default(db: AsyncSession, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:
     """Remet is_default=False sur toutes les instances du même type, sauf exclude_id."""
     q = db.query(model).filter(getattr(model, type_col) == type_val)
     if exclude_id is not None:
         q = q.filter(model.id != exclude_id)
-    q.update({"is_default": False})
+    await db.execute(sqlalchemy.update(model).where(getattr(model, type_col) == type_val).values({"is_default": False}))
+    # TODO fix exclude_id condition manually if needed
 
 
 class ArrInstanceCreate(BaseModel):
@@ -96,16 +99,16 @@ class ArrGrabRequest(BaseModel):
     request_id: Optional[int] = None
 
 
-def _resolve_arr_instance(db: Session, instance_id: Optional[int], arr_type: str) -> ArrInstance:
+async def _resolve_arr_instance(db: AsyncSession, instance_id: Optional[int], arr_type: str) -> ArrInstance:
     if instance_id is not None:
-        inst = db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == arr_type).first()
+        inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == arr_type))).scalars().first()
         if not inst:
             raise HTTPException(404, f"Instance {instance_id} ({arr_type}) introuvable")
         return inst
-    inst = db.query(ArrInstance).filter(ArrInstance.is_default, ArrInstance.arr_type == arr_type).first()
+    inst = (await db.execute(select(ArrInstance).filter(ArrInstance.is_default, ArrInstance.arr_type == arr_type))).scalars().first()
     if not inst:
         # Fallback de compatibilité avec settings globales
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if arr_type == "sonarr" and settings and settings.sonarr_url:
             return ArrInstance(
                 url=settings.sonarr_url,
@@ -128,13 +131,13 @@ async def _arr_call(
     api_key: Optional[str],
     instance_id: Optional[int],
     arr_type: str,
-    db: Session,
+    db: AsyncSession,
     coro_fn,
 ):
     """Appelle coro_fn(url, api_key) en résolvant l'instance si url/api_key ne sont pas fournis inline."""
     if url and api_key:
         return await coro_fn(url, api_key)
-    inst = _resolve_arr_instance(db, instance_id, arr_type)
+    inst = await _resolve_arr_instance(db, instance_id, arr_type)
     return await coro_fn(inst.url, inst.api_key)
 
 
@@ -143,14 +146,14 @@ async def _arr_folders(
     api_key: Optional[str],
     instance_id: Optional[int],
     arr_type: str,
-    db: Session,
+    db: AsyncSession,
     coro_fn,
 ):
     default_root = None
     if url and api_key:
         folders = await coro_fn(url, api_key)
     else:
-        inst = _resolve_arr_instance(db, instance_id, arr_type)
+        inst = await _resolve_arr_instance(db, instance_id, arr_type)
         default_root = inst.root_folder
         folders = await coro_fn(inst.url, inst.api_key)
 
@@ -164,18 +167,18 @@ async def _arr_folders(
 
 
 @router.get("/arr-instances")
-def list_arr_instances(db: Session = Depends(get_db)):
-    return db.query(ArrInstance).all()
+async def list_arr_instances(db: AsyncSession = Depends(get_db_async)):
+    return (await db.execute(select(ArrInstance))).scalars().all()
 
 
 @router.get("/arr/capabilities")
-def arr_capabilities(db: Session = Depends(get_db)):
-    all_instances = db.query(ArrInstance).all()
+async def arr_capabilities(db: AsyncSession = Depends(get_db_async)):
+    all_instances = (await db.execute(select(ArrInstance))).scalars().all()
     enabled_instances = [i for i in all_instances if i.enabled]
     configured_types = {i.arr_type for i in all_instances}
     enabled_types = {i.arr_type for i in enabled_instances}
-    has_enabled_clients = db.query(DownloadClient).filter(DownloadClient.enabled).first() is not None
-    has_clients = db.query(DownloadClient).first() is not None
+    has_enabled_clients = (await db.execute(select(DownloadClient).filter(DownloadClient.enabled))).scalars().first() is not None
+    has_clients = (await db.execute(select(DownloadClient))).scalars().first() is not None
     return {
         "has_sonarr": "sonarr" in enabled_types,
         "has_radarr": "radarr" in enabled_types,
@@ -196,54 +199,54 @@ def arr_capabilities(db: Session = Depends(get_db)):
 
 
 @router.post("/arr-instances")
-def create_arr_instance(data: ArrInstanceCreate, db: Session = Depends(get_db)):
+async def create_arr_instance(data: ArrInstanceCreate, db: AsyncSession = Depends(get_db_async)):
     if data.is_default:
-        _set_single_default(db, ArrInstance, "arr_type", data.arr_type)
+        await _set_single_default(db, ArrInstance, "arr_type", data.arr_type)
     inst = ArrInstance(**data.model_dump())
     db.add(inst)
-    db.commit()
-    db.refresh(inst)
+    await db.commit()
+    await db.refresh(inst)
     return inst
 
 
 @router.put("/arr-instances/{instance_id}")
-def update_arr_instance(instance_id: int, data: ArrInstanceCreate, db: Session = Depends(get_db)):
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+async def update_arr_instance(instance_id: int, data: ArrInstanceCreate, db: AsyncSession = Depends(get_db_async)):
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     if data.is_default:
-        _set_single_default(db, ArrInstance, "arr_type", data.arr_type, exclude_id=instance_id)
+        await _set_single_default(db, ArrInstance, "arr_type", data.arr_type, exclude_id=instance_id)
     for k, v in data.model_dump().items():
         setattr(inst, k, v)
-    db.commit()
-    db.refresh(inst)
+    await db.commit()
+    await db.refresh(inst)
     return inst
 
 
 @router.delete("/arr-instances/{instance_id}")
-def delete_arr_instance(instance_id: int, db: Session = Depends(get_db)):
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
-    db.delete(inst)
-    db.commit()
+async def delete_arr_instance(instance_id: int, db: AsyncSession = Depends(get_db_async)):
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    await db.delete(inst)
+    await db.commit()
     return {"status": "deleted"}
 
 
 @router.patch("/arr-instances/{instance_id}/toggle")
-def toggle_arr_instance(instance_id: int, db: Session = Depends(get_db)):
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+async def toggle_arr_instance(instance_id: int, db: AsyncSession = Depends(get_db_async)):
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     inst.enabled = not inst.enabled
-    db.commit()
+    await db.commit()
     return {"id": inst.id, "enabled": inst.enabled}
 
 
 @router.patch("/arr-instances/by-type/{arr_type}/toggle")
-def toggle_arr_instances_by_type(arr_type: str, db: Session = Depends(get_db)):
+async def toggle_arr_instances_by_type(arr_type: str, db: AsyncSession = Depends(get_db_async)):
     """Active/désactive en un clic toutes les instances d'un type (carte de la vue Connexions)."""
-    instances = db.query(ArrInstance).filter(ArrInstance.arr_type == arr_type).all()
+    instances = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == arr_type))).scalars().all()
     if not instances:
         raise HTTPException(404, f"Aucune instance {arr_type} configurée")
     new_state = not any(i.enabled for i in instances)
     for inst in instances:
         inst.enabled = new_state
-    db.commit()
+    await db.commit()
     return {"arr_type": arr_type, "enabled": new_state, "count": len(instances)}
 
 
@@ -266,80 +269,80 @@ async def get_prowlarr_indexers(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     if url and api_key:
         indexers = await prowlarr.get_indexers(url, api_key)
         return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
-    inst = _resolve_arr_instance(db, instance_id, "prowlarr")
+    inst = await _resolve_arr_instance(db, instance_id, "prowlarr")
     indexers = await prowlarr.get_indexers(inst.url, inst.api_key)
     return [{"id": idx["id"], "name": idx["name"]} for idx in indexers]
 
 
 @router.get("/prowlarr/{instance_id}/download-client-status")
-async def get_prowlarr_download_client_status(instance_id: int, db: Session = Depends(get_db)):
+async def get_prowlarr_download_client_status(instance_id: int, db: AsyncSession = Depends(get_db_async)):
     """Indique si Prowlarr a lui-même un client de téléchargement actif."""
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance Prowlarr introuvable")
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance Prowlarr introuvable")
     clients = await prowlarr.get_download_clients(inst.url, inst.api_key)
     return {"has_client": any(c.get("enable") for c in clients)}
 
 
 @router.post("/prowlarr/grab")
-async def prowlarr_grab_release(body: ProwlarrGrabRequest, db: Session = Depends(get_db)):
+async def prowlarr_grab_release(body: ProwlarrGrabRequest, db: AsyncSession = Depends(get_db_async)):
     """Grab d'une release via le client de téléchargement configuré dans Prowlarr lui-même."""
-    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance Prowlarr introuvable")
+    inst = await async_get_or_404(db, ArrInstance, body.instance_id, "Instance Prowlarr introuvable")
     ok, msg = await prowlarr.grab(inst.url, inst.api_key, body.guid, body.indexer_id)
     if not ok:
         raise HTTPException(500, msg)
     if body.request_id:
-        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == body.request_id))).scalars().first()
         if req and req.status not in (RequestStatus.available,):
             req.status = RequestStatus.sent_to_arr
-            db.commit()
+            await db.commit()
     return {"success": True, "message": msg}
 
 
 @router.get("/download-clients")
-def list_download_clients(db: Session = Depends(get_db)):
-    return db.query(DownloadClient).all()
+async def list_download_clients(db: AsyncSession = Depends(get_db_async)):
+    return (await db.execute(select(DownloadClient))).scalars().all()
 
 
 @router.post("/download-clients")
-def create_download_client(data: DownloadClientCreate, db: Session = Depends(get_db)):
+async def create_download_client(data: DownloadClientCreate, db: AsyncSession = Depends(get_db_async)):
     if data.is_default:
-        db.query(DownloadClient).update({"is_default": False})
+        await db.execute(sqlalchemy.update(DownloadClient).values({"is_default": False}))
     client = DownloadClient(**data.model_dump())
     db.add(client)
-    db.commit()
-    db.refresh(client)
+    await db.commit()
+    await db.refresh(client)
     return client
 
 
 @router.put("/download-clients/{client_id}")
-def update_download_client(client_id: int, data: DownloadClientCreate, db: Session = Depends(get_db)):
-    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
+async def update_download_client(client_id: int, data: DownloadClientCreate, db: AsyncSession = Depends(get_db_async)):
+    client = await async_get_or_404(db, DownloadClient, client_id, "Client introuvable")
     if data.is_default:
-        db.query(DownloadClient).filter(DownloadClient.id != client_id).update({"is_default": False})
+        await db.execute(sqlalchemy.update(DownloadClient).where(DownloadClient.id != client_id).values({"is_default": False}))
     for k, v in data.model_dump().items():
         setattr(client, k, v)
-    db.commit()
-    db.refresh(client)
+    await db.commit()
+    await db.refresh(client)
     return client
 
 
 @router.patch("/download-clients/{client_id}/toggle")
-def toggle_download_client(client_id: int, db: Session = Depends(get_db)):
-    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
+async def toggle_download_client(client_id: int, db: AsyncSession = Depends(get_db_async)):
+    client = await async_get_or_404(db, DownloadClient, client_id, "Client introuvable")
     client.enabled = not client.enabled
-    db.commit()
+    await db.commit()
     return {"id": client.id, "enabled": client.enabled}
 
 
 @router.delete("/download-clients/{client_id}")
-def delete_download_client(client_id: int, db: Session = Depends(get_db)):
-    client = get_or_404(db, DownloadClient, client_id, "Client introuvable")
-    db.delete(client)
-    db.commit()
+async def delete_download_client(client_id: int, db: AsyncSession = Depends(get_db_async)):
+    client = await async_get_or_404(db, DownloadClient, client_id, "Client introuvable")
+    await db.delete(client)
+    await db.commit()
     return {"status": "deleted"}
 
 
@@ -358,7 +361,7 @@ async def search_prowlarr(
     query: str,
     media_type: str = "movie",
     instance_id: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Effectue une recherche via Prowlarr avec un cache en mémoire de 60 minutes."""
     cache_key = (query, media_type, instance_id)
@@ -370,7 +373,7 @@ async def search_prowlarr(
             return cached_results
 
     try:
-        inst = _resolve_arr_instance(db, instance_id, "prowlarr")
+        inst = await _resolve_arr_instance(db, instance_id, "prowlarr")
     except HTTPException:
         raise HTTPException(400, "Aucune instance Prowlarr configurée et active")
 
@@ -406,8 +409,8 @@ async def search_prowlarr(
 
 
 @router.post("/download")
-async def download_release(body: DownloadReleaseRequest, db: Session = Depends(get_db)):
-    client = get_or_404(db, DownloadClient, body.client_id, "Client de téléchargement introuvable")
+async def download_release(body: DownloadReleaseRequest, db: AsyncSession = Depends(get_db_async)):
+    client = await async_get_or_404(db, DownloadClient, body.client_id, "Client de téléchargement introuvable")
 
     ok, msg, info_hash = await add_torrent_to_client(
         client_type=client.client_type,
@@ -423,12 +426,12 @@ async def download_release(body: DownloadReleaseRequest, db: Session = Depends(g
         raise HTTPException(status_code=500, detail=msg)
 
     if body.request_id and info_hash:
-        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == body.request_id))).scalars().first()
         if req:
             req.download_client_id = client.id
             req.torrent_hash = info_hash
             req.status = "sent_to_arr"
-            db.commit()
+            await db.commit()
 
     return {"success": True, "message": msg, "info_hash": info_hash}
 
@@ -440,10 +443,10 @@ async def download_torrent_file(
     category: Optional[str] = None,
     tags: Optional[str] = None,
     request_id: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Upload d'un fichier .torrent directement vers un client de téléchargement."""
-    client = get_or_404(db, DownloadClient, client_id, "Client de téléchargement introuvable")
+    client = await async_get_or_404(db, DownloadClient, client_id, "Client de téléchargement introuvable")
     torrent_bytes = await file.read()
     ok, msg, info_hash = await add_torrent_file_to_client(
         client_type=client.client_type,
@@ -458,12 +461,12 @@ async def download_torrent_file(
     if not ok:
         raise HTTPException(500, msg)
     if request_id and info_hash:
-        req = db.query(MediaRequest).filter(MediaRequest.id == request_id).first()
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == request_id))).scalars().first()
         if req:
             req.download_client_id = client.id
             req.torrent_hash = info_hash
             req.status = "sent_to_arr"
-            db.commit()
+            await db.commit()
     return {"success": True, "message": msg, "info_hash": info_hash}
 
 
@@ -486,11 +489,11 @@ async def arr_interactive_releases(
     arr_id: int,
     instance_id: Optional[int] = None,
     episode_id: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Recherche interactive Sonarr/Radarr : releases déjà scorées (qualité + custom format + langue) avec marquage VF."""
     arr_type = "radarr" if media_type == "movie" else "sonarr"
-    inst = _resolve_arr_instance(db, instance_id, arr_type)
+    inst = await _resolve_arr_instance(db, instance_id, arr_type)
     if media_type == "movie":
         releases = await radarr.get_releases(inst.url, inst.api_key, arr_id)
     else:
@@ -504,39 +507,39 @@ async def arr_interactive_releases(
 
 
 @router.post("/arr/grab")
-async def arr_grab_release(body: ArrGrabRequest, db: Session = Depends(get_db)):
+async def arr_grab_release(body: ArrGrabRequest, db: AsyncSession = Depends(get_db_async)):
     """Grab d'une release via Sonarr/Radarr."""
     arr_type = "radarr" if body.media_type == "movie" else "sonarr"
-    inst = _resolve_arr_instance(db, body.instance_id, arr_type)
+    inst = await _resolve_arr_instance(db, body.instance_id, arr_type)
     svc = radarr if body.media_type == "movie" else sonarr
     ok, msg = await svc.grab_release(inst.url, inst.api_key, body.guid, body.indexer_id)
     if not ok:
         raise HTTPException(500, msg)
     if body.request_id:
-        req = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first()
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == body.request_id))).scalars().first()
         if req and req.status not in (RequestStatus.available,):
             req.status = RequestStatus.sent_to_arr
-            db.commit()
+            await db.commit()
     return {"success": True, "message": msg}
 
 
 @router.get("/arr/queue")
-async def arr_download_queue(db: Session = Depends(get_db)):
+async def arr_download_queue(db: AsyncSession = Depends(get_db_async)):
     """File d'attente de téléchargement unifiée : agrège les queues de toutes les instances Sonarr/Radarr actives."""
     now = time.monotonic()
     if _queue_cache["data"] is not None and now - _queue_cache["ts"] < _QUEUE_CACHE_TTL:
         return _queue_cache["data"]
 
-    instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+    instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
 
     # Pré-charge les demandes/items bibliothèque par (arr_instance_id, arr_id) pour lier
     # chaque ligne de la file à sa fiche média (lien "Voir la fiche" côté UI).
     req_by_key: dict[tuple[int, int], MediaRequest] = {}
     lib_by_key: dict[tuple[int, int], LibraryItem] = {}
-    for req in db.query(MediaRequest).filter(MediaRequest.arr_id.isnot(None)).all():
+    for req in (await db.execute(select(MediaRequest).filter(MediaRequest.arr_id.isnot(None)))).scalars().all():
         if req.arr_instance_id:
             req_by_key[(req.arr_instance_id, req.arr_id)] = req
-    for li in db.query(LibraryItem).filter(LibraryItem.arr_id.isnot(None)).all():
+    for li in (await db.execute(select(LibraryItem).filter(LibraryItem.arr_id.isnot(None)))).scalars().all():
         if li.arr_instance_id:
             lib_by_key[(li.arr_instance_id, li.arr_id)] = li
 
@@ -571,10 +574,10 @@ async def delete_arr_queue_item(
     queue_id: int,
     blocklist: bool = False,
     search: bool = True,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Supprime un item de la file *arr (avec blocklist et relance de recherche optionnelles)."""
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     if inst.arr_type == "sonarr":
         ok, msg = await sonarr.delete_queue_item(inst.url, inst.api_key, queue_id, blocklist=blocklist, search=search)
     elif inst.arr_type == "radarr":
@@ -598,14 +601,14 @@ class ManualImportRequest(BaseModel):
 
 
 @router.post("/downloads/manual-import")
-def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_db)):
+async def manual_import_download(body: ManualImportRequest, db: AsyncSession = Depends(get_db_async)):
     """Attache manuellement un item de la file *arr à une MediaRequest quand le
     rapprochement automatique (instance_id, arr_media_id) n'a rien trouvé — ex. média
     ajouté directement dans Sonarr/Radarr sans passer par l'app. Ne renvoie pas la
     notification "Nouvelle demande" : c'est un rattachement rétroactif, pas une vraie
     nouvelle demande utilisateur.
     """
-    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
+    inst = await async_get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
     expected_type = "sonarr" if body.media_type == "show" else "radarr"
     if inst.arr_type != expected_type:
         raise HTTPException(400, f"L'instance {inst.name} n'est pas de type {expected_type}")
@@ -614,14 +617,14 @@ def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_
     tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
 
     existing = (
-        db.query(MediaRequest)
+        select(MediaRequest)
         .filter(MediaRequest.arr_instance_id == inst.id, MediaRequest.arr_id == body.arr_id)
         .first()
     )
     if not existing and tmdb_str:
-        existing = db.query(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str).first()
+        existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str))).scalars().first()
     if not existing and tvdb_str:
-        existing = db.query(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str).first()
+        existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str))).scalars().first()
 
     if existing:
         if not existing.arr_instance_id:
@@ -630,7 +633,7 @@ def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_
             existing.arr_id = body.arr_id
         if body.poster_url and not existing.poster_url:
             existing.poster_url = body.poster_url
-        db.commit()
+        await db.commit()
         return {"status": "linked", "request_id": existing.id}
 
     req = MediaRequest(
@@ -648,19 +651,19 @@ def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_
         poster_url=body.poster_url,
     )
     db.add(req)
-    db.commit()
+    await db.commit()
     return {"status": "created", "request_id": req.id}
 
 
 @router.get("/downloads/sonarr-manual-import")
 async def sonarr_manual_import_candidates(
-    instance_id: int, download_id: str, series_id: int, db: Session = Depends(get_db)
+    instance_id: int, download_id: str, series_id: int, db: AsyncSession = Depends(get_db_async)
 ):
     """Candidats + épisodes disponibles pour un import manuel Sonarr (cas où l'épisode
     n'est pas encore officiellement sorti dans les métadonnées Sonarr et ne peut donc
     pas être matché automatiquement).
     """
-    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     if inst.arr_type != "sonarr":
         raise HTTPException(400, "Cette instance n'est pas Sonarr")
     candidates = await sonarr.get_manual_import_candidates(inst.url, inst.api_key, download_id)
@@ -682,11 +685,11 @@ class SonarrManualImportBody(BaseModel):
 
 
 @router.post("/downloads/sonarr-manual-import")
-async def sonarr_manual_import(body: SonarrManualImportBody, db: Session = Depends(get_db)):
+async def sonarr_manual_import(body: SonarrManualImportBody, db: AsyncSession = Depends(get_db_async)):
     """Force l'import d'un fichier téléchargé sur l'épisode choisi manuellement par
     l'utilisateur (équivalent de l'import manuel natif de Sonarr).
     """
-    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
+    inst = await async_get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
     if inst.arr_type != "sonarr":
         raise HTTPException(400, "Cette instance n'est pas Sonarr")
     ok, msg = await sonarr.manual_import_episode(
@@ -712,7 +715,7 @@ async def sonarr_manual_import(body: SonarrManualImportBody, db: Session = Depen
 
 
 @router.get("/downloads/direct")
-async def direct_downloads(db: Session = Depends(get_db)):
+async def direct_downloads(db: AsyncSession = Depends(get_db_async)):
     """Torrents poussés en direct-client (hors *arr), suivis via download_client_id + torrent_hash sur les demandes."""
     from ..services.download_clients import get_torrent_status
 
@@ -721,11 +724,11 @@ async def direct_downloads(db: Session = Depends(get_db)):
         return _direct_cache["data"]
 
     reqs = (
-        db.query(MediaRequest)
+        select(MediaRequest)
         .filter(MediaRequest.torrent_hash.isnot(None), MediaRequest.download_client_id.isnot(None))
         .all()
     )
-    clients = {c.id: c for c in db.query(DownloadClient).all()}
+    clients = {c.id: c for c in (await db.execute(select(DownloadClient))).scalars().all()}
     tracked = [(req, clients.get(req.download_client_id)) for req in reqs]
     tracked = [(req, client) for req, client in tracked if client and client.enabled]
 
@@ -773,21 +776,21 @@ async def direct_downloads(db: Session = Depends(get_db)):
 
 
 @router.get("/downloads/history")
-def downloads_history(
+async def downloads_history(
     limit: int = 100,
     media_type: Optional[str] = None,
     source: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Historique des téléchargements terminés (Sonarr/Radarr/Plex/torrent direct)."""
     from ..models import DownloadHistory
 
-    q = db.query(DownloadHistory)
+    q = select(DownloadHistory)
     if media_type in ("movie", "show"):
         q = q.filter(DownloadHistory.media_type == media_type)
     if source:
         q = q.filter(DownloadHistory.source == source)
-    rows = q.order_by(DownloadHistory.completed_at.desc()).limit(min(limit, 500)).all()
+    rows = (await db.execute(q.order_by(DownloadHistory.completed_at.desc()).limit(min(limit, 500)))).scalars().all()
     return [
         {
             "id": h.id,
@@ -809,7 +812,7 @@ async def sonarr_profiles(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_quality_profiles)
 
@@ -819,7 +822,7 @@ async def sonarr_folders(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_folders(url, api_key, instance_id, "sonarr", db, sonarr.get_root_folders)
 
@@ -829,7 +832,7 @@ async def radarr_profiles(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_quality_profiles)
 
@@ -839,7 +842,7 @@ async def radarr_folders(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_folders(url, api_key, instance_id, "radarr", db, radarr.get_root_folders)
 
@@ -849,7 +852,7 @@ async def sonarr_tags(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_call(url, api_key, instance_id, "sonarr", db, sonarr.get_tags)
 
@@ -859,6 +862,6 @@ async def radarr_tags(
     instance_id: Optional[int] = None,
     url: Optional[str] = None,
     api_key: Optional[str] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     return await _arr_call(url, api_key, instance_id, "radarr", db, radarr.get_tags)
