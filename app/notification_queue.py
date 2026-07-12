@@ -102,7 +102,7 @@ def _push_allowed(settings: Settings, channel: str, event: str) -> bool:
 
 
 async def enqueue(event: str, req_id: int, recipients: list[str], context: dict | str | None = None):
-    """Empile une notification dans la queue (synchrone, sans await).
+    """Empile et persiste une notification dans la queue.
 
     `context` porte les données structurées du jalon (scope/language/is_upgrade/
     season_number/episode_number pour "available", reason pour "failed") — remplace
@@ -144,6 +144,32 @@ async def enqueue(event: str, req_id: int, recipients: list[str], context: dict 
         
     if pending_id is not None:
         _queue.put_nowait((pending_id, event, req_id, recipients, context))
+
+
+def enqueue_from_sync(event: str, req_id: int, recipients: list[str], context: dict | str | None = None) -> None:
+    """Planifie ``enqueue`` depuis le code historique encore synchrone.
+
+    La persistance reste faite par :func:`enqueue`; ce petit adaptateur évite de
+    créer une coroutine orpheline lorsque les jobs synchrones signalent un
+    événement de disponibilité.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.error("Notification %s pour req#%s ignorée: aucune boucle asyncio active", event, req_id)
+        return
+
+    task = loop.create_task(enqueue(event, req_id, recipients, context))
+
+    def _report_failure(done: asyncio.Task) -> None:
+        try:
+            done.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Impossible d'empiler la notification %s pour req#%s", event, req_id)
+
+    task.add_done_callback(_report_failure)
 
 
 async def _delete_pending(pending_id: int | None):

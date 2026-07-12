@@ -4,11 +4,13 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import MediaRequest, NotificationLog, NotificationMilestone, PlexUser, PollHistory, Settings
-from ..notification_queue import enqueue as enqueue_notification
+from ..notification_queue import enqueue, enqueue_from_sync as enqueue_notification
 from ..utils import db_session, now_utc, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
@@ -444,6 +446,166 @@ def resolve_and_notify_availability(
         },
     )
     return True
+
+
+async def resolve_and_notify_availability_async(
+    settings: Settings,
+    req: MediaRequest,
+    db: AsyncSession,
+    *,
+    candidates: list[AvailabilityCandidate],
+) -> bool:
+    """Version AsyncSession du flux de jalons de disponibilité.
+
+    Les scanners historiques utilisent encore la version synchrone ci-dessus;
+    les routes et webhooks, eux, ne doivent jamais retomber sur ``db.query``.
+    """
+    user_obj = (
+        await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))
+    ).scalars().first()
+    unique_candidates = list({_candidate_key(candidate): candidate for candidate in candidates}.values())
+    if not unique_candidates:
+        return False
+
+    eligible: list[AvailabilityCandidate] = []
+    for candidate in unique_candidates:
+        if candidate.language is not None:
+            if not _user_wants_vf(user_obj, req.vf_category):
+                continue
+            if req.media_type == "movie" and not _resolve_movie_notify_language(settings, user_obj):
+                continue
+            if candidate.language == "vf" and req.media_type == "movie" and req.has_vf is not True:
+                continue
+            if candidate.is_upgrade and req.media_type == "movie" and req.has_vf is False:
+                continue
+        eligible.append(candidate)
+    if not eligible:
+        return False
+
+    new_candidates: list[AvailabilityCandidate] = []
+    for candidate in eligible:
+        direction = candidate.language or "simple"
+        existing = (
+            await db.execute(
+                select(NotificationMilestone).filter(
+                    NotificationMilestone.req_id == req.id,
+                    NotificationMilestone.plex_user_id == req.plex_user_id,
+                    NotificationMilestone.direction == direction,
+                    NotificationMilestone.milestone_type == candidate.scope,
+                    NotificationMilestone.season_number.is_(None)
+                    if candidate.season_number is None
+                    else NotificationMilestone.season_number == candidate.season_number,
+                    NotificationMilestone.episode_number.is_(None)
+                    if candidate.episode_number is None
+                    else NotificationMilestone.episode_number == candidate.episode_number,
+                )
+            )
+        ).scalars().first()
+        if existing:
+            continue
+        db.add(
+            NotificationMilestone(
+                req_id=req.id,
+                plex_user_id=req.plex_user_id,
+                direction=direction,
+                milestone_type=candidate.scope,
+                language=candidate.language,
+                is_upgrade=bool(candidate.is_upgrade),
+                season_number=candidate.season_number,
+                episode_number=candidate.episode_number,
+            )
+        )
+        new_candidates.append(candidate)
+    await db.commit()
+    if not new_candidates:
+        return False
+
+    winner = max(new_candidates, key=_candidate_priority)
+    email_flag = settings.email_on_vf_available if winner.is_upgrade else settings.email_on_available
+    if winner.language is not None:
+        recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
+    else:
+        recipients = _get_recipients(user_obj, settings, "available") if email_flag else []
+    await enqueue(
+        "available",
+        req.id,
+        recipients,
+        {
+            "scope": winner.scope,
+            "language": winner.language,
+            "is_upgrade": bool(winner.is_upgrade),
+            "season_number": winner.season_number,
+            "episode_number": winner.episode_number,
+        },
+    )
+    return True
+
+
+async def _queue_milestone_async(
+    settings: Settings,
+    req: MediaRequest,
+    db: AsyncSession,
+    *,
+    scope: str,
+    language: str | None = None,
+    season: int | None = None,
+    episode: int | None = None,
+) -> bool:
+    return await resolve_and_notify_availability_async(
+        settings,
+        req,
+        db,
+        candidates=[
+            AvailabilityCandidate(
+                scope=scope,
+                language=language,
+                is_upgrade=language == "vf",
+                season_number=season,
+                episode_number=episode,
+            )
+        ],
+    )
+
+
+async def _notify_async(
+    event: str,
+    settings: Settings,
+    req: MediaRequest,
+    db: AsyncSession,
+    reason: str = "",
+    force: bool = False,
+) -> None:
+    """Version async de la notification générique utilisée par les routes."""
+    if not force:
+        if event == "request" and req.request_mail_sent:
+            return
+        if event == "available" and req.available_mail_sent:
+            return
+    email_flag = (
+        getattr(settings, "email_on_failure", True)
+        if event in ("failed", "failure")
+        else settings.email_on_request
+        if event == "request"
+        else settings.email_on_available
+    )
+    user_obj = (
+        await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))
+    ).scalars().first()
+    recipients = _get_recipients(user_obj, settings, event) if email_flag else []
+    if event in ("failed", "failure"):
+        await enqueue("failed", req.id, recipients, {"reason": reason})
+        return
+    if event == "request":
+        await enqueue("request", req.id, recipients, None)
+        return
+    language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
+    scope = "movie" if req.media_type == "movie" else "series_complete"
+    await resolve_and_notify_availability_async(
+        settings,
+        req,
+        db,
+        candidates=[AvailabilityCandidate(scope=scope, language=language, is_upgrade=False)],
+    )
 
 
 def _queue_milestone(

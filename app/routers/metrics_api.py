@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 import sqlalchemy
 
 from .. import metrics as app_metrics
+from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
@@ -73,6 +74,9 @@ async def _timed_prowlarr_check(inst: ArrInstance) -> tuple[bool | None, str, fl
 @router.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db_async)):
     """État structuré de tous les services connectés avec latences."""
+    cached = await cache.get_json("plexarr:health")
+    if cached:
+        return cached
     s = (await db.execute(select(Settings))).scalars().first()
     checks: dict[str, tuple] = {}
     sonarr_inst = await _preferred_instance(db, "sonarr")
@@ -146,11 +150,13 @@ async def health_check(db: AsyncSession = Depends(get_db_async)):
     else:
         overall = "healthy"
 
-    return {
+    payload = {
         "status": overall,
         "checked_at": now_utc().isoformat(),
         "services": services,
     }
+    await cache.set_json("plexarr:health", payload, ttl_seconds=20)
+    return payload
 
 
 @router.get("/metrics")
@@ -161,13 +167,15 @@ async def get_metrics(db: AsyncSession = Depends(get_db_async)):
     failed = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "failed"))).scalar()
     notif_sent = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.available_mail_sent.is_(True)))).scalar()
     notif_missed = (
-        db.query(MediaRequest)
-        .filter(
-            MediaRequest.status == "available",
-            MediaRequest.available_mail_sent.is_(False),
+        await db.execute(
+            select(sqlalchemy.func.count())
+            .select_from(MediaRequest)
+            .filter(
+                MediaRequest.status == "available",
+                MediaRequest.available_mail_sent.is_(False),
+            )
         )
-        .count()
-    )
+    ).scalar()
     notif_total = notif_sent + notif_missed
     notif_failure_pct_db = round(notif_missed / notif_total * 100, 1) if notif_total else None
 

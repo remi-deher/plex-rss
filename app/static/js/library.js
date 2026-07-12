@@ -707,15 +707,20 @@ async function loadProwlarrSearch(mediaType, requestId) {
 function renderProwlarrReleases(rels, requestId) {
   if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
   const req = requestId == null ? 'null' : requestId;
-  const rows = rels.map(r => {
+  const ordered = [...rels].sort((a, b) => Number(_releaseLooksFrench(b.title)) - Number(_releaseLooksFrench(a.title)));
+  const firstEnglish = ordered.findIndex(r => !_releaseLooksFrench(r.title));
+  const rows = ordered.map((r, idx) => {
     const vf = _releaseLooksFrench(r.title) ? '<span class="badge badge-available me-1">VF</span>' : '';
-    return `<tr><td><div class="small">${vf}${escHtml(r.title)}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabProwlarrRelease(${JSON.stringify(r.downloadUrl)}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+    const section = idx === firstEnglish ? '<tr><td colspan="4" class="text-muted small pt-3">Resultats anglais / non VF</td></tr>' : '';
+    return `${section}<tr><td><div class="small">${vf}${escHtml(r.title)}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabProwlarrRelease(${JSON.stringify(r.downloadUrl)}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
   }).join('');
   return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 async function grabProwlarrRelease(downloadUrl, requestId, btn) {
   if (!downloadUrl) { showToast('Aucun lien de telechargement pour cette release', 'danger'); return; }
+  const tab = window.open('about:blank', '_blank', 'noopener');
+  if (tab) tab.location.href = downloadUrl;
   btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
   try {
     const clients = await fetch('/api/download-clients').then(r => r.json());
@@ -957,9 +962,12 @@ function renderArrReleases(rels, mediaType, instanceId, requestId) {
   if (!rels || !rels.length) return '<div class="text-muted small py-3">Aucune release trouvee.</div>';
   const inst = instanceId == null ? 'null' : instanceId;
   const req = requestId == null ? 'null' : requestId;
-  const rows = rels.map(r => {
+  const ordered = [...rels].sort((a, b) => Number(b.is_french) - Number(a.is_french));
+  const firstEnglish = ordered.findIndex(r => !r.is_french);
+  const rows = ordered.map((r, idx) => {
     const vf = r.is_french ? '<span class="badge badge-available me-1">VF</span>' : '';
-    return `<tr ${r.is_french ? 'style="background:rgba(229,160,13,.08)"' : ''}><td><div class="small">${vf}${escHtml(r.title)}${r.rejected ? '<i class="bi bi-exclamation-triangle text-warning ms-1"></i>' : ''}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
+    const section = idx === firstEnglish ? '<tr><td colspan="5" class="text-muted small pt-3">Resultats anglais / non VF</td></tr>' : '';
+    return `${section}<tr ${r.is_french ? 'style="background:rgba(229,160,13,.08)"' : ''}><td><div class="small">${vf}${escHtml(r.title)}${r.rejected ? '<i class="bi bi-exclamation-triangle text-warning ms-1"></i>' : ''}</div><div class="text-muted" style="font-size:11px">${escHtml(r.indexer||'')} · ${escHtml(r.quality||'')}</div></td><td class="text-nowrap small">${formatBytes(r.size)}</td><td class="text-nowrap small"><span class="text-success">${r.seeders}</span></td><td class="text-nowrap small">${r.custom_format_score}</td><td><button class="btn btn-sm btn-warning py-0 px-2" onclick='grabRelease(${JSON.stringify(mediaType)}, ${JSON.stringify(r.guid)}, ${r.indexer_id}, ${inst}, ${req}, this)'><i class="bi bi-download"></i></button></td></tr>`;
   }).join('');
   return `<div class="table-responsive"><table class="table table-dark table-sm table-hover align-middle mb-0"><thead><tr><th>Release</th><th>Taille</th><th>Seed</th><th>Score</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -969,6 +977,7 @@ async function grabRelease(mediaType, guid, indexerId, instanceId, requestId, bt
     const r = await fetch('/api/arr/grab', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ media_type:mediaType, guid, indexer_id:indexerId, instance_id:instanceId, request_id:requestId }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'Erreur');
     showToast('Release envoyee', 'success'); btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+    window.open('/downloads', '_blank', 'noopener');
   } catch (e) { showToast('Echec : ' + e.message, 'danger'); btn.disabled = false; btn.innerHTML = '<i class="bi bi-download"></i>'; }
 }
 

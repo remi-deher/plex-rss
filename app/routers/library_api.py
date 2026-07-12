@@ -26,7 +26,7 @@ from ..models import (
 from ..services import radarr, sonarr
 from ..services import seer as seer_service
 from ..services.email_service import build_correction_email, send_correction_notification
-from ..services.notification_orchestrator import _notify
+from ..services.notification_orchestrator import _notify_async as _notify
 from ..utils import async_get_or_404, identity_keys, now_utc_naive
 from .arr_api import _resolve_arr_instance
 

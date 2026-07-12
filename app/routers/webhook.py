@@ -18,7 +18,7 @@ from ..services.download_history import record_completed
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
     _resolve_movie_notify_language,
-    resolve_and_notify_availability,
+    resolve_and_notify_availability_async as resolve_and_notify_availability,
 )
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
 from ..utils import now_utc
@@ -79,7 +79,7 @@ async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
 
 
 def _arr_event_query(
-    db: Session,
+    db: AsyncSession,
     media_type: str,
     *,
     arr_id: int | None = None,
@@ -114,7 +114,7 @@ async def _mark_available_and_notify(
     title: str,
     media_type: str,
     arr_id: int | None,
-    db: Session,
+    db: AsyncSession,
     settings: Settings,
     *,
     tmdb_id: int | str | None = None,
@@ -197,7 +197,7 @@ async def _mark_available_and_notify(
 
 
 async def _delete_arr_requests(
-    db: Session,
+    db: AsyncSession,
     media_type: str,
     *,
     arr_id: int | None = None,

@@ -19,3 +19,4 @@ webauthn==2.3.0
 markdown==3.8.1
 aiosqlite==0.20.0
 asyncpg==0.30.0
+redis==5.2.1

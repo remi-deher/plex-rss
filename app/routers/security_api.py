@@ -58,7 +58,7 @@ def _check_permission(user_id: int, current_user_dict: dict) -> None:
 async def change_password(
     id: int,
     payload: PasswordChangePayload,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
@@ -77,7 +77,7 @@ async def change_password(
 @router.post("/{id}/totp/setup")
 async def totp_setup(
     id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
@@ -97,7 +97,7 @@ async def totp_setup(
 async def totp_enable(
     id: int,
     payload: TotpVerifyPayload,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
@@ -124,7 +124,7 @@ async def totp_enable(
 @router.delete("/{id}/totp")
 async def totp_disable(
     id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
@@ -146,7 +146,7 @@ async def totp_disable(
 async def register_options(
     request: Request,
     payload: WebAuthnRegisterOptionsPayload,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(payload.user_id, curr)
@@ -184,7 +184,7 @@ async def register_options(
 async def register_verify(
     request: Request,
     payload: WebAuthnRegisterVerifyPayload,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(payload.user_id, curr)
@@ -234,7 +234,7 @@ async def register_verify(
 @router.get("/{id}/passkeys")
 async def list_passkeys(
     id: int,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
@@ -253,7 +253,7 @@ async def list_passkeys(
 async def delete_passkey(
     id: int,
     credential_id: str,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)

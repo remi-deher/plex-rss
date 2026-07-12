@@ -30,6 +30,7 @@ from starlette.middleware.sessions import Session
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .database import get_db_async as get_db, init_db
+from .cache import cache
 from .dependencies import require_admin
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
@@ -72,7 +73,7 @@ async def lifespan(app: FastAPI):
     try:
         os.makedirs("data", exist_ok=True)
         logging.info("Running DB migrations...")
-        init_db()
+        await asyncio.to_thread(init_db)
         logging.info("DB OK. Starting scheduler...")
 
         # Lire l'intervalle de polling depuis la DB avant de lancer le scheduler
@@ -93,7 +94,7 @@ async def lifespan(app: FastAPI):
             await _db.close()
 
         await start_scheduler(poll_seconds=_seconds)
-        start_notif_worker()
+        await start_notif_worker()
         logging.info("Scheduler OK. App ready.")
     except Exception:
         logging.exception("STARTUP FAILED")
@@ -103,6 +104,7 @@ async def lifespan(app: FastAPI):
     await stop_notif_worker()
     logging.info("Shutting down: stopping scheduler (waits for any running job to finish)...")
     scheduler.shutdown()
+    await cache.close()
     logging.info("Shutdown complete.")
 
 
@@ -269,6 +271,7 @@ app.add_middleware(SessionSyncMiddleware)
 app.add_middleware(DynamicSecureSessionMiddleware, secret_key=get_secret_key())
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/vue", StaticFiles(directory="app/static/vue"), name="vue")
 
 
 @app.exception_handler(RedirectException)

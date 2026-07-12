@@ -7,10 +7,11 @@ les mises à jour dynamiques passent par les endpoints API (api.py).
 """
 
 import json
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -35,6 +36,7 @@ from ..utils import identity_keys as _identity_keys
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["fromjson"] = lambda s: json.loads(s) if s else []
+SPA_INDEX = Path("app/static/vue/index.html")
 
 
 def proxied_media_url(url: str | None) -> str:
@@ -762,3 +764,20 @@ async def notifications_page(request: Request, tab: str = "mes_notifications", d
             "logs": logs,
         },
     )
+
+
+@router.get("/app", response_class=HTMLResponse)
+@router.get("/app/{path:path}", response_class=HTMLResponse)
+async def vue_app(request: Request, path: str = "", _: None = Depends(require_auth)):
+    """Entrypoint de la SPA Vue.
+
+    Les routes API restent servies par FastAPI ; ce fichier HTML est produit par
+    Vite dans app/static/vue afin de permettre une migration progressive depuis
+    les templates Jinja existants.
+    """
+    if not SPA_INDEX.exists():
+        return HTMLResponse(
+            "<h1>Plexarr Vue</h1><p>Build frontend missing. Run <code>npm run build</code>.</p>",
+            status_code=503,
+        )
+    return FileResponse(SPA_INDEX)

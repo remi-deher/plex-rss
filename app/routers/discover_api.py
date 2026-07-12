@@ -129,7 +129,7 @@ async def get_discover(
     genre: Optional[int] = None,
     sort_by: str = "popularity.desc",
     page: int = 1,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     try:
         return await _annotate(db, await tmdb.discover(db, media_type, genre, sort_by, page))

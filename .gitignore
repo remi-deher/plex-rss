@@ -11,6 +11,9 @@ build/
 .eggs/
 *.whl
 
+# Frontend
+node_modules/
+
 # Virtual environments
 .venv/
 venv/

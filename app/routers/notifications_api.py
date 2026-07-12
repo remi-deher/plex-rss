@@ -474,5 +474,5 @@ async def resend_notification(log_id: int, db: AsyncSession = Depends(get_db_asy
         if event == "available"
         else None
     )
-    enqueue_notification(event, req.id, [log.recipient], context)
+    await enqueue_notification(event, req.id, [log.recipient], context)
     return {"status": "queued", "recipient": log.recipient, "event": event}

@@ -292,6 +292,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
 <script>
 let _healthCheckedAt = null;
+let _healthLastPayload = null;
+const HEALTH_CACHE_KEY = 'plexarr.health.last';
 async function approveRequest(id, btn) {
   const original = btn.innerHTML;
   btn.disabled = true;
@@ -343,58 +345,74 @@ async function loadHealth(manual = false) {
   if (manual && btn) { btn.disabled = true; btn.querySelector('i').classList.add('spin'); }
   try {
     const d = await fetch('/api/health').then(r => r.json());
-    const services = d.services || d;
-    _healthCheckedAt = d.checked_at ? new Date(d.checked_at) : new Date();
-    refreshHealthAge();
-    const map = {
-      'h-sonarr': services.sonarr,
-      'h-radarr': services.radarr,
-      'h-prowlarr': services.prowlarr,
-      'h-plex': services.plex,
-      'h-seer': services.seer,
-      'h-smtp': services.smtp,
-      'h-rss': services.rss
-    };
-    const actionBtn = (info, fallbackLabel) => {
-      const url = info.action_url || '/settings';
-      const label = info.action_label || fallbackLabel || 'Configurer';
-      return `<div class="mt-2"><a class="btn btn-xs btn-outline-warning py-0 px-2" href="${url}" style="font-size:11px">${label}</a></div>`;
-    };
-    for (const [id, info] of Object.entries(map)) {
-      const el = document.querySelector(`#${id} .health-badge`);
-      const card = document.getElementById(id);
-      if (!el || !card || !info) continue;
-      const state = info.state || (info.ok === null ? 'non_configured' : (info.ok ? 'ok' : 'error'));
-      if (state === 'disabled') {
-        el.innerHTML = `<span class="badge bg-secondary">D&eacute;sactiv&eacute;</span>`
-          + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
-          + actionBtn(info, 'Activer');
-        card.style.borderColor = '';
-      } else if (state === 'non_configured' || info.ok === null) {
-        el.innerHTML = `<span class="badge bg-secondary">Non configur&eacute;</span>`
-          + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
-          + actionBtn(info, 'Configurer');
-        card.style.borderColor = '';
-      } else if (info.ok) {
-        el.innerHTML = `<span class="badge bg-success" title="${info.message}">OK</span>`
-          + (info.response_ms != null ? `<div class="text-muted mt-1" style="font-size:10px">${info.response_ms} ms</div>` : '');
-        card.style.borderColor = '#198754';
-      } else {
-        el.innerHTML = `<span class="badge bg-danger">Erreur</span>`
-          + (info.message ? `<div class="text-danger mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
-          + actionBtn(info, 'Corriger');
-        card.style.borderColor = '#dc3545';
-      }
-    }
+    renderHealth(d);
+    try { localStorage.setItem(HEALTH_CACHE_KEY, JSON.stringify(d)); } catch (e) {}
   } catch(e) {
+    if (_healthLastPayload) renderHealth(_healthLastPayload, { stale: true });
   } finally {
     if (manual && btn) { btn.disabled = false; btn.querySelector('i').classList.remove('spin'); }
   }
 }
 
-function refreshHealthAge() {
+function renderHealth(d, { stale = false } = {}) {
+  _healthLastPayload = d;
+  const services = d.services || d;
+  _healthCheckedAt = d.checked_at ? new Date(d.checked_at) : new Date();
+  refreshHealthAge(stale);
+  const map = {
+    'h-sonarr': services.sonarr,
+    'h-radarr': services.radarr,
+    'h-prowlarr': services.prowlarr,
+    'h-plex': services.plex,
+    'h-seer': services.seer,
+    'h-smtp': services.smtp,
+    'h-rss': services.rss
+  };
+  const actionBtn = (info, fallbackLabel) => {
+    const url = info.action_url || '/settings';
+    const label = info.action_label || fallbackLabel || 'Configurer';
+    return `<div class="mt-2"><a class="btn btn-xs btn-outline-warning py-0 px-2" href="${url}" style="font-size:11px">${label}</a></div>`;
+  };
+  for (const [id, info] of Object.entries(map)) {
+    const el = document.querySelector(`#${id} .health-badge`);
+    const card = document.getElementById(id);
+    if (!el || !card || !info) continue;
+    const state = info.state || (info.ok === null ? 'non_configured' : (info.ok ? 'ok' : 'error'));
+    const staleLabel = stale ? '<div class="text-muted mt-1" style="font-size:10px">Derniere valeur conservee</div>' : '';
+    if (state === 'disabled') {
+      el.innerHTML = `<span class="badge bg-secondary">D&eacute;sactiv&eacute;</span>`
+        + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+        + staleLabel + actionBtn(info, 'Activer');
+      card.style.borderColor = '';
+    } else if (state === 'non_configured' || info.ok === null) {
+      el.innerHTML = `<span class="badge bg-secondary">Non configur&eacute;</span>`
+        + (info.message ? `<div class="text-muted mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+        + staleLabel + actionBtn(info, 'Configurer');
+      card.style.borderColor = '';
+    } else if (info.ok) {
+      el.innerHTML = `<span class="badge bg-success" title="${info.message}">OK</span>`
+        + (info.response_ms != null ? `<div class="text-muted mt-1" style="font-size:10px">${info.response_ms} ms</div>` : '')
+        + staleLabel;
+      card.style.borderColor = '#198754';
+    } else {
+      el.innerHTML = `<span class="badge bg-danger">Erreur</span>`
+        + (info.message ? `<div class="text-danger mt-1" style="font-size:10px;line-height:1.3">${info.message}</div>` : '')
+        + staleLabel + actionBtn(info, 'Corriger');
+      card.style.borderColor = '#dc3545';
+    }
+  }
+}
+
+function restoreCachedHealth() {
+  try {
+    const raw = localStorage.getItem(HEALTH_CACHE_KEY);
+    if (raw) renderHealth(JSON.parse(raw), { stale: true });
+  } catch (e) {}
+}
+
+function refreshHealthAge(stale = false) {
   const el = document.getElementById('health-updated');
-  if (el && _healthCheckedAt) el.textContent = 'Vérifié ' + formatRelTime(_healthCheckedAt);
+  if (el && _healthCheckedAt) el.textContent = (stale ? 'Derniere verification ' : 'Vérifié ') + formatRelTime(_healthCheckedAt);
 }
 
 // Anime un nombre de 0 vers sa valeur cible (≈600 ms, easing out).
@@ -699,6 +717,7 @@ async function loadActivity() {
 
 // Contenu rapide (lecture DB uniquement) en premier, pour que la page se sente
 // instantanée même si les vérifications réseau Sonarr/Radarr/Seer/Plex traînent.
+restoreCachedHealth();
 loadChart();
 loadOnboarding();
 loadPollTimer();

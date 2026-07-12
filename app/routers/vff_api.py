@@ -13,15 +13,14 @@ from ..models import LibraryItem, MediaRequest, RequestStatus, Settings
 from ..scheduler import (
     _invalidate_vf_cache,
     _load_known_vf_episodes,
-    _notify,
     _parse_vff_libraries,
     _persist_episode_status,
-    _queue_milestone,
     _trigger_vf_search,
     plex_sync_state,
     sync_plex_media,
     vff_scan_state,
 )
+from ..services.notification_orchestrator import _notify_async as _notify, _queue_milestone_async as _queue_milestone
 from ..serializers import format_datetime
 from ..services import vff as vff_svc
 from ..services.radarr import lookup_movie
@@ -281,7 +280,7 @@ async def vff_scan_single_request(
     force: bool = False,
     season: Optional[int] = None,
     episode: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Déclenche immédiatement une analyse VFF pour une demande spécifique."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -417,7 +416,7 @@ async def library_vff_scan(
     force: bool = False,
     season: Optional[int] = None,
     episode: Optional[int] = None,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Analyse VFF immédiate d'un élément de bibliothèque (met à jour son état VF)."""
     item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
