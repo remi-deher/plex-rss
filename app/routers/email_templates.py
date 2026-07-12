@@ -5,9 +5,11 @@ import markdown
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
 from ..models import MediaRequest, PlexUser, Settings
 from ..services.email_service import (
@@ -191,7 +193,7 @@ class PreviewRequest(_EmailShellDraft):
 
 
 @router.post("/api/email-preview")
-def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
+async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_async)):
     event_type = body.type if body.type in _EVENT_TYPES else "request"
     is_upgrade = event_type == "upgrade"
     # "upgrade" n'est pas un évènement du catalogue à part entière : c'est une variante
@@ -207,10 +209,10 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
         else ("movie", None, None, None)
     )
 
-    settings = db.query(Settings).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
     recipient_email = "jean.dupont@plex.local"
     if body.user_id:
-        user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == body.user_id))).scalars().first()
         if user:
             display_name = user.custom_name or user.display_name or user.plex_user_id
             recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
@@ -376,28 +378,28 @@ TEMPLATE_FIELDS = [
 
 
 @router.put("/api/email-templates")
-def save_templates(body: SaveTemplates, db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
+async def save_templates(body: SaveTemplates, db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
     s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     for field in TEMPLATE_FIELDS:
         setattr(s, field, getattr(body, field, None))
-    db.commit()
+    await db.commit()
     return {"status": "ok"}
 
 
 @router.post("/api/email-templates/restore-previous")
-def restore_previous_templates(db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
+async def restore_previous_templates(db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
     if not s.email_templates_backup:
         raise HTTPException(status_code=404, detail="Aucune sauvegarde précédente disponible")
     backup = json.loads(s.email_templates_backup)
     for field in TEMPLATE_FIELDS:
         setattr(s, field, backup.get(field))
     s.email_templates_backup = None
-    db.commit()
+    await db.commit()
     return {"status": "ok"}
 
 
 @router.post("/api/email-templates/reset")
-def reset_templates(db: Session = Depends(get_db), s: Settings = Depends(get_settings_or_404)):
+async def reset_templates(db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
     s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
@@ -451,7 +453,7 @@ def reset_templates(db: Session = Depends(get_db), s: Settings = Depends(get_set
         "email_show_plex_button",
     ):
         setattr(s, field, None)
-    db.commit()
+    await db.commit()
     return {"status": "ok"}
 
 
@@ -465,12 +467,12 @@ class TestSendRequest(_EmailShellDraft):
 
 @router.post("/api/email-templates/test-send")
 async def test_send_email(
-    body: TestSendRequest, db: Session = Depends(get_db), settings: Settings = Depends(get_settings_or_404)
+    body: TestSendRequest, db: AsyncSession = Depends(get_db_async), settings: Settings = Depends(get_settings_or_404)
 ):
     recipient = (settings.admin_notification_email or "").strip()
     display_name = "Jean Dupont"
     if body.user_id:
-        user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == body.user_id))).scalars().first()
         if user:
             recipient = user.notification_email or user.plex_email
             display_name = user.custom_name or user.display_name or user.plex_user_id
