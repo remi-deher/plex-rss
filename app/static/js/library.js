@@ -746,6 +746,7 @@ function vfActionsBar(m) {
 }
 const VF_STATUS_META = {
   vf: { badge: 'badge-available', icon: 'bi-translate', label: 'VF' },
+  vf_secondary: { badge: 'bg-warning text-dark', icon: 'bi-exclamation-diamond', label: 'FR non prioritaire' },
   vo: { badge: 'badge-sent', icon: 'bi-translate', label: 'VO' },
   present: { badge: 'bg-info text-dark', icon: 'bi-check-circle', label: 'Present' },
   absent: { badge: 'badge-pending', icon: 'bi-dash-circle', label: 'Absent' },
@@ -754,6 +755,7 @@ const VF_STATUS_META = {
 const VF_FILTERS = [
   { key: 'all', label: 'Tous', icon: 'bi-list-ul' },
   { key: 'vf', label: 'VF', icon: 'bi-translate' },
+  { key: 'vf_secondary', label: 'FR non prioritaire', icon: 'bi-exclamation-diamond' },
   { key: 'vo', label: 'VO', icon: 'bi-translate' },
   { key: 'unknown', label: 'A verifier', icon: 'bi-question-circle' },
   { key: 'absent', label: 'Absents', icon: 'bi-dash-circle' },
@@ -780,10 +782,10 @@ function seasonPosterHtml(url, fallbackUrl) {
   return `<div style="width:50px;height:75px;border-radius:6px;border:1px solid var(--pr-border);background:var(--pr-surface-2)" class="d-flex align-items-center justify-content-center flex-shrink-0"><i class="bi bi-collection-play text-muted"></i></div>`;
 }
 function sumEpisodeCounts(seasons) {
-  const totals = { vf: 0, vo: 0, present: 0, absent: 0, unknown: 0, all: 0 };
+  const totals = { vf: 0, vf_secondary: 0, vo: 0, present: 0, absent: 0, unknown: 0, all: 0 };
   (seasons || []).forEach(s => {
     const c = s.counts || {};
-    ['vf', 'vo', 'present', 'absent', 'unknown'].forEach(k => { totals[k] += c[k] || 0; });
+    ['vf', 'vf_secondary', 'vo', 'present', 'absent', 'unknown'].forEach(k => { totals[k] += c[k] || 0; });
     totals.all += (s.episodes || []).length;
   });
   return totals;
@@ -841,6 +843,7 @@ function renderVfSeasons(d, m) {
   const summaryCards = [
     { label: 'Episodes', value: totals.all, icon: 'bi-collection-play', color: 'text-warning' },
     { label: 'VF', value: totals.vf, icon: 'bi-translate', color: 'text-success' },
+    { label: 'FR non prioritaire', value: totals.vf_secondary, icon: 'bi-exclamation-diamond', color: 'text-warning' },
     { label: 'VO', value: totals.vo, icon: 'bi-volume-up', color: 'text-info' },
     { label: 'A verifier', value: totals.unknown, icon: 'bi-question-circle', color: 'text-secondary' },
     { label: 'Absents', value: totals.absent, icon: 'bi-dash-circle', color: 'text-warning' },
@@ -852,15 +855,20 @@ function renderVfSeasons(d, m) {
   const accordion = `<div class="accordion mt-2" id="${accId}">${d.seasons.map((s, i) => {
     const c = s.counts || {};
     const seasonTotal = (s.episodes || []).length || Object.values(c).reduce((a, b) => a + (b || 0), 0);
-    const progressValue = d.vf_available === false ? (c.present || 0) : (c.vf || 0);
+    const vfPresent = (c.vf || 0) + (c.vf_secondary || 0);
+    const progressValue = d.vf_available === false ? (c.present || 0) : vfPresent;
     const progressPct = seasonTotal ? Math.round(progressValue / seasonTotal * 100) : 0;
-    const summary = [c.vf && `${c.vf} VF`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} a verifier`, c.absent && `${c.absent} absents`].filter(Boolean).join(' - ');
-    let seasonBadge = '';
-    if ((c.vf || 0) > 0 && (c.vo || 0) === 0) {
-      seasonBadge = '<span class="badge badge-available ms-2" style="font-size:10px"><i class="bi bi-translate me-1"></i>VF</span>';
-    } else if ((c.vf || 0) > 0 && (c.vo || 0) > 0) {
-      seasonBadge = '<span class="badge bg-info text-dark ms-2" style="font-size:10px" title="Episodes VF et VO melanges dans cette saison"><i class="bi bi-translate me-1"></i>VF Partiel</span>';
+    const summary = [c.vf && `${c.vf} VF`, c.vf_secondary && `${c.vf_secondary} FR non prioritaires`, c.vo && `${c.vo} VO`, c.present && `${c.present} presents`, c.unknown && `${c.unknown} a verifier`, c.absent && `${c.absent} absents`].filter(Boolean).join(' - ');
+    const seasonBadges = [];
+    if (vfPresent > 0 && (c.vo || 0) === 0 && (c.absent || 0) === 0 && (c.unknown || 0) === 0) {
+      seasonBadges.push('<span class="badge badge-available" style="font-size:10px"><i class="bi bi-translate me-1"></i>VF</span>');
+    } else if (vfPresent > 0 && ((c.vo || 0) > 0 || (c.absent || 0) > 0 || (c.unknown || 0) > 0)) {
+      seasonBadges.push('<span class="badge bg-info text-dark" style="font-size:10px" title="Episodes VF et VO/absents melanges dans cette saison"><i class="bi bi-translate me-1"></i>VF Partiel</span>');
     }
+    if ((c.vf_secondary || 0) > 0) {
+      seasonBadges.push('<span class="badge bg-warning text-dark" style="font-size:10px" title="Piste francaise presente mais non prioritaire"><i class="bi bi-exclamation-diamond me-1"></i>FR non prioritaire</span>');
+    }
+    const seasonBadge = seasonBadges.join('');
     const eps = (s.episodes || []).map(e => {
       const meta = VF_STATUS_META[e.status] || VF_STATUS_META.unknown;
       const correctionBtn = IS_ADMIN ? `<button class="btn btn-sm btn-link p-0 text-success" title="Signaler une correction pour cet episode" onclick="openCorrectionModal(${reqId}, ${libId}, {scope:'episode', season:${s.season_number}, episode:${e.episode}})"><i class="bi bi-envelope-check"></i></button>` : '';

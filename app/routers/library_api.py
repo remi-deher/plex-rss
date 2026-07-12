@@ -11,7 +11,16 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import current_user, require_admin, require_auth
-from ..models import ArrInstance, LibraryItem, MediaIssue, MediaRequest, PlexUser, RequestStatus, Settings
+from ..models import (
+    ArrInstance,
+    LibraryItem,
+    MediaIssue,
+    MediaRequest,
+    PlexUser,
+    RequestStatus,
+    Settings,
+    VfEpisodeStatus,
+)
 from ..services import radarr, sonarr
 from ..services import seer as seer_service
 from ..services.email_service import build_correction_email, send_correction_notification
@@ -130,9 +139,7 @@ def _media_identity_filter(db: Session, item) -> list[MediaRequest]:
     return sorted(matches.values(), key=lambda r: r.requested_at or datetime.min, reverse=True)
 
 
-def _resolve_correction_media(
-    db: Session, library_id: Optional[int], request_id: Optional[int]
-) -> LibraryItem | MediaRequest:
+def _resolve_correction_media(db: Session, library_id: Optional[int], request_id: Optional[int]) -> LibraryItem | MediaRequest:
     if library_id:
         return get_or_404(db, LibraryItem, library_id, "Library item not found")
     if request_id:
@@ -157,9 +164,7 @@ def _correction_recipient(user: PlexUser) -> tuple[str, str]:
     return recipient, display_name
 
 
-def _validated_correction_target(
-    body: MediaCorrectionRequest, media: LibraryItem | MediaRequest
-) -> tuple[str, int | None, int | None]:
+def _validated_correction_target(body: MediaCorrectionRequest, media: LibraryItem | MediaRequest) -> tuple[str, int | None, int | None]:
     scope = (body.scope or "media").strip()
     if media.media_type != "show":
         return "movie", None, None
@@ -383,6 +388,80 @@ async def media_detail(
     }
 
 
+@router.get("/library-metrics")
+def library_metrics(media_type: Optional[str] = None, db: Session = Depends(get_db)):
+    """Compteurs rapides de la bibliotheque, exploitables par une UI ou un dashboard."""
+    lib_q = db.query(LibraryItem)
+    req_q = db.query(MediaRequest)
+    if media_type in ("movie", "show"):
+        lib_q = lib_q.filter(LibraryItem.media_type == media_type)
+        req_q = req_q.filter(MediaRequest.media_type == media_type)
+
+    library_items = lib_q.all()
+    requests = req_q.all()
+
+    def _lib_count(predicate) -> int:
+        return sum(1 for item in library_items if predicate(item))
+
+    library_ids = [item.id for item in library_items]
+    secondary_rows = []
+    if library_ids:
+        secondary_rows = (
+            db.query(VfEpisodeStatus)
+            .filter(
+                VfEpisodeStatus.source_type == "library_item",
+                VfEpisodeStatus.source_id.in_(library_ids),
+                VfEpisodeStatus.has_vf.is_(True),
+                VfEpisodeStatus.fr_is_default.is_(False),
+            )
+            .all()
+        )
+    secondary_media_ids = {row.source_id for row in secondary_rows}
+
+    status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
+    for req in requests:
+        status = req.status.value if hasattr(req.status, "value") else req.status
+        if status in status_counts:
+            status_counts[status] += 1
+
+    plex_anomaly = sum(
+        1
+        for req in requests
+        if (req.status.value if hasattr(req.status, "value") else req.status) == "available"
+        and not req.library_item_id
+        and not req.is_downloading
+    )
+
+    return {
+        "media_type": media_type if media_type in ("movie", "show") else "all",
+        "total": len(library_items),
+        "by_type": {
+            "movie": _lib_count(lambda item: item.media_type == "movie"),
+            "show": _lib_count(lambda item: item.media_type == "show"),
+        },
+        "vf": {
+            "complete": _lib_count(lambda item: item.has_vf is True),
+            "pending": _lib_count(lambda item: item.has_vf is False),
+            "unchecked": _lib_count(lambda item: item.has_vf is None),
+            "season_partial": _lib_count(
+                lambda item: item.has_vf is False and item.vf_granularity == "season_partial"
+            ),
+            "episode_partial": _lib_count(
+                lambda item: item.has_vf is False and item.vf_granularity == "episode_partial"
+            ),
+            "secondary_default": {
+                "media": len(secondary_media_ids),
+                "episodes": len(secondary_rows),
+            },
+        },
+        "requests": {
+            "total": len(requests),
+            "by_status": status_counts,
+        },
+        "plex_anomaly": plex_anomaly,
+    }
+
+
 @router.post("/media/correction-preview", dependencies=[Depends(require_admin)])
 def preview_media_correction(body: MediaCorrectionRequest, db: Session = Depends(get_db)):
     settings = db.query(Settings).first()
@@ -487,9 +566,7 @@ def create_media_issue(
     if not body.library_id and not body.request_id:
         raise HTTPException(400, "library_id or request_id is required")
     library_item = db.query(LibraryItem).filter(LibraryItem.id == body.library_id).first() if body.library_id else None
-    media_request = (
-        db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first() if body.request_id else None
-    )
+    media_request = db.query(MediaRequest).filter(MediaRequest.id == body.request_id).first() if body.request_id else None
     if body.library_id and not library_item:
         raise HTTPException(404, "Library item not found")
     if body.request_id and not media_request:
@@ -777,9 +854,7 @@ async def media_lookup(query: str, type: str = "movie", db: Session = Depends(ge
     return normalized
 
 
-def _needs_approval(
-    db: Session, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]
-) -> bool:
+def _needs_approval(db: Session, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]) -> bool:
     """Détermine si une demande doit passer par la file de validation admin.
 
     Jamais pour un admin/owner (ni un appel token API). Sinon uniquement si

@@ -45,6 +45,7 @@
 {% set lib_unit = 'serie' if active_type == 'show' else ('film' if active_type == 'movie' else 'media') %}
 {# Texte explicatif du hero, fonction du filtre (metric) actif. #}
 {% set vf_desc = {
+  'vf_secondary': "Medias dont au moins un episode possede une piste francaise qui n'est pas la piste par defaut.",
   'vf': "Version française complète disponible dans Plex.",
   'vo': "Présent dans Plex mais sans VF — la version française est encore attendue.",
   'season_partial': "Séries partiellement en VF : au moins une saison entière est en VF, mais la série ne l'est pas totalement.",
@@ -102,6 +103,10 @@
     <a href="/library?{{ type_qs }}vf=vo" class="metric-pill {% if active_vf == 'vo' %}is-active{% endif %}" aria-label="{{ counts.vo }} VF en attente">
       <span class="metric-value text-warning">{{ counts.vo }}</span>
       <span class="metric-label">VF en attente</span>
+    </a>
+    <a href="/library?{{ type_qs }}vf=vf_secondary" class="metric-pill {% if active_vf == 'vf_secondary' %}is-active{% endif %}" title="Piste francaise presente mais non prioritaire" aria-label="{{ counts.vf_secondary }} FR non prioritaires">
+      <span class="metric-value {% if counts.vf_secondary %}text-warning{% endif %}"><i class="bi bi-exclamation-diamond me-1"></i>{{ counts.vf_secondary }}</span>
+      <span class="metric-label">FR non prioritaire</span>
     </a>
     <a href="/library?{{ type_qs }}vf=season_partial" class="metric-pill {% if active_vf == 'season_partial' %}is-active{% endif %}" title="Au moins une saison entière est en VF, mais la série n'est pas totalement en VF" aria-label="{{ counts.season_partial }} VF partielle saisons">
       <span class="metric-value text-warning">{{ counts.season_partial }}</span>
