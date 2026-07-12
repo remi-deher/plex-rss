@@ -16,7 +16,9 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
+from sqlalchemy.future import select
+import sqlalchemy
 from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
 from ..utils import now_utc
@@ -147,7 +149,7 @@ ACTIONS_META = {
 
 async def _run_check_arr_statuses(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         from ..models import MediaRequest, RequestStatus
         from ..scheduler import (
@@ -158,12 +160,12 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
         from ..services.availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
         from ..services.seer import is_request_available as seer_available
 
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
             emit.warn("Aucun paramètre configuré.")
             return
 
-        candidates = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.sent_to_arr).all()
+        candidates = (await db.execute(select(MediaRequest).filter(MediaRequest.status == RequestStatus.sent_to_arr))).scalars().all()
 
         if not candidates:
             emit.info("Aucune demande en statut 'sent_to_arr' à vérifier.")
@@ -213,7 +215,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                     emit.ok(f"OK '{req.title}' - disponible confirme par Plex")
                 else:
                     note_arr_processed(req)
-                    db.commit()
+                    await db.commit()
                     emit.info(f"- '{req.title}' - traite cote service, attente Plex")
                 continue
             else:
@@ -225,14 +227,14 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
         emit.err(f"Erreur inattendue : {e}")
         raise
     finally:
-        db.close()
+        await db.close()
 
 
 async def _run_health_check(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
             emit.warn("Aucun paramètre configuré.")
             return
@@ -243,10 +245,7 @@ async def _run_health_check(run: MaintenanceRun):
         if settings.plex_rss_url:
             services.append(("Plex RSS", "plex-rss"))
         for inst in (
-            db.query(ArrInstance)
-            .filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"]))
-            .order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name)
-            .all()
+            (await db.execute(select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])).order_by(ArrInstance.arr_type, ArrInstance.is_default.desc(), ArrInstance.name))).scalars().all()
         ):
             services.append((inst.name or inst.arr_type.title(), inst))
         if settings.seer_url and settings.seer_api_key:
@@ -307,7 +306,7 @@ async def _run_health_check(run: MaintenanceRun):
         emit.err(f"Erreur inattendue : {e}")
         raise
     finally:
-        db.close()
+        await db.close()
 
 
 async def _run_seer_sync_users(run: MaintenanceRun):
@@ -367,12 +366,12 @@ async def _run_discover_users(run: MaintenanceRun):
 
 async def _run_retry_failed(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         from ..models import MediaRequest, RequestStatus
         from ..scheduler import poll_watchlists
 
-        failed = db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.failed).all()
+        failed = (await db.execute(select(MediaRequest).filter(MediaRequest.status == RequestStatus.failed))).scalars().all()
         if not failed:
             emit.info("Aucune demande en échec.")
             run.progress = 100
@@ -380,7 +379,7 @@ async def _run_retry_failed(run: MaintenanceRun):
         emit.info(f"{len(failed)} demande(s) en échec — repassage en pending…")
         for req in failed:
             req.status = RequestStatus.pending
-        db.commit()
+        await db.commit()
         run.progress = 40
         emit.info("Déclenchement du polling…")
         await poll_watchlists()
@@ -390,7 +389,7 @@ async def _run_retry_failed(run: MaintenanceRun):
         emit.err(str(e))
         raise
     finally:
-        db.close()
+        await db.close()
 
 
 async def _run_recalculate_dates(run: MaintenanceRun):
@@ -410,13 +409,13 @@ async def _run_recalculate_dates(run: MaintenanceRun):
 
 async def _run_enrich_and_merge(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         from ..models import MediaRequest, Settings
         from ..services.radarr import resolve_tmdb_id as radarr_resolve
         from ..services.seer import _headers, _resolve_tmdb_id
 
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         radarr_ok = bool(settings and settings.radarr_url and settings.radarr_api_key)
         seer_ok = bool(settings and settings.seer_url and settings.seer_api_key)
         if not radarr_ok and not seer_ok:
@@ -424,7 +423,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
             run.progress = 100
             return
 
-        no_tmdb = db.query(MediaRequest).filter(MediaRequest.tmdb_id.is_(None)).all()
+        no_tmdb = (await db.execute(select(MediaRequest).filter(MediaRequest.tmdb_id.is_(None)))).scalars().all()
         emit.info(f"{len(no_tmdb)} demande(s) sans tmdb_id à enrichir…")
         emit.info(
             f"Sources : {'Radarr (films, IMDB→TMDB) ' if radarr_ok else ''}{'Seer (titre) ' if seer_ok else ''}".strip()
@@ -458,7 +457,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
                 emit.warn(f"Erreur pour '{req.title}': {e}")
 
         if enriched:
-            db.commit()
+            await db.commit()
             emit.ok(f"{enriched} tmdb_id résolu(s).")
         else:
             emit.info("Aucun tmdb_id résolu.")
@@ -494,7 +493,7 @@ async def _run_enrich_and_merge(run: MaintenanceRun):
         emit.err(f"Erreur inattendue : {e}")
         raise
     finally:
-        db.close()
+        await db.close()
 
 
 async def _run_merge_duplicates(run: MaintenanceRun):
