@@ -21,13 +21,15 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from itsdangerous.exc import BadSignature
-from sqlalchemy.orm import Session as SqlSession
+from sqlalchemy.ext.asyncio import AsyncSession as SqlSession
+from sqlalchemy.future import select
+import sqlalchemy
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import Session
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .database import get_db, init_db
+from .database import get_db_async as get_db, init_db
 from .dependencies import require_admin
 from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
@@ -74,12 +76,12 @@ async def lifespan(app: FastAPI):
         logging.info("DB OK. Starting scheduler...")
 
         # Lire l'intervalle de polling depuis la DB avant de lancer le scheduler
-        from .database import SessionLocal
+        from .database import SessionLocalAsync
         from .models import Settings as _Settings
 
-        _db = SessionLocal()
+        _db = SessionLocalAsync()
         try:
-            _s = _db.query(_Settings).first()
+            _s = (await _db.execute(select(_Settings))).scalars().first()
             # Priorité à l'intervalle en secondes (polling sous la minute) ; repli sur les minutes.
             if _s and _s.poll_interval_seconds:
                 _seconds = _s.poll_interval_seconds
@@ -88,7 +90,7 @@ async def lifespan(app: FastAPI):
             else:
                 _seconds = 300
         finally:
-            _db.close()
+            await _db.close()
 
         start_scheduler(poll_seconds=_seconds)
         start_notif_worker()
@@ -115,36 +117,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
+async def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
     """Corps synchrone de la résolution de rôle (exécuté hors event loop via to_thread)."""
-    from .database import SessionLocal
+    from .database import SessionLocalAsync
     from .models import PlexUser, Settings
 
-    db = SessionLocal()
+    db = SessionLocalAsync()
     try:
         if plex_user_id:
-            u = db.query(PlexUser).filter(PlexUser.plex_user_id == plex_user_id).first()
+            u = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == plex_user_id))).scalars().first()
             if u:
                 return {"role": u.role or "user", "is_owner": u.role == "admin", "user_id": u.id}
         else:
-            u = db.query(PlexUser).filter(PlexUser.plex_user_id == username).first()
+            u = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == username))).scalars().first()
             if u:
                 return {"role": u.role or "user", "is_owner": u.role == "admin", "user_id": u.id}
-            s = db.query(Settings).first()
+            s = (await db.execute(select(Settings))).scalars().first()
             if s and s.auth_username and username == s.auth_username:
                 return {"role": "admin", "is_owner": True}
         return None
     finally:
-        db.close()
+        await db.close()
 
 
 class SessionSyncMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.session.get("authenticated"):
             try:
-                result = await asyncio.to_thread(
-                    _sync_session_role, request.session.get("plex_user_id"), request.session.get("username")
-                )
+                result = await _sync_session_role(request.session.get("plex_user_id"), request.session.get("username"))
                 if result:
                     request.session.update(result)
             except Exception:
