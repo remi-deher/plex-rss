@@ -91,6 +91,44 @@
   </div>
 </div>
 
+<!-- Modale : import manuel Sonarr (assigner un fichier téléchargé à un épisode, ex. sortie anticipée non encore référencée) -->
+<div class="modal fade" id="sonarrEpisodeImportModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--pr-surface);border:1px solid var(--pr-border)">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title"><i class="bi bi-film me-2"></i>Import manuel de l'épisode</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small">
+          Sonarr n'a pas pu rattacher ce fichier à un épisode automatiquement (souvent parce
+          que l'épisode n'est pas encore officiellement référencé). Choisis manuellement
+          l'épisode auquel ce fichier correspond.
+        </p>
+        <div id="sei-loading" class="text-center py-3"><span class="spinner-border spinner-border-sm text-warning"></span></div>
+        <div id="sei-form" style="display:none">
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small mb-1">Saison</label>
+              <select class="form-select form-select-sm" id="sei-season" onchange="seiPopulateEpisodes()"></select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1">Épisode</label>
+              <select class="form-select form-select-sm" id="sei-episode"></select>
+            </div>
+          </div>
+          <div class="text-muted small" id="sei-file-hint"></div>
+        </div>
+        <div id="sei-error" class="text-danger small" style="display:none"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-warning" id="sei-submit-btn" onclick="submitSonarrEpisodeImport()" disabled>Importer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -212,13 +250,18 @@ function renderRow(rec){
   const speedHtml = speed ? `<div class="text-info" style="font-size:11px">${fmtSpeed(speed)}</div>` : '';
   const canAct = rec.instance_id != null && rec.queue_id != null;
   const unmatched = rec.request_id == null && rec.library_id == null && (rec.arr_type === 'sonarr' || rec.arr_type === 'radarr');
-  if (unmatched) _recIndex[itemKey(rec)] = rec;
+  const needsEpisodeImport = rec.arr_type === 'sonarr' && m.key === 'error' && rec.arr_media_id != null && rec.download_id != null;
+  if (unmatched || needsEpisodeImport) _recIndex[itemKey(rec)] = rec;
   const linkBtn = unmatched
     ? `<button class="btn btn-sm btn-outline-info py-0 px-1" title="Associer manuellement à un film/série" onclick="openManualImport('${itemKey(rec).replace(/'/g, "\\'")}')"><i class="bi bi-link-45deg"></i></button>`
     : '';
-  const actions = (canAct || unmatched) ? `
+  const episodeBtn = needsEpisodeImport
+    ? `<button class="btn btn-sm btn-outline-warning py-0 px-1" title="Import manuel de l'épisode (Sonarr n'a pas pu matcher automatiquement)" onclick="openSonarrEpisodeImport('${itemKey(rec).replace(/'/g, "\\'")}')"><i class="bi bi-film"></i></button>`
+    : '';
+  const actions = (canAct || unmatched || needsEpisodeImport) ? `
     <div class="d-flex gap-1">
       ${linkBtn}
+      ${episodeBtn}
       ${canAct ? `<button class="btn btn-sm btn-outline-warning py-0 px-1" title="Blocklister et relancer une recherche" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, true, true, this)"><i class="bi bi-arrow-repeat"></i></button>` : ''}
       ${canAct ? `<button class="btn btn-sm btn-outline-danger py-0 px-1" title="Retirer de la file" onclick="queueAction(${rec.instance_id}, ${rec.queue_id}, false, false, this)"><i class="bi bi-x-lg"></i></button>` : ''}
     </div>` : '';
@@ -479,6 +522,95 @@ async function submitManualImport(){
     if (!r.ok) throw new Error(d.detail || 'Erreur');
     showToast(d.status === 'created' ? 'Demande créée et associée.' : 'Téléchargement associé à la demande existante.', 'success');
     bootstrap.Modal.getInstance(document.getElementById('manualImportModal'))?.hide();
+    loadQueue();
+  } catch(e) {
+    showToast('Erreur : ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---- Import manuel Sonarr (assigner un fichier à un épisode que Sonarr n'a pas su matcher) ----
+let _seiCurrent = null; // { instance_id, series_id, download_id, candidate }
+let _seiEpisodes = [];
+
+async function openSonarrEpisodeImport(key){
+  const rec = _recIndex[key];
+  if (!rec) return;
+  _seiCurrent = { instance_id: rec.instance_id, series_id: rec.arr_media_id, download_id: rec.download_id, candidate: null };
+  _seiEpisodes = [];
+  document.getElementById('sei-loading').style.display = '';
+  document.getElementById('sei-form').style.display = 'none';
+  document.getElementById('sei-error').style.display = 'none';
+  document.getElementById('sei-submit-btn').disabled = true;
+  new bootstrap.Modal(document.getElementById('sonarrEpisodeImportModal')).show();
+
+  try {
+    const params = new URLSearchParams({
+      instance_id: rec.instance_id,
+      download_id: rec.download_id,
+      series_id: rec.arr_media_id,
+    });
+    const d = await fetch(`/api/downloads/sonarr-manual-import?${params}`).then(r => r.json());
+    _seiEpisodes = (d.episodes || []).filter(e => e.seasonNumber != null).sort((a,b) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber);
+    _seiCurrent.candidate = (d.candidates && d.candidates[0]) || null;
+    if (!_seiCurrent.candidate) {
+      document.getElementById('sei-error').textContent = "Sonarr n'a trouvé aucun fichier à importer pour ce téléchargement (il a peut-être déjà été traité).";
+      document.getElementById('sei-error').style.display = '';
+      document.getElementById('sei-loading').style.display = 'none';
+      return;
+    }
+    const seasons = [...new Set(_seiEpisodes.map(e => e.seasonNumber))];
+    const seasonSel = document.getElementById('sei-season');
+    seasonSel.innerHTML = seasons.map(s => `<option value="${s}">${s === 0 ? 'Spéciales' : 'Saison ' + s}</option>`).join('');
+    seiPopulateEpisodes();
+    document.getElementById('sei-file-hint').textContent = 'Fichier : ' + (_seiCurrent.candidate.path || rec.title);
+    document.getElementById('sei-loading').style.display = 'none';
+    document.getElementById('sei-form').style.display = '';
+    document.getElementById('sei-submit-btn').disabled = false;
+  } catch(e) {
+    document.getElementById('sei-error').textContent = 'Erreur : ' + e.message;
+    document.getElementById('sei-error').style.display = '';
+    document.getElementById('sei-loading').style.display = 'none';
+  }
+}
+
+function seiPopulateEpisodes(){
+  const season = parseInt(document.getElementById('sei-season').value, 10);
+  const epSel = document.getElementById('sei-episode');
+  epSel.innerHTML = _seiEpisodes.filter(e => e.seasonNumber === season)
+    .map(e => `<option value="${e.id}">E${String(e.episodeNumber).padStart(2,'0')} — ${escHtml(e.title || '')}</option>`).join('');
+}
+
+async function submitSonarrEpisodeImport(){
+  if (!_seiCurrent || !_seiCurrent.candidate) return;
+  const btn = document.getElementById('sei-submit-btn');
+  const episodeId = parseInt(document.getElementById('sei-episode').value, 10);
+  if (!episodeId) { showToast('Choisis un épisode.', 'danger'); return; }
+  const c = _seiCurrent.candidate;
+  const body = {
+    instance_id: _seiCurrent.instance_id,
+    series_id: _seiCurrent.series_id,
+    episode_id: episodeId,
+    path: c.path,
+    folder_name: c.folderName || null,
+    download_id: _seiCurrent.download_id,
+    quality: c.quality || null,
+    languages: c.languages || null,
+    release_group: c.releaseGroup || null,
+    indexer_flags: c.indexerFlags || null,
+  };
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/downloads/sonarr-manual-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || 'Erreur');
+    showToast('Import manuel lancé.', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('sonarrEpisodeImportModal'))?.hide();
     loadQueue();
   } catch(e) {
     showToast('Erreur : ' + e.message, 'danger');

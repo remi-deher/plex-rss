@@ -13,56 +13,53 @@ import logging
 from sqlalchemy.orm import Session
 
 from ..models import Settings
-from .plex_api import get_admin_watchlist, get_friends_watchlist
+from .plex_api import get_friends_watchlist
 from .plex_rss import fetch_watchlist_rss
 
 logger = logging.getLogger(__name__)
 
 
 async def fetch_watchlist(settings: Settings) -> list[dict]:
-    """Retourne les éléments de watchlist en respectant la stratégie (priorité + fallback).
+    """Retourne les éléments de watchlist en fusionnant la source primaire et secondaire.
 
-    - Si la source primaire échoue et que le fallback est activé, tente la source secondaire.
-    - Si les deux échouent, retourne une liste vide (pas de crash du scheduler).
+    L'API Plex (`/api/v2/friends`) et le flux RSS peuvent chacun "réussir" (pas
+    d'exception) tout en omettant silencieusement certains amis — l'API n'expose un
+    authToken que pour certaines relations (cf. get_friends_watchlist), le RSS peut
+    lui aussi ne pas couvrir un compte selon sa config. Un simple fallback-sur-échec
+    ne rattrape donc pas ce cas : les deux sources sont toujours fusionnées (dédupliquées)
+    quand le fallback est activé, pas seulement quand la source primaire lève une exception.
     """
     priority = settings.watchlist_source_priority or "api"
     fallback_enabled = settings.watchlist_fallback_enabled
 
-    primary_fn, fallback_fn = _get_sources(priority, settings)
+    primary_fn, secondary_fn = _get_sources(priority, settings)
+    secondary_name = "rss" if priority == "api" else "api"
 
+    primary_items: list[dict] = []
+    primary_ok = True
     try:
-        items = await primary_fn()
-        if priority == "rss" and settings.plex_token:
-            items = await _append_admin_watchlist(items, settings)
-        logger.info(f"Watchlist fetched via {priority} ({len(items)} items)")
-        return items
+        primary_items = await primary_fn()
+        logger.info(f"Watchlist fetched via {priority} ({len(primary_items)} items)")
     except Exception as e:
+        primary_ok = False
         logger.warning(f"Primary source ({priority}) failed: {e}")
 
-    if fallback_enabled and fallback_fn:
-        fallback_name = "rss" if priority == "api" else "api"
-        try:
-            items = await fallback_fn()
-            logger.info(f"Watchlist fetched via fallback {fallback_name} ({len(items)} items)")
-            return items
-        except Exception as e:
-            logger.error(f"Fallback source ({fallback_name}) also failed: {e}")
+    if not fallback_enabled or not secondary_fn:
+        return primary_items
 
-    return []
-
-
-async def _append_admin_watchlist(items: list[dict], settings: Settings) -> list[dict]:
-    """Ajoute la watchlist du proprietaire Plex quand le RSS ne l'expose pas."""
     try:
-        admin_items = await get_admin_watchlist(settings.plex_url or "", settings.plex_token)
+        secondary_items = await secondary_fn()
     except Exception as e:
-        logger.warning(f"Could not append Plex owner watchlist: {e}")
-        return items
+        if not primary_ok:
+            logger.error(f"Both sources failed ({priority} and {secondary_name}): {e}")
+        else:
+            logger.warning(f"Secondary source ({secondary_name}) failed: {e}")
+        return primary_items
 
-    seen = {_item_key(item) for item in items}
-    merged = list(items)
+    seen = {_item_key(item) for item in primary_items}
+    merged = list(primary_items)
     added = 0
-    for item in admin_items:
+    for item in secondary_items:
         key = _item_key(item)
         if key in seen:
             continue
@@ -70,7 +67,9 @@ async def _append_admin_watchlist(items: list[dict], settings: Settings) -> list
         merged.append(item)
         added += 1
     if added:
-        logger.info(f"Watchlist fetched via rss + Plex owner API ({added} owner items)")
+        logger.info(f"Watchlist merged with {secondary_name}: +{added} item(s) not seen via {priority}")
+    elif not primary_ok:
+        logger.info(f"Watchlist fetched via fallback {secondary_name} ({len(secondary_items)} items)")
     return merged
 
 

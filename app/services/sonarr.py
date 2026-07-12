@@ -492,6 +492,8 @@ def _normalize_queue_record(r: dict, title: str, *, series: dict | None = None, 
     return {
         "queue_id": r.get("id"),
         "arr_media_id": r.get("seriesId"),
+        "download_id": r.get("downloadId"),
+        "output_path": r.get("outputPath"),
         "title": title,
         "status": r.get("status"),
         "tracked_state": r.get("trackedDownloadState"),
@@ -520,6 +522,70 @@ def _normalize_queue_record(r: dict, title: str, *, series: dict | None = None, 
             None,
         ),
     }
+
+
+async def get_manual_import_candidates(sonarr_url: str, api_key: str, download_id: str) -> list[dict]:
+    """Fichiers en attente d'import manuel pour un téléchargement (GET /manualimport).
+
+    Utilisé quand Sonarr ne peut pas matcher automatiquement un épisode (ex : épisode
+    pas encore officiellement sorti dans ses métadonnées), pour laisser l'utilisateur
+    choisir l'épisode à la main, comme dans l'UI native de Sonarr.
+    """
+    base = sonarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/manualimport",
+                params={"downloadId": download_id, "filterExistingFiles": "true"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.warning(f"Sonarr get_manual_import_candidates échec: {e}")
+        return []
+
+
+async def manual_import_episode(
+    sonarr_url: str,
+    api_key: str,
+    *,
+    path: str,
+    folder_name: str | None,
+    series_id: int,
+    episode_id: int,
+    download_id: str | None,
+    quality: dict | None,
+    languages: list | None,
+    release_group: str | None,
+    indexer_flags: int | None,
+) -> tuple[bool, str]:
+    """Force l'import d'un fichier téléchargé sur un épisode choisi manuellement."""
+    base = sonarr_url.rstrip("/")
+    file_entry = {
+        "path": path,
+        "folderName": folder_name,
+        "seriesId": series_id,
+        "episodeIds": [episode_id],
+        "downloadId": download_id,
+        "quality": quality,
+        "languages": languages or [],
+        "releaseGroup": release_group,
+        "indexerFlags": indexer_flags or 0,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Import manuel lancé"
+    except httpx.HTTPStatusError as e:
+        return False, f"Sonarr a refusé l'import : {e.response.text[:200]}"
+    except Exception as e:
+        return False, str(e)
 
 
 async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:

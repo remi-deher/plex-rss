@@ -631,6 +631,61 @@ def manual_import_download(body: ManualImportRequest, db: Session = Depends(get_
     return {"status": "created", "request_id": req.id}
 
 
+@router.get("/downloads/sonarr-manual-import")
+async def sonarr_manual_import_candidates(
+    instance_id: int, download_id: str, series_id: int, db: Session = Depends(get_db)
+):
+    """Candidats + épisodes disponibles pour un import manuel Sonarr (cas où l'épisode
+    n'est pas encore officiellement sorti dans les métadonnées Sonarr et ne peut donc
+    pas être matché automatiquement).
+    """
+    inst = get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    if inst.arr_type != "sonarr":
+        raise HTTPException(400, "Cette instance n'est pas Sonarr")
+    candidates = await sonarr.get_manual_import_candidates(inst.url, inst.api_key, download_id)
+    episodes = await sonarr.get_episodes(inst.url, inst.api_key, series_id)
+    return {"candidates": candidates, "episodes": episodes}
+
+
+class SonarrManualImportBody(BaseModel):
+    instance_id: int
+    series_id: int
+    episode_id: int
+    path: str
+    folder_name: Optional[str] = None
+    download_id: Optional[str] = None
+    quality: Optional[dict] = None
+    languages: Optional[list] = None
+    release_group: Optional[str] = None
+    indexer_flags: Optional[int] = None
+
+
+@router.post("/downloads/sonarr-manual-import")
+async def sonarr_manual_import(body: SonarrManualImportBody, db: Session = Depends(get_db)):
+    """Force l'import d'un fichier téléchargé sur l'épisode choisi manuellement par
+    l'utilisateur (équivalent de l'import manuel natif de Sonarr).
+    """
+    inst = get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
+    if inst.arr_type != "sonarr":
+        raise HTTPException(400, "Cette instance n'est pas Sonarr")
+    ok, msg = await sonarr.manual_import_episode(
+        inst.url,
+        inst.api_key,
+        path=body.path,
+        folder_name=body.folder_name,
+        series_id=body.series_id,
+        episode_id=body.episode_id,
+        download_id=body.download_id,
+        quality=body.quality,
+        languages=body.languages,
+        release_group=body.release_group,
+        indexer_flags=body.indexer_flags,
+    )
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"status": "ok", "message": msg}
+
+
 @router.get("/downloads/direct")
 async def direct_downloads(db: Session = Depends(get_db)):
     """Torrents poussés en direct-client (hors *arr), suivis via download_client_id + torrent_hash sur les demandes."""
