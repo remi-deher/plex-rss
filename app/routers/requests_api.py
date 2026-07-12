@@ -6,28 +6,31 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+import sqlalchemy
+import asyncio
 
-from ..database import get_db
+from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
 from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import _notify, check_arr_statuses, poll_watchlists
 from ..services import radarr, sonarr
-from ..utils import get_or_404, now_utc_naive, parse_email_list
+from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["requests"], dependencies=[Depends(require_auth)])
 
 
-def _caller_plex_user_id(request, db: Session) -> str | None:
+def _caller_plex_user_id(request, db: AsyncSession) -> str | None:
     caller = current_user(request, db)
     if not caller or caller.get("is_owner") or caller.get("role") == "admin":
         return None
     return caller.get("plex_user_id")
 
 
-def _ensure_request_visible(req: MediaRequest, request, db: Session) -> None:
+async def _ensure_request_visible(req: MediaRequest, request, db: AsyncSession) -> None:
     uid = _caller_plex_user_id(request, db)
     if not uid:
         return
@@ -58,8 +61,8 @@ class BulkResolveFilters(BaseModel):
     vf: Optional[str] = None
 
 
-def _bulk_request_ids_for_filters(db: Session, filters: BulkResolveFilters) -> list[int]:
-    q = db.query(MediaRequest)
+async def _bulk_request_ids_for_filters(db: AsyncSession, filters: BulkResolveFilters) -> list[int]:
+    q = select(MediaRequest)
     if filters.type in ("movie", "show"):
         q = q.filter(MediaRequest.media_type == filters.type)
     if filters.search:
@@ -79,16 +82,16 @@ def _bulk_request_ids_for_filters(db: Session, filters: BulkResolveFilters) -> l
 
     vf = filters.vf
     if vf == "vf":
-        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(True))
+        ids = select(LibraryItem.id).filter(LibraryItem.has_vf.is_(True))
         q = q.filter(MediaRequest.library_item_id.in_(ids))
     elif vf in ("vo", "season_partial", "episode_partial"):
-        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(False))
+        ids = select(LibraryItem.id).filter(LibraryItem.has_vf.is_(False))
         if vf != "vo":
             ids = ids.filter(LibraryItem.vf_granularity == vf)
         q = q.filter(MediaRequest.library_item_id.in_(ids))
     elif vf == "vf_secondary":
         ids = (
-            db.query(VfEpisodeStatus.source_id)
+            select(VfEpisodeStatus.source_id)
             .filter(
                 VfEpisodeStatus.source_type == "library_item",
                 VfEpisodeStatus.has_vf.is_(True),
@@ -98,7 +101,7 @@ def _bulk_request_ids_for_filters(db: Session, filters: BulkResolveFilters) -> l
         )
         q = q.filter(MediaRequest.library_item_id.in_(ids))
     elif vf == "unchecked":
-        ids = db.query(LibraryItem.id).filter(LibraryItem.has_vf.is_(None))
+        ids = select(LibraryItem.id).filter(LibraryItem.has_vf.is_(None))
         q = q.filter(MediaRequest.library_item_id.in_(ids))
     elif vf == "requested":
         q = q.filter(MediaRequest.library_item_id.is_(None))
@@ -109,11 +112,11 @@ def _bulk_request_ids_for_filters(db: Session, filters: BulkResolveFilters) -> l
             MediaRequest.is_downloading.is_(False),
         )
 
-    rows = q.order_by(MediaRequest.requested_at.desc()).all()
+    rows = (await db.execute(q.order_by(MediaRequest.requested_at.desc()))).scalars().all()
     return [r.id for r in rows]
 
 
-async def _delete_media_from_arr(db: Session, req: MediaRequest, delete_files: bool) -> tuple[bool, str]:
+async def _delete_media_from_arr(db: AsyncSession, req: MediaRequest, delete_files: bool) -> tuple[bool, str]:
     """Tente de supprimer le média correspondant dans Sonarr/Radarr.
 
     Ne renvoie jamais ok=True suite à une erreur réseau/HTTP : seule une confirmation
@@ -126,7 +129,7 @@ async def _delete_media_from_arr(db: Session, req: MediaRequest, delete_files: b
     if req.arr_slug and req.arr_slug.startswith("prowlarr:"):
         return True, "Gérée par Prowlarr, rien à supprimer côté *arr"
 
-    inst = db.query(ArrInstance).filter(ArrInstance.id == req.arr_instance_id).first()
+    inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == req.arr_instance_id))).scalars().first()
     if not inst:
         return True, "Instance *arr introuvable en base"
 
@@ -145,11 +148,11 @@ class RequestersUpdate(BaseModel):
 
 
 @router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_admin)])
-def update_requesters(request_id: int, body: RequestersUpdate, db: Session = Depends(get_db)):
+async def update_requesters(request_id: int, body: RequestersUpdate, db: AsyncSession = Depends(get_db_async)):
     """Définit la liste des demandeurs d'une demande (le 1er = demandeur principal,
     les suivants = demandeurs additionnels). Modification manuelle : **aucun mail de
     demande** n'est envoyé (le mail « demande reçue » ne part qu'à la création)."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
 
     # Déduplique en conservant l'ordre
     seen: set[str] = set()
@@ -162,7 +165,7 @@ def update_requesters(request_id: int, body: RequestersUpdate, db: Session = Dep
     if not ordered:
         raise HTTPException(400, "Au moins un demandeur est requis.")
 
-    users = {u.plex_user_id: u for u in db.query(PlexUser).all()}
+    users = {u.plex_user_id: u for u in (await db.execute(select(PlexUser))).scalars().all()}
 
     def _name(uid: str) -> str:
         u = users.get(uid)
@@ -175,20 +178,18 @@ def update_requesters(request_id: int, body: RequestersUpdate, db: Session = Dep
         [{"plex_user_id": uid, "display_name": _name(uid)} for uid in ordered[1:]],
         ensure_ascii=False,
     )
-    db.commit()
+    await db.commit()
     return {"ok": True, "requester_ids": ordered}
 
 
-def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
     """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
-    db.query(VfEpisodeStatus).filter(
-        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
-    ).delete()
+    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 @router.get("/requests")
-def list_requests(query: Optional[str] = None, request: Request = None, db: Session = Depends(get_db)):
-    q = db.query(MediaRequest)
+async def list_requests(query: Optional[str] = None, request: Request = None, db: AsyncSession = Depends(get_db_async)):
+    q = select(MediaRequest)
     uid = _caller_plex_user_id(request, db) if request else None
     if uid:
         q = q.filter(
@@ -198,13 +199,13 @@ def list_requests(query: Optional[str] = None, request: Request = None, db: Sess
         )
     if query:
         q = q.filter(MediaRequest.title.ilike(f"%{query}%"))
-    return q.order_by(MediaRequest.requested_at.desc()).limit(200).all()
+    return (await db.execute(q.order_by(MediaRequest.requested_at.desc()).limit(200))).scalars().all()
 
 
 @router.get("/plex/library-search")
-async def plex_library_search(query: str, db: Session = Depends(get_db)):
+async def plex_library_search(query: str, db: AsyncSession = Depends(get_db_async)):
     """Cherche un titre dans la bibliothèque Plex locale."""
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     if not s or not s.plex_url or not s.plex_token:
         return []
     try:
@@ -237,31 +238,26 @@ async def plex_library_search(query: str, db: Session = Depends(get_db)):
 
 
 @router.get("/requests/pending", dependencies=[Depends(require_admin)])
-def list_pending_requests(db: Session = Depends(get_db)):
+async def list_pending_requests(db: AsyncSession = Depends(get_db_async)):
     """File des demandes en attente de validation (admin). Déclaré avant
     /requests/{request_id} pour ne pas être capté par le param int."""
     from ..serializers import serialize_media_request
 
-    reqs = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.status == RequestStatus.pending_approval)
-        .order_by(MediaRequest.requested_at.desc())
-        .all()
-    )
-    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.status == RequestStatus.pending_approval).order_by(MediaRequest.requested_at.desc()))).scalars().all()
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
     return [serialize_media_request(r, users) for r in reqs]
 
 
 @router.post("/requests/bulk/resolve", dependencies=[Depends(require_admin)])
-def resolve_bulk_requests(body: BulkResolveFilters, db: Session = Depends(get_db)):
-    ids = _bulk_request_ids_for_filters(db, body)
+async def resolve_bulk_requests(body: BulkResolveFilters, db: AsyncSession = Depends(get_db_async)):
+    ids = await _bulk_request_ids_for_filters(db, body)
     return {"status": "success", "count": len(ids), "ids": ids}
 
 
 @router.get("/requests/{request_id}")
-async def get_request(request_id: int, request: Request, db: Session = Depends(get_db)):
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
-    _ensure_request_visible(req, request, db)
+async def get_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    await _ensure_request_visible(req, request, db)
     d = {c.name: getattr(req, c.name) for c in req.__table__.columns}
 
     # Utilise le sérialiseur centralisé pour les formats de dates
@@ -271,7 +267,7 @@ async def get_request(request_id: int, request: Request, db: Session = Depends(g
     d["available_at"] = format_datetime(req.available_at)
 
     if req.torrent_hash and req.download_client_id:
-        client = db.query(DownloadClient).filter(DownloadClient.id == req.download_client_id).first()
+        client = (await db.execute(select(DownloadClient).filter(DownloadClient.id == req.download_client_id))).scalars().first()
         if client and client.enabled:
             try:
                 from ..services.download_clients import get_torrent_status
@@ -284,8 +280,8 @@ async def get_request(request_id: int, request: Request, db: Session = Depends(g
             except Exception as e:
                 logger.warning(f"Could not retrieve torrent status: {e}")
 
-    settings = db.query(Settings).first()
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     raw = (user_obj.notification_email if user_obj else None) or (settings.smtp_from if settings else "") or ""
     user_emails = parse_email_list(raw)
     notify_admin = bool(user_obj and getattr(user_obj, "notify_admin", True))
@@ -294,7 +290,7 @@ async def get_request(request_id: int, request: Request, db: Session = Depends(g
     d["_admin_emails"] = admin_emails
     d["_notify_admin"] = notify_admin
 
-    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in db.query(PlexUser).all()}
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
     d["plex_user"] = users.get(req.plex_user_id, req.plex_user or req.plex_user_id)
     try:
         extras = _json.loads(req.extra_requesters or "[]")
@@ -309,24 +305,24 @@ async def get_request(request_id: int, request: Request, db: Session = Depends(g
 
 
 @router.post("/requests/bulk/retry", dependencies=[Depends(require_admin)])
-async def bulk_retry_requests(body: BulkAction, db: Session = Depends(get_db)):
+async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_db_async)):
     """Repasse plusieurs demandes en pending et lance un polling."""
-    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
     count = 0
     for req in reqs:
         if req.status in ("failed", "pending"):
             req.status = "pending"
             count += 1
     if count > 0:
-        db.commit()
+        await db.commit()
         await poll_watchlists()
     return {"status": "success", "count": count}
 
 
 @router.post("/requests/bulk/mark-processed", dependencies=[Depends(require_admin)])
-def bulk_mark_requests_processed(body: BulkAction, request: Request, db: Session = Depends(get_db)):
+async def bulk_mark_requests_processed(body: BulkAction, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
-    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
     now = now_utc_naive()
     items = []
     for req in reqs:
@@ -357,12 +353,12 @@ def bulk_mark_requests_processed(body: BulkAction, request: Request, db: Session
             details=_json.dumps({"items": items, "notification_sent": False}, ensure_ascii=False),
         )
     )
-    db.commit()
+    await db.commit()
     return {"status": "success", "count": len(reqs)}
 
 
 @router.post("/requests/bulk/delete", dependencies=[Depends(require_admin)])
-async def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
+async def bulk_delete_requests(body: BulkAction, db: AsyncSession = Depends(get_db_async)):
     """Supprime plusieurs demandes définitivement.
 
     Si `delete_from_arr=True`, tente aussi la suppression côté Sonarr/Radarr avant
@@ -370,7 +366,7 @@ async def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
     est laissée intacte (ni suppression locale ni *arr) plutôt que de désynchroniser les
     deux côtés — les autres demandes de la sélection sont traitées normalement.
     """
-    reqs = db.query(MediaRequest).filter(MediaRequest.id.in_(body.ids)).all()
+    reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
     count = 0
     skipped = []
     for req in reqs:
@@ -379,10 +375,10 @@ async def bulk_delete_requests(body: BulkAction, db: Session = Depends(get_db)):
             if not ok:
                 skipped.append({"id": req.id, "title": req.title, "reason": msg})
                 continue
-        _delete_vf_episode_cache(db, req.id)
-        db.delete(req)
+        await _delete_vf_episode_cache(db, req.id)
+        await db.delete(req)
         count += 1
-    db.commit()
+    await db.commit()
     return {"status": "success", "count": count, "skipped": skipped}
 
 
@@ -391,16 +387,16 @@ class RejectBody(BaseModel):
 
 
 @router.post("/requests/{request_id}/approve", dependencies=[Depends(require_admin)])
-async def approve_request(request_id: int, request: Request, db: Session = Depends(get_db)):
+async def approve_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Valide une demande en attente : la transmet à *arr et bascule en sent_to_arr."""
     from ..services.watchlist_poller import _submit_to_arr
 
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status != RequestStatus.pending_approval:
         raise HTTPException(400, "Seules les demandes en attente de validation peuvent être approuvées.")
 
-    settings = db.query(Settings).first()
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    settings = (await db.execute(select(Settings))).scalars().first()
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     item: dict[str, Any] = {
         "title": req.title,
         "year": req.year,
@@ -428,17 +424,17 @@ async def approve_request(request_id: int, request: Request, db: Session = Depen
     req.approved_by = (caller or {}).get("plex_user_id") or "admin"
     req.approved_at = now_utc_naive()
     req.rejected_reason = None
-    db.commit()
+    await db.commit()
 
     if settings:
-        _notify("request", settings, req, db)
+        await _notify("request", settings, req, db)
     return {"ok": True, "status": "sent_to_arr", "id": req.id}
 
 
 @router.post("/requests/{request_id}/reject", dependencies=[Depends(require_admin)])
-def reject_request(request_id: int, body: RejectBody, request: Request, db: Session = Depends(get_db)):
+async def reject_request(request_id: int, body: RejectBody, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Refuse une demande en attente (conservée en historique avec le motif)."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status != RequestStatus.pending_approval:
         raise HTTPException(400, "Seules les demandes en attente de validation peuvent être refusées.")
     req.status = RequestStatus.rejected
@@ -446,30 +442,30 @@ def reject_request(request_id: int, body: RejectBody, request: Request, db: Sess
     caller = current_user(request, db)
     req.approved_by = (caller or {}).get("plex_user_id") or "admin"
     req.approved_at = now_utc_naive()
-    db.commit()
+    await db.commit()
     return {"ok": True, "status": "rejected", "id": req.id}
 
 
 @router.post("/requests/{request_id}/retry", dependencies=[Depends(require_admin)])
-async def retry_request(request_id: int, db: Session = Depends(get_db)):
+async def retry_request(request_id: int, db: AsyncSession = Depends(get_db_async)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status not in ("failed", "pending"):
         raise HTTPException(400, "Only failed or pending requests can be retried")
     req.status = "pending"
-    db.commit()
+    await db.commit()
     await poll_watchlists()
     return {"status": "retrying"}
 
 
 @router.post("/requests/retry-failed", dependencies=[Depends(require_admin)])
-async def retry_all_failed(db: Session = Depends(get_db)):
+async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
     """Repasse toutes les demandes 'failed' en 'pending' et déclenche un polling."""
-    failed = db.query(MediaRequest).filter(MediaRequest.status == "failed").all()
+    failed = (await db.execute(select(MediaRequest).filter(MediaRequest.status == "failed"))).scalars().all()
     count = len(failed)
     for req in failed:
         req.status = "pending"
-    db.commit()
+    await db.commit()
     await poll_watchlists()
     return {"status": "ok", "retried": count}
 
@@ -484,11 +480,11 @@ async def recalculate_dates():
 
 
 @router.post("/requests/merge-duplicates", dependencies=[Depends(require_admin)])
-def merge_duplicates_endpoint():
+async def merge_duplicates_endpoint():
     """Fusionne les MediaRequest en double (même tmdb_id toutes sources)."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
-    merge_duplicates(dry_run=False)
+    await asyncio.to_thread(merge_duplicates, dry_run=False)
     return {"status": "ok"}
 
 
@@ -505,26 +501,26 @@ async def delete_request(
     request_id: int,
     delete_from_arr: bool = False,
     delete_files: bool = False,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     _: None = Depends(require_admin),
 ):
     """Supprime une demande. Si `delete_from_arr=True`, supprime aussi le média dans
     Sonarr/Radarr — mais seulement si cette suppression réussit (ou que le média y est
     déjà absent) : si *arr est injoignable, rien n'est supprimé du tout (ni côté *arr,
     ni localement) pour ne jamais désynchroniser les deux."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if delete_from_arr:
         ok, msg = await _delete_media_from_arr(db, req, delete_files)
         if not ok:
             raise HTTPException(502, f"Suppression *arr impossible ({msg}) — rien n'a été supprimé.")
-    _delete_vf_episode_cache(db, req.id)
-    db.delete(req)
-    db.commit()
+    await _delete_vf_episode_cache(db, req.id)
+    await db.delete(req)
+    await db.commit()
     return {"status": "deleted"}
 
 
 @router.post("/requests/{request_id}/cancel")
-def cancel_own_request(request_id: int, request: Request, db: Session = Depends(get_db)):
+async def cancel_own_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Annulation par l'utilisateur de SA propre demande (profil portail).
 
     Retire l'appelant de la liste des demandeurs. S'il en était le seul, la demande
@@ -539,13 +535,13 @@ def cancel_own_request(request_id: int, request: Request, db: Session = Depends(
     # Identité robuste : la session peut ne pas porter plex_user_id (login mot de passe).
     uid = caller.get("plex_user_id")
     if not uid and caller.get("id"):
-        u = db.query(PlexUser).filter(PlexUser.id == caller["id"]).first()
+        u = (await db.execute(select(PlexUser).filter(PlexUser.id == caller["id"]))).scalars().first()
         uid = u.plex_user_id if u else None
     is_admin = bool(caller.get("is_owner") or caller.get("role") == "admin")
     if not uid and not is_admin:
         raise HTTPException(status_code=403, detail="Impossible d'identifier le compte demandeur.")
 
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
 
     try:
         extras = _json.loads(req.extra_requesters or "[]")
@@ -565,13 +561,13 @@ def cancel_own_request(request_id: int, request: Request, db: Session = Depends(
 
     if not remaining:
         # Seul demandeur (ou admin annulant) : on annule la demande localement.
-        _delete_vf_episode_cache(db, req.id)
-        db.delete(req)
-        db.commit()
+        await _delete_vf_episode_cache(db, req.id)
+        await db.delete(req)
+        await db.commit()
         return {"status": "cancelled", "removed": True}
 
     # D'autres demandeurs subsistent : on reconstruit primaire + additionnels sans l'appelant.
-    users = {u.plex_user_id: u for u in db.query(PlexUser).all()}
+    users = {u.plex_user_id: u for u in (await db.execute(select(PlexUser))).scalars().all()}
 
     def _name(x: str) -> str:
         u = users.get(x)
@@ -583,36 +579,36 @@ def cancel_own_request(request_id: int, request: Request, db: Session = Depends(
         [{"plex_user_id": x, "display_name": _name(x)} for x in remaining[1:]],
         ensure_ascii=False,
     )
-    db.commit()
+    await db.commit()
     return {"status": "cancelled", "removed": False}
 
 
 @router.post("/requests/{request_id}/mark-processed")
-def mark_request_processed(
+async def mark_request_processed(
     request_id: int,
     event: str = "available",
     notify: bool = True,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db_async),
     _: None = Depends(require_admin),
 ):
     """Envoie manuellement le mail "demande" ou "disponible" pour une requête."""
-    req = get_or_404(db, MediaRequest, request_id, "Request not found")
-    settings = db.query(Settings).first()
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
 
     if event == "request":
         if settings and notify:
-            _notify("request", settings, req, db, force=True)
+            await _notify("request", settings, req, db, force=True)
         req.request_mail_sent = True
     else:
         event = "available"
         if settings and notify:
-            _notify("available", settings, req, db, force=True)
+            await _notify("available", settings, req, db, force=True)
         req.status = RequestStatus.available
         req.available_mail_sent = True
         if not req.available_at:
             req.available_at = now_utc_naive()
 
-    db.commit()
+    await db.commit()
 
     return {
         "status": "success",
