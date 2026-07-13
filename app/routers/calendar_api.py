@@ -214,7 +214,6 @@ async def unified_calendar(
                         continue
 
                     if not tracked:
-                        from datetime import datetime, timezone
                         # Extract the added date if available
                         added_date = None
                         added_str = series.get("added")
@@ -296,7 +295,6 @@ async def unified_calendar(
                         continue
 
                     if not tracked:
-                        from datetime import datetime, timezone
                         # Extract the added date if available
                         added_date = None
                         added_str = m.get("added")
