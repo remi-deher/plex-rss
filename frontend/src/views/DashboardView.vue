@@ -156,7 +156,7 @@
       <section class="panel">
         <div class="panel-head">
           <h2>File de telechargement</h2>
-          <RouterLink to="/downloads">Tout voir</RouterLink>
+          <RouterLink to="/downloads" class="panel-link">Tout voir</RouterLink>
         </div>
         <article v-for="item in downloadQueue" :key="item.id" class="detail-row">
           <div class="inline-row gap-10">

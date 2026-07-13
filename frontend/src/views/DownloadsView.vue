@@ -4,31 +4,174 @@
       <div><h1>Telechargements</h1><p>Files Sonarr/Radarr, clients directs et historique.</p></div>
       <button class="icon-button" :disabled="loading" title="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
     </header>
-    <section class="metric-grid compact-metrics"><article v-for="entry in summary" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article></section>
-    <nav class="detail-tabs page-tabs"><button :class="{active:tab==='queue'}" @click="tab='queue'">File active</button><button :class="{active:tab==='history'}" @click="tab='history'">Historique</button></nav>
-    <div class="toolbar wrap"><input v-model="query" class="search" type="search" placeholder="Filtrer les titres"><select v-if="tab==='queue'" v-model="instance"><option value="">Toutes les instances</option><option v-for="value in instances" :key="value">{{ value }}</option></select><select v-if="tab==='queue'" v-model="status"><option value="">Tous les statuts</option><option value="downloading">En cours</option><option value="queued">En file</option><option value="paused">En pause</option><option value="error">En erreur</option></select></div>
+    <section class="metric-grid compact-metrics">
+      <article v-for="entry in summary" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article>
+    </section>
+
+    <!-- Imports non associés — alerte si des items nécessitent une action -->
+    <section v-if="unmatchedItems.length" class="panel unmatched-alert">
+      <div class="unmatched-header">
+        <div class="unmatched-icon"><AlertTriangle /></div>
+        <div>
+          <strong>{{ unmatchedItems.length }} import{{ unmatchedItems.length > 1 ? 's' : '' }} non associé{{ unmatchedItems.length > 1 ? 's' : '' }}</strong>
+          <span>Ces téléchargements ne sont pas liés à une demande ou à un élément de la bibliothèque. Cliquez sur <Link style="width:14px;height:14px;display:inline;vertical-align:middle"/> pour les associer.</span>
+        </div>
+        <button class="panel-link" @click="tab='queue'; statusFilter='unmatched'">Voir les imports</button>
+      </div>
+      <div class="unmatched-list">
+        <div v-for="row in unmatchedItems.slice(0, 4)" :key="rowKey(row)" class="unmatched-item">
+          <span class="unmatched-title">{{ row.title }}</span>
+          <span class="badge" :class="row.arr_type === 'sonarr' ? '' : ''">{{ row.instance || '-' }}</span>
+          <button class="icon-button" title="Associer manuellement" @click="openManual(row)"><Link /></button>
+        </div>
+        <div v-if="unmatchedItems.length > 4" class="unmatched-more">
+          + {{ unmatchedItems.length - 4 }} autre(s)
+        </div>
+      </div>
+    </section>
+
+    <nav class="detail-tabs page-tabs">
+      <button :class="{active:tab==='queue'}" @click="tab='queue'; statusFilter=''">
+        File active
+        <span v-if="errorItems.length" class="tab-badge error-badge">{{ errorItems.length }}</span>
+      </button>
+      <button :class="{active:tab==='history'}" @click="tab='history'">Historique</button>
+    </nav>
+    <div class="toolbar wrap">
+      <input v-model="query" class="search" type="search" placeholder="Filtrer les titres">
+      <select v-if="tab==='queue'" v-model="instance"><option value="">Toutes les instances</option><option v-for="value in instances" :key="value">{{ value }}</option></select>
+      <select v-if="tab==='queue'" v-model="status"><option value="">Tous les statuts</option><option value="downloading">En cours</option><option value="queued">En file</option><option value="paused">En pause</option><option value="error">En erreur</option><option value="unmatched">Non associés</option></select>
+    </div>
     <p v-if="error" class="notice error-text">{{ error }}</p>
 
-    <section v-if="tab==='queue'" class="panel table-wrap"><table><thead><tr><th>Titre</th><th>Instance</th><th>Progression</th><th>Restant</th><th>Etat</th><th></th></tr></thead><tbody><tr v-for="row in filteredQueue" :key="rowKey(row)"><td><strong>{{ row.title }}</strong><small>{{ row.download_client||row.indexer||'' }}</small><small v-if="row.error" class="error-text">{{ row.error }}</small></td><td>{{ row.instance||row.download_client||'-' }}</td><td><progress :value="row.progress||0" max="100"></progress><small>{{ Math.round(row.progress||0) }}%</small></td><td>{{ row.timeleft||'-' }}</td><td><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td><td class="actions"><button v-if="isUnmatched(row)||needsEpisodeImport(row)" class="icon-button" title="Associer manuellement" @click="openManual(row)"><Link/></button><button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button><button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button></td></tr></tbody></table><p v-if="!loading&&!filteredQueue.length" class="empty">Aucun telechargement actif.</p></section>
-    <section v-else class="panel table-wrap"><table><thead><tr><th>Titre</th><th>Type</th><th>Source</th><th>Instance</th><th>Termine</th></tr></thead><tbody><tr v-for="row in filteredHistory" :key="row.id"><td><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td><td>{{ row.media_type==='show'?'Serie':'Film' }}</td><td><span class="badge">{{ row.source }}</span></td><td>{{ row.instance_name||'-' }}</td><td>{{ formatDate(row.completed_at) }}</td></tr></tbody></table><p v-if="!filteredHistory.length" class="empty">Aucun telechargement termine.</p></section>
+    <section v-if="tab==='queue'" class="panel table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Titre</th>
+            <th>Instance</th>
+            <th>Progression</th>
+            <th>Restant</th>
+            <th>Etat</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in filteredQueue" :key="rowKey(row)" :class="{'row-unmatched': isUnmatched(row)}">
+            <td>
+              <div class="inline-row gap-10">
+                <span v-if="isUnmatched(row)" class="unmatched-dot" title="Non associé"></span>
+                <div>
+                  <strong>{{ row.title }}</strong>
+                  <small>{{ row.download_client||row.indexer||'' }}</small>
+                  <small v-if="row.error" class="error-text">{{ row.error }}</small>
+                </div>
+              </div>
+            </td>
+            <td>{{ row.instance||row.download_client||'-' }}</td>
+            <td>
+              <progress :value="row.progress||0" max="100"></progress>
+              <small>{{ Math.round(row.progress||0) }}%</small>
+            </td>
+            <td>{{ row.timeleft||'-' }}</td>
+            <td><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
+            <td class="actions">
+              <button v-if="isUnmatched(row)||needsEpisodeImport(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
+              <button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button>
+              <button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!loading&&!filteredQueue.length" class="empty">Aucun telechargement actif.</p>
+    </section>
 
+    <section v-else class="panel table-wrap">
+      <table>
+        <thead>
+          <tr><th>Titre</th><th>Type</th><th>Source</th><th>Instance</th><th>Termine</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in filteredHistory" :key="row.id">
+            <td><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td>
+            <td>{{ row.media_type==='show'?'Serie':'Film' }}</td>
+            <td><span class="badge">{{ row.source }}</span></td>
+            <td>{{ row.instance_name||'-' }}</td>
+            <td>{{ formatDate(row.completed_at) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!filteredHistory.length" class="empty">Aucun telechargement termine.</p>
+    </section>
+
+    <!-- Modale association manuelle -->
     <div v-if="manualRow" class="drawer-backdrop" @click.self="manualRow=null">
-      <aside class="modal-panel form-section">
-        <div class="panel-head"><h2>Associer le telechargement</h2><button class="icon-button" title="Fermer" @click="manualRow=null"><X/></button></div>
-        <label>Titre<input v-model="manual.title"></label>
-        <label>Annee<input v-model.number="manual.year" type="number"></label>
-        <div class="inline-row"><input v-model="lookupQuery" placeholder="Chercher dans Sonarr/Radarr"><button class="secondary" @click="lookup"><Search/>Chercher</button></div>
-        <button v-for="item in lookupResults" :key="`${item.title}:${item.year}`" class="lookup-result" :class="{selected:manual.arr_id===item.arr_id}" @click="pickLookup(item)"><strong>{{ item.title }}</strong><span>{{ item.year }} · {{ item.already_added?'Deja ajoute':'Non ajoute' }}</span></button>
-        <template v-if="manualRow.arr_type==='sonarr'">
-          <div class="settings-grid two">
-            <label>Saison<select v-model.number="episodeForm.season"><option v-for="season in seasonOptions" :key="season" :value="season">Saison {{ season }}</option></select></label>
-            <label>Episode<select v-model.number="episodeForm.episode_id"><option v-for="episode in filteredEpisodes" :key="episode.id" :value="episode.id">E{{ String(episode.episodeNumber).padStart(2,'0') }} · {{ episode.title||'Sans titre' }}</option></select></label>
+      <aside class="modal-panel import-modal">
+        <div class="panel-head">
+          <div>
+            <h2>Associer / Importer</h2>
+            <p style="font-size:13px;margin-top:4px">{{ manualRow.title }}</p>
           </div>
-          <label v-if="episodeCandidates.length">Fichier a importer<select v-model.number="episodeForm.candidate"><option v-for="(candidate,index) in episodeCandidates" :key="candidate.path" :value="index">{{ candidate.path }}</option></select></label>
-          <p v-else-if="targetsLoading">Chargement des saisons et episodes...</p>
-          <p v-else class="warning-text">Aucun fichier importable detecte. L'association a la serie reste possible.</p>
-        </template>
-        <button class="primary" :disabled="busy||targetsLoading||!manual.title||!manual.arr_id||(manualRow.arr_type==='sonarr'&&!episodeForm.episode_id)" @click="submitManual"><Clapperboard v-if="manualRow.arr_type==='sonarr'&&episodeCandidates.length"/><Link v-else/>{{ manualRow.arr_type==='sonarr'&&episodeCandidates.length?'Associer et importer':'Associer' }}</button>
+          <button class="icon-button" title="Fermer" @click="manualRow=null"><X/></button>
+        </div>
+
+        <div class="import-steps">
+          <!-- Étape 1: Chercher le media -->
+          <div class="import-step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <strong>Identifier le media</strong>
+              <div class="inline-row" style="margin-top:8px">
+                <input v-model="lookupQuery" placeholder="Chercher dans Sonarr/Radarr">
+                <button class="secondary" @click="lookup"><Search/>Chercher</button>
+              </div>
+              <div v-if="lookupResults.length" class="lookup-list">
+                <button v-for="item in lookupResults" :key="`${item.title}:${item.year}`" class="lookup-result" :class="{selected:manual.arr_id===item.arr_id}" @click="pickLookup(item)">
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ item.year }} · {{ item.already_added?'Déjà dans Sonarr/Radarr':'Non ajouté' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Étape 2: Champs manuels -->
+          <div class="import-step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <strong>Informations du media</strong>
+              <div class="settings-grid two" style="margin-top:8px">
+                <label>Titre<input v-model="manual.title"></label>
+                <label>Annee<input v-model.number="manual.year" type="number"></label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Étape 3: Episode (Sonarr) -->
+          <div v-if="manualRow.arr_type==='sonarr'" class="import-step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Episode a importer</strong>
+              <p v-if="targetsLoading" style="margin-top:8px">Chargement des saisons et episodes...</p>
+              <template v-else>
+                <div class="settings-grid two" style="margin-top:8px">
+                  <label>Saison<select v-model.number="episodeForm.season"><option v-for="season in seasonOptions" :key="season" :value="season">Saison {{ season }}</option></select></label>
+                  <label>Episode<select v-model.number="episodeForm.episode_id"><option v-for="episode in filteredEpisodes" :key="episode.id" :value="episode.id">E{{ String(episode.episodeNumber).padStart(2,'0') }} · {{ episode.title||'Sans titre' }}</option></select></label>
+                </div>
+                <label v-if="episodeCandidates.length" style="margin-top:8px">Fichier a importer<select v-model.number="episodeForm.candidate"><option v-for="(candidate,index) in episodeCandidates" :key="candidate.path" :value="index">{{ candidate.path }}</option></select></label>
+                <p v-else class="warning-text" style="margin-top:8px">Aucun fichier importable detecte. L'association a la serie reste possible.</p>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions" style="margin-top:16px">
+          <button class="secondary" @click="manualRow=null">Annuler</button>
+          <button class="primary" :disabled="busy||targetsLoading||!manual.title||!manual.arr_id||(manualRow.arr_type==='sonarr'&&!episodeForm.episode_id)" @click="submitManual">
+            <Clapperboard v-if="manualRow.arr_type==='sonarr'&&episodeCandidates.length"/>
+            <Link v-else/>
+            {{ manualRow.arr_type==='sonarr'&&episodeCandidates.length?'Associer et importer':'Associer' }}
+          </button>
+        </div>
       </aside>
     </div>
   </div>
@@ -36,11 +179,11 @@
 
 <script setup>
 import { computed,onMounted,onUnmounted,reactive,ref,watch } from 'vue';
-import { Clapperboard,Link,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
+import { AlertTriangle,Clapperboard,Link,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 
-const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref('');
+const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref('');
 const manual=reactive({title:'',year:null,tmdb_id:null,tvdb_id:null,poster_url:null,arr_id:null});
 const episodeForm=reactive({candidate:0,season:null,episode_id:null});
 let fallback;
@@ -54,9 +197,21 @@ function statusLabel(row){return ({error:'Erreur',paused:'En pause',queued:'En f
 function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'}
 
 const instances=computed(()=>[...new Set(queue.value.map(x=>x.instance||x.download_client).filter(Boolean))]);
-const filteredQueue=computed(()=>queue.value.filter(row=>(!query.value||row.title?.toLowerCase().includes(query.value.toLowerCase()))&&(!instance.value||(row.instance||row.download_client)===instance.value)&&(!status.value||statusKey(row)===status.value)));
+const unmatchedItems=computed(()=>queue.value.filter(row=>isUnmatched(row)||needsEpisodeImport(row)));
+const errorItems=computed(()=>queue.value.filter(row=>statusKey(row)==='error'));
+
+const filteredQueue=computed(()=>{
+  const activeStatus=status.value||statusFilter.value;
+  return queue.value.filter(row=>{
+    if(query.value&&!row.title?.toLowerCase().includes(query.value.toLowerCase()))return false;
+    if(instance.value&&(row.instance||row.download_client)!==instance.value)return false;
+    if(activeStatus==='unmatched')return isUnmatched(row)||needsEpisodeImport(row);
+    if(activeStatus&&statusKey(row)!==activeStatus)return false;
+    return true;
+  });
+});
 const filteredHistory=computed(()=>history.value.filter(row=>!query.value||row.title?.toLowerCase().includes(query.value.toLowerCase())));
-const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'En erreur',value:queue.value.filter(x=>statusKey(x)==='error').length},{label:'Termines recents',value:history.value.length}]);
+const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'En erreur',value:errorItems.value.length},{label:'Termines recents',value:history.value.length}]);
 const seasonOptions=computed(()=>[...new Set(episodeOptions.value.map(x=>x.seasonNumber).filter(x=>x!=null&&x>0))].sort((a,b)=>a-b));
 const filteredEpisodes=computed(()=>episodeOptions.value.filter(x=>x.seasonNumber===episodeForm.season).sort((a,b)=>a.episodeNumber-b.episodeNumber));
 
