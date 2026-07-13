@@ -16,7 +16,7 @@ itsdangerous==2.2.0
 psycopg2-binary==2.9.12
 cryptography==48.0.1
 webauthn==2.3.0
-markdown==3.8.1
+markdown==3.10.2
 aiosqlite==0.20.0
 asyncpg==0.30.0
 redis==5.2.1
