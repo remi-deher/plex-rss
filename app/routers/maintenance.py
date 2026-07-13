@@ -139,6 +139,12 @@ ACTIONS_META = {
         "icon": "bi-magic",
         "color": "primary",
     },
+    "recover-sqlite": {
+        "label": "Récupérer l'ancienne base SQLite",
+        "description": "Ré-importe les utilisateurs, requêtes et historiques manquants depuis plex_rss.db.",
+        "icon": "bi-database-fill-up",
+        "color": "danger",
+    },
 }
 
 
@@ -511,6 +517,35 @@ async def _run_merge_duplicates(run: MaintenanceRun):
         raise
 
 
+async def _run_recover_sqlite(run: MaintenanceRun):
+    emit = _Emit(run, logging.getLogger("app.maintenance"))
+    emit.info("Démarrage de la récupération SQLite...")
+    try:
+        import sys
+        import asyncio
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "scripts/recover_sqlite_data.py",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT
+        )
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            text = line.decode().strip()
+            if text:
+                emit.info(text)
+        await proc.wait()
+        if proc.returncode == 0:
+            emit.ok("Récupération SQLite terminée.")
+        else:
+            emit.err(f"Le script a échoué avec le code {proc.returncode}")
+            raise RuntimeError(f"Code {proc.returncode}")
+    except Exception as e:
+        emit.err(str(e))
+        raise
+
+
 class _LogCaptureHandler(logging.Handler):
     """Capture les logs du scheduler et les injecte dans le run."""
 
@@ -540,6 +575,7 @@ _ACTION_RUNNERS = {
     "recalculate-dates": _run_recalculate_dates,
     "merge-duplicates": _run_merge_duplicates,
     "enrich-and-merge": _run_enrich_and_merge,
+    "recover-sqlite": _run_recover_sqlite,
 }
 
 
