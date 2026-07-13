@@ -214,6 +214,16 @@ async def unified_calendar(
                         continue
 
                     if not tracked:
+                        from datetime import datetime, timezone
+                        # Extract the added date if available
+                        added_date = None
+                        added_str = series.get("added")
+                        if added_str:
+                            try:
+                                added_date = datetime.fromisoformat(added_str.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
+                            except ValueError:
+                                pass
+                                
                         # Auto-create MediaRequest for untracked series in database
                         new_req = MediaRequest(
                             title=series.get("title") or "Unknown Series",
@@ -224,6 +234,7 @@ async def unified_calendar(
                             status=RequestStatus.sent_to_arr,
                             source="arr_sync",
                             plex_user_id="system",
+                            requested_at=added_date,
                         )
                         db.add(new_req)
                         await db.flush()
@@ -285,6 +296,16 @@ async def unified_calendar(
                         continue
 
                     if not tracked:
+                        from datetime import datetime, timezone
+                        # Extract the added date if available
+                        added_date = None
+                        added_str = m.get("added")
+                        if added_str:
+                            try:
+                                added_date = datetime.fromisoformat(added_str.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
+                            except ValueError:
+                                pass
+
                         # Auto-create MediaRequest for untracked movie in database
                         new_req = MediaRequest(
                             title=m.get("title") or "Unknown Movie",
@@ -295,6 +316,7 @@ async def unified_calendar(
                             status=RequestStatus.sent_to_arr,
                             source="arr_sync",
                             plex_user_id="system",
+                            requested_at=added_date,
                         )
                         db.add(new_req)
                         await db.flush()
