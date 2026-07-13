@@ -534,6 +534,8 @@ async def _process_watchlist_item(
             source=item.get("source"),
             status=RequestStatus.pending,
         )
+        if item.get("requested_at"):
+            req.requested_at = item["requested_at"]
         db.add(req)
         await db.flush()
 

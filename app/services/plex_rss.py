@@ -58,6 +58,15 @@ def _parse_rss_entry(entry) -> dict | None:
     # <author> contient l'ID hex Plex, pas le nom d'affichage
     plex_user_id = entry.get("author", "unknown").strip()
 
+    import calendar
+    from datetime import datetime, timezone
+    
+    requested_at = None
+    if entry.get("published_parsed"):
+        # published_parsed est un time.struct_time en UTC
+        dt = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), timezone.utc)
+        requested_at = dt.replace(tzinfo=None)  # Enlever la timezone pour coller avec now_utc_naive
+
     # <category> = "movie" ou "show" — valeur déjà normalisée par Plex
     categories = [t.get("term", "").lower() for t in entry.get("tags", [])]
     media_type = "show" if "show" in categories else "movie"
@@ -98,6 +107,7 @@ def _parse_rss_entry(entry) -> dict | None:
         "poster_url": poster_url,
         "genres": genres,
         "source": "rss",
+        "requested_at": requested_at,
     }
 
 
