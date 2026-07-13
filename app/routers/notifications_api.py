@@ -63,16 +63,17 @@ async def activity_log(db: AsyncSession = Depends(get_db_async)):
     """Retourne les 25 événements les plus récents (7 derniers jours) pour le journal."""
     cutoff = now_utc_naive() - timedelta(days=7)
     reqs = (
-        select(MediaRequest)
-        .filter(
-            (MediaRequest.requested_at >= cutoff)
-            | (MediaRequest.available_at >= cutoff)
-            | (MediaRequest.vf_available_at >= cutoff)
+        await db.execute(
+            select(MediaRequest)
+            .filter(
+                (MediaRequest.requested_at >= cutoff)
+                | (MediaRequest.available_at >= cutoff)
+                | (MediaRequest.vf_available_at >= cutoff)
+            )
+            .order_by(MediaRequest.requested_at.desc())
+            .limit(120)
         )
-        .order_by(MediaRequest.requested_at.desc())
-        .limit(120)
-        .all()
-    )
+    ).scalars().all()
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
 
     events: list[dict[str, Any]] = []
@@ -111,12 +112,13 @@ async def activity_log(db: AsyncSession = Depends(get_db_async)):
             add_event(r, "vf_available", r.vf_available_at, "VF disponible", "Upgrade VF detecte")
 
     logs = (
-        select(NotificationLog)
-        .filter(NotificationLog.sent_at >= cutoff)
-        .order_by(NotificationLog.sent_at.desc())
-        .limit(80)
-        .all()
-    )
+        await db.execute(
+            select(NotificationLog)
+            .filter(NotificationLog.sent_at >= cutoff)
+            .order_by(NotificationLog.sent_at.desc())
+            .limit(80)
+        )
+    ).scalars().all()
     for log in logs:
         events.append(
             {
@@ -311,8 +313,10 @@ async def list_admin_action_logs(
 
 @router.get("/notifications/pending")
 async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
-    rows = db.execute(
-        text("SELECT id, created_at, event, req_id, recipients, reason FROM pending_notifications ORDER BY id DESC")
+    rows = (
+        await db.execute(
+            text("SELECT id, created_at, event, req_id, recipients, reason FROM pending_notifications ORDER BY id DESC")
+        )
     ).fetchall()
     req_ids = []
     for row in rows:

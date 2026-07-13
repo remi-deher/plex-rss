@@ -309,6 +309,40 @@ async def plex_sections(db: AsyncSession = Depends(get_db_async)):
         return []
 
 
+@router.get("/library")
+async def list_library(
+    query: Optional[str] = None,
+    media_type: Optional[str] = None,
+    limit: int = 200,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Return Plex library items for the SPA library browser."""
+    stmt = select(LibraryItem)
+    if query:
+        stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
+    if media_type in ("movie", "show"):
+        stmt = stmt.filter(LibraryItem.media_type == media_type)
+    items = (
+        await db.execute(stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title).limit(min(limit, 500)))
+    ).scalars().all()
+    return [
+        {
+            "id": item.id,
+            "title": item.title,
+            "year": item.year,
+            "media_type": item.media_type,
+            "poster_url": item.poster_url,
+            "overview": item.overview,
+            "has_vf": item.has_vf,
+            "vf_granularity": item.vf_granularity,
+            "arr_instance_id": item.arr_instance_id,
+            "arr_id": item.arr_id,
+            "added_at": item.added_at.isoformat() if item.added_at else None,
+        }
+        for item in items
+    ]
+
+
 @router.get("/library/{item_id}")
 async def get_library_item(item_id: int, db: AsyncSession = Depends(get_db_async)):
     """Détail d'un élément de bibliothèque (pour la modale : identité + lien *arr)."""

@@ -28,6 +28,7 @@ from webauthn import (
 from webauthn.helpers import options_to_json
 
 from ..database import get_db_async
+from ..dependencies import current_user, require_auth
 from ..models import LoginAttempt, PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
 from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
@@ -41,6 +42,12 @@ templates = Jinja2Templates(directory="app/templates")
 
 _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 600
+
+
+@router.get("/api/session", dependencies=[Depends(require_auth)])
+async def session_info(request: Request, db: AsyncSession = Depends(get_db_async)):
+    """Return the authenticated identity used by the SPA shell."""
+    return current_user(request, db)
 
 
 async def _is_rate_limited(db: AsyncSession, ip: str) -> bool:

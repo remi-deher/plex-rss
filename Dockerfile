@@ -1,3 +1,13 @@
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+COPY package.json package-lock.json vite.config.js index.html ./
+COPY frontend/ frontend/
+RUN npm ci && npm run build
+
+# ---
+
 FROM python:3.12-alpine AS builder
 
 WORKDIR /app
@@ -21,6 +31,7 @@ COPY --from=builder /install /usr/local
 COPY alembic/ alembic/
 COPY alembic.ini .
 COPY app/ app/
+COPY --from=frontend-builder /frontend/app/static/vue app/static/vue
 COPY scripts/ scripts/
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 

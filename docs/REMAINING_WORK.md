@@ -16,6 +16,17 @@ limiter les régressions et de garder un point de retour fonctionnel entre les c
 - SPA Vue initialisée, mais encore partielle ;
 - APScheduler tourne toujours dans le processus FastAPI.
 
+## Avancement des priorités 1 à 3
+
+- **Priorité 1 livrée** : migrations Alembic compatibles PostgreSQL, importeur SQLite vers
+  PostgreSQL et procédure de retour arrière. Validation réelle effectuée sur 5 135 lignes.
+- **Priorité 2 livrée pour le socle SPA** : navigation Vue et vues dashboard, découverte,
+  demandes, bibliothèque, calendrier, téléchargements, utilisateurs, notifications,
+  maintenance et paramètres. Les éditeurs avancés restent accessibles via Jinja pendant
+  leur migration progressive.
+- **Priorité 3 livrée** : recherche de releases Vue, tri VF/MULTI avant les résultats anglais,
+  grab protégé contre les doubles clics et ouverture du suivi dans un nouvel onglet.
+
 ## Priorité 0 - Sécuriser le point de départ
 
 ### À faire
