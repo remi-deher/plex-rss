@@ -76,11 +76,7 @@
             <td>{{ row.timeleft||'-' }}</td>
             <td><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
             <td class="actions">
-              <button v-if="isImportPending(row)" class="icon-button import-trigger-btn" title="Lancer l'import" :disabled="importingId === rowKey(row)" @click="triggerImport(row)">
-                <LoaderCircle v-if="importingId === rowKey(row)" class="spin"/>
-                <PackageOpen v-else/>
-              </button>
-              <button v-if="isUnmatched(row)||needsEpisodeImport(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
+              <button v-if="isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
               <button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button>
               <button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button>
             </td>
@@ -129,6 +125,9 @@
                 <input v-model="lookupQuery" placeholder="Chercher dans Sonarr/Radarr">
                 <button class="secondary" @click="lookup"><Search/>Chercher</button>
               </div>
+              <div v-if="manual.arr_id && !lookupResults.length" class="notice" style="margin-top:8px">
+                ✅ Média auto-détecté : <strong>{{ manual.title }}</strong>
+              </div>
               <div v-if="lookupResults.length" class="lookup-list">
                 <button v-for="item in lookupResults" :key="`${item.title}:${item.year}`" class="lookup-result" :class="{selected:manual.arr_id===item.arr_id}" @click="pickLookup(item)">
                   <strong>{{ item.title }}</strong>
@@ -166,14 +165,27 @@
               </template>
             </div>
           </div>
+
+          <!-- Étape 3: Film (Radarr) -->
+          <div v-if="manualRow.arr_type==='radarr'" class="import-step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <strong>Fichier a importer</strong>
+              <p v-if="targetsLoading" style="margin-top:8px">Chargement des fichiers...</p>
+              <template v-else>
+                <label v-if="episodeCandidates.length" style="margin-top:8px">Fichier<select v-model.number="episodeForm.candidate"><option v-for="(candidate,index) in episodeCandidates" :key="candidate.path" :value="index">{{ candidate.path }}</option></select></label>
+                <p v-else class="warning-text" style="margin-top:8px">Aucun fichier importable detecte. L'association au film reste possible.</p>
+              </template>
+            </div>
+          </div>
         </div>
 
         <div class="form-actions" style="margin-top:16px">
           <button class="secondary" @click="manualRow=null">Annuler</button>
           <button class="primary" :disabled="busy||targetsLoading||!manual.title||!manual.arr_id||(manualRow.arr_type==='sonarr'&&!episodeForm.episode_id)" @click="submitManual">
-            <Clapperboard v-if="manualRow.arr_type==='sonarr'&&episodeCandidates.length"/>
+            <Clapperboard v-if="(manualRow.arr_type==='sonarr'||manualRow.arr_type==='radarr')&&episodeCandidates.length"/>
             <Link v-else/>
-            {{ manualRow.arr_type==='sonarr'&&episodeCandidates.length?'Associer et importer':'Associer' }}
+            {{ (manualRow.arr_type==='sonarr'||manualRow.arr_type==='radarr')&&episodeCandidates.length?'Associer et importer':'Associer' }}
           </button>
         </div>
       </aside>
@@ -183,11 +195,11 @@
 
 <script setup>
 import { computed,onMounted,onUnmounted,reactive,ref,watch } from 'vue';
-import { AlertTriangle,Clapperboard,Link,LoaderCircle,PackageOpen,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
+import { AlertTriangle,Clapperboard,Link,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 
-const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref(''),importingId=ref(null);
+const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref('');
 const manual=reactive({title:'',year:null,tmdb_id:null,tvdb_id:null,poster_url:null,arr_id:null});
 const episodeForm=reactive({candidate:0,season:null,episode_id:null});
 let fallback;
@@ -221,13 +233,13 @@ const seasonOptions=computed(()=>[...new Set(episodeOptions.value.map(x=>x.seaso
 const filteredEpisodes=computed(()=>episodeOptions.value.filter(x=>x.seasonNumber===episodeForm.season).sort((a,b)=>a.episodeNumber-b.episodeNumber));
 
 async function loadAll(){loading.value=true;error.value='';try{const [arr,direct,done]=await Promise.all([api('/api/arr/queue').catch(()=>[]),api('/api/downloads/direct').catch(()=>[]),api('/api/downloads/history?limit=100').catch(()=>[])]);queue.value=[...arr,...direct].sort((a,b)=>(a.progress||0)-(b.progress||0));history.value=done}catch(e){error.value=e.message}finally{loading.value=false}}
-async function triggerImport(row){const key=rowKey(row);importingId.value=key;error.value='';try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}/import`,{method:'POST',body:JSON.stringify({output_path:row.output_path||null,download_id:row.download_id||null})});await new Promise(r=>setTimeout(r,2000));await loadAll()}catch(e){error.value=e.message}finally{importingId.value=null}}
 async function queueAction(row,blocklist,search){if(!confirm(blocklist?'Blocklister et relancer une recherche ?':'Retirer cet element de la file ?'))return;try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}}
-async function openManual(row){manualRow.value=row;Object.assign(manual,{title:row.series_title||row.title||'',year:row.year||null,tmdb_id:row.tmdb_id||null,tvdb_id:row.tvdb_id||null,poster_url:row.poster_url||null,arr_id:row.arr_media_id||null});lookupQuery.value=manual.title;lookupResults.value=[];episodeCandidates.value=[];episodeOptions.value=[];episodeForm.candidate=0;episodeForm.season=row.season_number||null;episodeForm.episode_id=null;if(row.arr_type==='sonarr'&&manual.arr_id)await loadSonarrTargets()}
+async function openManual(row){manualRow.value=row;Object.assign(manual,{title:row.series_title||row.title||'',year:row.year||null,tmdb_id:row.tmdb_id||null,tvdb_id:row.tvdb_id||null,poster_url:row.poster_url||null,arr_id:row.arr_media_id||null});lookupQuery.value=manual.title;lookupResults.value=[];episodeCandidates.value=[];episodeOptions.value=[];episodeForm.candidate=0;episodeForm.season=row.season_number||null;episodeForm.episode_id=null;if(row.arr_type==='sonarr'&&manual.arr_id)await loadSonarrTargets();if(row.arr_type==='radarr'&&manual.arr_id)await loadRadarrTargets()}
 async function lookup(){lookupResults.value=await api(`/api/media/lookup?query=${encodeURIComponent(lookupQuery.value)}&type=${manualRow.value.arr_type==='sonarr'?'show':'movie'}`)}
-async function pickLookup(item){Object.assign(manual,{title:item.title,year:item.year,tmdb_id:item.tmdb_id,tvdb_id:item.tvdb_id,poster_url:item.poster,arr_id:item.arr_id});if(manualRow.value.arr_type==='sonarr'&&item.arr_id)await loadSonarrTargets()}
+async function pickLookup(item){Object.assign(manual,{title:item.title,year:item.year,tmdb_id:item.tmdb_id,tvdb_id:item.tvdb_id,poster_url:item.poster,arr_id:item.arr_id});if(manualRow.value.arr_type==='sonarr'&&item.arr_id)await loadSonarrTargets();if(manualRow.value.arr_type==='radarr'&&item.arr_id)await loadRadarrTargets()}
 async function loadSonarrTargets(){targetsLoading.value=true;try{const download=manualRow.value.download_id?`&download_id=${encodeURIComponent(manualRow.value.download_id)}`:'';const data=await api(`/api/downloads/sonarr-manual-import?instance_id=${manualRow.value.instance_id}&series_id=${manual.arr_id}${download}`);episodeCandidates.value=data.candidates||[];episodeOptions.value=data.episodes||[];episodeForm.season=seasonOptions.value.includes(episodeForm.season)?episodeForm.season:seasonOptions.value[0]||null;const preferred=filteredEpisodes.value.find(x=>x.episodeNumber===manualRow.value.episode_number);episodeForm.episode_id=preferred?.id||filteredEpisodes.value[0]?.id||null}catch(e){error.value=e.message}finally{targetsLoading.value=false}}
-async function submitManual(){busy.value=true;try{await api('/api/downloads/manual-import',{method:'POST',body:JSON.stringify({instance_id:manualRow.value.instance_id,media_type:manualRow.value.arr_type==='sonarr'?'show':'movie',title:manual.title,arr_id:manual.arr_id,year:manual.year,tmdb_id:manual.tmdb_id,tvdb_id:manual.tvdb_id,poster_url:manual.poster_url})});const candidate=episodeCandidates.value[episodeForm.candidate];if(manualRow.value.arr_type==='sonarr'&&candidate&&episodeForm.episode_id){await api('/api/downloads/sonarr-manual-import',{method:'POST',body:JSON.stringify({instance_id:manualRow.value.instance_id,series_id:manual.arr_id,episode_id:episodeForm.episode_id,path:candidate.path,folder_name:candidate.folderName||candidate.folder_name,download_id:manualRow.value.download_id,quality:candidate.quality,languages:candidate.languages,release_group:candidate.releaseGroup,indexer_flags:candidate.indexerFlags})})}manualRow.value=null;await loadAll()}catch(e){error.value=e.message}finally{busy.value=false}}
+async function loadRadarrTargets(){targetsLoading.value=true;try{const download=manualRow.value.download_id?`&download_id=${encodeURIComponent(manualRow.value.download_id)}`:'';const data=await api(`/api/downloads/radarr-manual-import?instance_id=${manualRow.value.instance_id}&movie_id=${manual.arr_id}${download}`);episodeCandidates.value=data.candidates||[];}catch(e){error.value=e.message}finally{targetsLoading.value=false}}
+async function submitManual(){busy.value=true;try{await api('/api/downloads/manual-import',{method:'POST',body:JSON.stringify({instance_id:manualRow.value.instance_id,media_type:manualRow.value.arr_type==='sonarr'?'show':'movie',title:manual.title,arr_id:manual.arr_id,year:manual.year,tmdb_id:manual.tmdb_id,tvdb_id:manual.tvdb_id,poster_url:manual.poster_url})});const candidate=episodeCandidates.value[episodeForm.candidate];if(manualRow.value.arr_type==='sonarr'&&candidate&&episodeForm.episode_id){await api('/api/downloads/sonarr-manual-import',{method:'POST',body:JSON.stringify({instance_id:manualRow.value.instance_id,series_id:manual.arr_id,episode_id:episodeForm.episode_id,path:candidate.path,folder_name:candidate.folderName||candidate.folder_name,download_id:manualRow.value.download_id,quality:candidate.quality,languages:candidate.languages,release_group:candidate.releaseGroup,indexer_flags:candidate.indexerFlags})})}if(manualRow.value.arr_type==='radarr'&&candidate){await api('/api/downloads/radarr-manual-import',{method:'POST',body:JSON.stringify({instance_id:manualRow.value.instance_id,movie_id:manual.arr_id,path:candidate.path,folder_name:candidate.folderName||candidate.folder_name,download_id:manualRow.value.download_id,quality:candidate.quality,languages:candidate.languages,release_group:candidate.releaseGroup,indexer_flags:candidate.indexerFlags})})}manualRow.value=null;await loadAll()}catch(e){error.value=e.message}finally{busy.value=false}}
 
 watch(()=>episodeForm.season,()=>{if(!filteredEpisodes.value.some(x=>x.id===episodeForm.episode_id))episodeForm.episode_id=filteredEpisodes.value[0]?.id||null});
 useRealtime(['download.updated'],loadAll);

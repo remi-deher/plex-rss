@@ -314,6 +314,60 @@ async def grab_release(radarr_url: str, api_key: str, guid: str, indexer_id: int
             return True, "Release envoyée à Radarr"
     except Exception as e:
         logger.warning(f"Radarr grab_release échec (guid {guid}): {e}")
+async def get_manual_import_candidates(radarr_url: str, api_key: str, download_id: str) -> list[dict]:
+    """Fichiers en attente d'import manuel pour un téléchargement (GET /manualimport)."""
+    base = radarr_url.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{base}/api/v3/manualimport",
+                params={"downloadId": download_id, "filterExistingFiles": "true"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as e:
+        logger.warning(f"Radarr get_manual_import_candidates échec: {e}")
+        return []
+
+
+async def manual_import_movie(
+    radarr_url: str,
+    api_key: str,
+    *,
+    path: str,
+    folder_name: str | None,
+    movie_id: int,
+    download_id: str | None,
+    quality: dict | None,
+    languages: list | None,
+    release_group: str | None,
+    indexer_flags: int | None,
+) -> tuple[bool, str]:
+    """Force l'import d'un fichier téléchargé sur un film (commande ManualImport)."""
+    base = radarr_url.rstrip("/")
+    file_entry = {
+        "path": path,
+        "folderName": folder_name,
+        "movieId": movie_id,
+        "downloadId": download_id,
+        "quality": quality,
+        "languages": languages or [],
+        "releaseGroup": release_group,
+        "indexerFlags": indexer_flags or 0,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Import manuel lancé"
+    except httpx.HTTPStatusError as e:
+        return False, f"Radarr a refusé l'import : {e.response.text[:200]}"
+    except Exception as e:
         return False, str(e)
 
 

@@ -765,6 +765,57 @@ async def sonarr_manual_import(body: SonarrManualImportBody, db: AsyncSession = 
     return {"status": "ok", "message": msg}
 
 
+@router.get("/downloads/radarr-manual-import")
+async def radarr_manual_import_candidates(
+    instance_id: int,
+    movie_id: int,
+    download_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Candidats pour un import manuel Radarr."""
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    if inst.arr_type != "radarr":
+        raise HTTPException(400, "Cette instance n'est pas Radarr")
+    candidates = await radarr.get_manual_import_candidates(inst.url, inst.api_key, download_id) if download_id else []
+    return {"candidates": candidates}
+
+
+class RadarrManualImportBody(BaseModel):
+    instance_id: int
+    movie_id: int
+    path: str
+    folder_name: Optional[str] = None
+    download_id: Optional[str] = None
+    quality: Optional[dict] = None
+    languages: Optional[list] = None
+    release_group: Optional[str] = None
+    indexer_flags: Optional[int] = None
+
+
+@router.post("/downloads/radarr-manual-import")
+async def radarr_manual_import(body: RadarrManualImportBody, db: AsyncSession = Depends(get_db_async)):
+    """Force l'import d'un fichier téléchargé pour un film (Radarr)."""
+    inst = await async_get_or_404(db, ArrInstance, body.instance_id, "Instance introuvable")
+    if inst.arr_type != "radarr":
+        raise HTTPException(400, "Cette instance n'est pas Radarr")
+    ok, msg = await radarr.manual_import_movie(
+        inst.url,
+        inst.api_key,
+        path=body.path,
+        folder_name=body.folder_name,
+        movie_id=body.movie_id,
+        download_id=body.download_id,
+        quality=body.quality,
+        languages=body.languages,
+        release_group=body.release_group,
+        indexer_flags=body.indexer_flags,
+    )
+    if not ok:
+        raise HTTPException(400, msg)
+    _queue_cache["data"] = None
+    return {"status": "ok", "message": msg}
+
+
 @router.get("/downloads/direct")
 async def direct_downloads(db: AsyncSession = Depends(get_db_async)):
     """Torrents poussés en direct-client (hors *arr), suivis via download_client_id + torrent_hash sur les demandes."""
