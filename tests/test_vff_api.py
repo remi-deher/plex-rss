@@ -1,5 +1,7 @@
 """Tests unitaires pour app/routers/vff_api.py."""
 
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -110,9 +112,11 @@ def test_vff_sync_status_returns_current_state(client):
 
 
 def test_vff_scan_all_starts_without_force(client):
-    resp = client.post("/api/vff/scan")
+    with patch("app.scheduler.trigger_vff_scan_background") as trigger:
+        resp = client.post("/api/vff/scan")
     assert resp.status_code == 200
     assert resp.json() == {"status": "started"}
+    trigger.assert_called_once_with(force=False)
 
 
 def test_vff_scan_all_with_force_invalidates_cache(db, client):
@@ -121,9 +125,11 @@ def test_vff_scan_all_with_force_invalidates_cache(db, client):
     db.add(VfEpisodeStatus(source_type="request", source_id=1, season_number=1, episode_number=1, has_vf=True))
     db.commit()
 
-    resp = client.post("/api/vff/scan?force=true")
+    with patch("app.scheduler.trigger_vff_scan_background") as trigger:
+        resp = client.post("/api/vff/scan?force=true")
     assert resp.status_code == 200
     assert db.query(VfEpisodeStatus).count() == 0
+    trigger.assert_called_once_with(force=True)
 
 
 # ---------------------------------------------------------------------------

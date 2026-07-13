@@ -1,55 +1,10 @@
-<template>
-  <div class="page">
-    <header class="page-head">
-      <div>
-        <h1>Dashboard</h1>
-        <p>Vue SPA connectee aux endpoints FastAPI asynchrones.</p>
-      </div>
-      <button class="primary" :disabled="polling" @click="pollNow">
-        <RefreshCw :class="{ spin: polling }" />Verifier maintenant
-      </button>
-    </header>
-
-    <HealthGrid />
-
-    <section class="metric-grid">
-      <article v-for="card in statCards" :key="card.label" class="metric-card">
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-      </article>
-    </section>
-  </div>
-</template>
-
-<script setup>
-import { computed, onMounted, ref } from "vue";
-import { RefreshCw } from "@lucide/vue";
-import HealthGrid from "@/components/HealthGrid.vue";
-import { api } from "@/api";
-
-const counts = ref({});
-const polling = ref(false);
-
-const statCards = computed(() => [
-  { label: "Demandes", value: counts.value.total ?? "-" },
-  { label: "Transmises", value: counts.value.sent_to_arr ?? "-" },
-  { label: "Disponibles", value: counts.value.available ?? "-" },
-  { label: "Echouees", value: counts.value.failed ?? "-" },
-]);
-
-async function loadCounts() {
-  counts.value = await api("/api/stats/counts");
-}
-
-async function pollNow() {
-  polling.value = true;
-  try {
-    await api("/api/requests/poll", { method: "POST" });
-    await loadCounts();
-  } finally {
-    polling.value = false;
-  }
-}
-
-onMounted(loadCounts);
-</script>
+<template><div class="page"><header class="page-head"><div><h1>Dashboard</h1><p>Etat des services et activite recente.</p></div><button class="primary" :disabled="polling" @click="pollNow"><RefreshCw :class="{spin:polling}"/>Verifier maintenant</button></header><HealthGrid/>
+<section v-if="onboarding.steps?.length&&!onboarding.complete" class="panel"><div class="panel-head"><div><h2>Configuration initiale</h2><p>{{ doneSteps }}/{{ onboarding.steps.length }} etapes terminees</p></div><RouterLink class="secondary" to="/settings">Continuer</RouterLink></div><div class="checklist"><span v-for="step in onboarding.steps" :key="step.id"><CheckCircle2 v-if="step.done" class="success-text"/><Circle v-else/>{{ step.label }}</span></div></section>
+<section class="metric-grid"><article v-for="card in statCards" :key="card.label" class="metric-card"><span>{{ card.label }}</span><strong>{{ card.value }}</strong></article></section>
+<div class="dashboard-grid"><section class="panel"><div class="panel-head"><h2>Demandes a valider</h2><RouterLink to="/requests">Tout voir</RouterLink></div><article v-for="row in pending" :key="row.id" class="detail-row"><div><strong>{{ row.title }}</strong><span>{{ row.requested_by||row.plex_user||row.plex_user_id }}</span></div><div class="actions"><button class="icon-button success" title="Approuver" @click="action(row,'approve')"><Check/></button><button class="icon-button danger" title="Refuser" @click="action(row,'reject')"><X/></button></div></article><p v-if="!pending.length" class="empty">Aucune demande a valider.</p></section>
+<section class="panel"><div class="panel-head"><h2>Execution recente</h2><span v-if="nextPoll.next_run_seconds!=null">Prochaine dans {{ countdown }}</span></div><article v-for="run in polls" :key="run.id" class="detail-row"><div><strong>{{ run.job }}</strong><span>{{ formatDate(run.started_at) }}</span></div><span class="badge" :class="run.errors?'failed':'available'">{{ run.errors?`${run.errors} erreur(s)`:`${run.items_processed||0} traites` }}</span></article><p v-if="!polls.length" class="empty">Aucune execution enregistree.</p></section>
+<section class="panel"><div class="panel-head"><h2>Activite sur 30 jours</h2><strong>{{ timelineTotal }} demandes</strong></div><div class="spark-bars"><i v-for="(value,index) in timeline.values||[]" :key="index" :style="{height:`${Math.max(4,value/timelineMax*100)}%`}" :title="`${timeline.labels[index]} : ${value}`"></i></div></section>
+<section class="panel"><div class="panel-head"><h2>Utilisateurs actifs</h2><RouterLink to="/users">Gerer</RouterLink></div><article v-for="user in byUser.slice(0,6)" :key="user.plex_user_id" class="detail-row"><strong>{{ user.display_name }}</strong><span class="badge">{{ user.total }} demande(s)</span></article><p v-if="!byUser.length" class="empty">Aucune activite.</p></section></div></div></template>
+<script setup>import { computed,onMounted,onUnmounted,ref } from 'vue';import { Check,CheckCircle2,Circle,RefreshCw,X } from '@lucide/vue';import HealthGrid from '@/components/HealthGrid.vue';import { api } from '@/api';import { useRealtime } from '@/events';
+const counts=ref({}),pending=ref([]),polls=ref([]),timeline=ref({labels:[],values:[]}),byUser=ref([]),onboarding=ref({}),nextPoll=ref({}),polling=ref(false),seconds=ref(null);let timer;const statCards=computed(()=>[{label:'Demandes',value:counts.value.total??'-'},{label:'A valider',value:counts.value.pending_approval??pending.value.length},{label:'Disponibles',value:counts.value.available??'-'},{label:'Echouees',value:counts.value.failed??'-'}]);const doneSteps=computed(()=>onboarding.value.steps?.filter(x=>x.done).length||0);const timelineTotal=computed(()=>(timeline.value.values||[]).reduce((a,b)=>a+b,0));const timelineMax=computed(()=>Math.max(1,...(timeline.value.values||[1])));const countdown=computed(()=>seconds.value==null?'-':seconds.value<60?`${seconds.value}s`:`${Math.floor(seconds.value/60)} min`);
+async function load(){const results=await Promise.allSettled([api('/api/stats/counts'),api('/api/requests/pending'),api('/api/poll-history?limit=6'),api('/api/stats/timeline'),api('/api/stats/by-user'),api('/api/onboarding'),api('/api/next-poll')]);const refs=[counts,pending,polls,timeline,byUser,onboarding,nextPoll];results.forEach((r,i)=>{if(r.status==='fulfilled')refs[i].value=r.value});seconds.value=nextPoll.value.next_run_seconds}async function pollNow(){polling.value=true;try{await api('/api/requests/poll',{method:'POST'});await load()}finally{polling.value=false}}async function action(row,type){if(type==='reject'){const reason=prompt('Motif du refus','Demande refusee');if(reason===null)return;await api(`/api/requests/${row.id}/reject`,{method:'POST',body:JSON.stringify({reason})})}else await api(`/api/requests/${row.id}/approve`,{method:'POST'});await load()}function formatDate(v){return v?new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short'}).format(new Date(v)):'-'}useRealtime(['request.updated'],load);onMounted(async()=>{await load();timer=setInterval(()=>{if(seconds.value>0)seconds.value--},1000)});onUnmounted(()=>clearInterval(timer));</script>

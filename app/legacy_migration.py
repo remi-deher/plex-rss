@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine, func, select, text
+from sqlalchemy import MetaData, create_engine, func, select, text, update
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +219,80 @@ def migrate_sqlite_to_postgres(
         target_engine.dispose()
 
 
+def _merge_legacy_users(source_engine, target_engine) -> dict[str, Any]:
+    """Enrich target users by Plex ID without changing PostgreSQL primary keys."""
+    source_meta = MetaData()
+    target_meta = MetaData()
+    source_meta.reflect(source_engine, only=["plex_users"])
+    target_meta.reflect(target_engine, only=["plex_users"])
+    source_users = source_meta.tables["plex_users"]
+    target_users = target_meta.tables["plex_users"]
+    common_columns = [
+        column.name
+        for column in target_users.columns
+        if column.name != "id" and column.name in source_users.c
+    ]
+
+    inserted = 0
+    updated = 0
+    updated_fields = 0
+    with source_engine.connect() as source, target_engine.begin() as target:
+        target_rows = {
+            row._mapping["plex_user_id"]: dict(row._mapping)
+            for row in target.execute(select(target_users))
+            if row._mapping.get("plex_user_id")
+        }
+        source_columns = [source_users.c[column] for column in common_columns]
+        for row in source.execute(select(*source_columns)):
+            source_data = dict(row._mapping)
+            plex_user_id = source_data.get("plex_user_id")
+            if not plex_user_id:
+                continue
+            existing = target_rows.get(plex_user_id)
+            if existing is None:
+                # Let PostgreSQL defaults fill columns absent from older SQLite schemas.
+                values = {key: value for key, value in source_data.items() if value is not None}
+                result = target.execute(target_users.insert().values(**values).returning(target_users.c.id))
+                target_rows[plex_user_id] = {**values, "id": result.scalar_one()}
+                inserted += 1
+                continue
+
+            # The legacy database is authoritative for configured values. Null legacy
+            # values do not erase data already discovered by the new application.
+            changes = {
+                key: value
+                for key, value in source_data.items()
+                if key != "plex_user_id" and value is not None and existing.get(key) != value
+            }
+            if not changes:
+                continue
+            target.execute(update(target_users).where(target_users.c.id == existing["id"]).values(**changes))
+            existing.update(changes)
+            updated += 1
+            updated_fields += len(changes)
+
+    return {
+        "status": "users_merged",
+        "users_inserted": inserted,
+        "users_updated": updated,
+        "user_fields_updated": updated_fields,
+        "copied_rows": inserted + updated,
+        "copied_tables": {"plex_users": inserted + updated},
+    }
+
+
+def merge_legacy_users_into_postgres(source_path: str | Path, target_url: str) -> dict[str, Any]:
+    """Repair a partial migration where RSS users existed before legacy import."""
+    inspect_legacy_sqlite(source_path)
+    source_engine = create_engine(sqlite_url(source_path))
+    target_engine = create_engine(postgres_sync_url(target_url), pool_pre_ping=True)
+    try:
+        return _merge_legacy_users(source_engine, target_engine)
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
 def create_postgres_backup(target_url: str, directory: str | Path = "data/backups") -> Path:
     pg_dump = shutil.which("pg_dump")
     pg_restore = shutil.which("pg_restore")
@@ -265,10 +339,14 @@ def auto_migrate_legacy_sqlite(target_url: str) -> dict[str, Any] | None:
         report = migrate_sqlite_to_postgres(source, target_url, replace_seed=True)
     except LegacyMigrationError as exc:
         if "cible n'est pas vide" in str(exc):
-            logger.info("Legacy SQLite database found at %s; PostgreSQL already contains data, skipping", source)
+            logger.info(
+                "Legacy SQLite database found at %s; PostgreSQL already contains data, reconciling users",
+                source,
+            )
+            report = merge_legacy_users_into_postgres(source, target_url)
+        else:
+            logger.warning("Automatic legacy SQLite migration skipped: %s", exc)
             return None
-        logger.warning("Automatic legacy SQLite migration skipped: %s", exc)
-        return None
 
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     marker.parent.mkdir(parents=True, exist_ok=True)
@@ -278,8 +356,12 @@ def auto_migrate_legacy_sqlite(target_url: str) -> dict[str, Any] | None:
                 "migrated_at": datetime.now(timezone.utc).isoformat(),
                 "source": str(source.resolve()),
                 "source_sha256": digest,
+                "status": report["status"],
                 "copied_rows": report["copied_rows"],
                 "copied_tables": report["copied_tables"],
+                "users_inserted": report.get("users_inserted", 0),
+                "users_updated": report.get("users_updated", 0),
+                "user_fields_updated": report.get("user_fields_updated", 0),
             },
             indent=2,
         ),

@@ -1,177 +1,37 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div><h1>Parametres</h1><p>Connexions, notifications, automatisation et donnees.</p></div>
-      <button v-if="tab !== 'data'" class="primary" :disabled="saving" @click="save"><Save/>{{ saving ? 'Enregistrement...' : 'Enregistrer' }}</button>
-    </header>
-    <div class="segmented settings-tabs">
-      <button v-for="item in tabs" :key="item.key" :class="{active:tab===item.key}" @click="tab=item.key"><component :is="item.icon"/>{{ item.label }}</button>
-    </div>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
-    <p v-if="message" class="notice success-text">{{ message }}</p>
+    <header class="page-head"><div><h1>Parametres</h1><p>Connexions, notifications, automatisation et exploitation.</p></div><button v-if="['connections','notifications','automation'].includes(tab)" class="primary" :disabled="saving" @click="save"><Save/>{{ saving?'Enregistrement...':'Enregistrer' }}</button></header>
+    <div class="segmented settings-tabs"><button v-for="item in tabs" :key="item.key" :class="{active:tab===item.key}" @click="selectTab(item.key)"><component :is="item.icon"/>{{ item.label }}</button></div><p v-if="error" class="notice error-text">{{ error }}</p><p v-if="message" class="notice success-text">{{ message }}</p>
 
-    <div v-if="tab === 'connections'" class="settings-grid">
-      <section class="panel form-section">
-        <h2>Plex</h2>
-        <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label>
-        <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label>
-        <label>URL RSS<input v-model="form.plex_rss_url" type="url"></label>
-        <label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label>
-      </section>
-      <section class="panel form-section">
-        <h2>Seer et TMDB</h2>
-        <label class="check"><input v-model="form.seer_enabled" type="checkbox"> Activer Seer</label>
-        <label>URL Seer<input v-model="form.seer_url" type="url"></label>
-        <label>Cle API Seer<input v-model="form.seer_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
-        <label>Cle TMDB<input v-model="form.tmdb_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
-        <label class="check"><input v-model="form.seer_send_requests" type="checkbox"> Envoyer les demandes a Seer</label>
-        <label class="check"><input v-model="form.seer_fallback_arr" type="checkbox"> Repli direct Sonarr/Radarr</label>
-      </section>
-      <section class="panel form-section arr-panel">
-        <div class="panel-head"><h2>Instances Arr</h2><button class="icon-button" title="Actualiser" @click="loadArr"><RefreshCw/></button></div>
-        <div v-for="instance in arrInstances" :key="instance.id" class="inline-row">
-          <div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div>
-          <div class="actions">
-            <button class="icon-button" :title="instance.enabled ? 'Desactiver' : 'Activer'" @click="toggleArr(instance)"><Power/></button>
-            <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
-          </div>
-        </div>
-        <div class="compact-form">
-          <label>Nom<input v-model="arrForm.name" placeholder="Sonarr principal"></label>
-          <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
-          <label>URL<input v-model="arrForm.url" type="url"></label>
-          <label>Cle API<input v-model="arrForm.api_key" type="password"></label>
-          <label>Dossier racine<input v-model="arrForm.root_folder"></label>
-          <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
-        </div>
-        <button class="secondary" :disabled="busy || !arrForm.name || !arrForm.url || !arrForm.api_key" @click="addArr"><Plus/>Ajouter l'instance</button>
-      </section>
+    <div v-if="tab==='connections'" class="settings-grid">
+      <section class="panel form-section"><div class="panel-head"><h2>Plex</h2><button class="secondary" @click="testSaved('/api/test/plex-api')"><PlugZap/>Tester</button></div><label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label><label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label><label>URL RSS<input v-model="form.plex_rss_url" type="url"></label><label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label><div class="actions"><button class="secondary" @click="testSaved('/api/test/plex-rss')"><Rss/>Tester le RSS</button><button class="secondary" @click="startPlexSso"><LogIn/>Connexion Plex SSO</button></div></section>
+      <section class="panel form-section"><div class="panel-head"><h2>Seer et TMDB</h2><div class="actions"><button class="secondary" @click="testSaved('/api/test/seer')">Seer</button><button class="secondary" @click="testSaved('/api/test/tmdb')">TMDB</button></div></div><label class="check"><input v-model="form.seer_enabled" type="checkbox"> Activer Seer</label><label>URL Seer<input v-model="form.seer_url" type="url"></label><label>Cle API Seer<input v-model="form.seer_api_key" type="password" placeholder="Laisser vide pour conserver"></label><label>Cle TMDB<input v-model="form.tmdb_api_key" type="password" placeholder="Laisser vide pour conserver"></label><label class="check"><input v-model="form.seer_send_requests" type="checkbox"> Envoyer les demandes a Seer</label><label class="check"><input v-model="form.seer_fallback_arr" type="checkbox"> Repli direct Sonarr/Radarr</label></section>
+      <section class="panel form-section span-two"><div class="panel-head"><h2>Instances Sonarr, Radarr et Prowlarr</h2><button class="icon-button" @click="loadArr"><RefreshCw/></button></div><div class="connection-list"><article v-for="instance in arrInstances" :key="instance.id" class="inline-row"><div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div><div class="actions"><button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button><button class="icon-button" title="Modifier" @click="editArr(instance)"><Pencil/></button><button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button><button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button></div></article></div><div class="compact-form"><label>Nom<input v-model="arrForm.name"></label><label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label><label>URL<input v-model="arrForm.url" type="url"></label><label>Cle API<input v-model="arrForm.api_key" type="password"></label><label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label><label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label><label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label></div><div class="actions"><button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button><button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button><button v-if="editingArrId" class="secondary" @click="resetArr">Annuler</button></div></section>
+      <section class="panel form-section span-two"><div class="panel-head"><h2>Clients de telechargement direct</h2><button class="icon-button" @click="loadClients"><RefreshCw/></button></div><div class="connection-list"><article v-for="client in clients" :key="client.id" class="inline-row"><div><strong>{{ client.name }}</strong><span>{{ client.client_type }} · {{ client.url }}</span></div><div class="actions"><button class="icon-button" @click="testClient(client)"><PlugZap/></button><button class="icon-button" @click="editClient(client)"><Pencil/></button><button class="icon-button" @click="toggleClient(client)"><Power/></button><button class="icon-button danger" @click="removeClient(client)"><Trash2/></button></div></article></div><div class="compact-form"><label>Nom<input v-model="clientForm.name"></label><label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label><label>URL<input v-model="clientForm.url" type="url"></label><label>Utilisateur<input v-model="clientForm.username"></label><label>Mot de passe<input v-model="clientForm.password" type="password"></label><label>Categorie<input v-model="clientForm.category"></label><label>Tags<input v-model="clientForm.tags"></label><label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label></div><div class="actions"><button class="primary" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button><button v-if="editingClientId" class="secondary" @click="resetClient">Annuler</button></div></section>
     </div>
 
-    <div v-else-if="tab === 'notifications'" class="settings-grid">
-      <section class="panel form-section">
-        <h2>Email</h2>
-        <label class="check"><input v-model="form.email_enabled" type="checkbox"> Activer les emails</label>
-        <label>Serveur SMTP<input v-model="form.smtp_host"></label>
-        <label>Port<input v-model.number="form.smtp_port" type="number" min="1" max="65535"></label>
-        <label>Utilisateur<input v-model="form.smtp_user"></label>
-        <label>Mot de passe<input v-model="form.smtp_password" type="password" placeholder="Laisser vide pour conserver"></label>
-        <label>Expediteur<input v-model="form.smtp_from" type="email"></label>
-        <label class="check"><input v-model="form.smtp_tls" type="checkbox"> TLS</label>
-      </section>
-      <section class="panel form-section">
-        <h2>Discord</h2>
-        <label class="check"><input v-model="form.discord_enabled" type="checkbox"> Activer Discord</label>
-        <label>Webhook<input v-model="form.discord_webhook_url" type="url"></label>
-        <h2>Telegram</h2>
-        <label class="check"><input v-model="form.telegram_enabled" type="checkbox"> Activer Telegram</label>
-        <label>Token bot<input v-model="form.telegram_bot_token" type="password"></label>
-        <label>Chat ID<input v-model="form.telegram_chat_id"></label>
-      </section>
-      <section class="panel form-section">
-        <h2>ntfy</h2>
-        <label class="check"><input v-model="form.ntfy_enabled" type="checkbox"> Activer ntfy</label>
-        <label>URL<input v-model="form.ntfy_url" type="url"></label>
-        <label>Topic<input v-model="form.ntfy_topic"></label>
-        <label>Token<input v-model="form.ntfy_token" type="password"></label>
-        <h2>Gotify</h2>
-        <label class="check"><input v-model="form.gotify_enabled" type="checkbox"> Activer Gotify</label>
-        <label>URL<input v-model="form.gotify_url" type="url"></label>
-        <label>Token<input v-model="form.gotify_token" type="password"></label>
-      </section>
+    <div v-else-if="tab==='notifications'" class="settings-grid">
+      <section class="panel form-section"><div class="panel-head"><h2>Email</h2><button class="secondary" @click="testSmtp"><PlugZap/>Tester</button></div><label class="check"><input v-model="form.email_enabled" type="checkbox"> Activer les emails</label><label>Serveur SMTP<input v-model="form.smtp_host"></label><label>Port<input v-model.number="form.smtp_port" type="number"></label><label>Utilisateur<input v-model="form.smtp_user"></label><label>Mot de passe<input v-model="form.smtp_password" type="password" placeholder="Laisser vide pour conserver"></label><label>Expediteur<input v-model="form.smtp_from" type="email"></label><label>Email administrateur<input v-model="form.admin_notification_email"></label><label class="check"><input v-model="form.smtp_tls" type="checkbox"> TLS</label></section>
+      <section v-for="channel in channels" :key="channel.key" class="panel form-section"><div class="panel-head"><h2>{{ channel.label }}</h2><button class="secondary" @click="testSaved(`/api/test/${channel.key}`)"><PlugZap/>Tester</button></div><label class="check"><input v-model="form[`${channel.key}_enabled`]" type="checkbox"> Activer</label><template v-if="channel.key==='discord'"><label>Webhook<input v-model="form.discord_webhook_url"></label></template><template v-else-if="channel.key==='telegram'"><label>Token bot<input v-model="form.telegram_bot_token" type="password"></label><label>Chat ID<input v-model="form.telegram_chat_id"></label></template><template v-else-if="channel.key==='ntfy'"><label>URL<input v-model="form.ntfy_url"></label><label>Topic<input v-model="form.ntfy_topic"></label><label>Token<input v-model="form.ntfy_token" type="password"></label></template><template v-else><label>URL<input v-model="form.gotify_url"></label><label>Token<input v-model="form.gotify_token" type="password"></label></template></section>
+      <section class="panel form-section span-two"><h2>Evenements et canaux</h2><div class="event-matrix"><div></div><strong>Email</strong><strong>Discord</strong><strong>Telegram</strong><strong>ntfy</strong><strong>Gotify</strong><template v-for="event in notificationEvents" :key="event.key"><strong>{{ event.label }}</strong><label class="check"><input v-model="form[`email_on_${event.key}`]" type="checkbox"></label><label v-for="channel in channels" :key="channel.key" class="check"><input v-model="form[`${channel.key}_send_${event.key}`]" type="checkbox"></label></template></div><label class="check"><input v-model="form.email_on_vf_available" type="checkbox"> Email lors d'une amelioration VO vers VF</label><div class="settings-grid two"><label class="check"><input v-model="form.movie_notify_language" type="checkbox"> Distinguer VO/VF pour les films</label><label class="check"><input v-model="form.series_notify_language" type="checkbox"> Distinguer VO/VF pour les series</label><label>Granularite series<select v-model="form.series_notify_granularity"><option value="minimal">Serie complete</option><option value="jalons">Debut et fin de saison</option><option value="tout">Chaque episode</option></select></label></div></section>
     </div>
 
-    <div v-else-if="tab === 'automation'" class="settings-grid">
-      <section class="panel form-section">
-        <h2>Watchlist</h2>
-        <label>Intervalle en secondes<input v-model.number="form.poll_interval_seconds" type="number" min="15"></label>
-        <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">RSS</option></select></label>
-        <label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label>
-        <label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label>
-      </section>
-      <section class="panel form-section">
-        <h2>Analyse VF</h2>
-        <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse VF active</label>
-        <label>Bibliotheques<input v-model="form.vff_libraries" placeholder="Films, Series"></label>
-        <label>Nouvelle analyse (minutes)<input v-model.number="form.vff_recheck_interval_minutes" type="number" min="1"></label>
-        <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche VF automatique</label>
-      </section>
-      <section class="panel form-section">
-        <h2>Conservation</h2>
-        <label>Journaux de notification (jours)<input v-model.number="form.notification_log_retention_days" type="number" min="0"></label>
-        <label>Verification Arr (heures)<input v-model.number="form.arr_poll_interval_hours" type="number" min="1"></label>
-        <label class="check"><input v-model="form.digest_enabled" type="checkbox"> Digest actif</label>
-        <label>Heure du digest<input v-model.number="form.digest_hour" type="number" min="0" max="23"></label>
-      </section>
-    </div>
-
-    <div v-else class="settings-grid">
-      <section class="panel form-section">
-        <h2>Export et sauvegarde</h2>
-        <label class="check"><input v-model="includeSecrets" type="checkbox"> Inclure les identifiants dans l'export JSON</label>
-        <a class="secondary" :href="includeSecrets ? '/api/export?include_secrets=true' : '/api/export'"><Download/>Exporter en JSON</a>
-        <a class="secondary" href="/api/backup/db"><HardDriveDownload/>Telecharger un backup complet</a>
-        <p class="warning-text">Ces fichiers peuvent contenir des tokens, mots de passe et cles API.</p>
-      </section>
-      <section class="panel form-section">
-        <h2>Importer un export JSON</h2>
-        <input ref="jsonInput" type="file" accept=".json">
-        <button class="secondary" :disabled="busy" @click="importJson"><Upload/>Fusionner les donnees</button>
-        <p>La fusion JSON conserve les donnees presentes et met a jour les entites portables.</p>
-      </section>
-      <section class="panel form-section migration-panel">
-        <h2>Ancienne base SQLite</h2>
-        <input ref="sqliteInput" type="file" accept=".db,.sqlite,.sqlite3" @change="resetInspection">
-        <button class="secondary" :disabled="busy" @click="inspectSqlite"><Search/>Inspecter</button>
-        <div v-if="inspection" class="migration-summary">
-          <strong>{{ inspection.total_rows.toLocaleString() }} lignes</strong>
-          <span>{{ inspection.populated_tables }} tables peuplees · integrite {{ inspection.integrity }}</span>
-          <div class="table-badges"><span v-for="(count,name) in populatedTables" :key="name" class="badge">{{ name }} : {{ count.toLocaleString() }}</span></div>
-        </div>
-        <template v-if="inspection">
-          <p class="warning-text">Le remplacement cree d'abord un dump PostgreSQL, puis remplace toutes les donnees dans une transaction.</p>
-          <label>Confirmation<input v-model="confirmation" class="mono" placeholder="REMPLACER" autocomplete="off"></label>
-          <button class="primary danger-button" :disabled="busy || confirmation !== 'REMPLACER'" @click="migrateSqlite"><DatabaseZap/>Remplacer par cette base</button>
-        </template>
-      </section>
-    </div>
+    <div v-else-if="tab==='automation'" class="settings-grid"><section class="panel form-section"><h2>Watchlist</h2><label>Intervalle en secondes<input v-model.number="form.poll_interval_seconds" type="number" min="15"></label><label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">RSS</option></select></label><label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label><label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label></section><section class="panel form-section"><h2>Analyse VF</h2><label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label><label>Bibliotheques<input v-model="form.vff_libraries"></label><label>Nouvelle analyse (minutes)<input v-model.number="form.vff_recheck_interval_minutes" type="number"></label><label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label></section><section class="panel form-section"><h2>Conservation</h2><label>Journaux (jours)<input v-model.number="form.notification_log_retention_days" type="number"></label><label>Verification Arr (heures)<input v-model.number="form.arr_poll_interval_hours" type="number"></label><label class="check"><input v-model="form.digest_enabled" type="checkbox"> Digest actif</label><label>Heure du digest<input v-model.number="form.digest_hour" type="number" min="0" max="23"></label></section><section class="panel form-section"><h2>Regles torrent</h2><label>Mots requis<input v-model="form.torrent_required_keywords"></label><label>Mots interdits<input v-model="form.torrent_forbidden_keywords"></label><label>Taille minimale (Go)<input v-model.number="form.torrent_min_size_gb" type="number"></label><label>Taille maximale (Go)<input v-model.number="form.torrent_max_size_gb" type="number"></label><label>Ratio limite<input v-model.number="form.torrent_ratio_limit" type="number" step="0.1"></label><label>Duree de seed (h)<input v-model.number="form.torrent_seed_time_limit_hours" type="number"></label><label class="check"><input v-model="form.torrent_auto_delete_files" type="checkbox"> Supprimer les fichiers apres seed</label></section></div>
+    <SettingsOperationsPanel v-else-if="tab==='operations'"/><EmailTemplatesPanel v-else-if="tab==='templates'"/>
+    <div v-else class="settings-grid"><section class="panel form-section"><h2>Export et sauvegarde</h2><label class="check"><input v-model="includeSecrets" type="checkbox"> Inclure les identifiants</label><a class="secondary" :href="includeSecrets?'/api/export?include_secrets=true':'/api/export'"><Download/>Exporter en JSON</a><a class="secondary" href="/api/backup/db"><HardDriveDownload/>Backup complet</a><p class="warning-text">Ces fichiers peuvent contenir des secrets.</p></section><section class="panel form-section"><h2>Importer un export JSON</h2><input ref="jsonInput" type="file" accept=".json"><button class="secondary" :disabled="busy" @click="importJson"><Upload/>Fusionner les donnees</button></section><section class="panel form-section migration-panel"><h2>Ancienne base SQLite</h2><input ref="sqliteInput" type="file" accept=".db,.sqlite,.sqlite3" @change="resetInspection"><button class="secondary" :disabled="busy" @click="inspectSqlite"><Search/>Inspecter</button><div v-if="inspection" class="migration-summary"><strong>{{ inspection.total_rows.toLocaleString() }} lignes</strong><span>{{ inspection.populated_tables }} tables · integrite {{ inspection.integrity }}</span><div class="table-badges"><span v-for="(count,name) in populatedTables" :key="name" class="badge">{{ name }} : {{ count.toLocaleString() }}</span></div></div><template v-if="inspection"><p class="warning-text">Une sauvegarde PostgreSQL sera creee avant le remplacement.</p><label>Confirmation<input v-model="confirmation" class="mono" placeholder="REMPLACER"></label><button class="primary danger-button" :disabled="busy||confirmation!=='REMPLACER'" @click="migrateSqlite"><DatabaseZap/>Remplacer</button></template></section></div>
   </div>
 </template>
-
 <script setup>
-import { computed, markRaw, onMounted, reactive, ref } from "vue";
-import { Bell, Bot, DatabaseZap, Download, HardDriveDownload, Plus, Plug, Power, RefreshCw, Save, Search, Trash2, Upload } from "@lucide/vue";
-import { api } from "@/api";
-
-const tabs=[
-  {key:'connections',label:'Connexions',icon:markRaw(Plug)},
-  {key:'notifications',label:'Notifications',icon:markRaw(Bell)},
-  {key:'automation',label:'Automatisation',icon:markRaw(Bot)},
-  {key:'data',label:'Donnees',icon:markRaw(DatabaseZap)},
-];
-const tab=ref(new URLSearchParams(location.search).get('tab')||'connections');
-const secretFields=['plex_token','seer_api_key','tmdb_api_key','smtp_password','telegram_bot_token','ntfy_token','gotify_token'];
-const form=reactive({
-  plex_url:'',plex_token:'',plex_verify_ssl:true,plex_rss_url:'',seer_enabled:false,seer_url:'',seer_api_key:'',seer_send_requests:false,seer_fallback_arr:false,tmdb_api_key:'',
-  email_enabled:false,smtp_host:'',smtp_port:587,smtp_user:'',smtp_password:'',smtp_from:'',smtp_tls:true,
-  discord_enabled:false,discord_webhook_url:'',telegram_enabled:false,telegram_bot_token:'',telegram_chat_id:'',ntfy_enabled:false,ntfy_url:'',ntfy_topic:'',ntfy_token:'',gotify_enabled:false,gotify_url:'',gotify_token:'',
-  poll_interval_seconds:300,watchlist_source_priority:'api',watchlist_fallback_enabled:true,require_approval:false,vff_enabled:true,vff_libraries:'',vff_recheck_interval_minutes:60,vff_auto_search:false,notification_log_retention_days:30,arr_poll_interval_hours:6,digest_enabled:false,digest_hour:8,
-});
-const saving=ref(false),busy=ref(false),error=ref(''),message=ref(''),includeSecrets=ref(false),jsonInput=ref(null),sqliteInput=ref(null),inspection=ref(null),confirmation=ref('');
-const arrInstances=ref([]);
-const arrForm=reactive({name:'',arr_type:'sonarr',url:'',api_key:'',root_folder:'',is_default:false,enabled:true});
-const populatedTables=computed(()=>Object.fromEntries(Object.entries(inspection.value?.tables||{}).filter(([,count])=>count>0)));
-function success(text){message.value=text;error.value=''}
-async function load(){try{const [data]=await Promise.all([api('/api/settings'),loadArr()]);for(const key of Object.keys(form)){if(data[key]!=null)form[key]=data[key]}for(const key of secretFields)form[key]=''}catch(e){error.value=e.message}}
-async function loadArr(){arrInstances.value=await api('/api/arr-instances')}
-async function addArr(){busy.value=true;try{await api('/api/arr-instances',{method:'POST',body:JSON.stringify(arrForm)});Object.assign(arrForm,{name:'',arr_type:'sonarr',url:'',api_key:'',root_folder:'',is_default:false,enabled:true});await loadArr();success('Instance ajoutee.')}catch(e){error.value=e.message}finally{busy.value=false}}
-async function toggleArr(instance){try{await api(`/api/arr-instances/${instance.id}/toggle`,{method:'PATCH'});await loadArr()}catch(e){error.value=e.message}}
-async function removeArr(instance){try{await api(`/api/arr-instances/${instance.id}`,{method:'DELETE'});await loadArr()}catch(e){error.value=e.message}}
-async function save(){saving.value=true;error.value='';message.value='';const payload={...form};for(const key of secretFields)if(!payload[key])delete payload[key];try{await api('/api/settings',{method:'PUT',body:JSON.stringify(payload)});success('Configuration enregistree.')}catch(e){error.value=e.message}finally{saving.value=false}}
-async function upload(path,file,extra={}){const body=new FormData();body.append('file',file);for(const [key,value] of Object.entries(extra))body.append(key,value);const response=await fetch(path,{method:'POST',credentials:'same-origin',body});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||`HTTP ${response.status}`);return data}
-async function importJson(){const file=jsonInput.value?.files?.[0];if(!file){error.value='Selectionnez un export JSON.';return}busy.value=true;try{const data=await upload('/api/import',file);success(`Import termine : ${data.stats.users_upserted} utilisateurs et ${data.stats.requests_upserted} demandes.`);await load()}catch(e){error.value=e.message}finally{busy.value=false}}
-function resetInspection(){inspection.value=null;confirmation.value=''}
-async function inspectSqlite(){const file=sqliteInput.value?.files?.[0];if(!file){error.value='Selectionnez une base SQLite.';return}busy.value=true;try{inspection.value=await upload('/api/migration/sqlite/inspect',file);success('Base SQLite valide.')}catch(e){error.value=e.message;inspection.value=null}finally{busy.value=false}}
-async function migrateSqlite(){const file=sqliteInput.value?.files?.[0];if(!file||confirmation.value!=='REMPLACER')return;busy.value=true;try{const data=await upload('/api/migration/sqlite',file,{confirm:confirmation.value});success(`Migration terminee : ${data.report.copied_rows.toLocaleString()} lignes copiees.`);setTimeout(()=>location.assign('/dashboard'),1500)}catch(e){error.value=e.message}finally{busy.value=false}}
+import { computed,markRaw,onMounted,reactive,ref } from 'vue';import { Bell,Bot,DatabaseZap,Download,FileCode2,HardDriveDownload,ListRestart,LogIn,Pencil,Plug,PlugZap,Plus,Power,RefreshCw,Rss,Save,Search,ServerCog,Trash2,Upload } from '@lucide/vue';import { api } from '@/api';import EmailTemplatesPanel from '@/components/EmailTemplatesPanel.vue';import SettingsOperationsPanel from '@/components/SettingsOperationsPanel.vue';
+const tabs=[{key:'connections',label:'Connexions',icon:markRaw(Plug)},{key:'notifications',label:'Notifications',icon:markRaw(Bell)},{key:'automation',label:'Automatisation',icon:markRaw(Bot)},{key:'operations',label:'Exploitation',icon:markRaw(ServerCog)},{key:'templates',label:'Emails',icon:markRaw(FileCode2)},{key:'data',label:'Donnees',icon:markRaw(DatabaseZap)}];const tab=ref(new URLSearchParams(location.search).get('tab')||'connections');const channels=[{key:'discord',label:'Discord'},{key:'telegram',label:'Telegram'},{key:'ntfy',label:'ntfy'},{key:'gotify',label:'Gotify'}];const notificationEvents=[{key:'request',label:'Nouvelle demande'},{key:'available',label:'Disponibilite'},{key:'failure',label:'Echec'}];
+const secretFields=['plex_token','seer_api_key','tmdb_api_key','smtp_password','telegram_bot_token','ntfy_token','gotify_token'];const form=reactive({plex_url:'',plex_token:'',plex_verify_ssl:true,plex_rss_url:'',seer_enabled:false,seer_url:'',seer_api_key:'',seer_send_requests:false,seer_fallback_arr:false,tmdb_api_key:'',email_enabled:false,smtp_host:'',smtp_port:587,smtp_user:'',smtp_password:'',smtp_from:'',smtp_tls:true,admin_notification_email:'',email_on_request:true,email_on_available:true,email_on_failure:true,email_on_vf_available:true,discord_enabled:false,discord_webhook_url:'',discord_send_request:true,discord_send_available:true,discord_send_failure:true,telegram_enabled:false,telegram_bot_token:'',telegram_chat_id:'',telegram_send_request:true,telegram_send_available:true,telegram_send_failure:true,ntfy_enabled:false,ntfy_url:'',ntfy_topic:'',ntfy_token:'',ntfy_send_request:true,ntfy_send_available:true,ntfy_send_failure:true,gotify_enabled:false,gotify_url:'',gotify_token:'',gotify_send_request:true,gotify_send_available:true,gotify_send_failure:true,movie_notify_language:true,series_notify_language:true,series_notify_granularity:'jalons',poll_interval_seconds:300,watchlist_source_priority:'api',watchlist_fallback_enabled:true,require_approval:false,vff_enabled:true,vff_libraries:'',vff_recheck_interval_minutes:60,vff_auto_search:false,notification_log_retention_days:30,arr_poll_interval_hours:6,digest_enabled:false,digest_hour:8,torrent_required_keywords:'',torrent_forbidden_keywords:'',torrent_min_size_gb:null,torrent_max_size_gb:null,torrent_ratio_limit:null,torrent_seed_time_limit_hours:null,torrent_auto_delete_files:false});
+const saving=ref(false),busy=ref(false),error=ref(''),message=ref(''),includeSecrets=ref(false),jsonInput=ref(null),sqliteInput=ref(null),inspection=ref(null),confirmation=ref('');const arrInstances=ref([]),arrProfiles=ref([]),arrFolders=ref([]),editingArrId=ref(null);const arrDefaults={name:'',arr_type:'sonarr',url:'',api_key:'',quality_profile_id:null,root_folder:'',minimum_availability:'released',is_default:false,enabled:true,indexer_ids:null};const arrForm=reactive({...arrDefaults});const clients=ref([]),editingClientId=ref(null);const clientDefaults={name:'',client_type:'qbittorrent',url:'',username:'',password:'',category:'',tags:'',is_default:false,enabled:true};const clientForm=reactive({...clientDefaults});const populatedTables=computed(()=>Object.fromEntries(Object.entries(inspection.value?.tables||{}).filter(([,count])=>count>0)));
+function success(text){message.value=text;error.value=''}function selectTab(value){tab.value=value;history.replaceState(null,'',`/settings?tab=${value}`)}
+async function load(){try{const [data]=await Promise.all([api('/api/settings'),loadArr(),loadClients()]);for(const key of Object.keys(form))if(data[key]!=null)form[key]=data[key];for(const key of secretFields)form[key]=''}catch(e){error.value=e.message}}async function save(){saving.value=true;const payload={...form};for(const key of secretFields)if(!payload[key])delete payload[key];try{await api('/api/settings',{method:'PUT',body:JSON.stringify(payload)});success('Configuration enregistree.')}catch(e){error.value=e.message}finally{saving.value=false}}
+async function testSaved(path){await save();try{const data=await api(path,{method:'POST'});success(data.message||'Connexion valide.')}catch(e){error.value=e.message}}async function testSmtp(){await save();const recipient=prompt('Adresse de test',form.admin_notification_email||form.smtp_from);if(!recipient)return;try{const data=await api('/api/test/smtp',{method:'POST',body:JSON.stringify({recipient})});success(data.message||'Email envoye.')}catch(e){error.value=e.message}}
+async function startPlexSso(){try{const data=await api('/api/plex/sso/pin',{method:'POST'});window.open(data.auth_url||data.url,'_blank','noopener');const timer=setInterval(async()=>{const state=await api(`/api/plex/sso/check/${data.id}`).catch(()=>null);if(state?.authenticated||state?.token){clearInterval(timer);success('Connexion Plex terminee.');await load()}},2000);setTimeout(()=>clearInterval(timer),180000)}catch(e){error.value=e.message}}
+async function loadArr(){arrInstances.value=await api('/api/arr-instances')}function resetArr(){editingArrId.value=null;Object.assign(arrForm,arrDefaults);arrProfiles.value=[];arrFolders.value=[]}function editArr(instance){editingArrId.value=instance.id;Object.assign(arrForm,arrDefaults,instance);loadArrOptions()}async function loadArrOptions(){if(arrForm.arr_type==='prowlarr'){arrProfiles.value=[];arrFolders.value=[];return}const q=editingArrId.value?`?instance_id=${editingArrId.value}`:`?url=${encodeURIComponent(arrForm.url)}&api_key=${encodeURIComponent(arrForm.api_key)}`;[arrProfiles.value,arrFolders.value]=await Promise.all([api(`/api/${arrForm.arr_type}/profiles${q}`).catch(()=>[]),api(`/api/${arrForm.arr_type}/folders${q}`).catch(()=>[])])}async function saveArr(){busy.value=true;try{await api(editingArrId.value?`/api/arr-instances/${editingArrId.value}`:'/api/arr-instances',{method:editingArrId.value?'PUT':'POST',body:JSON.stringify(arrForm)});success(editingArrId.value?'Instance mise a jour.':'Instance ajoutee.');resetArr();await loadArr()}catch(e){error.value=e.message}finally{busy.value=false}}async function testArr(instance=arrForm){try{const data=await api('/api/test/arr-instance',{method:'POST',body:JSON.stringify({url:instance.url,api_key:instance.api_key,arr_type:instance.arr_type})});success(data.message||'Instance joignable.')}catch(e){error.value=e.message}}async function toggleArr(instance){await api(`/api/arr-instances/${instance.id}/toggle`,{method:'PATCH'});await loadArr()}async function removeArr(instance){if(!confirm(`Supprimer ${instance.name} ?`))return;await api(`/api/arr-instances/${instance.id}`,{method:'DELETE'});await loadArr()}
+async function loadClients(){clients.value=await api('/api/download-clients')}function resetClient(){editingClientId.value=null;Object.assign(clientForm,clientDefaults)}function editClient(client){editingClientId.value=client.id;Object.assign(clientForm,clientDefaults,client)}async function saveClient(){try{await api(editingClientId.value?`/api/download-clients/${editingClientId.value}`:'/api/download-clients',{method:editingClientId.value?'PUT':'POST',body:JSON.stringify(clientForm)});resetClient();await loadClients();success('Client enregistre.')}catch(e){error.value=e.message}}async function testClient(client=clientForm){try{const data=await api('/api/test/download-client',{method:'POST',body:JSON.stringify(client)});success(data.message||'Client joignable.')}catch(e){error.value=e.message}}async function toggleClient(client){await api(`/api/download-clients/${client.id}/toggle`,{method:'PATCH'});await loadClients()}async function removeClient(client){if(!confirm(`Supprimer ${client.name} ?`))return;await api(`/api/download-clients/${client.id}`,{method:'DELETE'});await loadClients()}
+async function upload(path,file,extra={}){const body=new FormData();body.append('file',file);for(const [key,value] of Object.entries(extra))body.append(key,value);const response=await fetch(path,{method:'POST',credentials:'same-origin',body});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||`HTTP ${response.status}`);return data}async function importJson(){const file=jsonInput.value?.files?.[0];if(!file)return;busy.value=true;try{const data=await upload('/api/import',file);success(`Import termine : ${data.stats.users_upserted} utilisateurs.`);await load()}catch(e){error.value=e.message}finally{busy.value=false}}function resetInspection(){inspection.value=null;confirmation.value=''}async function inspectSqlite(){const file=sqliteInput.value?.files?.[0];if(!file)return;busy.value=true;try{inspection.value=await upload('/api/migration/sqlite/inspect',file);success('Base SQLite valide.')}catch(e){error.value=e.message}finally{busy.value=false}}async function migrateSqlite(){const file=sqliteInput.value?.files?.[0];if(!file||confirmation.value!=='REMPLACER')return;busy.value=true;try{const data=await upload('/api/migration/sqlite',file,{confirm:confirmation.value});success(`Migration terminee : ${data.report.copied_rows.toLocaleString()} lignes.`);setTimeout(()=>location.assign('/dashboard'),1500)}catch(e){error.value=e.message}finally{busy.value=false}}
 onMounted(load);
 </script>

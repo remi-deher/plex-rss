@@ -13,6 +13,7 @@ import SettingsView from "./views/SettingsView.vue";
 import MaintenanceView from "./views/MaintenanceView.vue";
 import ReleaseSearchView from "./views/ReleaseSearchView.vue";
 import ProfileView from "./views/ProfileView.vue";
+import LogsView from "./views/LogsView.vue";
 import "./styles.css";
 
 const routes = [
@@ -26,6 +27,7 @@ const routes = [
   { path: "/users", component: UsersView },
   { path: "/users/:userId", component: UsersView },
   { path: "/notifications", component: NotificationsView },
+  { path: "/logs", component: LogsView },
   { path: "/settings", component: SettingsView },
   { path: "/maintenance", component: MaintenanceView },
   { path: "/profile", component: ProfileView },

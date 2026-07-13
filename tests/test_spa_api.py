@@ -1,10 +1,13 @@
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
+
+from fastapi.testclient import TestClient
 
 from app.database import get_db_async
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import ArrInstance, LibraryItem, MediaRequest, RequestStatus
+from app.models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
+from app.routers import arr_api
+from app.services.email_service import DEFAULT_HEADER_BRAND, DEFAULT_REQUEST_TEMPLATE
 
 
 def _client(db):
@@ -48,6 +51,10 @@ def test_spa_library_list_supports_search_and_type(async_db):
                 "added_at": None,
             }
         ]
+        metrics = client.get("/api/library-metrics")
+        assert metrics.status_code == 200
+        assert metrics.json()["total"] == 3
+        assert metrics.json()["vf"]["complete"] == 1
     finally:
         _cleanup()
 
@@ -61,6 +68,25 @@ def test_spa_notification_feeds_are_async(async_db):
         assert activity.json() == []
         assert pending.status_code == 200
         assert pending.json()["items"] == []
+    finally:
+        _cleanup()
+
+
+def test_spa_email_templates_resolve_defaults_and_header(async_db):
+    async_db.add(Settings(email_header_brand="Mon Plex"))
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get("/api/email-templates")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["email_request_template"] == DEFAULT_REQUEST_TEMPLATE
+        assert data["email_header_brand"] == "Mon Plex"
+        assert data["email_header_brand"] != DEFAULT_HEADER_BRAND
+        assert data["email_header_subtitle"] == "Notification Plex"
+        assert data["email_show_header_subtitle"] is True
+        assert data["email_media_layout"] == "left"
+        assert data["has_previous_version"] is False
     finally:
         _cleanup()
 
@@ -108,5 +134,105 @@ def test_spa_arr_releases_put_english_results_last_and_grab(async_db):
             )
         assert grabbed.status_code == 200
         assert request.status == RequestStatus.sent_to_arr
+    finally:
+        _cleanup()
+
+
+def test_spa_media_detail_matches_requests_by_title(async_db):
+    item = LibraryItem(title="Arrival", media_type="movie", year=2016)
+    request = MediaRequest(
+        plex_user_id="alice",
+        title="Arrival",
+        media_type="movie",
+        year=2016,
+        status=RequestStatus.available,
+    )
+    async_db.add_all([item, request])
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get(f"/api/media/detail?library_id={item.id}")
+        assert response.status_code == 200
+        assert response.json()["requests"][0]["id"] == request.id
+    finally:
+        _cleanup()
+
+
+def test_spa_manual_import_links_existing_request(async_db):
+    instance = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="secret", enabled=True)
+    async_db.add(instance)
+    async_db.flush()
+    request = MediaRequest(
+        plex_user_id="manual",
+        title="Arrival",
+        media_type="movie",
+        arr_id=10,
+        arr_instance_id=instance.id,
+        status=RequestStatus.sent_to_arr,
+    )
+    async_db.add(request)
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.post(
+            "/api/downloads/manual-import",
+            json={"instance_id": instance.id, "media_type": "movie", "title": "Arrival", "arr_id": 10},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"status": "linked", "request_id": request.id}
+    finally:
+        _cleanup()
+
+
+def test_spa_direct_downloads_reads_tracked_requests(async_db):
+    client_model = DownloadClient(
+        name="qBittorrent",
+        client_type="qbittorrent",
+        url="http://qbittorrent",
+        enabled=True,
+    )
+    async_db.add(client_model)
+    async_db.flush()
+    request = MediaRequest(
+        plex_user_id="alice",
+        title="Arrival",
+        media_type="movie",
+        status=RequestStatus.sent_to_arr,
+        torrent_hash="abc123",
+        download_client_id=client_model.id,
+    )
+    async_db.add(request)
+    async_db.commit()
+    client = _client(async_db)
+    arr_api._direct_cache.update({"data": None, "ts": 0.0})
+    try:
+        status = {"progress": 42.5, "eta": 600}
+        with patch("app.services.download_clients.get_torrent_status", new=AsyncMock(return_value=status)):
+            response = client.get("/api/downloads/direct")
+        assert response.status_code == 200
+        assert response.json()[0]["title"] == "Arrival"
+        assert response.json()[0]["progress"] == 42.5
+    finally:
+        arr_api._direct_cache.update({"data": None, "ts": 0.0})
+        _cleanup()
+
+
+def test_sonarr_episode_targets_are_available_without_download_id(async_db):
+    instance = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="secret", enabled=True)
+    async_db.add(instance)
+    async_db.commit()
+    client = _client(async_db)
+    episodes = [{"id": 12, "seasonNumber": 2, "episodeNumber": 3, "title": "Episode 3"}]
+    try:
+        with (
+            patch("app.routers.arr_api.sonarr.get_episodes", new=AsyncMock(return_value=episodes)),
+            patch("app.routers.arr_api.sonarr.get_manual_import_candidates", new=AsyncMock()) as candidates,
+        ):
+            response = client.get(
+                f"/api/downloads/sonarr-manual-import?instance_id={instance.id}&series_id=42"
+            )
+        assert response.status_code == 200
+        assert response.json() == {"candidates": [], "episodes": episodes}
+        candidates.assert_not_awaited()
     finally:
         _cleanup()

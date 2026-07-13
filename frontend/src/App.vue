@@ -10,6 +10,7 @@
       <RouterLink to="/downloads"><Download />Telechargements</RouterLink>
       <RouterLink v-if="isAdmin" to="/users"><Users />Utilisateurs</RouterLink>
       <RouterLink v-if="isAdmin" to="/notifications"><Bell />Notifications</RouterLink>
+      <RouterLink v-if="isAdmin" to="/logs"><ScrollText />Journaux</RouterLink>
       <RouterLink v-if="isAdmin" to="/maintenance"><Wrench />Maintenance</RouterLink>
       <RouterLink v-if="isAdmin" to="/settings"><Settings />Parametres</RouterLink>
       <RouterLink to="/profile"><UserRound />Profil</RouterLink>
@@ -23,7 +24,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Bell, CalendarDays, Compass, Download, Gauge, Library, ListChecks, LogOut, Settings, UserRound, Users, Wrench } from "@lucide/vue";
+import { Bell, CalendarDays, Compass, Download, Gauge, Library, ListChecks, LogOut, ScrollText, Settings, UserRound, Users, Wrench } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 const session=ref(null);

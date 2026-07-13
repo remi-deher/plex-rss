@@ -14,6 +14,9 @@ class FakeRedis:
     async def get(self, key):
         return self.values.get(key)
 
+    async def exists(self, key):
+        return int(key in self.values)
+
     async def set(self, key, value, ex=None, nx=False):
         if nx and key in self.values:
             return False

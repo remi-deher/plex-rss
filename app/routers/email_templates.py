@@ -2,21 +2,40 @@ import json
 from typing import Optional
 
 import markdown
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
 from ..models import MediaRequest, PlexUser, Settings
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_BG_COLOR,
+    DEFAULT_BRAND_COLOR,
+    DEFAULT_CARD_BG_COLOR,
+    DEFAULT_CARD_BORDER_RADIUS,
+    DEFAULT_CARD_WIDTH,
     DEFAULT_CORRECTION_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_FONT_FAMILY_KEY,
+    DEFAULT_FOOTER_TEMPLATE,
+    DEFAULT_HEADER_BRAND,
+    DEFAULT_HEADER_SUBTITLE,
+    DEFAULT_MEDIA_LAYOUT,
+    DEFAULT_POSTER_WIDTH,
     DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_REQUESTER_LABEL,
+    DEFAULT_SHOW_GENRES,
+    DEFAULT_SHOW_HEADER_SUBTITLE,
+    DEFAULT_SHOW_PLEX_BUTTON,
+    DEFAULT_SHOW_POSTER,
+    DEFAULT_SHOW_REQUESTER,
+    DEFAULT_SHOW_TMDB_LINK,
+    DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
     DEFAULT_UPGRADE_TEMPLATE,
     FONT_FAMILY_PRESETS,
     SYNOPSIS_FONT_SIZE_PRESETS,
@@ -39,7 +58,7 @@ _EVENT_TYPES = ("request", "available", "upgrade", "failure", "correction")
 
 @router.get("/settings/email-templates")
 def email_templates_redirect():
-    return RedirectResponse("/settings?tab=notifications", status_code=308)
+    return RedirectResponse("/settings?tab=templates", status_code=308)
 
 
 SAMPLE_CONTEXT = {
@@ -375,6 +394,63 @@ TEMPLATE_FIELDS = [
     "email_show_tmdb_link",
     "email_show_plex_button",
 ]
+
+
+@router.get("/api/email-templates")
+def get_templates(s: Settings = Depends(get_settings_or_404)):
+    """Return effective editor values, including defaults for nullable settings."""
+    template_defaults = {
+        "request": DEFAULT_REQUEST_TEMPLATE,
+        "available": DEFAULT_AVAILABLE_TEMPLATE,
+        "upgrade": DEFAULT_UPGRADE_TEMPLATE,
+        "failure": DEFAULT_FAILURE_TEMPLATE,
+        "correction": DEFAULT_CORRECTION_TEMPLATE,
+    }
+    result = {}
+    for event_type, default_template in template_defaults.items():
+        result[f"email_{event_type}_template"] = getattr(s, f"email_{event_type}_template") or default_template
+        result[f"email_{event_type}_subject"] = getattr(s, f"email_{event_type}_subject") or ""
+        visuals = get_event_visuals(s, event_type)
+        result[f"email_{event_type}_accent_color"] = visuals["_accent_color"]
+        result[f"email_{event_type}_badge_text"] = visuals["_badge_text"]
+        result[f"email_{event_type}_headline_text"] = visuals["_headline_text"]
+        result[f"email_{event_type}_show_synopsis"] = visuals["_show_synopsis"]
+
+    result.update(
+        {
+            "email_header_brand": s.email_header_brand or DEFAULT_HEADER_BRAND,
+            "email_header_subtitle": s.email_header_subtitle or DEFAULT_HEADER_SUBTITLE,
+            "email_footer_template": s.email_footer_template or DEFAULT_FOOTER_TEMPLATE,
+            "email_show_poster": DEFAULT_SHOW_POSTER if s.email_show_poster is None else s.email_show_poster,
+            "email_show_genres": DEFAULT_SHOW_GENRES if s.email_show_genres is None else s.email_show_genres,
+            "email_show_requester": DEFAULT_SHOW_REQUESTER
+            if s.email_show_requester is None
+            else s.email_show_requester,
+            "email_requester_label": s.email_requester_label or DEFAULT_REQUESTER_LABEL,
+            "email_brand_color": s.email_brand_color or DEFAULT_BRAND_COLOR,
+            "email_show_header_subtitle": DEFAULT_SHOW_HEADER_SUBTITLE
+            if s.email_show_header_subtitle is None
+            else s.email_show_header_subtitle,
+            "email_poster_width": s.email_poster_width or DEFAULT_POSTER_WIDTH,
+            "email_media_layout": s.email_media_layout or DEFAULT_MEDIA_LAYOUT,
+            "email_bg_color": s.email_bg_color or DEFAULT_BG_COLOR,
+            "email_card_bg_color": s.email_card_bg_color or DEFAULT_CARD_BG_COLOR,
+            "email_font_family": s.email_font_family or DEFAULT_FONT_FAMILY_KEY,
+            "email_card_width": s.email_card_width or DEFAULT_CARD_WIDTH,
+            "email_card_border_radius": s.email_card_border_radius
+            if s.email_card_border_radius is not None
+            else DEFAULT_CARD_BORDER_RADIUS,
+            "email_synopsis_font_size": s.email_synopsis_font_size or DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
+            "email_show_tmdb_link": DEFAULT_SHOW_TMDB_LINK
+            if s.email_show_tmdb_link is None
+            else s.email_show_tmdb_link,
+            "email_show_plex_button": DEFAULT_SHOW_PLEX_BUTTON
+            if s.email_show_plex_button is None
+            else s.email_show_plex_button,
+            "has_previous_version": bool(s.email_templates_backup),
+        }
+    )
+    return result
 
 
 @router.put("/api/email-templates")

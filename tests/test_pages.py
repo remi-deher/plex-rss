@@ -74,6 +74,7 @@ def test_spa_is_served_at_root_after_login(client, db):
         "/calendar",
         "/users",
         "/notifications",
+        "/logs",
         "/settings",
         "/maintenance",
         "/profile",
@@ -97,8 +98,7 @@ def test_old_app_prefix_redirects_to_root_route(client):
 @pytest.mark.parametrize(
     ("path", "destination"),
     [
-        ("/templates", "/settings?tab=notifications"),
-        ("/logs", "/notifications"),
+        ("/templates", "/settings?tab=templates"),
         ("/setup/wizard", "/settings?tab=connections"),
     ],
 )

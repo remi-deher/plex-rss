@@ -4,12 +4,12 @@ from html import escape
 from typing import Optional
 
 import httpx
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
@@ -136,7 +136,7 @@ async def _media_identity_filter(db: AsyncSession, item) -> list[MediaRequest]:
         )
         if getattr(item, "year", None):
             q = q.filter(MediaRequest.year == item.year)
-        for req in q.all():
+        for req in (await db.execute(q)).scalars().all():
             matches[req.id] = req
     return sorted(matches.values(), key=lambda r: r.requested_at or datetime.min, reverse=True)
 
@@ -447,15 +447,15 @@ async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = D
     secondary_rows = []
     if library_ids:
         secondary_rows = (
-            select(VfEpisodeStatus)
-            .filter(
-                VfEpisodeStatus.source_type == "library_item",
-                VfEpisodeStatus.source_id.in_(library_ids),
-                VfEpisodeStatus.has_vf.is_(True),
-                VfEpisodeStatus.fr_is_default.is_(False),
+            await db.execute(
+                select(VfEpisodeStatus).filter(
+                    VfEpisodeStatus.source_type == "library_item",
+                    VfEpisodeStatus.source_id.in_(library_ids),
+                    VfEpisodeStatus.has_vf.is_(True),
+                    VfEpisodeStatus.fr_is_default.is_(False),
+                )
             )
-            .all()
-        )
+        ).scalars().all()
     secondary_media_ids = {row.source_id for row in secondary_rows}
 
     status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}

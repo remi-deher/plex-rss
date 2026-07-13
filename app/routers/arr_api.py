@@ -2,11 +2,11 @@ import asyncio
 import time
 from typing import Optional
 
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import require_admin
@@ -616,10 +616,13 @@ async def manual_import_download(body: ManualImportRequest, db: AsyncSession = D
     tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
 
     existing = (
-        select(MediaRequest)
-        .filter(MediaRequest.arr_instance_id == inst.id, MediaRequest.arr_id == body.arr_id)
-        .first()
-    )
+        await db.execute(
+            select(MediaRequest).filter(
+                MediaRequest.arr_instance_id == inst.id,
+                MediaRequest.arr_id == body.arr_id,
+            )
+        )
+    ).scalars().first()
     if not existing and tmdb_str:
         existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str))).scalars().first()
     if not existing and tvdb_str:
@@ -656,7 +659,10 @@ async def manual_import_download(body: ManualImportRequest, db: AsyncSession = D
 
 @router.get("/downloads/sonarr-manual-import")
 async def sonarr_manual_import_candidates(
-    instance_id: int, download_id: str, series_id: int, db: AsyncSession = Depends(get_db_async)
+    instance_id: int,
+    series_id: int,
+    download_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_async),
 ):
     """Candidats + épisodes disponibles pour un import manuel Sonarr (cas où l'épisode
     n'est pas encore officiellement sorti dans les métadonnées Sonarr et ne peut donc
@@ -665,7 +671,7 @@ async def sonarr_manual_import_candidates(
     inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
     if inst.arr_type != "sonarr":
         raise HTTPException(400, "Cette instance n'est pas Sonarr")
-    candidates = await sonarr.get_manual_import_candidates(inst.url, inst.api_key, download_id)
+    candidates = await sonarr.get_manual_import_candidates(inst.url, inst.api_key, download_id) if download_id else []
     episodes = await sonarr.get_episodes(inst.url, inst.api_key, series_id)
     return {"candidates": candidates, "episodes": episodes}
 
@@ -723,10 +729,13 @@ async def direct_downloads(db: AsyncSession = Depends(get_db_async)):
         return _direct_cache["data"]
 
     reqs = (
-        select(MediaRequest)
-        .filter(MediaRequest.torrent_hash.isnot(None), MediaRequest.download_client_id.isnot(None))
-        .all()
-    )
+        await db.execute(
+            select(MediaRequest).filter(
+                MediaRequest.torrent_hash.isnot(None),
+                MediaRequest.download_client_id.isnot(None),
+            )
+        )
+    ).scalars().all()
     clients = {c.id: c for c in (await db.execute(select(DownloadClient))).scalars().all()}
     tracked = [(req, clients.get(req.download_client_id)) for req in reqs]
     tracked = [(req, client) for req, client in tracked if client and client.enabled]
