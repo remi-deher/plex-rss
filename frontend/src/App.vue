@@ -3,7 +3,6 @@
     <!-- Desktop Sidebar -->
     <aside class="sidebar desktop-only">
       <div class="brand">
-        <span class="brand-icon">⚡</span>
         Plexarr
       </div>
       
