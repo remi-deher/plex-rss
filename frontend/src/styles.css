@@ -40,6 +40,10 @@ select {
   background-color: #09090b;
 }
 
+.mobile-only {
+  display: none !important;
+}
+
 .sidebar {
   position: sticky;
   top: 12px;
