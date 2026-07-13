@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import AsyncSessionLocal
 from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
 import sqlalchemy
 from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
