@@ -47,6 +47,16 @@ async def add_series(
         logger.warning(f"Cannot find TVDB ID for '{item['title']}'")
         return None, False, None
 
+    if not quality_profile_id:
+        profiles = await get_quality_profiles(sonarr_url, api_key)
+        if profiles:
+            quality_profile_id = profiles[0]["id"]
+            
+    if not root_folder:
+        folders = await get_root_folders(sonarr_url, api_key)
+        if folders:
+            root_folder = folders[0]["path"]
+
     # Vérification d'existence avant ajout pour retourner already_existed=True
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -85,6 +95,10 @@ async def add_series(
             resp.raise_for_status()
             data = resp.json()
             return data.get("id"), False, data.get("titleSlug")
+    except httpx.HTTPStatusError as e:
+        body = e.response.text if hasattr(e, 'response') else ''
+        logger.error(f"Sonarr error adding '{item['title']}': {e} — response: {body}")
+        raise
     except httpx.HTTPError as e:
         logger.error(f"Sonarr error adding '{item['title']}': {e}")
         raise
