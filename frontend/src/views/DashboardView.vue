@@ -48,7 +48,7 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Demandes a valider</h2>
-          <RouterLink to="/requests">Tout voir</RouterLink>
+          <RouterLink to="/requests" class="panel-link">Tout voir</RouterLink>
         </div>
         <article v-for="row in pending" :key="row.id" class="detail-row">
           <div>
@@ -195,7 +195,7 @@
       <section v-if="upcoming.length" class="panel span-two">
         <div class="panel-head">
           <h2>Prochaines sorties</h2>
-          <RouterLink to="/calendar">Voir le calendrier</RouterLink>
+          <RouterLink to="/calendar" class="panel-link">Voir le calendrier</RouterLink>
         </div>
         <div class="upcoming-grid">
           <div v-for="item in upcoming" :key="item.id" class="upcoming-card">
@@ -305,7 +305,7 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Utilisateurs actifs</h2>
-          <RouterLink to="/users">Gerer</RouterLink>
+          <RouterLink to="/users" class="panel-link">Gerer</RouterLink>
         </div>
         <article v-for="user in byUser.slice(0, 6)" :key="user.plex_user_id" class="detail-row">
           <strong>{{ user.display_name }}</strong>
@@ -318,7 +318,7 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Notifications recentes</h2>
-          <RouterLink to="/notifications">Tout voir</RouterLink>
+          <RouterLink to="/notifications" class="panel-link">Tout voir</RouterLink>
         </div>
         <article v-for="notif in recentNotifs" :key="notif.id" class="detail-row">
           <div>
