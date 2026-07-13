@@ -23,11 +23,11 @@ from ..models import (
     Settings,
     VfEpisodeStatus,
 )
-from ..services import radarr, sonarr
+from ..services import radarr, sonarr, tmdb
 from ..services import seer as seer_service
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..services.notification_orchestrator import _notify
-from ..utils import async_get_or_404, identity_keys, now_utc_naive
+from ..utils import async_get_or_404, identity_keys, now_utc_naive, wrap_image_proxy
 from .arr_api import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
@@ -331,7 +331,7 @@ async def list_library(
             "title": item.title,
             "year": item.year,
             "media_type": item.media_type,
-            "poster_url": item.poster_url,
+            "poster_url": wrap_image_proxy(item.poster_url),
             "overview": item.overview,
             "has_vf": item.has_vf,
             "vf_granularity": item.vf_granularity,
@@ -395,6 +395,14 @@ async def media_detail(
         issue_q = issue_q.filter(MediaIssue.request_id == selected_request.id)
     open_issues = (await db.execute(issue_q.order_by(MediaIssue.created_at.desc()))).scalars().all()
 
+    backdrop_url = None
+    if media_obj.tmdb_id:
+        try:
+            tmdb_detail = await tmdb.detail(db, media_obj.media_type, int(media_obj.tmdb_id))
+            backdrop_url = tmdb_detail.get("backdrop_url")
+        except Exception as e:
+            logger.debug("Failed to fetch backdrop from TMDB: %s", e)
+
     return {
         "media": {
             "kind": "library" if library_item else "request",
@@ -407,7 +415,8 @@ async def media_detail(
             "title": media_obj.title,
             "year": media_obj.year,
             "media_type": media_obj.media_type,
-            "poster_url": media_obj.poster_url,
+            "poster_url": wrap_image_proxy(media_obj.poster_url),
+            "backdrop_url": wrap_image_proxy(backdrop_url),
             "overview": media_obj.overview,
             "has_vf": media_obj.has_vf,
             "vf_granularity": media_obj.vf_granularity,

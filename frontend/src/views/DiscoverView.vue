@@ -5,13 +5,20 @@
     <p v-if="error" class="notice error-text">{{ error }}</p>
     <section class="media-grid"><button v-for="item in items" :key="`${item.media_type}:${item.tmdb_id||item.id}`" class="media-card interactive" @click="selected=item"><div class="poster-shell"><img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy"><div v-else class="poster-fallback"><Film /></div><span v-if="item.available||item.in_library" class="language-tag vf">Disponible</span><span v-else-if="item.requested" class="language-tag unknown">{{ statusLabel(item.request_status) }}</span></div><div><strong>{{ item.title||item.name }}</strong><span>{{ item.media_type==='show'?'Serie':'Film' }}<template v-if="item.year"> · {{ item.year }}</template></span></div></button></section>
     <p v-if="loading" class="empty"><LoaderCircle class="spin"/> Chargement du catalogue</p><p v-else-if="!items.length" class="empty">Aucun resultat.</p>
-    <MediaDetailDrawer v-if="selected" :item="selected" mode="discover" @close="selected=null" @select="selected=$event" @updated="load" />
+    <MediaDetailDrawer v-if="selected" :item="selected" :mode="drawerMode" @close="selected=null" @select="selected=$event" @updated="load" />
   </div>
 </template>
 <script setup>
-import { onMounted,ref } from 'vue';import { Film,LoaderCircle } from '@lucide/vue';import { api } from '@/api';import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
+import { computed,onMounted,ref } from 'vue';import { Film,LoaderCircle } from '@lucide/vue';import { api } from '@/api';import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
 const items=ref([]),query=ref(''),mediaType=ref('all'),section=ref('trending'),genre=ref(''),genres=ref([]),selected=ref(null),loading=ref(false),error=ref('');let timer;
 const mediaTypes=[{value:'all',label:'Tout'},{value:'movie',label:'Films'},{value:'show',label:'Series'}];const sections=[{value:'trending',label:'Tendances'},{value:'popular',label:'Populaires'},{value:'coming-soon',label:'A venir'},{value:'genres',label:'Genres'}];
+const drawerMode = computed(() => {
+  if (!selected.value) return 'discover';
+  if (selected.value.media_type === 'show') {
+    return selected.value.library_id ? 'library' : selected.value.request_id ? 'request' : 'discover';
+  }
+  return selected.value.library_id ? 'library' : 'discover';
+});
 function statusLabel(value){return ({pending_approval:'A approuver',pending:'En attente',sent_to_arr:'Transmise',failed:'Echec',available:'Disponible'})[value]||'Demandee'}
 function setMediaType(value){mediaType.value=value;if(value==='all'&&section.value==='genres')section.value='trending';loadGenres();load()}
 function setSection(value){section.value=value;query.value='';load()}

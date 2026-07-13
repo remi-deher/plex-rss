@@ -1,6 +1,7 @@
 <template>
   <div class="drawer-backdrop" @click.self="$emit('close')">
     <aside class="detail-drawer" role="dialog" aria-modal="true" :aria-label="detail?.title || 'Detail media'">
+      <div v-if="detail?.backdrop_url" class="modal-bg" :style="{ backgroundImage: `url(${detail.backdrop_url})` }"></div>
       <header class="drawer-head">
         <div><span class="eyebrow">{{ typeLabel }}</span><h2>{{ detail?.title || 'Chargement...' }}</h2></div>
         <button class="icon-button" title="Fermer" @click="$emit('close')"><X /></button>
@@ -74,10 +75,10 @@ const statusLabel=computed(()=>detail.value?.available||detail.value?.in_library
 const statusClass=computed(()=>detail.value?.available||detail.value?.in_library?'available':'pending');
 const canRequest=computed(()=>props.mode==='discover'&&!detail.value?.available&&!detail.value?.in_library&&!detail.value?.requested);
 const seasonNumbers=computed(()=>Array.from({length:Number(detail.value?.number_of_seasons||0)},(_,i)=>i+1));
-const recommendations=computed(()=>[...(detail.value?.recommendations||[]),...(detail.value?.similar||[])].slice(0,12));
+const recommendations=computed(()=>[...(detail.value?.recommendations||[]),...(detail.value?.similar||[])].slice(0,6));
 function tabLabel(value){return ({summary:'Resume',requests:'Demandes',language:'VF / audio',calendar:'Calendrier'})[value]}
 function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)):'-'}
-function mediaPath(){const source=props.item;if(props.mode==='discover')return `/api/discover/detail?media_type=${source.media_type}&tmdb_id=${source.tmdb_id||source.id}`;if(props.mode==='request')return `/api/media/detail?request_id=${source.id}`;const id=source.library_id||source.id;return `/api/media/detail?library_id=${id}`}
+function mediaPath(){const source=props.item;if(props.mode==='discover'){const p=new URLSearchParams();p.set('media_type',source.media_type);if(source.tmdb_id)p.set('tmdb_id',source.tmdb_id);else if(source.tvdb_id)p.set('tvdb_id',source.tvdb_id);else p.set('tmdb_id',source.id);return `/api/discover/detail?${p}`}if(props.mode==='request')return `/api/media/detail?request_id=${source.id}`;const id=source.library_id||source.id;return `/api/media/detail?library_id=${id}`}
 async function load(){loading.value=true;error.value='';vfDetail.value=null;try{const payload=await api(mediaPath());detail.value=props.mode==='discover'?payload:{...payload.media,...payload};if(props.mode==='discover'){requesters.value=await api('/api/discover/requesters');requestForm.plex_user_id=requesters.value[0]?.plex_user_id||'';requestForm.seasons=[...seasonNumbers.value];const service=detail.value.media_type==='show'?'sonarr':'radarr';folders.value=await api(`/api/${service}/folders`).catch(()=>[])}}catch(e){error.value=e.message}finally{loading.value=false}}
 async function submitRequest(){busy.value=true;error.value='';try{const data=await api('/api/media/add',{method:'POST',body:JSON.stringify({title:detail.value.title,year:detail.value.year,media_type:detail.value.media_type,tmdb_id:detail.value.tmdb_id,tvdb_id:detail.value.tvdb_id,imdb_id:detail.value.imdb_id,poster_url:detail.value.poster_url,overview:detail.value.overview,plex_user_id:requestForm.plex_user_id,root_folder:requestForm.root_folder||null,seasons:detail.value.media_type==='show'?requestForm.seasons:null,auto_search:true})});detail.value.requested=true;detail.value.request_status=data.pending_approval?'pending_approval':'sent_to_arr';emit('updated',data)}catch(e){error.value=e.message}finally{busy.value=false}}
 async function requestAction(id,action){busy.value=true;try{await api(`/api/requests/${id}/${action}`,{method:'POST'});await load();emit('updated')}catch(e){error.value=e.message}finally{busy.value=false}}

@@ -38,6 +38,8 @@ class TmdbNotConfigured(Exception):
 
 async def _api_key(db: AsyncSession) -> str:
     s = (await db.execute(select(Settings))).scalars().first()
+    if s and not s.tmdb_enabled:
+        raise TmdbNotConfigured("TMDB est désactivé dans les paramètres")
     key = (s.tmdb_api_key if s else None) or ""
     if not key.strip():
         raise TmdbNotConfigured("Clé API TMDB non configurée")
@@ -78,12 +80,15 @@ async def _cache_put(db: AsyncSession, key: str, payload: dict) -> None:
     await db.commit()
 
 
-async def check_connection(db: AsyncSession) -> tuple[bool, str]:
+async def check_connection(db: AsyncSession, api_key: Optional[str] = None) -> tuple[bool, str]:
     """Valide la clé API TMDB via un appel léger (/configuration). Retourne (ok, message)."""
-    try:
-        key = await _api_key(db)
-    except TmdbNotConfigured:
-        return False, "Clé API TMDB non configurée"
+    if api_key is not None:
+        key = api_key
+    else:
+        try:
+            key = await _api_key(db)
+        except TmdbNotConfigured:
+            return False, "Clé API TMDB non configurée"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{API_BASE}/configuration", params={"api_key": key})
@@ -223,3 +228,18 @@ async def external_ids(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(db, f"/{mt}/{tmdb_id}/external_ids")
     return {"tvdb_id": data.get("tvdb_id"), "imdb_id": data.get("imdb_id")}
+
+
+async def find_by_external_id(db: AsyncSession, source: str, external_id: int | str) -> Optional[int]:
+    """Trouve l'ID TMDB a partir d'un identifiant externe (ex : tvdb_id)."""
+    try:
+        data = await _get(db, f"/find/{external_id}", {"external_source": source})
+        tv_results = data.get("tv_results") or []
+        if tv_results:
+            return tv_results[0].get("id")
+        movie_results = data.get("movie_results") or []
+        if movie_results:
+            return movie_results[0].get("id")
+    except Exception as e:
+        logger.warning(f"TMDB /find failed for {source}={external_id}: {e}")
+    return None

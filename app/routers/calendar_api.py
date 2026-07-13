@@ -11,7 +11,7 @@ from ..database import get_db_async
 from ..dependencies import require_auth
 from ..models import ArrInstance, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import radarr, sonarr
-from ..utils import now_utc, now_utc_naive
+from ..utils import now_utc, now_utc_naive, wrap_image_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def upcoming_releases(db: AsyncSession = Depends(get_db_async), limit: int
             "id": r.id,
             "title": r.title,
             "media_type": r.media_type,
-            "poster_url": r.poster_url,
+            "poster_url": wrap_image_proxy(r.poster_url),
             "release_date": r.next_release_at.isoformat(),
             "label": r.next_release_label,
         }
@@ -54,11 +54,15 @@ def _parse_arr_date(value: str):
         return None
 
 
-def _arr_poster(entity: dict) -> Optional[str]:
+def _arr_poster(entity: dict, inst_url: str) -> Optional[str]:
     """Extrait l'URL d'affiche (poster) d'une ressource Sonarr/Radarr."""
     for img in entity.get("images") or []:
         if img.get("coverType") == "poster":
-            return img.get("remoteUrl") or img.get("url")
+            url = img.get("remoteUrl") or img.get("url")
+            if url:
+                if url.startswith("/"):
+                    url = f"{inst_url.rstrip('/')}{url}"
+                return wrap_image_proxy(url)
     return None
 
 
@@ -145,7 +149,7 @@ async def unified_calendar(
             "requested_by_ids": [],
             "request_sources": [],
             "has_vf": li.has_vf,
-            "poster_url": li.poster_url,
+            "poster_url": wrap_image_proxy(li.poster_url),
         }
         library_items_by_id[li.id] = entry
         if li.media_type == "show" and li.tvdb_id:
@@ -186,7 +190,7 @@ async def unified_calendar(
                 "requested_by_ids": requester_ids,
                 "request_sources": [r.source] if r.source else [],
                 "has_vf": r.has_vf,
-                "poster_url": r.poster_url,
+                "poster_url": wrap_image_proxy(r.poster_url),
             }
             if r.media_type == "show" and r.tvdb_id:
                 shows_by_tvdb[r.tvdb_id] = entry
@@ -208,6 +212,33 @@ async def unified_calendar(
                     tracked = shows_by_tvdb.get(tvdb_id) if tvdb_id else None
                     if tracked_only and not tracked:
                         continue
+
+                    if not tracked:
+                        # Auto-create MediaRequest for untracked series in database
+                        new_req = MediaRequest(
+                            title=series.get("title") or "Unknown Series",
+                            year=series.get("year"),
+                            media_type="show",
+                            tvdb_id=tvdb_id,
+                            imdb_id=series.get("imdbId"),
+                            status=RequestStatus.sent_to_arr,
+                            source="arr_sync",
+                        )
+                        db.add(new_req)
+                        await db.flush()
+                        
+                        entry = {
+                            "in_library": False,
+                            "library_item_id": None,
+                            "request_id": new_req.id,
+                            "request_status": "sent_to_arr",
+                            "requested_by_ids": [],
+                            "request_sources": ["arr_sync"],
+                            "has_vf": None,
+                            "poster_url": wrap_image_proxy(_arr_poster(series, inst.url)),
+                        }
+                        shows_by_tvdb[tvdb_id] = entry
+                        tracked = entry
 
                     # Filtres
                     if type == "movie":
@@ -231,11 +262,13 @@ async def unified_calendar(
                             "title": series.get("title") or "",
                             "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
                             + (f" — {ep.get('title')}" if ep.get("title") else ""),
-                            "poster_url": (tracked or {}).get("poster_url") or _arr_poster(series),
+                            "poster_url": wrap_image_proxy((tracked or {}).get("poster_url")) or _arr_poster(series, inst.url),
                             "has_file": bool(ep.get("hasFile")),
                             "tracked": bool(tracked),
                             "library_item_id": (tracked or {}).get("library_item_id"),
                             "request_id": (tracked or {}).get("request_id"),
+                            "tvdb_id": tvdb_id,
+                            "tmdb_id": (tracked or {}).get("tmdb_id") or None,
                             "instance": inst.name,
                         }
                     )
@@ -249,6 +282,33 @@ async def unified_calendar(
                     tracked = movies_by_tmdb.get(tmdb_id) if tmdb_id else None
                     if tracked_only and not tracked:
                         continue
+
+                    if not tracked:
+                        # Auto-create MediaRequest for untracked movie in database
+                        new_req = MediaRequest(
+                            title=m.get("title") or "Unknown Movie",
+                            year=m.get("year"),
+                            media_type="movie",
+                            tmdb_id=tmdb_id,
+                            imdb_id=m.get("imdbId"),
+                            status=RequestStatus.sent_to_arr,
+                            source="arr_sync",
+                        )
+                        db.add(new_req)
+                        await db.flush()
+                        
+                        entry = {
+                            "in_library": False,
+                            "library_item_id": None,
+                            "request_id": new_req.id,
+                            "request_status": "sent_to_arr",
+                            "requested_by_ids": [],
+                            "request_sources": ["arr_sync"],
+                            "has_vf": None,
+                            "poster_url": wrap_image_proxy(_arr_poster(m, inst.url)),
+                        }
+                        movies_by_tmdb[tmdb_id] = entry
+                        tracked = entry
 
                     # Filtres
                     if type == "show":
@@ -265,7 +325,7 @@ async def unified_calendar(
                     ):
                         continue
 
-                    poster = (tracked or {}).get("poster_url") or _arr_poster(m)
+                    poster = wrap_image_proxy((tracked or {}).get("poster_url")) or _arr_poster(m, inst.url)
                     for rdate, rtype, rlabel in release_events:
                         events.append(
                             {
@@ -279,11 +339,13 @@ async def unified_calendar(
                                 "tracked": bool(tracked),
                                 "library_item_id": (tracked or {}).get("library_item_id"),
                                 "request_id": (tracked or {}).get("request_id"),
+                                "tmdb_id": tmdb_id,
                                 "instance": inst.name,
                             }
                         )
         except Exception as e:
             logger.warning(f"Calendar fetch failed for '{inst.name}': {e}")
 
+    await db.commit()
     events.sort(key=lambda e: e["date"])
     return events

@@ -25,7 +25,7 @@ from ..serializers import format_datetime
 from ..services import vff as vff_svc
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
-from ..utils import async_get_or_404, now_utc_naive
+from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
 from .arr_api import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,12 @@ async def _vf_detail_payload(db: AsyncSession, req):
     season_posters: dict[int, str] = {}
     try:
         inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
+        def wrap_local(url: Optional[str]) -> Optional[str]:
+            if not url:
+                return url
+            if url.startswith("/"):
+                url = f"{inst.url.rstrip('/')}{url}"
+            return wrap_image_proxy(url)
         series_id = None
         data = None
         if req.tvdb_id:
@@ -206,7 +212,7 @@ async def _vf_detail_payload(db: AsyncSession, req):
         out_seasons.append(
             {
                 "season_number": sn,
-                "poster_url": season_posters.get(sn) or series_poster_url,
+                "poster_url": wrap_local(season_posters.get(sn) or series_poster_url),
                 "counts": counts,
                 "episodes": eps,
             }
@@ -220,7 +226,7 @@ async def _vf_detail_payload(db: AsyncSession, req):
         "sonarr_available": sonarr_episodes is not None,
         "first_aired": first_aired,
         "next_episode_at": next_episode_at,
-        "poster_url": series_poster_url,
+        "poster_url": wrap_local(series_poster_url),
         "seasons": out_seasons,
     }
 

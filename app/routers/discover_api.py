@@ -146,8 +146,23 @@ async def get_search(query: str = Query(..., min_length=1), page: int = 1, db: A
 
 
 @router.get("/detail")
-async def get_detail(media_type: str, tmdb_id: int, db: AsyncSession = Depends(get_db_async)):
+async def get_detail(
+    media_type: str,
+    tmdb_id: Optional[int] = None,
+    tvdb_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db_async),
+):
     try:
+        if not tmdb_id and tvdb_id:
+            resolved_tmdb = await tmdb.find_by_external_id(db, "tvdb_id", tvdb_id)
+            if resolved_tmdb:
+                tmdb_id = resolved_tmdb
+            else:
+                raise HTTPException(404, "Identifiant TVDB non trouve sur TMDB.")
+        
+        if not tmdb_id:
+            raise HTTPException(400, "tmdb_id ou tvdb_id requis.")
+
         d = await tmdb.detail(db, media_type, tmdb_id)
         await _annotate(db, [d])
         if d.get("request_id"):

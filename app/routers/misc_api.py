@@ -16,7 +16,7 @@ from ..dependencies import get_current_plex_user, require_admin, require_auth
 from ..i18n import SUPPORTED_LOCALES, catalog, normalize_locale
 from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeStatus
 from ..serializers import format_datetime
-from ..utils import now_utc_naive
+from ..utils import now_utc_naive, wrap_image_proxy
 
 router = APIRouter(prefix="/api", tags=["misc"])
 
@@ -221,7 +221,7 @@ def _req_dict(r: MediaRequest) -> dict:
         "plex_user": r.plex_user,
         "plex_user_id": r.plex_user_id,
         "arr_id": r.arr_id,
-        "poster_url": r.poster_url,
+        "poster_url": wrap_image_proxy(r.poster_url),
         "requested_at": format_datetime(r.requested_at),
         "available_at": format_datetime(r.available_at),
     }

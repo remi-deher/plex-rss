@@ -31,7 +31,7 @@ from ..services.email_service import (
     get_event_visuals,
     get_shared_email_parts,
 )
-from ..utils import identity_keys as _identity_keys
+from ..utils import identity_keys as _identity_keys, wrap_image_proxy
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory="app/templates")
@@ -263,7 +263,7 @@ async def library_page(
             "title": li.title,
             "year": li.year,
             "media_type": li.media_type,
-            "poster_url": li.poster_url,
+            "poster_url": wrap_image_proxy(li.poster_url),
             "has_vf": li.has_vf,
             "vf_granularity": li.vf_granularity,
             "arr_slug": li.arr_slug,
@@ -304,7 +304,7 @@ async def library_page(
                 "title": r.title,
                 "year": r.year,
                 "media_type": r.media_type,
-                "poster_url": r.poster_url,
+                "poster_url": wrap_image_proxy(r.poster_url),
                 "has_vf": r.has_vf,
                 "vf_granularity": r.vf_granularity,
                 "arr_slug": r.arr_slug,

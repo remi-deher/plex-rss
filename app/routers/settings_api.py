@@ -106,6 +106,7 @@ class SettingsUpdate(BaseModel):
     seer_fallback_arr: Optional[bool] = None
     # --- TMDB (découverte) ---
     tmdb_api_key: Optional[str] = None
+    tmdb_enabled: Optional[bool] = None
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
     arr_poll_interval_hours: Optional[int] = None
@@ -141,6 +142,15 @@ class SettingsUpdate(BaseModel):
 
 class SmtpTestRequest(BaseModel):
     recipient: str
+
+
+class TmdbTestRequest(BaseModel):
+    tmdb_api_key: Optional[str] = None
+
+
+class SeerTestRequest(BaseModel):
+    seer_url: Optional[str] = None
+    seer_api_key: Optional[str] = None
 
 
 class ApiTokenCreate(BaseModel):
@@ -417,19 +427,33 @@ async def test_gotify(db: AsyncSession = Depends(get_db_async)):
 
 
 @router.post("/test/tmdb")
-async def test_tmdb(db: AsyncSession = Depends(get_db_async)):
+async def test_tmdb(body: TmdbTestRequest, db: AsyncSession = Depends(get_db_async)):
     from ..services import tmdb as tmdb_service
 
-    ok, msg = await tmdb_service.check_connection(db)
+    key = body.tmdb_api_key
+    if not key:
+        try:
+            key = await tmdb_service._api_key(db)
+        except Exception:
+            key = None
+
+    if not key:
+        return {"success": False, "message": "Clé API TMDB non configurée"}
+
+    ok, msg = await tmdb_service.check_connection(db, api_key=key)
     return {"success": ok, "message": msg}
 
 
 @router.post("/test/seer")
-async def test_seer(db: AsyncSession = Depends(get_db_async)):
+async def test_seer(body: SeerTestRequest, db: AsyncSession = Depends(get_db_async)):
     s = (await db.execute(select(Settings))).scalars().first()
-    if not s or not s.seer_url or not s.seer_api_key:
-        return {"success": False, "message": "Seer non configuré"}
-    ok, msg = await seer_test(s.seer_url, s.seer_api_key)
+    url = body.seer_url or (s.seer_url if s else None)
+    key = body.seer_api_key or (s.seer_api_key if s else None)
+
+    if not url or not key:
+        return {"success": False, "message": "URL ou clé API Seer non configurée"}
+
+    ok, msg = await seer_test(url, key)
     return {"success": ok, "message": msg}
 
 

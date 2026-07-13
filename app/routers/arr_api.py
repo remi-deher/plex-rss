@@ -17,7 +17,7 @@ from ..services.download_clients import (
     add_torrent_to_client,
     check_client_connection,
 )
-from ..utils import async_get_or_404
+from ..utils import async_get_or_404, wrap_image_proxy
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
 
@@ -554,6 +554,13 @@ async def arr_download_queue(db: AsyncSession = Depends(get_db_async)):
             rec["instance"] = inst.name
             rec["instance_id"] = inst.id
             rec["arr_type"] = inst.arr_type
+            
+            poster = rec.get("poster_url")
+            if poster:
+                if poster.startswith("/"):
+                    poster = f"{inst.url.rstrip('/')}{poster}"
+                rec["poster_url"] = wrap_image_proxy(poster)
+
             arr_media_id = rec.get("arr_media_id")
             key = (inst.id, arr_media_id) if arr_media_id else None
             li = lib_by_key.get(key) if key else None
@@ -807,7 +814,7 @@ async def downloads_history(
             "media_type": h.media_type,
             "source": h.source,
             "instance_name": h.instance_name,
-            "poster_url": h.poster_url,
+            "poster_url": wrap_image_proxy(h.poster_url),
             "request_id": h.request_id,
             "completed_at": h.completed_at.isoformat() if h.completed_at else None,
         }

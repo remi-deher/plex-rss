@@ -147,6 +147,7 @@ class Settings(Base):
 
     # --- TMDB (catalogue de découverte) ---
     tmdb_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    tmdb_enabled: Mapped[bool] = mapped_column(default=True)
 
     # --- Seer ---
     seer_url: Mapped[Optional[str]]

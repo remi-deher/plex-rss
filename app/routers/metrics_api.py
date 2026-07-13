@@ -339,9 +339,17 @@ async def stats_timeline(db: AsyncSession = Depends(get_db_async)):
     from sqlalchemy import func
 
     days = 30
-    start = now_utc() - timedelta(days=days)
+    start = now_utc_naive() - timedelta(days=days)
     rows = (await db.execute(select(func.date(MediaRequest.requested_at).label("day"), func.count().label("count")).filter(MediaRequest.requested_at >= start).group_by(func.date(MediaRequest.requested_at)))).all()
-    data = {r.day: r.count for r in rows}
+    data = {}
+    for r in rows:
+        if r.day is None:
+            continue
+        if hasattr(r.day, "strftime"):
+            day_str = r.day.strftime("%Y-%m-%d")
+        else:
+            day_str = str(r.day).split(" ")[0]
+        data[day_str] = r.count
     labels, values = [], []
     for i in range(days):
         d = (start + timedelta(days=i + 1)).strftime("%Y-%m-%d")
@@ -411,6 +419,27 @@ async def stats_top_requested(db: AsyncSession = Depends(get_db_async), limit: i
         )
     items.sort(key=lambda i: cast(int, i["count"]), reverse=True)
     return items[:limit]
+
+
+@router.get("/stats/recently-available")
+async def stats_recently_available(db: AsyncSession = Depends(get_db_async), limit: int = 5):
+    """Retourne les dernieres demandes devenues disponibles."""
+    items = (await db.execute(
+        select(MediaRequest)
+        .filter(MediaRequest.status == "available")
+        .order_by(MediaRequest.available_at.desc(), MediaRequest.requested_at.desc())
+        .limit(limit)
+    )).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "title": r.title,
+            "media_type": r.media_type,
+            "poster_url": r.poster_url,
+            "available_at": r.available_at.isoformat() if r.available_at else None,
+        }
+        for r in items
+    ]
 
 
 @router.get("/disk-space")

@@ -15,7 +15,7 @@ from ..serializers import format_datetime, request_status_value, serialize_plex_
 from ..services.email_service import _send as smtp_send
 from ..services.seer import get_user_requests as seer_get_user_requests
 from ..services.seer import get_users as seer_get_users
-from ..utils import async_get_or_404
+from ..utils import async_get_or_404, wrap_image_proxy
 
 # Réutilise la validation du mode de notification définie dans settings_api
 from .settings_api import _validate_notify_settings
@@ -195,7 +195,7 @@ def _activity_row(req: MediaRequest, role: str) -> dict:
         "role": role,
         "requested_at": format_datetime(req.requested_at),
         "available_at": format_datetime(req.available_at),
-        "poster_url": req.poster_url,
+        "poster_url": wrap_image_proxy(req.poster_url),
         "details": {
             "request_id": req.id,
             "plex_user_id": req.plex_user_id,

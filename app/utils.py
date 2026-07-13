@@ -70,3 +70,17 @@ def now_utc_naive() -> datetime:
     from datetime import timezone
 
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def wrap_image_proxy(url: str | None) -> str | None:
+    """Wraps HTTP and/or local IP image URLs through /api/image-proxy to resolve Mixed Content issues in the browser."""
+    if not url:
+        return url
+
+    # If it is an insecure HTTP url or uses a private IP subnet, route it via proxy
+    has_local_ip = any(ip in url for ip in (".192.", ".168.", ".10.", ".127.", "192.168.", "10.0.", "127.0."))
+    if url.startswith("http://") or (url.startswith("https://") and has_local_ip):
+        import urllib.parse
+        return f"/api/image-proxy?url={urllib.parse.quote_plus(url)}"
+
+    return url
