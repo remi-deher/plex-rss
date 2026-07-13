@@ -1,5 +1,7 @@
 import asyncio
 import json as _json
+import json
+import os
 import time
 from datetime import timedelta
 from typing import Optional, cast
@@ -20,6 +22,31 @@ from ..services.seer import check_connection as seer_test
 from ..utils import now_utc, now_utc_naive
 
 router = APIRouter(prefix="/api", tags=["metrics"], dependencies=[Depends(require_admin)])
+
+
+async def _infrastructure_metrics() -> dict:
+    result = {"redis_up": 0, "worker_up": 0, "queue_depth": 0, "jobs": []}
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return result
+    try:
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        try:
+            await redis.ping()
+            result["redis_up"] = 1
+            result["worker_up"] = int(bool(await redis.get("plexarr:worker:health")))
+            result["queue_depth"] = int(await redis.zcard("plexarr:jobs"))
+            async for key in redis.scan_iter("plexarr:jobs:state:*"):
+                raw = await redis.get(key)
+                if raw:
+                    result["jobs"].append(json.loads(raw))
+        finally:
+            await redis.aclose()
+    except Exception:
+        pass
+    return result
 
 
 async def _timed_check(coro) -> tuple[bool | None, str, float | None]:
@@ -156,6 +183,9 @@ async def health_check(db: AsyncSession = Depends(get_db_async)):
         "services": services,
     }
     await cache.set_json("plexarr:health", payload, ttl_seconds=20)
+    from ..realtime import publish
+
+    await publish("health.updated", {"checked_at": payload["checked_at"]})
     return payload
 
 
@@ -181,6 +211,7 @@ async def get_metrics(db: AsyncSession = Depends(get_db_async)):
 
     return {
         "runtime": app_metrics.snapshot(),
+        "infrastructure": await _infrastructure_metrics(),
         "db": {
             "total_requests": total,
             "available": available,
@@ -242,6 +273,7 @@ async def prometheus_metrics(db: AsyncSession = Depends(get_db_async)):
     from fastapi.responses import PlainTextResponse
 
     snap = app_metrics.snapshot()
+    infrastructure = await _infrastructure_metrics()
 
     total = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest))).scalar()
     available = (await db.execute(select(sqlalchemy.func.count()).select_from(MediaRequest).filter(MediaRequest.status == "available"))).scalar()
@@ -283,7 +315,20 @@ async def prometheus_metrics(db: AsyncSession = Depends(get_db_async)):
         f'plex_rss_requests_by_status{{status="failed"}} {failed_db}',
         f'plex_rss_requests_by_status{{status="pending"}} {pending}',
         f'plex_rss_requests_by_status{{status="sent_to_arr"}} {sent}',
+        "# HELP plex_rss_redis_up Whether Redis is reachable",
+        "# TYPE plex_rss_redis_up gauge",
+        f"plex_rss_redis_up {infrastructure['redis_up']}",
+        "# HELP plex_rss_worker_up Whether the ARQ worker heartbeat is present",
+        "# TYPE plex_rss_worker_up gauge",
+        f"plex_rss_worker_up {infrastructure['worker_up']}",
+        "# HELP plex_rss_job_queue_depth Number of queued ARQ jobs",
+        "# TYPE plex_rss_job_queue_depth gauge",
+        f"plex_rss_job_queue_depth {infrastructure['queue_depth']}",
     ]
+    lines.extend(
+        f'plex_rss_job_last_duration_ms{{job="{job.get("name", "unknown")}"}} {job.get("duration_ms", 0)}'
+        for job in infrastructure["jobs"]
+    )
 
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 

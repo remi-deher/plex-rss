@@ -39,7 +39,7 @@ _EVENT_TYPES = ("request", "available", "upgrade", "failure", "correction")
 
 @router.get("/settings/email-templates")
 def email_templates_redirect():
-    return RedirectResponse("/templates", status_code=301)
+    return RedirectResponse("/settings?tab=notifications", status_code=308)
 
 
 SAMPLE_CONTEXT = {

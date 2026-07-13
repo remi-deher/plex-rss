@@ -36,17 +36,41 @@
           </div>
           <hr class="border-secondary my-3">
           <p class="text-muted mb-2">
-            <strong>Backup complet (fichier .db)</strong> — copie binaire fidèle de toute la base de données,
-            y compris pendant que l'app tourne (mode WAL). Restauration manuelle uniquement : arrêter l'app,
-            remplacer <code>data/plex_rss.db</code> par le fichier téléchargé, redémarrer.
+            <strong>Backup complet</strong> — produit une copie SQLite <code>.db</code> ou un dump PostgreSQL
+            <code>.dump</code>, selon la base active. La procédure de restauration est documentée dans
+            <code>docs/LEGACY_DATABASE_MIGRATION.md</code> et <code>docs/OPERATIONS.md</code>.
           </p>
           <div class="alert alert-warning py-2 px-3 mb-2" style="font-size:13px">
             <i class="bi bi-exclamation-triangle me-1"></i>Ce fichier contient <strong>tous vos identifiants en clair</strong>
             (sauf si une clé de chiffrement <code>PLEXARR_ENCRYPTION_KEY</code> est configurée) — à conserver en lieu sûr.
           </div>
           <a href="/api/backup/db" class="btn btn-outline-danger" download>
-            <i class="bi bi-hdd me-1"></i>Télécharger un backup complet (.db)
+            <i class="bi bi-hdd me-1"></i>Télécharger un backup complet
           </a>
+          <hr class="border-secondary my-4">
+          <h6 class="mb-2"><i class="bi bi-database-up text-warning me-2"></i>Migration d'une ancienne base SQLite</h6>
+          <p class="text-muted mb-3">
+            Inspecte une sauvegarde <code>.db</code>, puis remplace les données PostgreSQL par son contenu complet.
+            Une sauvegarde PostgreSQL est créée automatiquement avant l'import et le fichier SQLite reste intact.
+          </p>
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input type="file" class="form-control" id="legacyDatabaseFile" accept=".db,.sqlite,.sqlite3" style="max-width:360px">
+            <button type="button" class="btn btn-outline-info" id="legacyInspectButton" onclick="inspectLegacyDatabase()">
+              <i class="bi bi-search me-1"></i>Inspecter
+            </button>
+          </div>
+          <div id="legacyDatabaseResult" class="small mb-3"></div>
+          <div id="legacyMigrationConfirm" class="d-none">
+            <div class="alert alert-danger py-2 px-3 mb-2">
+              Cette opération remplace toutes les données actuelles. Saisissez <strong>REMPLACER</strong> pour confirmer.
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <input type="text" class="form-control font-monospace" id="legacyConfirmText" autocomplete="off" style="max-width:180px" oninput="updateLegacyMigrationButton()">
+              <button type="button" class="btn btn-danger" id="legacyMigrateButton" onclick="migrateLegacyDatabase()" disabled>
+                <i class="bi bi-database-up me-1"></i>Migrer la base
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <script>

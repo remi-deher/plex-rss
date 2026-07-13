@@ -15,7 +15,7 @@ from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .crypto import EncryptedText
-from .utils import now_utc
+from .utils import now_utc_naive
 
 
 class Base(DeclarativeBase):
@@ -273,7 +273,7 @@ class PlexUser(Base):
     seer_active: Mapped[Optional[bool]] = mapped_column(default=None)
     custom_name: Mapped[Optional[str]] = mapped_column(default=None)
     source: Mapped[Optional[str]] = mapped_column(default=None)
-    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
 
     # --- Authentification par utilisateur (login Plex SSO) ---
     # role : "admin" (accès total) ou "user" (Discover + ses propres demandes).
@@ -323,14 +323,14 @@ class PasskeyCredential(Base):
     public_key: Mapped[str] = mapped_column(Text, nullable=False)
     sign_count: Mapped[int] = mapped_column(default=0, nullable=False)
     name: Mapped[str] = mapped_column(default="Passkey")
-    created_at: Mapped[datetime] = mapped_column(default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
 
 
 class NotificationLog(Base):
     __tablename__ = "notification_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    sent_at: Mapped[datetime] = mapped_column(default=now_utc, index=True)
+    sent_at: Mapped[datetime] = mapped_column(default=now_utc_naive, index=True)
     event: Mapped[str] = mapped_column(index=True)
     recipient: Mapped[str]
     is_admin: Mapped[bool] = mapped_column(default=False)
@@ -365,7 +365,7 @@ class NotificationMilestone(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     req_id: Mapped[int]
     plex_user_id: Mapped[str]
     direction: Mapped[str]
@@ -387,7 +387,7 @@ class PendingNotification(Base):
     __tablename__ = "pending_notifications"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     event: Mapped[str]
     req_id: Mapped[int] = mapped_column(index=True)
     recipients: Mapped[str]  # JSON list[str]
@@ -398,7 +398,7 @@ class AdminActionLog(Base):
     __tablename__ = "admin_action_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=now_utc, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive, index=True)
     action: Mapped[str] = mapped_column(index=True)
     actor_user_id: Mapped[Optional[int]] = mapped_column(default=None)
     actor_name: Mapped[Optional[str]] = mapped_column(default=None)
@@ -413,7 +413,7 @@ class LoginAttempt(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ip_address: Mapped[str]
     username: Mapped[Optional[str]] = mapped_column(default=None)
-    attempted_at: Mapped[datetime] = mapped_column(default=now_utc)
+    attempted_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     success: Mapped[bool] = mapped_column(default=False)
     reason: Mapped[Optional[str]] = mapped_column(default=None)
 
@@ -422,8 +422,8 @@ class MediaIssue(Base):
     __tablename__ = "media_issues"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=now_utc)
-    updated_at: Mapped[datetime] = mapped_column(default=now_utc)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    updated_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     status: Mapped[str] = mapped_column(default="open")
     issue_type: Mapped[str]
     message: Mapped[Optional[str]] = mapped_column(Text, default=None)
@@ -472,7 +472,7 @@ class DownloadHistory(Base):
     instance_name: Mapped[Optional[str]]
     poster_url: Mapped[Optional[str]]
     request_id: Mapped[Optional[int]]
-    completed_at: Mapped[datetime] = mapped_column(default=now_utc)
+    completed_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
 
 
 class MediaRequest(Base):
@@ -498,7 +498,7 @@ class MediaRequest(Base):
     request_mail_sent: Mapped[bool] = mapped_column(default=False)
     available_mail_sent: Mapped[bool] = mapped_column(default=False)
 
-    requested_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
+    requested_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
     available_at: Mapped[Optional[datetime]]
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
@@ -602,8 +602,8 @@ class LibraryItem(Base):
     # Granularité VF pour les séries — voir MediaRequest.vf_granularity.
     vf_granularity: Mapped[Optional[str]] = mapped_column(default=None)
 
-    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
-    updated_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc)
+    created_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
 
 
 class VfEpisodeStatus(Base):
@@ -672,4 +672,4 @@ class SearchCache(Base):
     query: Mapped[str]
     category: Mapped[Optional[str]]  # "movie" | "tv"
     results_json: Mapped[str] = mapped_column(Text)
-    cached_at: Mapped[datetime] = mapped_column(default=now_utc)
+    cached_at: Mapped[datetime] = mapped_column(default=now_utc_naive)

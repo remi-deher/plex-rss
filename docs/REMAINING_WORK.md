@@ -10,22 +10,32 @@ limiter les régressions et de garder un point de retour fonctionnel entre les c
 
 - backend FastAPI et accès SQLAlchemy migrés en asynchrone ;
 - SQLite via `aiosqlite` et PostgreSQL via `asyncpg` supportés ;
-- suite complète verte : **624 tests réussis** ;
+- suite applicative verte : **612 tests réussis** dans la dernière exécution locale ;
 - Redis optionnel disponible via `app/cache.py` ;
 - PostgreSQL et Redis déclarés dans `docker-compose.yml` ;
-- SPA Vue initialisée, mais encore partielle ;
-- APScheduler tourne toujours dans le processus FastAPI.
+- SPA Vue servie à la racine avec mises à jour SSE ;
+- tâches planifiées extraites dans un worker ARQ séparé ;
+- APScheduler désactivé par défaut et conservé uniquement pour le retour arrière explicite.
 
 ## Avancement des priorités 1 à 3
 
 - **Priorité 1 livrée** : migrations Alembic compatibles PostgreSQL, importeur SQLite vers
   PostgreSQL et procédure de retour arrière. Validation réelle effectuée sur 5 135 lignes.
-- **Priorité 2 livrée pour le socle SPA** : navigation Vue et vues dashboard, découverte,
-  demandes, bibliothèque, calendrier, téléchargements, utilisateurs, notifications,
-  maintenance et paramètres. Les éditeurs avancés restent accessibles via Jinja pendant
-  leur migration progressive.
+- **Priorité 2 livrée** : l'interface authentifiée Vue est servie à la racine et couvre
+  dashboard, découverte, demandes, bibliothèque, calendrier, téléchargements, utilisateurs,
+  notifications, maintenance, paramètres, migration des données et sécurité du profil.
+  `/app/...` redirige vers la route racine équivalente ; Jinja reste limité au login/setup.
 - **Priorité 3 livrée** : recherche de releases Vue, tri VF/MULTI avant les résultats anglais,
   grab protégé contre les doubles clics et ouverture du suivi dans un nouvel onglet.
+
+## Avancement des priorités 5 à 7
+
+- **Priorité 5 livrée** : worker ARQ, verrous Redis, états persistés, cron jobs, notifications
+  et maintenance mis en file, healthcheck Compose et drapeau de retour arrière APScheduler.
+- **Priorité 6 livrée** : SSE authentifié, Redis Streams/PubSub, reprise `Last-Event-ID`, heartbeat,
+  filtrage par permissions et rafraîchissement ciblé des vues Vue avec polling lent de secours.
+- **Priorité 7 livrée** : CI Python/Vue/PostgreSQL/Redis, dépendances de développement, métriques
+  Redis/worker/jobs, secrets documentés et sauvegarde/restauration PostgreSQL testée.
 
 ## Priorité 0 - Sécuriser le point de départ
 
@@ -73,11 +83,11 @@ migration d'une installation existante utilisant SQLite.
 - les 624 tests restent verts ;
 - un test d'intégration PostgreSQL est exécuté en CI ou dans Compose.
 
-## Priorité 2 - Terminer la SPA Vue
+## Priorité 2 - Consolider la SPA Vue
 
-La SPA existe sous `frontend/` et est servie sous `/app`. Elle ne couvre actuellement que
-le dashboard, la découverte et les téléchargements. La bibliothèque et les paramètres
-renvoient encore vers les pages Jinja.
+La SPA existe sous `frontend/` et est servie directement sous `/`. Le routeur de pages Jinja
+n'est plus monté dans l'application authentifiée. Les écrans publics de login et de premier
+démarrage restent rendus côté serveur.
 
 ### Vues à migrer
 
@@ -97,8 +107,7 @@ renvoient encore vers les pages Jinja.
 4. Ajouter les routes protégées et une page 404 dans Vue Router.
 5. Écrire des tests de composants et des tests de parcours navigateur.
 6. Vérifier les vues desktop et mobile avec des captures Playwright.
-7. Basculer progressivement la navigation principale vers `/app`, puis supprimer Jinja
-   uniquement lorsque chaque écran Vue atteint la parité fonctionnelle.
+7. Supprimer les templates et scripts Jinja métier devenus inactifs après une période de validation.
 
 ### Critères de fin
 
@@ -121,7 +130,7 @@ Il reste à uniformiser ce contrat et à le porter dans Vue.
 3. Conserver une séparation visuelle explicite entre les deux groupes.
 4. Pour un lien torrent direct, ouvrir immédiatement un nouvel onglet depuis le clic utilisateur,
    puis déclencher l'envoi au client de téléchargement sans remplacer la page courante.
-5. Pour un grab Sonarr/Radarr, attendre la confirmation API puis ouvrir `/app/downloads`
+5. Pour un grab Sonarr/Radarr, attendre la confirmation API puis ouvrir `/downloads`
    dans un nouvel onglet.
 6. Désactiver le bouton pendant l'opération et afficher le succès ou l'erreur.
 7. Ajouter des tests API sur le tri et des tests navigateur sur le nouvel onglet.
@@ -157,6 +166,8 @@ utilise un cache TTL simple. Après expiration, un appel attend encore tous les 
 
 ## Priorité 5 - Extraire les tâches de fond vers ARQ
 
+**État : livré et validé sur la stack Docker.**
+
 ARQ est recommandé pour rester cohérent avec le code async et réutiliser Redis. Celery ne
 devrait être choisi que si un besoin opérationnel précis justifie sa complexité supplémentaire.
 
@@ -186,6 +197,8 @@ devrait être choisi que si un besoin opérationnel précis justifie sa complexi
 
 ## Priorité 6 - Temps réel avec SSE
 
+**État : livré et validé avec un flux authentifié réel.**
+
 SSE est suffisant pour les mises à jour serveur vers navigateur et plus simple à exploiter
 que WebSocket. WebSocket ne devient nécessaire que si le client doit envoyer un flux continu.
 
@@ -206,6 +219,8 @@ que WebSocket. WebSocket ne devient nécessaire que si le client doit envoyer un
 - aucune donnée d'un autre utilisateur n'est envoyée par le flux.
 
 ## Priorité 7 - Industrialisation
+
+**État : livré. Une restauration réelle a été validée dans une base PostgreSQL temporaire.**
 
 1. Ajouter une CI couvrant Python, Vue et PostgreSQL.
 2. Ajouter lint et formatage sans réécrire massivement les fichiers existants.

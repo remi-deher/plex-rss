@@ -33,7 +33,7 @@ from ..models import LoginAttempt, PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
 from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
 from ..services.totp import verify_code
-from ..utils import now_utc
+from ..utils import now_utc_naive
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ async def session_info(request: Request, db: AsyncSession = Depends(get_db_async
 
 
 async def _is_rate_limited(db: AsyncSession, ip: str) -> bool:
-    cutoff = now_utc() - timedelta(seconds=_WINDOW_SECONDS)
+    cutoff = now_utc_naive() - timedelta(seconds=_WINDOW_SECONDS)
     res = await db.execute(
         select(func.count(LoginAttempt.id))
         .filter(
@@ -65,7 +65,7 @@ async def _is_rate_limited(db: AsyncSession, ip: str) -> bool:
 
 
 async def _record_login_attempt(db: AsyncSession, ip: str, username: str | None, success: bool, reason: str | None = None) -> None:
-    db.add(LoginAttempt(ip_address=ip, username=username, success=success, reason=reason, attempted_at=now_utc()))
+    db.add(LoginAttempt(ip_address=ip, username=username, success=success, reason=reason, attempted_at=now_utc_naive()))
     await db.commit()
 
 
@@ -323,7 +323,7 @@ async def login_plex_check(pin_id: int, request: Request, db: AsyncSession = Dep
             status_code=403, detail="Ce compte n'est pas autorisé à se connecter. Contactez l'administrateur."
         )
 
-    user.last_login_at = now_utc()
+    user.last_login_at = now_utc_naive()
     await db.commit()
 
     request.session["authenticated"] = True

@@ -12,6 +12,7 @@ import NotificationsView from "./views/NotificationsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import MaintenanceView from "./views/MaintenanceView.vue";
 import ReleaseSearchView from "./views/ReleaseSearchView.vue";
+import ProfileView from "./views/ProfileView.vue";
 import "./styles.css";
 
 const routes = [
@@ -23,15 +24,17 @@ const routes = [
   { path: "/library", component: LibraryView },
   { path: "/calendar", component: CalendarView },
   { path: "/users", component: UsersView },
+  { path: "/users/:userId", component: UsersView },
   { path: "/notifications", component: NotificationsView },
   { path: "/settings", component: SettingsView },
   { path: "/maintenance", component: MaintenanceView },
+  { path: "/profile", component: ProfileView },
   { path: "/releases/:requestId", component: ReleaseSearchView },
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
 ];
 
 const router = createRouter({
-  history: createWebHistory("/app"),
+  history: createWebHistory("/"),
   routes,
 });
 

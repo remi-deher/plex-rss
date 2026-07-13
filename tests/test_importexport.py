@@ -2,6 +2,7 @@
 
 import io
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -113,6 +114,39 @@ def test_import_wrong_version_returns_400(client):
     r = client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     assert r.status_code == 400
     assert "version" in r.json()["detail"].lower()
+
+
+def test_inspect_legacy_sqlite_upload(client, tmp_path):
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE settings (id INTEGER PRIMARY KEY);
+            CREATE TABLE plex_users (id INTEGER PRIMARY KEY);
+            CREATE TABLE media_requests (id INTEGER PRIMARY KEY);
+            INSERT INTO settings VALUES (1);
+            INSERT INTO plex_users VALUES (1);
+            INSERT INTO media_requests VALUES (1);
+            """
+        )
+
+    r = client.post(
+        "/api/migration/sqlite/inspect",
+        files={"file": ("legacy.db", path.read_bytes(), "application/octet-stream")},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["integrity"] == "ok"
+    assert r.json()["total_rows"] == 3
+
+
+def test_inspect_legacy_rejects_wrong_extension(client):
+    r = client.post(
+        "/api/migration/sqlite/inspect",
+        files={"file": ("legacy.txt", b"not sqlite", "text/plain")},
+    )
+
+    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------

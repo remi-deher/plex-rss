@@ -23,9 +23,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { Download, RefreshCw } from "@lucide/vue";
 import { api } from "@/api";
+import { useRealtime } from "@/events";
 
 const rows = ref([]);
 const loading = ref(false);
@@ -47,5 +48,8 @@ async function load() {
   }
 }
 
-onMounted(load);
+let fallback;
+useRealtime(["download.updated"], load);
+onMounted(()=>{load();fallback=setInterval(load,60000)});
+onUnmounted(()=>clearInterval(fallback));
 </script>

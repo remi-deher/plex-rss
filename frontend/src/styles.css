@@ -417,6 +417,83 @@ td small {
   justify-content: flex-end;
 }
 
+.settings-tabs {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.settings-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.settings-tabs svg {
+  width: 16px;
+  height: 16px;
+}
+
+.migration-panel {
+  grid-column: span 2;
+}
+
+.arr-panel {
+  grid-column: 1 / -1;
+}
+
+.compact-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.migration-summary,
+.inline-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.migration-summary {
+  align-items: flex-start;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.table-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inline-row {
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.mono,
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.warning-text {
+  color: var(--accent);
+}
+
+.danger-button {
+  color: white;
+  background: var(--red);
+  border-color: var(--red);
+}
+
 .notice {
   padding: 11px 12px;
   border: 1px solid var(--border);
@@ -569,6 +646,10 @@ td small {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .migration-panel {
+    grid-column: auto;
   }
 
   .timeline-row {

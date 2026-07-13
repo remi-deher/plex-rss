@@ -571,11 +571,28 @@ async def start_run(action: str, _: None = Depends(require_admin)):
     if action not in _ACTION_RUNNERS:
         raise HTTPException(404, f"Action inconnue : {action}")
 
+    from ..job_queue import arq_enabled, enqueue_job, set_json
+
+    if arq_enabled():
+        run_id = uuid.uuid4().hex[:12]
+        queued = MaintenanceRun(action=action, status="queued", started_at=now_utc().isoformat())
+        await set_json(f"plexarr:maintenance:{run_id}", {"run_id": run_id, **queued.__dict__})
+        shared_jobs = {"check-arr-statuses": "job_arr_statuses", "discover-users": "job_watchlist"}
+        function = shared_jobs.get(action)
+        if function:
+            job_id = await enqueue_job(function, True, run_id, action, job_id=f"maintenance:{run_id}")
+        else:
+            job_id = await enqueue_job("job_maintenance", run_id, action, job_id=f"maintenance:{run_id}")
+        if not job_id:
+            raise HTTPException(503, "Worker ARQ indisponible")
+        return {"run_id": run_id, "job_id": job_id}
+
     run_id, run = _new_run(action)
+    runner = globals().get(f"_run_{action.replace('-', '_')}", _ACTION_RUNNERS[action])
 
     async def _execute():
         try:
-            await _ACTION_RUNNERS[action](run)
+            await runner(run)
             run.status = "done"
         except Exception:
             run.status = "error"
@@ -589,7 +606,14 @@ async def start_run(action: str, _: None = Depends(require_admin)):
 
 
 @router.get("/run/{run_id}")
-def get_run(run_id: str, _: None = Depends(require_admin)):
+async def get_run(run_id: str, _: None = Depends(require_admin)):
+    from ..job_queue import arq_enabled, get_json
+
+    if arq_enabled():
+        run = await get_json(f"plexarr:maintenance:{run_id}")
+        if not run:
+            raise HTTPException(404, "Run introuvable")
+        return run
     run = _runs.get(run_id)
     if not run:
         raise HTTPException(404, "Run introuvable")

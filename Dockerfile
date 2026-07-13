@@ -24,7 +24,7 @@ FROM python:3.12-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache libffi su-exec
+RUN apk add --no-cache libffi su-exec postgresql-client
 
 COPY --from=builder /install /usr/local
 

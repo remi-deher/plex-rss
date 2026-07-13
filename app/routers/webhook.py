@@ -145,6 +145,9 @@ async def _mark_available_and_notify(
             # planifié (jusqu'à `vff_recheck_interval_minutes`, 6h par défaut).
             if settings and req.has_vf is not True:
                 await scan_and_notify_availability(req, settings, db)
+            from ..realtime import publish
+
+            await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
             continue
         if not await has_plex_proof(db, req):
             note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
@@ -154,6 +157,9 @@ async def _mark_available_and_notify(
                 source,
                 req.title,
             )
+            from ..realtime import publish
+
+            await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
             continue
         req.status = RequestStatus.available
         req.available_at = now_utc()
@@ -193,6 +199,9 @@ async def _mark_available_and_notify(
                 db,
                 candidates=[AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")],
             )
+        from ..realtime import publish
+
+        await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
     return len(requests)
 
 

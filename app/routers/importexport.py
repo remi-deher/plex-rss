@@ -1,10 +1,13 @@
+import asyncio
 import json
 import os
 import sqlite3
 import tempfile
 from datetime import datetime
+from pathlib import Path
+import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -14,6 +17,12 @@ from starlette.background import BackgroundTask
 from ..crypto import EncryptedText
 from ..database import DATABASE_URL, get_db_async
 from ..dependencies import require_admin
+from ..legacy_migration import (
+    LegacyMigrationError,
+    create_postgres_backup,
+    inspect_legacy_sqlite,
+    migrate_sqlite_to_postgres,
+)
 from ..models import (
     AdminActionLog,
     ArrInstance,
@@ -36,6 +45,8 @@ from ..utils import now_utc
 router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_admin)])
 
 EXPORT_VERSION = 2
+MIGRATION_LOCK_KEY = "plexarr:migration:lock"
+DEFAULT_LEGACY_IMPORT_MAX_BYTES = 256 * 1024 * 1024
 
 # Champs non chiffrés mais toujours liés à l'authentification admin : jamais exportés ni
 # importables via ce mécanisme, en plus des colonnes EncryptedText détectées automatiquement.
@@ -164,10 +175,20 @@ async def export_data(include_secrets: bool = False, db: AsyncSession = Depends(
 
 @router.get("/backup/db")
 def backup_database():
-    """Backup binaire complet via l'API native sqlite3.Connection.backup() : cohérent même
-    en mode WAL (lit l'état logique via le protocole SQLite, pas besoin de copier les
-    fichiers -wal/-shm séparément). Contient tout, y compris les secrets en clair si aucune
-    clé de chiffrement (PLEXARR_ENCRYPTION_KEY) n'est configurée — à traiter comme sensible."""
+    """Create a consistent SQLite backup or a validated PostgreSQL custom dump."""
+    if DATABASE_URL.startswith("postgresql"):
+        try:
+            backup = create_postgres_backup(DATABASE_URL, tempfile.gettempdir())
+        except LegacyMigrationError as exc:
+            raise HTTPException(500, str(exc)) from exc
+        filename = f"plex-rss-backup-{now_utc().strftime('%Y%m%d-%H%M%S')}.dump"
+        return FileResponse(
+            backup,
+            media_type="application/octet-stream",
+            filename=filename,
+            background=BackgroundTask(backup.unlink, missing_ok=True),
+        )
+
     src_path = _sqlite_path()
     if not os.path.exists(src_path):
         raise HTTPException(404, "Fichier de base introuvable")
@@ -193,6 +214,105 @@ def backup_database():
         filename=filename,
         background=BackgroundTask(os.unlink, tmp_path),
     )
+
+
+async def _save_legacy_upload(file: UploadFile) -> Path:
+    filename = (file.filename or "").lower()
+    if not filename.endswith((".db", ".sqlite", ".sqlite3")):
+        raise HTTPException(400, "Selectionnez un fichier SQLite (.db, .sqlite ou .sqlite3)")
+    maximum = int(os.getenv("LEGACY_IMPORT_MAX_BYTES", str(DEFAULT_LEGACY_IMPORT_MAX_BYTES)))
+    fd, raw_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    path = Path(raw_path)
+    size = 0
+    try:
+        with path.open("wb") as destination:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > maximum:
+                    raise HTTPException(413, f"Fichier trop volumineux (maximum {maximum // 1024 // 1024} Mo)")
+                destination.write(chunk)
+        return path
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+
+async def _acquire_migration_lock() -> tuple[object | None, str | None]:
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return None, None
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    token = uuid.uuid4().hex
+    if not await redis.set(MIGRATION_LOCK_KEY, token, ex=3600, nx=True):
+        await redis.aclose()
+        raise HTTPException(409, "Une migration est deja en cours")
+    return redis, token
+
+
+async def _release_migration_lock(redis, token: str | None) -> None:
+    if redis is None or token is None:
+        return
+    try:
+        await redis.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            MIGRATION_LOCK_KEY,
+            token,
+        )
+    finally:
+        await redis.aclose()
+
+
+@router.post("/migration/sqlite/inspect")
+async def inspect_legacy_database(file: UploadFile = File(...)):
+    path = await _save_legacy_upload(file)
+    try:
+        return await asyncio.to_thread(inspect_legacy_sqlite, path)
+    except LegacyMigrationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@router.post("/migration/sqlite")
+async def import_legacy_database(
+    file: UploadFile = File(...),
+    confirm: str = Form(...),
+):
+    if not DATABASE_URL.startswith("postgresql"):
+        raise HTTPException(409, "L'import complet est disponible uniquement vers PostgreSQL")
+    if confirm != "REMPLACER":
+        raise HTTPException(400, "Saisissez REMPLACER pour confirmer")
+
+    path = await _save_legacy_upload(file)
+    redis = None
+    token = None
+    try:
+        await asyncio.to_thread(inspect_legacy_sqlite, path)
+        redis, token = await _acquire_migration_lock()
+        backup = await asyncio.to_thread(create_postgres_backup, DATABASE_URL)
+        report = await asyncio.to_thread(
+            migrate_sqlite_to_postgres,
+            path,
+            DATABASE_URL,
+            replace_target=True,
+        )
+        from ..realtime import publish
+
+        await publish("migration.completed", {"copied_rows": report["copied_rows"]}, admin_only=True)
+        return {
+            "status": "ok",
+            "backup": str(backup),
+            "report": report,
+        }
+    except LegacyMigrationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    finally:
+        await _release_migration_lock(redis, token)
+        path.unlink(missing_ok=True)
 
 
 @router.post("/import")

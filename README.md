@@ -170,7 +170,7 @@ plex-rss/
 │   ├── routers/
 │   │   ├── auth.py              # Authentification (login, setup, logout)
 │   │   ├── api.py               # API REST JSON (/api/health, /api/metrics, /api/requests…)
-│   │   ├── pages.py             # Pages HTML (Jinja2)
+│   │   ├── pages.py             # Anciennes pages Jinja non montées (transition)
 │   │   ├── webhook.py           # Webhooks entrants (Sonarr, Radarr, Plex)
 │   │   ├── importexport.py      # Import / Export JSON
 │   │   └── email_templates.py   # Éditeur de templates email
@@ -184,7 +184,7 @@ plex-rss/
 │   │   ├── overseerr.py         # Client API Overseerr / Jellyseerr
 │   │   ├── email_service.py     # Envoi SMTP (aiosmtplib), templates Jinja2
 │   │   └── notifications.py     # Discord & Telegram
-│   └── templates/               # HTML Bootstrap 5 dark
+│   └── templates/               # Login/setup publics et anciens templates non montés
 │       ├── base.html
 │       ├── dashboard.html
 │       ├── library.html
@@ -278,14 +278,14 @@ alembic upgrade head
 |---|---|
 | Framework web | FastAPI |
 | Sécurité / Session | Bcrypt, Starlette SessionMiddleware |
-| Base de données | SQLite + SQLAlchemy + Alembic |
-| Scheduler | APScheduler (AsyncIOScheduler) |
-| Notifications async | asyncio.Queue worker |
+| Base de données | PostgreSQL/SQLite + SQLAlchemy async + Alembic |
+| Tâches de fond | ARQ + Redis (APScheduler de secours) |
+| Notifications async | ARQ + Redis |
 | Client HTTP | httpx (async) |
 | Parseur RSS | feedparser |
 | Email | aiosmtplib |
-| Templates | Jinja2 + Bootstrap 5 dark |
-| Tests | pytest + pytest-asyncio (452 tests, SQLite in-memory) |
+| Interface | Vue 3 + Vue Router à la racine ; Jinja2 pour login/setup |
+| Tests | pytest + pytest-asyncio |
 | Lint | ruff (E, F, W, I) |
 | CI | GitHub Actions (tests, lint, Trivy, Docker Hub) |
 | Conteneurisation | Docker + Docker Compose |

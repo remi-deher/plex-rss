@@ -110,6 +110,9 @@ async def seed_defaults():
 
 
 async def init_db():
-    """Initialize the DB: migrations, then defaults."""
+    """Initialize the DB: schema, optional legacy import, then defaults."""
+    from .legacy_migration import auto_migrate_legacy_sqlite
+
     await asyncio.to_thread(run_migrations)
+    await asyncio.to_thread(auto_migrate_legacy_sqlite, DATABASE_URL)
     await seed_defaults()

@@ -12,7 +12,7 @@
       <RouterLink v-if="isAdmin" to="/notifications"><Bell />Notifications</RouterLink>
       <RouterLink v-if="isAdmin" to="/maintenance"><Wrench />Maintenance</RouterLink>
       <RouterLink v-if="isAdmin" to="/settings"><Settings />Parametres</RouterLink>
-      <a href="/profile"><UserRound />Profil</a>
+      <RouterLink to="/profile"><UserRound />Profil</RouterLink>
       <a href="/logout"><LogOut />Deconnexion</a>
     </aside>
     <main class="main">
@@ -25,7 +25,8 @@
 import { computed, onMounted, ref } from "vue";
 import { Bell, CalendarDays, Compass, Download, Gauge, Library, ListChecks, LogOut, Settings, UserRound, Users, Wrench } from "@lucide/vue";
 import { api } from "@/api";
+import { connectRealtime } from "@/events";
 const session=ref(null);
 const isAdmin=computed(()=>session.value?.is_owner||session.value?.role==='admin');
-onMounted(async()=>{session.value=await api('/api/session').catch(()=>null)});
+onMounted(async()=>{session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
 </script>

@@ -613,6 +613,81 @@ async function importData() {
   }
 }
 
+let inspectedLegacyDatabase = null;
+
+function updateLegacyMigrationButton() {
+  const button = document.getElementById('legacyMigrateButton');
+  const confirmation = document.getElementById('legacyConfirmText');
+  if (button) button.disabled = !inspectedLegacyDatabase || confirmation?.value !== 'REMPLACER';
+}
+
+async function inspectLegacyDatabase() {
+  const input = document.getElementById('legacyDatabaseFile');
+  const output = document.getElementById('legacyDatabaseResult');
+  const confirmArea = document.getElementById('legacyMigrationConfirm');
+  const button = document.getElementById('legacyInspectButton');
+  const file = input?.files?.[0];
+  inspectedLegacyDatabase = null;
+  confirmArea?.classList.add('d-none');
+  updateLegacyMigrationButton();
+  if (!file) return showToast('Sélectionnez une ancienne base SQLite', 'warning');
+
+  const form = new FormData();
+  form.append('file', file);
+  if (button) button.disabled = true;
+  if (output) output.innerHTML = '<span class="text-muted">Contrôle de la base en cours...</span>';
+  try {
+    const response = await fetch('/api/migration/sqlite/inspect', { method: 'POST', body: form });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Inspection impossible');
+    inspectedLegacyDatabase = { file, data };
+    const tableRows = Object.entries(data.tables || {})
+      .filter(([, count]) => count > 0)
+      .map(([name, count]) => `<span class="badge bg-secondary me-1 mb-1">${_esc(name)}: ${count.toLocaleString()}</span>`)
+      .join('');
+    output.innerHTML = `<div class="text-success mb-1"><i class="bi bi-check-circle me-1"></i>Base valide : ${data.total_rows.toLocaleString()} lignes dans ${data.populated_tables} tables</div><div>${tableRows}</div>`;
+    confirmArea?.classList.remove('d-none');
+  } catch (error) {
+    if (output) output.innerHTML = `<span class="text-danger">${_esc(error.message)}</span>`;
+    showToast('Base non importable : ' + error.message, 'danger');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function migrateLegacyDatabase() {
+  const output = document.getElementById('legacyDatabaseResult');
+  const button = document.getElementById('legacyMigrateButton');
+  const confirmation = document.getElementById('legacyConfirmText')?.value;
+  if (!inspectedLegacyDatabase || confirmation !== 'REMPLACER') return;
+
+  const accepted = await confirmAction({
+    title: 'Remplacer la base PostgreSQL',
+    body: `Importer ${inspectedLegacyDatabase.data.total_rows.toLocaleString()} lignes depuis ${inspectedLegacyDatabase.file.name} ? Une sauvegarde sera créée avant le remplacement.`,
+    okLabel: 'Migrer',
+    danger: true,
+  });
+  if (!accepted) return;
+
+  const form = new FormData();
+  form.append('file', inspectedLegacyDatabase.file);
+  form.append('confirm', confirmation);
+  button.disabled = true;
+  output.innerHTML = '<span class="text-warning"><span class="spinner-border spinner-border-sm me-1"></span>Sauvegarde et migration en cours...</span>';
+  try {
+    const response = await fetch('/api/migration/sqlite', { method: 'POST', body: form });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Migration impossible');
+    output.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>Migration terminée : ${data.report.copied_rows.toLocaleString()} lignes copiées. Sauvegarde : <code>${_esc(data.backup)}</code></span>`;
+    showToast('Migration terminée. Rechargement...', 'success');
+    setTimeout(() => location.reload(), 1800);
+  } catch (error) {
+    output.innerHTML = `<span class="text-danger">${_esc(error.message)}</span>`;
+    showToast('Erreur migration : ' + error.message, 'danger');
+    updateLegacyMigrationButton();
+  }
+}
+
 async function startPlexSSO() {
   const btn = document.getElementById('btn-plex-sso');
   const status = document.getElementById('sso-status');

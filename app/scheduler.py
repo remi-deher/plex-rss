@@ -145,6 +145,9 @@ async def start_scheduler(poll_seconds: int = 300):
 
 def update_poll_interval(seconds: int):
     """Replanifie le job de polling watchlist (en secondes) sans redémarrer le scheduler."""
+    if not scheduler.running or not scheduler.get_job("watchlist_poll"):
+        logger.info("Poll interval saved; ARQ will read it on its next scheduling tick")
+        return
     scheduler.reschedule_job("watchlist_poll", trigger=IntervalTrigger(seconds=seconds))
     logger.info(f"Poll interval updated to {seconds}s")
 

@@ -198,7 +198,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
     elif data.poll_interval_minutes:
         update_poll_interval(data.poll_interval_minutes * 60)
     # Replanifier le digest si l'heure ou l'activation change
-    if data.digest_enabled is not None or data.digest_hour is not None:
+    if _scheduler.running and (data.digest_enabled is not None or data.digest_hour is not None):
         hour = s.digest_hour or 8
         if s.digest_enabled:
             _scheduler.add_job(_send_digest, "cron", hour=hour, minute=0, id="digest", replace_existing=True)
@@ -208,7 +208,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
             except Exception:
                 pass
     # Replanifier le job VFF si l'intervalle a changé
-    if data.vff_recheck_interval_minutes:
+    if _scheduler.running and data.vff_recheck_interval_minutes:
         from apscheduler.triggers.interval import IntervalTrigger
 
         try:

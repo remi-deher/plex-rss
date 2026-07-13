@@ -13,23 +13,70 @@ services:
     # enough room to let the current job/notification finish and commit cleanly.
     stop_grace_period: 30s
     environment:
-      - TZ=Europe/Paris
-      - DATABASE_URL=postgresql://plexrss:plexrss@db:5432/plexrss
-      - REDIS_URL=redis://redis:6379/0
+      TZ: ${TZ:-Europe/Paris}
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_ARQ: "1"
+      ENABLE_LEGACY_SCHEDULER: "0"
+      AUTO_MIGRATE_LEGACY_SQLITE: "1"
+      LEGACY_SQLITE_PATH: /app/data/plex_rss.db
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/favicon.ico')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    build: .
+    container_name: plex-rss-worker
+    command: ["arq", "app.jobs.WorkerSettings"]
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 45s
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_ARQ: "1"
+      AUTO_MIGRATE_LEGACY_SQLITE: "0"
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
+      ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-4}
+      ARQ_JOB_TIMEOUT: ${ARQ_JOB_TIMEOUT:-3600}
+    depends_on:
+      plex-rss:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "arq", "--check", "app.jobs.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   db:
     image: postgres:15-alpine
     container_name: plex-rss-db
     environment:
       POSTGRES_USER: plexrss
-      POSTGRES_PASSWORD: plexrss
-      POSTGRES_DB: plexrss
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-plexrss}
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plexrss -d ${POSTGRES_DB:-plexrss}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -38,6 +85,46 @@ services:
     volumes:
       - redisdata:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backup:
+    image: postgres:15-alpine
+    profiles: ["operations"]
+    environment:
+      PGHOST: db
+      PGUSER: plexrss
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-plexrss}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/postgres_backup.sh:/usr/local/bin/postgres_backup:ro
+    entrypoint: ["sh", "/usr/local/bin/postgres_backup"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  restore:
+    image: postgres:15-alpine
+    profiles: ["operations"]
+    environment:
+      PGHOST: db
+      PGUSER: plexrss
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-plexrss}
+      RESTORE_FILE: ${RESTORE_FILE:-}
+      CONFIRM_RESTORE: ${CONFIRM_RESTORE:-}
+    volumes:
+      - ./backups:/backups:ro
+      - ./scripts/postgres_restore.sh:/usr/local/bin/postgres_restore:ro
+    entrypoint: ["sh", "/usr/local/bin/postgres_restore"]
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

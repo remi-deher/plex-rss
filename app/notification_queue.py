@@ -143,7 +143,16 @@ async def enqueue(event: str, req_id: int, recipients: list[str], context: dict 
             return
         
     if pending_id is not None:
-        _queue.put_nowait((pending_id, event, req_id, recipients, context))
+        from .job_queue import arq_enabled, enqueue_job
+
+        if arq_enabled():
+            try:
+                await enqueue_job("job_send_notification", pending_id, job_id=f"notification:{pending_id}")
+            except Exception as exc:
+                logger.error("Impossible de mettre la notification #%s dans ARQ: %s", pending_id, exc)
+                raise
+        else:
+            _queue.put_nowait((pending_id, event, req_id, recipients, context))
 
 
 async def _delete_pending(pending_id: int | None):
@@ -342,6 +351,32 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
 
         except Exception as e:
             logger.error(f"Notification worker erreur inattendue [{event}] req#{req_id}: {e}")
+
+
+async def process_pending_id(pending_id: int) -> str | int | None:
+    """Process one persisted notification from ARQ and return its target user id."""
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT event, req_id, recipients, reason FROM pending_notifications "
+                    "WHERE id = :id"
+                ),
+                {"id": int(pending_id)},
+            )
+        ).first()
+        if not row:
+            return None
+        event, req_id, recipients_raw, reason_raw = row
+        recipients = json.loads(recipients_raw) if recipients_raw else []
+        context = json.loads(reason_raw) if reason_raw else {}
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == int(req_id)))).scalars().first()
+        user_id = req.plex_user_id if req else None
+    try:
+        await _process(event, int(req_id), recipients, context)
+        return user_id
+    finally:
+        await _delete_pending(pending_id)
 
 
 async def _worker():

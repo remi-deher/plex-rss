@@ -15,10 +15,10 @@ from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 
 import itsdangerous
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from itsdangerous.exc import BadSignature
 from sqlalchemy.ext.asyncio import AsyncSession as SqlSession
@@ -42,13 +42,13 @@ from .routers import (
     calendar_api,
     discover_api,
     email_templates,
+    events_api,
     importexport,
     library_api,
     maintenance,
     metrics_api,
     misc_api,
     notifications_api,
-    pages,
     requests_api,
     security_api,
     settings_api,
@@ -56,7 +56,6 @@ from .routers import (
     vff_api,
     webhook,
 )
-from .routers.pages import RedirectException
 from .scheduler import scheduler, start_scheduler
 from .services.auth import get_secret_key
 
@@ -74,7 +73,7 @@ async def lifespan(app: FastAPI):
         os.makedirs("data", exist_ok=True)
         logging.info("Running DB migrations...")
         await init_db()
-        logging.info("DB OK. Starting scheduler...")
+        logging.info("DB OK. Starting API services...")
 
         # Lire l'intervalle de polling depuis la DB avant de lancer le scheduler
         from .database import AsyncSessionLocal
@@ -93,17 +92,23 @@ async def lifespan(app: FastAPI):
         finally:
             await _db.close()
 
-        await start_scheduler(poll_seconds=_seconds)
-        await start_notif_worker()
-        logging.info("Scheduler OK. App ready.")
+        legacy_scheduler = os.getenv("ENABLE_LEGACY_SCHEDULER", "0").lower() in {"1", "true", "yes"}
+        if legacy_scheduler:
+            await start_scheduler(poll_seconds=_seconds)
+            await start_notif_worker()
+            logging.warning("Legacy APScheduler and notification worker enabled")
+        else:
+            logging.info("Background work delegated to ARQ")
+        app.state.legacy_scheduler = legacy_scheduler
+        logging.info("App ready.")
     except Exception:
         logging.exception("STARTUP FAILED")
         raise
     yield
-    logging.info("Shutting down: stopping notification worker...")
-    await stop_notif_worker()
-    logging.info("Shutting down: stopping scheduler (waits for any running job to finish)...")
-    scheduler.shutdown()
+    if getattr(app.state, "legacy_scheduler", False):
+        logging.info("Shutting down legacy background services...")
+        await stop_notif_worker()
+        scheduler.shutdown()
     await cache.close()
     logging.info("Shutdown complete.")
 
@@ -274,13 +279,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.mount("/vue", StaticFiles(directory="app/static/vue"), name="vue")
 
 
-@app.exception_handler(RedirectException)
-async def redirect_exception_handler(request, exc: RedirectException):
-    return RedirectResponse(exc.path, status_code=302)
-
-
 app.include_router(auth.router)
-app.include_router(pages.router)
 app.include_router(settings_api.router)
 app.include_router(arr_api.router)
 app.include_router(users_api.router)
@@ -298,3 +297,56 @@ app.include_router(webhook.router)
 app.include_router(importexport.router)
 app.include_router(email_templates.router)
 app.include_router(maintenance.router)
+app.include_router(events_api.router)
+
+SPA_INDEX = os.path.join("app", "static", "vue", "index.html")
+SPA_ROOTS = {
+    "dashboard",
+    "discover",
+    "downloads",
+    "requests",
+    "library",
+    "calendar",
+    "users",
+    "notifications",
+    "settings",
+    "maintenance",
+    "profile",
+    "releases",
+}
+
+
+@app.get("/app", include_in_schema=False)
+@app.get("/app/{legacy_path:path}", include_in_schema=False)
+async def redirect_legacy_spa(legacy_path: str = ""):
+    destination = f"/{legacy_path}" if legacy_path else "/dashboard"
+    return RedirectResponse(destination, status_code=308)
+
+
+@app.get("/templates", include_in_schema=False)
+async def redirect_legacy_templates():
+    return RedirectResponse("/settings?tab=notifications", status_code=308)
+
+
+@app.get("/logs", include_in_schema=False)
+async def redirect_legacy_logs():
+    return RedirectResponse("/notifications", status_code=308)
+
+
+@app.get("/setup/wizard", include_in_schema=False)
+async def redirect_legacy_wizard():
+    return RedirectResponse("/settings?tab=connections", status_code=308)
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/{spa_path:path}", include_in_schema=False)
+async def serve_spa(request: Request, spa_path: str = ""):
+    """Serve Vue history routes at the site root after every backend router."""
+    root = spa_path.split("/", 1)[0] if spa_path else ""
+    if root and root not in SPA_ROOTS:
+        raise HTTPException(404, "Route introuvable")
+    if not request.session.get("authenticated"):
+        return RedirectResponse(f"/login?next=/{spa_path}" if spa_path else "/login", status_code=302)
+    if not os.path.exists(SPA_INDEX):
+        raise HTTPException(503, "Build Vue introuvable")
+    return FileResponse(SPA_INDEX)

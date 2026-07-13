@@ -18,10 +18,11 @@
   </div>
 </template>
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RefreshCw, RotateCcw, Search, X } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api";
+import { useRealtime } from "@/events";
 const rows=ref([]), query=ref(""), status=ref(""), loading=ref(false), error=ref("");
 const router=useRouter();
 const statuses=["pending_approval","pending","sent_to_arr","available","failed"];
@@ -33,5 +34,8 @@ function formatDate(v){return v?new Intl.DateTimeFormat("fr-FR",{dateStyle:"medi
 async function load(){loading.value=true;error.value="";try{rows.value=await api(`/api/requests${query.value.trim()?`?query=${encodeURIComponent(query.value.trim())}`:""}`)}catch(e){error.value=e.message}finally{loading.value=false}}
 const admin=ref(false);
 async function act(row, action){error.value="";try{if(action==='cancel'&&admin.value){await api(`/api/requests/${row.id}`,{method:'DELETE'})}else{await api(`/api/requests/${row.id}/${action}`,{method:"POST"})}await load()}catch(e){error.value=e.message}}
-onMounted(async()=>{const session=await api('/api/session').catch(()=>null);admin.value=Boolean(session?.is_owner||session?.role==='admin');await load()});
+let fallback;
+useRealtime(["request.updated"],()=>load());
+onMounted(async()=>{const session=await api('/api/session').catch(()=>null);admin.value=Boolean(session?.is_owner||session?.role==='admin');await load();fallback=setInterval(load,120000)});
+onUnmounted(()=>clearInterval(fallback));
 </script>

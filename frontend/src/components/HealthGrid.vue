@@ -26,6 +26,7 @@
 import { computed, onMounted, ref } from "vue";
 import { Compass, Mail, RefreshCw, Rss, Search, Server, Tv, Video } from "@lucide/vue";
 import { api, cachedResource } from "@/api";
+import { useRealtime } from "@/events";
 
 const CACHE_KEY = "plexarr.vue.health";
 const loading = ref(false);
@@ -89,4 +90,5 @@ onMounted(() => {
     loading.value = false;
   });
 });
+useRealtime(["health.updated"], refresh);
 </script>
