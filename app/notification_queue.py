@@ -32,7 +32,7 @@ from .services.notifications import (
     send_telegram,
     send_telegram_to_chat,
 )
-from .utils import now_utc, parse_email_list
+from .utils import now_utc, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +306,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                     all_ok = False
                 db.add(
                     NotificationLog(
-                        sent_at=now_utc(),
+                        sent_at=now_utc_naive(),
                         event=event,
                         recipient=recipient,
                         is_admin=recipient in admin_emails,
