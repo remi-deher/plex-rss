@@ -223,6 +223,7 @@ async def unified_calendar(
                             imdb_id=series.get("imdbId"),
                             status=RequestStatus.sent_to_arr,
                             source="arr_sync",
+                            plex_user_id="system",
                         )
                         db.add(new_req)
                         await db.flush()
@@ -293,6 +294,7 @@ async def unified_calendar(
                             imdb_id=m.get("imdbId"),
                             status=RequestStatus.sent_to_arr,
                             source="arr_sync",
+                            plex_user_id="system",
                         )
                         db.add(new_req)
                         await db.flush()
