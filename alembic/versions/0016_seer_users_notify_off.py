@@ -18,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.execute(
         sa.text(
-            "UPDATE plex_users SET notify_on_request = 0, notify_on_available = 0 "
+            "UPDATE plex_users SET notify_on_request = FALSE, notify_on_available = FALSE "
             "WHERE seer_user_id IS NOT NULL OR source = 'seer'"
         )
     )
@@ -27,7 +27,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         sa.text(
-            "UPDATE plex_users SET notify_on_request = 1, notify_on_available = 1 "
+            "UPDATE plex_users SET notify_on_request = TRUE, notify_on_available = TRUE "
             "WHERE seer_user_id IS NOT NULL OR source = 'seer'"
         )
     )

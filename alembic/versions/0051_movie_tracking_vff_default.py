@@ -23,7 +23,7 @@ def upgrade() -> None:
 
     # Le suivi VO/VF devient la priorité par défaut : bascule la ligne settings existante
     # (le changement de défaut côté modèle Python ne touche pas les lignes déjà en base).
-    op.execute("UPDATE settings SET vff_enabled = 1")
+    op.execute("UPDATE settings SET vff_enabled = TRUE")
 
 
 def downgrade() -> None:

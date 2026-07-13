@@ -50,8 +50,8 @@ def upgrade() -> None:
     op.execute(
         f"""
         UPDATE settings SET
-            movie_notify_language = CASE WHEN movie_tracking_mode = 'classic' THEN 0 ELSE 1 END,
-            series_notify_language = CASE WHEN series_tracking_mode IN ('simple', 'classic') THEN 0 ELSE 1 END,
+            movie_notify_language = CASE WHEN movie_tracking_mode = 'classic' THEN FALSE ELSE TRUE END,
+            series_notify_language = CASE WHEN series_tracking_mode IN ('simple', 'classic') THEN FALSE ELSE TRUE END,
             series_notify_granularity = CASE
                 WHEN series_tracking_mode = 'classic' THEN 'minimal'
                 WHEN series_tracking_mode = 'simple' THEN {_GRANULARITY_CASE.format(col="series_episode_notify_mode")}
@@ -64,13 +64,13 @@ def upgrade() -> None:
     # les autres restent NULL ("hérite du réglage global"), comme avant.
     op.execute(
         """
-        UPDATE plex_users SET movie_notify_language = CASE WHEN movie_tracking_mode = 'classic' THEN 0 ELSE 1 END
+        UPDATE plex_users SET movie_notify_language = CASE WHEN movie_tracking_mode = 'classic' THEN FALSE ELSE TRUE END
         WHERE movie_tracking_mode IS NOT NULL
         """
     )
     op.execute(
         """
-        UPDATE plex_users SET series_notify_language = CASE WHEN series_tracking_mode IN ('simple', 'classic') THEN 0 ELSE 1 END
+        UPDATE plex_users SET series_notify_language = CASE WHEN series_tracking_mode IN ('simple', 'classic') THEN FALSE ELSE TRUE END
         WHERE series_tracking_mode IS NOT NULL
         """
     )
@@ -89,8 +89,8 @@ def upgrade() -> None:
     )
 
     with op.batch_alter_table("settings") as batch_op:
-        batch_op.alter_column("movie_notify_language", nullable=False, server_default="1")
-        batch_op.alter_column("series_notify_language", nullable=False, server_default="1")
+        batch_op.alter_column("movie_notify_language", nullable=False, server_default=sa.true())
+        batch_op.alter_column("series_notify_language", nullable=False, server_default=sa.true())
         batch_op.alter_column("series_notify_granularity", nullable=False, server_default="jalons")
         batch_op.drop_column("movie_tracking_mode")
         batch_op.drop_column("movie_vo_notify")

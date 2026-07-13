@@ -31,7 +31,7 @@ def upgrade() -> None:
 
     op.execute("UPDATE notification_milestones SET language = NULL WHERE direction = 'simple'")
     op.execute("UPDATE notification_milestones SET language = direction WHERE direction IN ('vo', 'vf')")
-    op.execute("UPDATE notification_milestones SET is_upgrade = 1 WHERE direction = 'vf'")
+    op.execute("UPDATE notification_milestones SET is_upgrade = TRUE WHERE direction = 'vf'")
 
 
 def downgrade() -> None:
