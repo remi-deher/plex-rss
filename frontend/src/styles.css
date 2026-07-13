@@ -2570,3 +2570,14 @@ button:disabled {
   max-height: 180px;
   overflow-y: auto;
 }
+
+.webhook-list { display: flex; flex-direction: column; gap: 1rem; }
+.webhook-item { background: var(--bg-element); border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius); }
+.webhook-title { margin-bottom: 0.5rem; font-size: 1.1rem; }
+.webhook-url { display: flex; gap: 0.5rem; align-items: center; }
+.webhook-url input { flex: 1; font-family: monospace; font-size: 0.85rem; padding: 0.5rem; background: var(--bg-hover); color: var(--text-muted); cursor: text; }
+.webhook-status { margin-top: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem; }
+.webhook-status.status-ok { color: var(--success); }
+.webhook-status.status-error { color: var(--danger); }
+.webhook-status svg { width: 14px; height: 14px; }
+

@@ -89,14 +89,18 @@ async def _submit_to_arr(
     """Envoie un média à Seer (si activé) ou Sonarr/Radarr/Prowlarr directement.
 
     Si l'utilisateur est actif sur Seer (seer_active=True), la demande
-    est ignorée : il la gère lui-même depuis Seer, pas besoin de doublon.
+    est ignorée par défaut (il la gère lui-même depuis Seer), 
+    sauf si seer_suppress_notifications est désactivé.
 
     Returns:
         (arr_id, already_existed, arr_slug)
     """
     if user_obj and user_obj.seer_active is True:
-        logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
-        return None, True, None
+        if settings.seer_suppress_notifications:
+            logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
+            return None, True, None
+        else:
+            logger.debug(f"Process '{item['title']}' for Seer user (suppression disabled)")
 
     if settings.seer_send_requests and settings.seer_url and settings.seer_api_key:
         t0 = time.monotonic()
