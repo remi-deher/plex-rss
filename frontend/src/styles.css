@@ -1284,20 +1284,84 @@ button:disabled {
   width: 18px;
 }
 
-.spark-bars {
-  height: 150px;
+.activity-chart {
   display: flex;
-  align-items: end;
-  gap: 4px;
+  height: 220px;
+  gap: 12px;
   padding-top: 16px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
-.spark-bars i {
+.activity-chart .y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+  padding-bottom: 24px;
+  min-width: 30px;
+}
+
+.activity-chart .chart-area {
   flex: 1;
-  min-width: 2px;
-  max-width: 18px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  position: relative;
+  padding-bottom: 24px; /* Space for x-axis */
+}
+
+.activity-chart .bar-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  position: relative;
+}
+
+.activity-chart .bar {
+  width: 100%;
+  max-width: 24px;
   background: var(--accent);
-  border-radius: 2px 2px 0 0;
+  border-radius: 4px 4px 0 0;
+  position: relative;
+  transition: background 0.2s;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 4px;
+  overflow: hidden;
+}
+
+.activity-chart .bar:hover {
+  background: color-mix(in srgb, var(--accent) 80%, white);
+}
+
+.activity-chart .bar-value {
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 10px;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.3);
+}
+
+.activity-chart .bar-value-top {
+  position: absolute;
+  top: -16px;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.activity-chart .x-label {
+  position: absolute;
+  bottom: 0;
+  white-space: nowrap;
+  text-align: center;
+  width: 100%;
 }
 
 .calendar-day {

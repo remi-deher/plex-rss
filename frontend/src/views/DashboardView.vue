@@ -188,13 +188,34 @@
           <h2>Activite sur 30 jours</h2>
           <strong>{{ timelineTotal }} demandes</strong>
         </div>
-        <div class="spark-bars">
-          <i 
-            v-for="(value, index) in timeline.values || []" 
-            :key="index" 
-            :style="{ height: `${Math.max(4, value / timelineMax * 100)}%` }" 
-            :title="`${timeline.labels[index]} : ${value}`"
-          ></i>
+        <div class="activity-chart">
+          <!-- Y Axis (Ordonnée) -->
+          <div class="y-axis">
+            <span>{{ timelineMax }}</span>
+            <span>{{ Math.round(timelineMax / 2) }}</span>
+            <span>0</span>
+          </div>
+          <!-- Chart area -->
+          <div class="chart-area">
+            <div 
+              v-for="(value, index) in timeline.values || []" 
+              :key="index" 
+              class="bar-wrapper"
+            >
+              <div class="bar-value-top" v-if="value > 0 && (value / timelineMax) < 0.15">{{ value }}</div>
+              <div 
+                class="bar"
+                :style="{ height: `${Math.max(2, value / timelineMax * 100)}%` }" 
+                :title="`${timeline.labels[index]} : ${value}`"
+              >
+                <span class="bar-value" v-if="value > 0 && (value / timelineMax) >= 0.15">{{ value }}</span>
+              </div>
+              <!-- X Axis label (Abscisse) -->
+              <div class="x-label" v-if="index % 4 === 0 || index === (timeline.values?.length || 0) - 1">
+                {{ formatChartDate(timeline.labels[index]) }}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -606,6 +627,12 @@ async function action(row, type) {
 
 function formatDate(v) {
   return v ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(v)) : '-';
+}
+
+function formatChartDate(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 }
 
 useRealtime(['request.updated'], load);
