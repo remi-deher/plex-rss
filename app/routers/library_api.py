@@ -317,29 +317,37 @@ async def list_library(
     db: AsyncSession = Depends(get_db_async),
 ):
     """Return Plex library items for the SPA library browser."""
-    stmt = select(LibraryItem)
+    stmt = (
+        select(LibraryItem, sqlalchemy.func.max(PlexUser.custom_name), sqlalchemy.func.max(MediaRequest.plex_user), sqlalchemy.func.max(MediaRequest.plex_user_id))
+        .outerjoin(MediaRequest, MediaRequest.library_item_id == LibraryItem.id)
+        .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
+        .group_by(LibraryItem.id)
+    )
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
     if media_type in ("movie", "show"):
         stmt = stmt.filter(LibraryItem.media_type == media_type)
     items = (
         await db.execute(stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title).limit(min(limit, 500)))
-    ).scalars().all()
+    ).all()
     return [
         {
-            "id": item.id,
-            "title": item.title,
-            "year": item.year,
-            "media_type": item.media_type,
-            "poster_url": wrap_image_proxy(item.poster_url),
-            "overview": item.overview,
-            "has_vf": item.has_vf,
-            "vf_granularity": item.vf_granularity,
-            "arr_instance_id": item.arr_instance_id,
-            "arr_id": item.arr_id,
-            "added_at": item.added_at.isoformat() if item.added_at else None,
+            "id": row[0].id,
+            "title": row[0].title,
+            "year": row[0].year,
+            "media_type": row[0].media_type,
+            "poster_url": wrap_image_proxy(row[0].poster_url),
+            "overview": row[0].overview,
+            "has_vf": row[0].has_vf,
+            "vf_granularity": row[0].vf_granularity,
+            "arr_instance_id": row[0].arr_instance_id,
+            "arr_id": row[0].arr_id,
+            "added_at": row[0].added_at.isoformat() if row[0].added_at else None,
+            "custom_name": row[1],
+            "plex_user": row[2],
+            "plex_user_id": row[3],
         }
-        for item in items
+        for row in items
     ]
 
 

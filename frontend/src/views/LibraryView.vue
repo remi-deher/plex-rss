@@ -74,7 +74,7 @@
         <div>
           <strong>{{ item.title }}</strong>
           <span>{{ item.media_type==='show'?'Serie':'Film'  }}<template v-if="item.year"> · {{ item.year }}</template></span>
-          <span v-if="item._kind==='request' && (item.custom_name || item.requested_by || item.plex_user || item.plex_user_id)" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">
+          <span v-if="item.custom_name || item.requested_by || item.plex_user || item.plex_user_id" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">
             👤 {{ item.custom_name || item.requested_by || item.plex_user || item.plex_user_id }}
           </span>
           <small v-if="item._kind==='request'">{{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template></small>
