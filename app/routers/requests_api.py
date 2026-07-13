@@ -472,11 +472,13 @@ async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
 
 
 @router.post("/requests/recalculate-dates", dependencies=[Depends(require_admin)])
-async def recalculate_dates():
-    """Re-joue sync_seer_requests pour corriger requested_at et available_at depuis Seer."""
+async def recalculate_dates(db: AsyncSession = Depends(get_db_async)):
+    """Re-joue sync_seer_requests et sync_plex_dates pour corriger requested_at et available_at."""
     from ..scheduler import sync_seer_requests
+    from ..services.watchlist_poller import sync_plex_dates
 
     await sync_seer_requests()
+    await sync_plex_dates(db)
     return {"status": "ok"}
 
 

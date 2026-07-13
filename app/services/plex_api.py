@@ -180,6 +180,16 @@ def _parse_api_item(item: dict, username: str, user_id: str) -> dict:
     On les transforme en dict {scheme: value} pour un accès direct.
     """
     guids = {g["id"].split("://")[0]: g["id"].split("://")[1] for g in item.get("Guid", []) if "://" in g.get("id", "")}
+    
+    from datetime import datetime, timezone
+    requested_at = None
+    if item.get("addedAt"):
+        # addedAt est un timestamp en secondes (UTC)
+        try:
+            dt = datetime.fromtimestamp(int(item["addedAt"]), timezone.utc)
+            requested_at = dt.replace(tzinfo=None)
+        except (ValueError, TypeError):
+            pass
     return {
         "title": item.get("title", ""),
         "year": item.get("year"),
@@ -198,6 +208,7 @@ def _parse_api_item(item: dict, username: str, user_id: str) -> dict:
         "plex_user_id": user_id,
         "plex_user": username,
         "source": "api",
+        "requested_at": requested_at,
     }
 
 

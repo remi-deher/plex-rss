@@ -707,3 +707,37 @@ async def poll_watchlists():
 def _clean_title(title: str) -> str:
     """Supprime les suffixes d'année entre parenthèses ajoutés par Plex ex: 'INVINCIBLE (2021)' → 'INVINCIBLE'."""
     return re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
+
+
+async def sync_plex_dates(db: AsyncSession):
+    """Met à jour les dates des MediaRequest existants depuis l'API Plex/RSS (requested_at)."""
+    from .watchlist import fetch_watchlist
+    
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings:
+        return
+
+    try:
+        items = await fetch_watchlist(settings)
+    except Exception as e:
+        logger.error(f"sync_plex_dates: erreur lors de fetch_watchlist: {e}")
+        return
+
+    count = 0
+    for item in items:
+        req_date = item.get("requested_at")
+        if not req_date:
+            continue
+
+        existing = await _find_global_request(
+            db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id")
+        )
+        if existing and existing.requested_at != req_date:
+            existing.requested_at = req_date
+            count += 1
+
+    if count > 0:
+        await db.commit()
+        logger.info(f"sync_plex_dates: {count} dates mises à jour depuis Plex Watchlist")
+    else:
+        logger.info("sync_plex_dates: aucune date à mettre à jour")
