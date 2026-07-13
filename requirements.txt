@@ -17,7 +17,7 @@ psycopg2-binary==2.9.12
 cryptography==48.0.1
 webauthn==2.3.0
 markdown==3.10.2
-aiosqlite==0.20.0
+aiosqlite==0.22.1
 asyncpg==0.30.0
 redis==8.0.1
 arq==0.28.0
