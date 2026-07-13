@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..database import AsyncSessionLocal
+from ..database import AsyncSessionLocal, get_db_async
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import sqlalchemy
