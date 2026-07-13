@@ -106,6 +106,75 @@
         <p v-if="!filteredPolls.length" class="empty">Aucune execution enregistree.</p>
       </section>
 
+      <!-- Répartition des demandes (Films vs Séries) -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Repartition des demandes</h2>
+        </div>
+        <div class="breakdown-grid">
+          <div class="breakdown-card movie-card">
+            <div class="breakdown-icon"><Film /></div>
+            <div class="breakdown-info">
+              <strong>{{ counts.by_type?.movie?.total ?? 0 }}</strong>
+              <span>Films</span>
+            </div>
+            <div class="breakdown-sub">
+              <span class="bsub-item"><span class="dot green"></span>{{ counts.by_type?.movie?.available ?? 0 }} dispos</span>
+              <span class="bsub-item"><span class="dot yellow"></span>{{ counts.by_type?.movie?.sent_to_arr ?? 0 }} en cours</span>
+              <span class="bsub-item"><span class="dot red"></span>{{ counts.by_type?.movie?.failed ?? 0 }} echoues</span>
+            </div>
+          </div>
+          <div class="breakdown-card show-card">
+            <div class="breakdown-icon"><Tv /></div>
+            <div class="breakdown-info">
+              <strong>{{ counts.by_type?.show?.total ?? 0 }}</strong>
+              <span>Series</span>
+            </div>
+            <div class="breakdown-sub">
+              <span class="bsub-item"><span class="dot green"></span>{{ counts.by_type?.show?.available ?? 0 }} dispos</span>
+              <span class="bsub-item"><span class="dot yellow"></span>{{ counts.by_type?.show?.sent_to_arr ?? 0 }} en cours</span>
+              <span class="bsub-item"><span class="dot red"></span>{{ counts.by_type?.show?.failed ?? 0 }} echoues</span>
+            </div>
+          </div>
+        </div>
+        <!-- Progress bar -->
+        <div v-if="counts.total" class="type-ratio-bar">
+          <div
+            class="ratio-segment movie-seg"
+            :style="{ width: `${(counts.by_type?.movie?.total ?? 0) / counts.total * 100}%` }"
+            :title="`Films : ${counts.by_type?.movie?.total ?? 0}`"
+          ></div>
+          <div
+            class="ratio-segment show-seg"
+            :style="{ width: `${(counts.by_type?.show?.total ?? 0) / counts.total * 100}%` }"
+            :title="`Series : ${counts.by_type?.show?.total ?? 0}`"
+          ></div>
+        </div>
+      </section>
+
+      <!-- File de téléchargement -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>File de telechargement</h2>
+          <RouterLink to="/downloads">Tout voir</RouterLink>
+        </div>
+        <article v-for="item in downloadQueue" :key="item.id" class="detail-row">
+          <div class="inline-row gap-10">
+            <img v-if="item.poster_url" :src="item.poster_url" class="mini-poster" alt="" />
+            <div>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.instance }} — {{ formatDownloadProgress(item) }}</span>
+            </div>
+          </div>
+          <span class="badge dl-badge">
+            <Download style="width:12px;height:12px" />
+            {{ item.size_left_label || 'En cours' }}
+          </span>
+        </article>
+        <p v-if="!downloadQueue.length && !loadingQueue" class="empty">Aucun telechargement en cours.</p>
+        <p v-if="loadingQueue" class="empty"><LoaderCircle class="spin" style="width:16px;height:16px" /> Chargement...</p>
+      </section>
+
       <!-- Activité sur 30 jours (étalé sur les deux colonnes) -->
       <section class="panel span-two">
         <div class="panel-head">
@@ -119,6 +188,28 @@
             :style="{ height: `${Math.max(4, value / timelineMax * 100)}%` }" 
             :title="`${timeline.labels[index]} : ${value}`"
           ></i>
+        </div>
+      </section>
+
+      <!-- Prochaines sorties (full width) -->
+      <section v-if="upcoming.length" class="panel span-two">
+        <div class="panel-head">
+          <h2>Prochaines sorties</h2>
+          <RouterLink to="/calendar">Voir le calendrier</RouterLink>
+        </div>
+        <div class="upcoming-grid">
+          <div v-for="item in upcoming" :key="item.id" class="upcoming-card">
+            <div class="upcoming-poster">
+              <img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy" />
+              <div v-else class="poster-fallback-inner"><Film /></div>
+              <span class="upcoming-type-badge">{{ item.media_type === 'show' ? 'Série' : 'Film' }}</span>
+            </div>
+            <div class="upcoming-info">
+              <strong>{{ item.title }}</strong>
+              <span class="upcoming-label">{{ item.label }}</span>
+              <span class="upcoming-date">{{ formatUpcomingDate(item.release_date) }}</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -222,13 +313,31 @@
         </article>
         <p v-if="!byUser.length" class="empty">Aucune activite.</p>
       </section>
+
+      <!-- Notifications récentes -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Notifications recentes</h2>
+          <RouterLink to="/notifications">Tout voir</RouterLink>
+        </div>
+        <article v-for="notif in recentNotifs" :key="notif.id" class="detail-row">
+          <div>
+            <strong>{{ notif.media_title || '—' }}</strong>
+            <span>{{ notif.event_label }} · {{ notif.recipient }}</span>
+          </div>
+          <span class="badge" :class="notif.success ? 'available' : 'failed'">
+            {{ notif.success ? 'Envoyé' : 'Erreur' }}
+          </span>
+        </article>
+        <p v-if="!recentNotifs.length" class="empty">Aucune notification envoyee.</p>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
-import { Check, CheckCircle2, Circle, Film, RefreshCw, X } from '@lucide/vue';
+import { Check, CheckCircle2, Circle, Download, Film, LoaderCircle, RefreshCw, Tv, X } from '@lucide/vue';
 import HealthGrid from '@/components/HealthGrid.vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
@@ -245,6 +354,10 @@ const seconds = ref(null);
 const diskSpace = ref([]);
 const topRequested = ref([]);
 const recentlyAvailable = ref([]);
+const upcoming = ref([]);
+const recentNotifs = ref([]);
+const downloadQueue = ref([]);
+const loadingQueue = ref(false);
 let timer;
 
 // Disk Space Categorization
@@ -324,6 +437,20 @@ function formatRelativeDate(v) {
   return `Il y a ${days} jours`;
 }
 
+function formatUpcomingDate(v) {
+  if (!v) return '-';
+  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(v));
+}
+
+function formatDownloadProgress(item) {
+  if (item.status === 'completed') return 'Terminé';
+  if (item.size_left != null && item.size != null && item.size > 0) {
+    const pct = Math.round((1 - item.size_left / item.size) * 100);
+    return `${pct}%`;
+  }
+  return item.status || 'En cours';
+}
+
 const statCards = computed(() => [
   { label: 'Demandes', value: counts.value.total ?? '-' },
   { label: 'A valider', value: counts.value.pending_approval ?? pending.value.length },
@@ -336,6 +463,16 @@ const timelineTotal = computed(() => (timeline.value.values || []).reduce((a, b)
 const timelineMax = computed(() => Math.max(1, ...(timeline.value.values || [1])));
 const countdown = computed(() => seconds.value == null ? '-' : seconds.value < 60 ? `${seconds.value}s` : `${Math.floor(seconds.value / 60)} min`);
 
+async function loadDownloadQueue() {
+  loadingQueue.value = true;
+  try {
+    const data = await api('/api/arr/queue').catch(() => []);
+    downloadQueue.value = (Array.isArray(data) ? data : []).slice(0, 5);
+  } finally {
+    loadingQueue.value = false;
+  }
+}
+
 async function load() {
   const results = await Promise.allSettled([
     api('/api/stats/counts'),
@@ -347,13 +484,20 @@ async function load() {
     api('/api/next-poll'),
     api('/api/disk-space'),
     api('/api/stats/top-requested'),
-    api('/api/stats/recently-available')
+    api('/api/stats/recently-available'),
+    api('/api/upcoming?limit=8'),
+    api('/api/notifications/log?limit=5'),
   ]);
-  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, diskSpace, topRequested, recentlyAvailable];
+  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, diskSpace, topRequested, recentlyAvailable, upcoming];
   results.forEach((r, i) => {
-    if (r.status === 'fulfilled') refs[i].value = r.value;
+    if (r.status === 'fulfilled' && refs[i]) refs[i].value = r.value;
   });
+  // Notifications log has pagination wrapper
+  if (results[11].status === 'fulfilled') {
+    recentNotifs.value = results[11].value?.items ?? results[11].value ?? [];
+  }
   seconds.value = nextPoll.value.next_run_seconds;
+  await loadDownloadQueue();
 }
 
 async function pollNow() {
