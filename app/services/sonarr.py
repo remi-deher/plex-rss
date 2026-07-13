@@ -588,6 +588,38 @@ async def manual_import_episode(
         return False, str(e)
 
 
+async def trigger_import(
+    sonarr_url: str,
+    api_key: str,
+    *,
+    output_path: str | None = None,
+    download_id: str | None = None,
+) -> tuple[bool, str]:
+    """Déclenche le scan d'import Sonarr pour un téléchargement en attente d'import
+    (trackedDownloadState == importPending). Utilise la commande DownloadedEpisodesScan
+    avec le chemin de sortie ou le downloadId.
+    """
+    base = sonarr_url.rstrip("/")
+    payload: dict = {"name": "DownloadedEpisodesScan"}
+    if output_path:
+        payload["path"] = output_path
+    if download_id:
+        payload["downloadClientId"] = download_id
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json=payload,
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Import lancé"
+    except httpx.HTTPStatusError as e:
+        return False, f"Sonarr a refusé l'import : {e.response.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
 async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
     """File d'attente de téléchargement Sonarr (GET /queue), format compact."""
     base = sonarr_url.rstrip("/")

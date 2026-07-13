@@ -595,6 +595,45 @@ async def delete_arr_queue_item(
     return {"status": "ok", "message": msg}
 
 
+class TriggerImportBody(BaseModel):
+    output_path: Optional[str] = None
+    download_id: Optional[str] = None
+
+
+@router.post("/arr/queue/{instance_id}/{queue_id}/import")
+async def trigger_arr_import(
+    instance_id: int,
+    queue_id: int,
+    body: TriggerImportBody,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Déclenche l'import d'un item dont le téléchargement est terminé mais bloqué
+    en attente d'import (trackedDownloadState == importPending). Envoie la commande
+    DownloadedEpisodesScan (Sonarr) ou DownloadedMoviesScan (Radarr) à l'instance *arr
+    avec le chemin de sortie ou le download_id pour cibler précisément l'item.
+    """
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Instance introuvable")
+    if inst.arr_type == "sonarr":
+        ok, msg = await sonarr.trigger_import(
+            inst.url, inst.api_key,
+            output_path=body.output_path,
+            download_id=body.download_id,
+        )
+    elif inst.arr_type == "radarr":
+        ok, msg = await radarr.trigger_import(
+            inst.url, inst.api_key,
+            output_path=body.output_path,
+            download_id=body.download_id,
+        )
+    else:
+        raise HTTPException(400, "Instance non applicable (ni Sonarr ni Radarr)")
+    if not ok:
+        raise HTTPException(502, msg)
+    # Invalide le cache pour que la prochaine lecture reflète l'état réel
+    _queue_cache["data"] = None
+    return {"status": "ok", "message": msg}
+
+
 class ManualImportRequest(BaseModel):
     instance_id: int
     media_type: str  # "movie" | "show"

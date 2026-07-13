@@ -353,6 +353,38 @@ def _normalize_queue_record(r: dict, title: str, *, movie: dict | None = None) -
     }
 
 
+async def trigger_import(
+    radarr_url: str,
+    api_key: str,
+    *,
+    output_path: str | None = None,
+    download_id: str | None = None,
+) -> tuple[bool, str]:
+    """Déclenche le scan d'import Radarr pour un téléchargement en attente d'import
+    (trackedDownloadState == importPending). Utilise la commande DownloadedMoviesScan
+    avec le chemin de sortie ou le downloadId.
+    """
+    base = radarr_url.rstrip("/")
+    payload: dict = {"name": "DownloadedMoviesScan"}
+    if output_path:
+        payload["path"] = output_path
+    if download_id:
+        payload["downloadClientId"] = download_id
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.post(
+                f"{base}/api/v3/command",
+                json=payload,
+                headers={"X-Api-Key": api_key},
+            )
+            resp.raise_for_status()
+            return True, "Import lancé"
+    except httpx.HTTPStatusError as e:
+        return False, f"Radarr a refusé l'import : {e.response.text[:200]}"
+    except Exception as e:
+        return False, str(e)
+
+
 async def get_queue(radarr_url: str, api_key: str) -> list[dict]:
     """File d'attente de téléchargement Radarr (GET /queue), format compact."""
     base = radarr_url.rstrip("/")

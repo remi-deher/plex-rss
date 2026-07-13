@@ -76,6 +76,10 @@
             <td>{{ row.timeleft||'-' }}</td>
             <td><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
             <td class="actions">
+              <button v-if="isImportPending(row)" class="icon-button import-trigger-btn" title="Lancer l'import" :disabled="importingId === rowKey(row)" @click="triggerImport(row)">
+                <LoaderCircle v-if="importingId === rowKey(row)" class="spin"/>
+                <PackageOpen v-else/>
+              </button>
               <button v-if="isUnmatched(row)||needsEpisodeImport(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
               <button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button>
               <button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button>
@@ -179,17 +183,18 @@
 
 <script setup>
 import { computed,onMounted,onUnmounted,reactive,ref,watch } from 'vue';
-import { AlertTriangle,Clapperboard,Link,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
+import { AlertTriangle,Clapperboard,Link,LoaderCircle,PackageOpen,RefreshCw,RotateCcw,Search,X } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 
-const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref('');
+const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),lookupQuery=ref(''),lookupResults=ref([]),episodeCandidates=ref([]),episodeOptions=ref([]),targetsLoading=ref(false),loading=ref(false),busy=ref(false),error=ref(''),importingId=ref(null);
 const manual=reactive({title:'',year:null,tmdb_id:null,tvdb_id:null,poster_url:null,arr_id:null});
 const episodeForm=reactive({candidate:0,season:null,episode_id:null});
 let fallback;
 
 function rowKey(row){return `${row.instance_id||row.instance||'direct'}:${row.queue_id||row.download_id||row.title}`}
 function canAct(row){return row.instance_id!=null&&row.queue_id!=null}
+function isImportPending(row){return (row.tracked_state||'').toLowerCase()==='importpending'&&row.instance_id!=null&&row.queue_id!=null}
 function isUnmatched(row){return row.request_id==null&&row.library_id==null&&['sonarr','radarr'].includes(row.arr_type)}
 function needsEpisodeImport(row){return row.arr_type==='sonarr'&&statusKey(row)==='error'&&row.arr_media_id!=null}
 function statusKey(row){const value=(row.status||'').toLowerCase();if(row.error||value.includes('error')||value.includes('warning')||value.includes('failed'))return'error';if(value.includes('pause'))return'paused';if(value.includes('queue'))return'queued';if((row.progress||0)>=100)return'completed';return'downloading'}
@@ -216,6 +221,7 @@ const seasonOptions=computed(()=>[...new Set(episodeOptions.value.map(x=>x.seaso
 const filteredEpisodes=computed(()=>episodeOptions.value.filter(x=>x.seasonNumber===episodeForm.season).sort((a,b)=>a.episodeNumber-b.episodeNumber));
 
 async function loadAll(){loading.value=true;error.value='';try{const [arr,direct,done]=await Promise.all([api('/api/arr/queue').catch(()=>[]),api('/api/downloads/direct').catch(()=>[]),api('/api/downloads/history?limit=100').catch(()=>[])]);queue.value=[...arr,...direct].sort((a,b)=>(a.progress||0)-(b.progress||0));history.value=done}catch(e){error.value=e.message}finally{loading.value=false}}
+async function triggerImport(row){const key=rowKey(row);importingId.value=key;error.value='';try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}/import`,{method:'POST',body:JSON.stringify({output_path:row.output_path||null,download_id:row.download_id||null})});await new Promise(r=>setTimeout(r,2000));await loadAll()}catch(e){error.value=e.message}finally{importingId.value=null}}
 async function queueAction(row,blocklist,search){if(!confirm(blocklist?'Blocklister et relancer une recherche ?':'Retirer cet element de la file ?'))return;try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}}
 async function openManual(row){manualRow.value=row;Object.assign(manual,{title:row.series_title||row.title||'',year:row.year||null,tmdb_id:row.tmdb_id||null,tvdb_id:row.tvdb_id||null,poster_url:row.poster_url||null,arr_id:row.arr_media_id||null});lookupQuery.value=manual.title;lookupResults.value=[];episodeCandidates.value=[];episodeOptions.value=[];episodeForm.candidate=0;episodeForm.season=row.season_number||null;episodeForm.episode_id=null;if(row.arr_type==='sonarr'&&manual.arr_id)await loadSonarrTargets()}
 async function lookup(){lookupResults.value=await api(`/api/media/lookup?query=${encodeURIComponent(lookupQuery.value)}&type=${manualRow.value.arr_type==='sonarr'?'show':'movie'}`)}
