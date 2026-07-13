@@ -1807,6 +1807,58 @@ button:disabled {
   padding-top: 24px;
 }
 
+
+/* --- VFF Library Picker --- */
+.vff-library-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vff-library-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+  transition: background 0.15s;
+}
+
+.vff-library-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.vff-lib-check {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vff-lib-name {
+  font-size: 13px;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vff-lib-kind {
+  margin-left: auto;
+}
+
+.segmented.small button {
+  padding: 3px 10px;
+  font-size: 11px;
+  height: 26px;
+}
+
+
+
 /* --- Dashboard Specific Styles --- */
 .compact-select {
   height: 28px;
