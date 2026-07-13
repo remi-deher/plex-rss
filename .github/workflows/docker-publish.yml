@@ -1,11 +1,13 @@
 name: Build & Push Docker image
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - "app/**"
+      - "frontend/**"
       - "Dockerfile"
       - "requirements.txt"
     tags:
