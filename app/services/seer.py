@@ -305,6 +305,56 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
     return results
 
 
+async def delete_request_by_tmdb(
+    seer_url: str,
+    api_key: str,
+    media_type: str,
+    tmdb_id: str | int,
+) -> tuple[bool, str]:
+    """Tente de supprimer toutes les demandes associées à ce média dans Seer.
+    
+    Args:
+        media_type: 'movie' ou 'tv'
+        tmdb_id: ID TMDB du média
+        
+    Returns:
+        (success, message)
+    """
+    base = seer_url.rstrip("/")
+    headers = _headers(api_key, base)
+    seer_media_type = "movie" if media_type == "movie" else "tv"
+    
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            # 1. Fetch media details to find Seer's internal request IDs
+            resp = await client.get(f"{base}/api/v1/{seer_media_type}/{tmdb_id}", headers=headers)
+            if resp.status_code == 404:
+                return True, "Média introuvable dans Seer, rien à supprimer"
+            resp.raise_for_status()
+            data = resp.json()
+            
+            media_info = data.get("mediaInfo", {})
+            requests = media_info.get("requests", [])
+            
+            if not requests:
+                return True, "Aucune demande active dans Seer pour ce média"
+                
+            # 2. Delete all associated requests
+            deleted_count = 0
+            for req in requests:
+                req_id = req.get("id")
+                if req_id:
+                    del_resp = await client.delete(f"{base}/api/v1/request/{req_id}", headers=headers)
+                    if del_resp.status_code in (200, 204, 404):
+                        deleted_count += 1
+                        
+            return True, f"{deleted_count} demande(s) supprimée(s) dans Seer"
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la suppression de la demande dans Seer: {e}")
+        return False, str(e)
+
+
 async def check_connection(seer_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Seer.
 

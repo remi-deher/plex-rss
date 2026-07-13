@@ -118,13 +118,26 @@ async def _bulk_request_ids_for_filters(db: AsyncSession, filters: BulkResolveFi
 
 
 async def _delete_media_from_arr(db: AsyncSession, req: MediaRequest, delete_files: bool) -> tuple[bool, str]:
-    """Tente de supprimer le média correspondant dans Sonarr/Radarr.
+    """Tente de supprimer le média correspondant dans Sonarr/Radarr et Seer.
 
-    Ne renvoie jamais ok=True suite à une erreur réseau/HTTP : seule une confirmation
-    explicite (suppression réussie ou déjà absent) vaut succès. L'appelant ne doit
-    supprimer la demande locale que si ok=True, pour ne jamais désynchroniser les deux
-    côtés quand Sonarr/Radarr est injoignable.
+    Ne renvoie jamais ok=True suite à une erreur réseau/HTTP pour Sonarr/Radarr.
+    La suppression dans Seer est "best effort" et ne bloque pas la suppression locale.
     """
+    # 1. Suppression Seer (best effort)
+    try:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key and req.tmdb_id:
+            from ..services.seer import delete_request_by_tmdb
+            await delete_request_by_tmdb(
+                settings.seer_url,
+                settings.seer_api_key,
+                req.media_type,
+                req.tmdb_id,
+            )
+    except Exception as e:
+        logger.warning(f"Erreur non fatale lors de la suppression Seer pour req#{req.id}: {e}")
+
+    # 2. Suppression Sonarr/Radarr
     if not req.arr_id or not req.arr_instance_id:
         return True, "Aucune instance *arr liée à cette demande"
     if req.arr_slug and req.arr_slug.startswith("prowlarr:"):
