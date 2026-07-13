@@ -1,2 +1,287 @@
-<template><div class="page"><header class="page-head"><div><h1>Bibliotheque</h1><p>Catalogue Plex, demandes en cours et suivi des versions.</p></div><button class="icon-button" :disabled="loading" title="Actualiser" @click="load"><RefreshCw :class="{spin:loading}"/></button></header><section class="metric-grid compact-metrics"><article v-for="entry in metrics" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article></section><div class="toolbar wrap"><input v-model="query" class="search" type="search" placeholder="Rechercher" @input="scheduleLoad"><div class="segmented"><button :class="{active:type===''}" @click="setType('')">Tout</button><button :class="{active:type==='movie'}" @click="setType('movie')">Films</button><button :class="{active:type==='show'}" @click="setType('show')">Series</button></div><select v-model="vf"><option value="">Toutes les versions</option><option value="vf">VF</option><option value="vo">VO</option><option value="unchecked">Non analysee</option></select><div class="segmented"><button :class="{active:view==='grid'}" title="Grille" @click="setView('grid')"><Grid2X2/></button><button :class="{active:view==='list'}" title="Liste" @click="setView('list')"><List/></button></div></div><p v-if="error" class="notice error-text">{{ error }}</p><section :class="view==='grid'?'media-grid':'panel media-list'"><button v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" @click="selected=item"><div class="poster-shell"><img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'"><div v-else class="poster-fallback"><Film/></div><span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span></div><div><strong>{{ item.title }}</strong><span>{{ item.media_type==='show'?'Serie':'Film'  }}<template v-if="item.year"> · {{ item.year }}</template></span><small v-if="item._kind==='request'">{{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template></small><small v-else-if="item.overview">{{ item.overview }}</small></div></button></section><p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p><MediaDetailDrawer v-if="selected" :item="selected" :mode="selected._kind==='request'?'request':'library'" @close="selected=null" @updated="load"/></div></template>
-<script setup>import { computed,onMounted,ref } from 'vue';import { Film,Grid2X2,List,RefreshCw } from '@lucide/vue';import { api } from '@/api';import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';const items=ref([]),rawMetrics=ref({}),query=ref(''),type=ref(''),vf=ref(''),view=ref(localStorage.getItem('library.view')||'grid'),selected=ref(null),loading=ref(false),error=ref('');let timer;const filtered=computed(()=>items.value.filter(item=>vf.value==='vf'?item.has_vf===true:vf.value==='vo'?item.has_vf===false:vf.value==='unchecked'?item.has_vf==null:true));const libraryItems=computed(()=>items.value.filter(x=>x._kind==='library'));const metrics=computed(()=>[{label:'Dans Plex',value:rawMetrics.value.total??libraryItems.value.length},{label:'En cours',value:items.value.length-libraryItems.value.length},{label:'Films',value:rawMetrics.value.by_type?.movie??libraryItems.value.filter(x=>x.media_type==='movie').length},{label:'Avec VF',value:rawMetrics.value.vf?.complete??libraryItems.value.filter(x=>x.has_vf===true).length}]);function proxyUrl(url){if(!url)return url;if(url.startsWith('http://')||(url.startsWith('https://')&&/\/(192\.168\.|10\.|127\.)/.test(url)))return `/api/image-proxy?url=${encodeURIComponent(url)}`;return url}function setType(value){type.value=value;load()}function setView(value){view.value=value;localStorage.setItem('library.view',value)}function scheduleLoad(){clearTimeout(timer);timer=setTimeout(load,250)}function requestLabel(status){return ({pending_approval:'A approuver',pending:'En attente',sent_to_arr:'Transmise a Sonarr/Radarr',failed:'Echec'})[status]||status}async function load(){loading.value=true;error.value='';const p=new URLSearchParams();if(query.value.trim())p.set('query',query.value.trim());if(type.value)p.set('media_type',type.value);try{const [library,requests,stats]=await Promise.all([api(`/api/library?${p}`),api(`/api/requests${query.value.trim()?`?query=${encodeURIComponent(query.value.trim())}`:''}`),api(`/api/library-metrics${type.value?`?media_type=${type.value}`:''}`).catch(()=>({}))]);const pending=requests.filter(x=>x.status!=='available'&&!x.library_item_id&&(!type.value||x.media_type===type.value)).map(x=>({...x,_kind:'request',poster_url:proxyUrl(x.poster_url)}));items.value=[...library.map(x=>({...x,_kind:'library'})),...pending];rawMetrics.value=stats}catch(e){error.value=e.message}finally{loading.value=false}}onMounted(load);</script>
+<template>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>Bibliotheque</h1>
+        <p>Catalogue Plex, demandes en cours et suivi des versions.</p>
+      </div>
+      <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+        <RefreshCw :class="{spin:loading}"/>
+      </button>
+    </header>
+    
+    <section class="metric-grid compact-metrics">
+      <article v-for="entry in metrics" :key="entry.label" class="metric-card">
+        <span>{{ entry.label }}</span>
+        <strong>{{ entry.value }}</strong>
+      </article>
+    </section>
+
+    <div class="filters-panel">
+      <div class="filter-row">
+        <input v-model="query" class="search" type="search" placeholder="Rechercher" @input="scheduleLoad">
+        <div class="segmented">
+          <button :class="{active:view==='grid'}" title="Grille" @click="setView('grid')">
+            <Grid2X2/>
+          </button>
+          <button :class="{active:view==='list'}" title="Liste" @click="setView('list')">
+            <List/>
+          </button>
+        </div>
+      </div>
+      
+      <div class="filter-pills-scroll">
+        <span class="filter-label">Type:</span>
+        <button class="filter-pill" :class="{active:type===''}" @click="setType('')">Tout</button>
+        <button class="filter-pill" :class="{active:type==='movie'}" @click="setType('movie')">Films</button>
+        <button class="filter-pill" :class="{active:type==='show'}" @click="setType('show')">Séries</button>
+
+        <div class="divider"></div>
+        <span class="filter-label">Statut:</span>
+        <button class="filter-pill" :class="{active:status===''}" @click="status=''">Tout</button>
+        <button class="filter-pill" :class="{active:status==='library'}" @click="status='library'">Dans Plex</button>
+        <button class="filter-pill" :class="{active:status==='request'}" @click="status='request'">En cours</button>
+
+        <div class="divider"></div>
+        <span class="filter-label">Audio:</span>
+        <button class="filter-pill" :class="{active:vf===''}" @click="vf=''">Toutes</button>
+        <button class="filter-pill" :class="{active:vf==='vf'}" @click="vf='vf'">VF</button>
+        <button class="filter-pill" :class="{active:vf==='vo'}" @click="vf='vo'">VO</button>
+        <button class="filter-pill" :class="{active:vf==='unchecked'}" @click="vf='unchecked'">Non analysée</button>
+
+        <template v-if="users.length > 0">
+          <div class="divider"></div>
+          <span class="filter-label">Utilisateur:</span>
+          <select v-model="userFilter" class="filter-select" title="Filtre pour les demandes en cours">
+            <option value="">Tous</option>
+            <option v-for="u in users" :key="u.id" :value="u.plex_user_id || u.custom_name || u.display_name">{{ u.custom_name || u.display_name || u.plex_user_id }}</option>
+          </select>
+        </template>
+      </div>
+    </div>
+
+    <p v-if="error" class="notice error-text">{{ error }}</p>
+    
+    <section :class="view==='grid'?'media-grid':'panel media-list'">
+      <button v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" @click="selected=item">
+        <div class="poster-shell">
+          <img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'">
+          <div v-else class="poster-fallback">
+            <Film/>
+          </div>
+          <span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
+        </div>
+        <div>
+          <strong>{{ item.title }}</strong>
+          <span>{{ item.media_type==='show'?'Serie':'Film'  }}<template v-if="item.year"> · {{ item.year }}</template></span>
+          <small v-if="item._kind==='request'">{{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template></small>
+          <small v-else-if="item.overview">{{ item.overview }}</small>
+        </div>
+      </button>
+    </section>
+    
+    <p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p>
+    
+    <MediaDetailDrawer v-if="selected" :item="selected" :mode="selected._kind==='request'?'request':'library'" @close="selected=null" @updated="load"/>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from 'vue';
+import { Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
+import { api } from '@/api';
+import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
+
+const items = ref([]);
+const rawMetrics = ref({});
+const users = ref([]);
+
+const query = ref('');
+const type = ref('');
+const vf = ref('');
+const status = ref('');
+const userFilter = ref('');
+const view = ref(localStorage.getItem('library.view') || 'grid');
+
+const selected = ref(null);
+const loading = ref(false);
+const error = ref('');
+
+let timer;
+
+const filtered = computed(() => {
+  return items.value.filter(item => {
+    // Audio filter
+    if (vf.value === 'vf' && item.has_vf !== true) return false;
+    if (vf.value === 'vo' && item.has_vf !== false) return false;
+    if (vf.value === 'unchecked' && item.has_vf != null) return false;
+    
+    // Status filter
+    if (status.value === 'library' && item._kind !== 'library') return false;
+    if (status.value === 'request' && item._kind !== 'request') return false;
+    
+    // User filter (only applies to requests)
+    if (userFilter.value) {
+      if (item._kind !== 'request') return false;
+      if (item.plex_user_id !== userFilter.value && item.requested_by !== userFilter.value) return false;
+    }
+    
+    return true;
+  });
+});
+
+const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
+
+const metrics = computed(() => [
+  { label: 'Dans Plex', value: rawMetrics.value.total ?? libraryItems.value.length },
+  { label: 'En cours', value: items.value.length - libraryItems.value.length },
+  { label: 'Films', value: rawMetrics.value.by_type?.movie ?? libraryItems.value.filter(x => x.media_type === 'movie').length },
+  { label: 'Avec VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
+]);
+
+function proxyUrl(url) {
+  if (!url) return url;
+  if (url.startsWith('http://') || (url.startsWith('https://') && /\/(192\.168\.|10\.|127\.)/.test(url))) {
+    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+function setType(value) {
+  type.value = value;
+  load();
+}
+
+function setView(value) {
+  view.value = value;
+  localStorage.setItem('library.view', value);
+}
+
+function scheduleLoad() {
+  clearTimeout(timer);
+  timer = setTimeout(load, 250);
+}
+
+function requestLabel(s) {
+  return ({
+    pending_approval: 'A approuver',
+    pending: 'En attente',
+    sent_to_arr: 'Transmise a Sonarr/Radarr',
+    failed: 'Echec'
+  })[s] || s;
+}
+
+async function load() {
+  loading.value = true;
+  error.value = '';
+  
+  const p = new URLSearchParams();
+  if (query.value.trim()) p.set('query', query.value.trim());
+  if (type.value) p.set('media_type', type.value);
+  
+  try {
+    const [library, requests, stats] = await Promise.all([
+      api(`/api/library?${p}`),
+      api(`/api/requests${query.value.trim() ? `?query=${encodeURIComponent(query.value.trim())}` : ''}`),
+      api(`/api/library-metrics${type.value ? `?media_type=${type.value}` : ''}`).catch(() => ({}))
+    ]);
+    
+    const pending = requests
+      .filter(x => x.status !== 'available' && !x.library_item_id && (!type.value || x.media_type === type.value))
+      .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
+      
+    items.value = [
+      ...library.map(x => ({ ...x, _kind: 'library' })),
+      ...pending
+    ];
+    rawMetrics.value = stats;
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function loadUsers() {
+  try {
+    users.value = await api('/api/users');
+  } catch (e) {
+    console.warn("Failed to load users for filter", e);
+  }
+}
+
+onMounted(() => {
+  load();
+  loadUsers();
+});
+</script>
+
+<style scoped>
+.filters-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+.filter-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.filter-row .search {
+  flex-grow: 1;
+}
+.filter-pills-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+.filter-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 0.25rem;
+}
+.filter-pill {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.filter-pill:hover {
+  background: var(--surface-hover);
+}
+.filter-pill.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 0.5rem;
+}
+.filter-select {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+</style>
