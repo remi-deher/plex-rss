@@ -203,7 +203,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                 continue
 
             if available:
-                if has_plex_proof(db, req):
+                if await has_plex_proof(db, req):
                     changed = await confirm_available_from_plex(
                         settings,
                         req,

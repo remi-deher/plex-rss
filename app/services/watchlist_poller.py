@@ -3,16 +3,17 @@ import json
 import logging
 import re
 import time
-from contextlib import nullcontext
 from datetime import datetime, timezone
 
+import sqlalchemy
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from .. import metrics as app_metrics
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
-from ..utils import db_session, now_utc, now_utc_naive
+from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, prowlarr
 from .download_clients import add_torrent_to_client
 from .notification_orchestrator import _add_co_requester
@@ -31,9 +32,10 @@ logger = logging.getLogger(__name__)
 _poll_lock = asyncio.Lock()
 
 
-def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
+async def _check_and_seed_instances_from_settings(db: AsyncSession, settings: Settings):
     """Crée les instances Sonarr/Radarr par défaut depuis les anciens settings si besoin."""
-    if db.query(ArrInstance).count() == 0 and settings:
+    count = (await db.execute(select(sqlalchemy.func.count()).select_from(ArrInstance))).scalar() or 0
+    if count == 0 and settings:
         if settings.sonarr_url and settings.sonarr_api_key:
             db.add(
                 ArrInstance(
@@ -61,12 +63,12 @@ def _check_and_seed_instances_from_settings(db: Session, settings: Settings):
                     minimum_availability=settings.radarr_minimum_availability or "released",
                 )
             )
-        db.commit()
+        await db.commit()
 
 
-async def sync_users_from_feed(items: list[dict], db: Session):
+async def sync_users_from_feed(items: list[dict], db: AsyncSession):
     """Crée automatiquement un PlexUser pour chaque plex_user_id inconnu trouvé dans le flux."""
-    known_ids = {u.plex_user_id for u in db.query(PlexUser).all()}
+    known_ids = {u.plex_user_id for u in (await db.execute(select(PlexUser))).scalars().all()}
     created = 0
     for item in items:
         uid = item.get("plex_user_id") or item.get("plex_user")
@@ -78,11 +80,11 @@ async def sync_users_from_feed(items: list[dict], db: Session):
         created += 1
         logger.info(f"Auto-discovered Plex user: {uid}")
     if created:
-        db.commit()
+        await db.commit()
 
 
 async def _submit_to_arr(
-    settings: Settings, item: dict, user_obj: PlexUser | None = None, db: Session | None = None
+    settings: Settings, item: dict, user_obj: PlexUser | None = None, db: AsyncSession | None = None
 ) -> tuple[int | None, bool, str | None]:
     """Envoie un média à Seer (si activé) ou Sonarr/Radarr/Prowlarr directement.
 
@@ -106,24 +108,25 @@ async def _submit_to_arr(
             return result
         logger.warning("Seer request failed, falling back to Sonarr/Radarr")
 
-    ctx = db_session(SessionLocal) if db is None else nullcontext(db)
-    with ctx as active_db:
+    if db is None:
+        async with AsyncSessionLocal() as owned_db:
+            return await _submit_to_arr(settings, item, user_obj, db=owned_db)
+    active_db = db
+    if active_db is not None:
         # Resolve ArrInstance
         instance = None
         if user_obj:
             instance_id = user_obj.sonarr_instance_id if item["media_type"] == "show" else user_obj.radarr_instance_id
             if instance_id:
-                instance = (
-                    active_db.query(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled).first()
-                )
+                instance = (await active_db.execute(
+                    select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.enabled)
+                )).scalars().first()
 
         if not instance:
             target_arr_type = "sonarr" if item["media_type"] == "show" else "radarr"
-            instance = (
-                active_db.query(ArrInstance)
-                .filter(ArrInstance.arr_type == target_arr_type, ArrInstance.enabled, ArrInstance.is_default)
-                .first()
-            )
+            instance = (await active_db.execute(
+                select(ArrInstance).filter(ArrInstance.arr_type == target_arr_type, ArrInstance.enabled, ArrInstance.is_default)
+            )).scalars().first()
 
         if not instance or instance.arr_type not in ("sonarr", "radarr"):
             info_hash, already_existed, arr_slug, client_id = await _submit_to_torrent(active_db, settings, item)
@@ -205,7 +208,7 @@ def _filter_torrent_results(results: list[dict], settings: Settings) -> list[dic
 
 
 async def _prowlarr_search_and_download(
-    db: Session, settings: Settings, prowlarr_inst: ArrInstance, item: dict
+    db: AsyncSession, settings: Settings, prowlarr_inst: ArrInstance, item: dict
 ) -> tuple[str | None, str | None, int | None]:
     """Cherche un média sur une instance Prowlarr donnée et l'envoie au client torrent par défaut.
 
@@ -217,9 +220,11 @@ async def _prowlarr_search_and_download(
     Returns: (info_hash, arr_slug, download_client_id) — info_hash est None si rien n'a
     été trouvé, filtré, ou envoyé avec succès.
     """
-    client = db.query(DownloadClient).filter(DownloadClient.enabled, DownloadClient.is_default).first()
+    client = (await db.execute(
+        select(DownloadClient).filter(DownloadClient.enabled, DownloadClient.is_default)
+    )).scalars().first()
     if not client:
-        client = db.query(DownloadClient).filter(DownloadClient.enabled).first()
+        client = (await db.execute(select(DownloadClient).filter(DownloadClient.enabled))).scalars().first()
     if not client:
         logger.warning("Prowlarr: Aucun client de téléchargement actif trouvé")
         return None, None, None
@@ -281,10 +286,12 @@ async def _prowlarr_search_and_download(
 
 
 async def _submit_to_torrent(
-    db: Session, settings: Settings, item: dict
+    db: AsyncSession, settings: Settings, item: dict
 ) -> tuple[str | None, bool, str | None, int | None]:
     """Recherche un média sur Prowlarr et l'envoie au client torrent par défaut si Sonarr/Radarr sont inactifs."""
-    prowlarr_inst = db.query(ArrInstance).filter(ArrInstance.arr_type == "prowlarr", ArrInstance.enabled).first()
+    prowlarr_inst = (await db.execute(
+        select(ArrInstance).filter(ArrInstance.arr_type == "prowlarr", ArrInstance.enabled)
+    )).scalars().first()
     if not prowlarr_inst:
         logger.warning("Torrent automation: Aucune instance Prowlarr active trouvée")
         return None, False, None, None
@@ -343,8 +350,8 @@ async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj) -> dict:
     return item
 
 
-def _find_global_request(
-    db,
+async def _find_global_request(
+    db: AsyncSession,
     media_type: str,
     tmdb_id: str | None,
     title: str | None,
@@ -357,36 +364,30 @@ def _find_global_request(
     Le fallback titre rattrape les anciennes entrées RSS créées sans identifiant.
     """
     if tmdb_id:
-        found = (
-            db.query(MediaRequest)
-            .filter(
+        found = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.media_type == media_type,
                 MediaRequest.tmdb_id == tmdb_id,
             )
-            .first()
-        )
+        )).scalars().first()
         if found:
             return found
     if tvdb_id:
-        found = (
-            db.query(MediaRequest)
-            .filter(
+        found = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.media_type == media_type,
                 MediaRequest.tvdb_id == tvdb_id,
             )
-            .first()
-        )
+        )).scalars().first()
         if found:
             return found
     if title:
-        return (
-            db.query(MediaRequest)
-            .filter(
+        return (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.media_type == media_type,
                 MediaRequest.title == title,
             )
-            .first()
-        )
+        )).scalars().first()
     return None
 
 
@@ -457,7 +458,7 @@ async def _refresh_next_release(
 async def _process_watchlist_item(
     item: dict,
     settings: Settings,
-    db: Session,
+    db: AsyncSession,
     users_map: dict,
     enabled_ids: set,
     has_filter: bool,
@@ -485,11 +486,11 @@ async def _process_watchlist_item(
     item = await _ensure_tmdb_id(item, settings, user_obj)
 
     # Dédup global : même média déjà demandé par un autre utilisateur ?
-    global_req = _find_global_request(db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"))
+    global_req = await _find_global_request(db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"))
     if global_req and global_req.plex_user_id != uid:
         added = _add_co_requester(global_req, uid, display_name)
         if added:
-            db.commit()
+            await db.commit()
             logger.info(f"Co-demandeur ajouté : {display_name} → '{global_req.title}'")
         return "skip"
 
@@ -497,16 +498,14 @@ async def _process_watchlist_item(
 
     # Fallback : même utilisateur, même titre — ancienne demande sans identifiant
     if not existing and item.get("title"):
-        existing = (
-            db.query(MediaRequest)
-            .filter(
+        existing = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.plex_user_id == uid,
                 MediaRequest.media_type == item["media_type"],
                 MediaRequest.title == item["title"],
                 MediaRequest.tmdb_id.is_(None),
             )
-            .first()
-        )
+        )).scalars().first()
         if existing:
             if item.get("tmdb_id"):
                 existing.tmdb_id = item["tmdb_id"]
@@ -536,14 +535,14 @@ async def _process_watchlist_item(
             status=RequestStatus.pending,
         )
         db.add(req)
-        db.flush()
+        await db.flush()
 
     needs_approval = bool(
         settings.require_approval and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))
     )
     if needs_approval:
         req.status = RequestStatus.pending_approval
-        db.commit()
+        await db.commit()
         logger.info("Demande en attente de validation : %s -> '%s'", display_name, item["title"])
         return "sent"
 
@@ -554,18 +553,16 @@ async def _process_watchlist_item(
     if user_obj and user_obj.seer_user_id and user_obj.seer_active:
         tmdb_id = item.get("tmdb_id")
         seer_id_filter = (MediaRequest.tmdb_id == tmdb_id) if tmdb_id else (MediaRequest.title == item["title"])
-        seer_handled = (
-            db.query(MediaRequest)
-            .filter(
+        seer_handled = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.plex_user_id == uid,
                 MediaRequest.source == "seer",
                 seer_id_filter,
             )
-            .first()
-        )
+        )).scalars().first()
         if seer_handled:
             logger.debug(f"Routage Hybride : '{item['title']}' déjà géré par Seer pour {uid}, RSS skip")
-            db.commit()
+            await db.commit()
             return "skip"
 
     already_existed = False
@@ -584,16 +581,16 @@ async def _process_watchlist_item(
         req.status = RequestStatus.failed
         result = "failed"
 
-    db.commit()
+    await db.commit()
 
     if already_existed:
         # Média déjà dans *arr : pas de notification (évite le spam au redémarrage)
         logger.info(f"'{item['title']}' already in arr — skipping notifications")
     elif req.status == RequestStatus.sent_to_arr:
-        notification_orchestrator._notify("request", settings, req, db)
+        await notification_orchestrator._notify("request", settings, req, db)
     elif req.status == RequestStatus.failed:
         arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
-        notification_orchestrator._notify(
+        await notification_orchestrator._notify(
             "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
         )
 
@@ -627,15 +624,15 @@ async def poll_watchlists():
     new_requests = 0
     errors_count = 0
     error_details: list[str] = []
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     _poll_error = False
     await _poll_lock.acquire()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
             return
 
-        _check_and_seed_instances_from_settings(db, settings)
+        await _check_and_seed_instances_from_settings(db, settings)
 
         items = await fetch_watchlist(settings)
         if not items:
@@ -645,7 +642,7 @@ async def poll_watchlists():
         items_processed = len(items)
         await sync_users_from_feed(items, db)
 
-        all_users = db.query(PlexUser).all()
+        all_users = (await db.execute(select(PlexUser))).scalars().all()
         users_map = {u.plex_user_id: u for u in all_users}
         enabled_ids = {u.plex_user_id for u in all_users if u.enabled}
         has_filter = len(all_users) > 0
@@ -682,7 +679,7 @@ async def poll_watchlists():
         # Persist PollHistory (concatène toutes les erreurs du cycle, pas seulement la dernière)
         duration_ms = int((time.monotonic() - _poll_start) * 1000)
         error_detail = "; ".join(error_details)[:2000] if error_details else None
-        poll_db = SessionLocal()
+        poll_db: AsyncSession = AsyncSessionLocal()
         try:
             history = PollHistory(
                 job="watchlist",
@@ -695,13 +692,13 @@ async def poll_watchlists():
                 error_detail=error_detail,
             )
             poll_db.add(history)
-            poll_db.commit()
+            await poll_db.commit()
         except Exception as pe:
             logger.error(f"Failed to persist watchlist PollHistory: {pe}")
         finally:
             if poll_db is not db:
-                poll_db.close()
-        db.close()
+                await poll_db.close()
+        await db.close()
         _poll_lock.release()
 
 

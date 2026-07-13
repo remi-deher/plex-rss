@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import Settings
@@ -19,17 +19,17 @@ def _mock_db(settings=None):
 
 
 def _default_settings():
-    s = MagicMock(spec=Settings)
-    s.plex_url = "http://plex.local"
-    s.plex_token = "token123"
-    s.plex_rss_url = "http://rss.local"
-    s.sonarr_url = "http://sonarr.local"
-    s.sonarr_api_key = "key"
-    s.radarr_url = "http://radarr.local"
-    s.radarr_api_key = "key"
-    s.poll_interval_minutes = 5
-    s.smtp_password = "real_password"
-    return s
+    return Settings(
+        plex_url="http://plex.local",
+        plex_token="token123",
+        plex_rss_url="http://rss.local",
+        sonarr_url="http://sonarr.local",
+        sonarr_api_key="key",
+        radarr_url="http://radarr.local",
+        radarr_api_key="key",
+        poll_interval_minutes=5,
+        smtp_password="real_password",
+    )
 
 
 def _client_with_db(db):
@@ -52,10 +52,9 @@ def _cleanup():
 # ---------------------------------------------------------------------------
 
 
-def test_test_sonarr_no_settings_returns_error():
+def test_test_sonarr_no_settings_returns_error(async_db):
     """Si Settings absent → réponse JSON success=False, pas de 500."""
-    db = _mock_db(settings=None)
-    client = _client_with_db(db)
+    client = _client_with_db(async_db)
     try:
         resp = client.post("/api/test/sonarr")
         assert resp.status_code == 200
@@ -65,10 +64,9 @@ def test_test_sonarr_no_settings_returns_error():
         _cleanup()
 
 
-def test_test_radarr_no_settings_returns_error():
+def test_test_radarr_no_settings_returns_error(async_db):
     """Si Settings absent → réponse JSON success=False pour radarr."""
-    db = _mock_db(settings=None)
-    client = _client_with_db(db)
+    client = _client_with_db(async_db)
     try:
         resp = client.post("/api/test/radarr")
         assert resp.status_code == 200
@@ -77,10 +75,9 @@ def test_test_radarr_no_settings_returns_error():
         _cleanup()
 
 
-def test_test_plex_api_no_settings_returns_error():
+def test_test_plex_api_no_settings_returns_error(async_db):
     """Si Settings absent → réponse JSON success=False pour plex-api."""
-    db = _mock_db(settings=None)
-    client = _client_with_db(db)
+    client = _client_with_db(async_db)
     try:
         resp = client.post("/api/test/plex-api")
         assert resp.status_code == 200
@@ -94,10 +91,9 @@ def test_test_plex_api_no_settings_returns_error():
 # ---------------------------------------------------------------------------
 
 
-def test_update_settings_no_settings_row_returns_404():
+def test_update_settings_no_settings_row_returns_404(async_db):
     """PUT /api/settings sans ligne Settings → 404."""
-    db = _mock_db(settings=None)
-    client = _client_with_db(db)
+    client = _client_with_db(async_db)
     try:
         resp = client.put("/api/settings", json={"plex_url": "http://test.local"})
         assert resp.status_code == 404
@@ -105,11 +101,12 @@ def test_update_settings_no_settings_row_returns_404():
         _cleanup()
 
 
-def test_update_settings_smtp_mask_not_overwritten():
+def test_update_settings_smtp_mask_not_overwritten(async_db):
     """Le mot de passe masqué '••••••••' ne doit pas écraser le vrai mot de passe."""
     settings = _default_settings()
-    db = _mock_db(settings=settings)
-    client = _client_with_db(db)
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
     try:
         with patch("app.routers.settings_api.update_poll_interval"):
             resp = client.put("/api/settings", json={"smtp_password": "••••••••"})
@@ -119,11 +116,12 @@ def test_update_settings_smtp_mask_not_overwritten():
         _cleanup()
 
 
-def test_update_settings_updates_field():
+def test_update_settings_updates_field(async_db):
     """PUT /api/settings met à jour un champ correctement."""
     settings = _default_settings()
-    db = _mock_db(settings=settings)
-    client = _client_with_db(db)
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
     try:
         with patch("app.routers.settings_api.update_poll_interval"):
             resp = client.put("/api/settings", json={"plex_url": "http://new-plex.local"})

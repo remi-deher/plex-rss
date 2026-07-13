@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, SearchCache, Settings
 from app.services import tmdb
+from tests.async_support import TestSession
 
 
 @pytest.fixture()
@@ -16,7 +17,7 @@ def db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -42,22 +43,25 @@ def _mock_client(get_return=None):
 # ---------------------------------------------------------------------------
 
 
-def test_api_key_raises_when_not_configured(db):
+@pytest.mark.asyncio
+async def test_api_key_raises_when_not_configured(db):
     db.add(Settings(tmdb_api_key=None))
     db.commit()
     with pytest.raises(tmdb.TmdbNotConfigured):
-        tmdb._api_key(db)
+        await tmdb._api_key(db)
 
 
-def test_api_key_raises_when_no_settings_row(db):
+@pytest.mark.asyncio
+async def test_api_key_raises_when_no_settings_row(db):
     with pytest.raises(tmdb.TmdbNotConfigured):
-        tmdb._api_key(db)
+        await tmdb._api_key(db)
 
 
-def test_api_key_returns_stripped_key(db):
+@pytest.mark.asyncio
+async def test_api_key_returns_stripped_key(db):
     db.add(Settings(tmdb_api_key="  abc123  "))
     db.commit()
-    assert tmdb._api_key(db) == "abc123"
+    assert await tmdb._api_key(db) == "abc123"
 
 
 # ---------------------------------------------------------------------------
@@ -82,26 +86,30 @@ def test_backdrop_builds_url_with_custom_size():
 # ---------------------------------------------------------------------------
 
 
-def test_cache_get_returns_none_when_absent(db):
-    assert tmdb._cache_get(db, "missing-key") is None
+@pytest.mark.asyncio
+async def test_cache_get_returns_none_when_absent(db):
+    assert await tmdb._cache_get(db, "missing-key") is None
 
 
-def test_cache_put_then_get_roundtrip(db):
-    tmdb._cache_put(db, "trending-week", {"results": [1, 2, 3]})
-    assert tmdb._cache_get(db, "trending-week") == {"results": [1, 2, 3]}
+@pytest.mark.asyncio
+async def test_cache_put_then_get_roundtrip(db):
+    await tmdb._cache_put(db, "trending-week", {"results": [1, 2, 3]})
+    assert await tmdb._cache_get(db, "trending-week") == {"results": [1, 2, 3]}
 
 
-def test_cache_put_updates_existing_row(db):
-    tmdb._cache_put(db, "k", {"a": 1})
-    tmdb._cache_put(db, "k", {"a": 2})
+@pytest.mark.asyncio
+async def test_cache_put_updates_existing_row(db):
+    await tmdb._cache_put(db, "k", {"a": 1})
+    await tmdb._cache_put(db, "k", {"a": 2})
     assert db.query(SearchCache).filter(SearchCache.query == "k").count() == 1
-    assert tmdb._cache_get(db, "k") == {"a": 2}
+    assert await tmdb._cache_get(db, "k") == {"a": 2}
 
 
-def test_cache_get_returns_none_on_corrupt_json(db):
+@pytest.mark.asyncio
+async def test_cache_get_returns_none_on_corrupt_json(db):
     db.add(SearchCache(query="bad", category="tmdb", results_json="not json"))
     db.commit()
-    assert tmdb._cache_get(db, "bad") is None
+    assert await tmdb._cache_get(db, "bad") is None
 
 
 # ---------------------------------------------------------------------------

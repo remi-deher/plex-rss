@@ -73,14 +73,14 @@ async def lifespan(app: FastAPI):
     try:
         os.makedirs("data", exist_ok=True)
         logging.info("Running DB migrations...")
-        await asyncio.to_thread(init_db)
+        await init_db()
         logging.info("DB OK. Starting scheduler...")
 
         # Lire l'intervalle de polling depuis la DB avant de lancer le scheduler
-        from .database import SessionLocalAsync
+        from .database import AsyncSessionLocal
         from .models import Settings as _Settings
 
-        _db = SessionLocalAsync()
+        _db = AsyncSessionLocal()
         try:
             _s = (await _db.execute(select(_Settings))).scalars().first()
             # Priorité à l'intervalle en secondes (polling sous la minute) ; repli sur les minutes.
@@ -121,10 +121,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 async def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
     """Corps synchrone de la résolution de rôle (exécuté hors event loop via to_thread)."""
-    from .database import SessionLocalAsync
+    from .database import AsyncSessionLocal
     from .models import PlexUser, Settings
 
-    db = SessionLocalAsync()
+    db = AsyncSessionLocal()
     try:
         if plex_user_id:
             u = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == plex_user_id))).scalars().first()
@@ -255,13 +255,13 @@ async def favicon():
 
 @app.get("/api/docs", include_in_schema=False)
 async def get_documentation(request: Request, db: SqlSession = Depends(get_db)):
-    require_admin(request, db)
+    await require_admin(request, db)
     return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Plexarr API Docs")
 
 
 @app.get("/api/openapi.json", include_in_schema=False)
 async def get_open_api_endpoint(request: Request, db: SqlSession = Depends(get_db)):
-    require_admin(request, db)
+    await require_admin(request, db)
     return get_openapi(title="Plexarr", version="1.0.0", routes=app.routes)
 
 

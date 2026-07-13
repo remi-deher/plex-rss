@@ -18,7 +18,7 @@ from ..services.download_history import record_completed
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
     _resolve_movie_notify_language,
-    resolve_and_notify_availability_async as resolve_and_notify_availability,
+    resolve_and_notify_availability,
 )
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
 from ..utils import now_utc
@@ -147,7 +147,7 @@ async def _mark_available_and_notify(
                 await scan_and_notify_availability(req, settings, db)
             continue
         if not await has_plex_proof(db, req):
-            await note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
+            note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
             await db.commit()
             logger.info(
                 "Webhook %s: '%s' traite cote *arr, attente confirmation Plex avant disponibilite",
@@ -207,7 +207,7 @@ async def _delete_arr_requests(
     title: str | None = None,
     instance_id: int | None = None,
 ) -> int:
-    requests = _arr_event_query(
+    query = _arr_event_query(
         db,
         media_type,
         arr_id=arr_id,
@@ -216,7 +216,8 @@ async def _delete_arr_requests(
         imdb_id=imdb_id,
         title=title,
         instance_id=instance_id,
-    ).all()
+    )
+    requests = (await db.execute(query)).scalars().all()
     count = 0
     for req in requests:
         await _delete_vf_episode_cache(db, req.id)
@@ -253,11 +254,9 @@ async def _resolve_arr_connection(db: AsyncSession, service: str, instance_id: i
         if inst:
             return inst.url, inst.api_key, f"{service}:{inst.id}"
         return None
-    inst = (
-        db.query(ArrInstance)
-        .filter(ArrInstance.arr_type == service, ArrInstance.enabled, ArrInstance.is_default)
-        .first()
-    )
+    inst = (await db.execute(
+        select(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled, ArrInstance.is_default)
+    )).scalars().first()
     if inst:
         return inst.url, inst.api_key, f"{service}:{inst.id}"
     settings = (await db.execute(select(Settings))).scalars().first()
@@ -287,7 +286,7 @@ async def sonarr_webhook(request: Request):
 
         if event in ("SeriesDelete", "EpisodeFileDelete"):
             series = data.get("series", {})
-            deleted = _delete_arr_requests(
+            deleted = await _delete_arr_requests(
                 db,
                 "show",
                 arr_id=series.get("id"),
@@ -326,7 +325,7 @@ async def sonarr_webhook(request: Request):
             tvdb_id=tvdb_id,
             instance_id=webhook_instance_id,
             source="sonarr",
-            instance_name=_instance_name(db, webhook_instance_id),
+            instance_name=await _instance_name(db, webhook_instance_id),
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -352,7 +351,7 @@ async def radarr_webhook(request: Request):
 
         if event in ("MovieDelete", "MovieFileDelete"):
             movie = data.get("movie", {})
-            deleted = _delete_arr_requests(
+            deleted = await _delete_arr_requests(
                 db,
                 "movie",
                 arr_id=movie.get("id"),
@@ -394,7 +393,7 @@ async def radarr_webhook(request: Request):
             imdb_id=imdb_id,
             instance_id=instance_id,
             source="radarr",
-            instance_name=_instance_name(db, instance_id),
+            instance_name=await _instance_name(db, instance_id),
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -412,11 +411,12 @@ async def plex_webhook(request: Request):
     - library.new       : nouveau média ajouté à la bibliothèque Plex
     - media.scrobble    : média regardé en entier (marqué comme vu)
     """
-    _db = AsyncSessionLocal()
+    db = AsyncSessionLocal()
     try:
-        _check_webhook_secret(request, _(await db.execute(select(Settings))).scalars().first())
+        settings = (await db.execute(select(Settings))).scalars().first()
+        _check_webhook_secret(request, settings)
     finally:
-        await _db.close()
+        await db.close()
 
     try:
         form = await request.form()

@@ -4,9 +4,10 @@ import re
 from typing import Any, Optional
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
 from . import vff
@@ -26,8 +27,8 @@ plex_sync_state: dict[str, Any] = {
 }
 
 
-def _find_library_item_by_ids(
-    db: Session,
+async def _find_library_item_by_ids(
+    db: AsyncSession,
     plex_guid: str | None,
     tmdb_id: str | None,
     tvdb_id: str | None,
@@ -42,7 +43,7 @@ def _find_library_item_by_ids(
     `_link_request_to_library_item` (lien MediaRequest -> LibraryItem).
     """
     if plex_guid:
-        found = db.query(LibraryItem).filter(LibraryItem.plex_guid == plex_guid).first()
+        found = (await db.execute(select(LibraryItem).filter(LibraryItem.plex_guid == plex_guid))).scalars().first()
         if found:
             return found
 
@@ -54,24 +55,22 @@ def _find_library_item_by_ids(
     if imdb_id:
         conditions.append(LibraryItem.imdb_id == imdb_id)
     if conditions:
-        found = db.query(LibraryItem).filter(or_(*conditions)).first()
+        found = (await db.execute(select(LibraryItem).filter(or_(*conditions)))).scalars().first()
         if found:
             return found
 
-    return (
-        db.query(LibraryItem)
-        .filter(
+    return (await db.execute(
+        select(LibraryItem).filter(
             LibraryItem.title.ilike(title),
             LibraryItem.year == year,
             LibraryItem.media_type == media_type,
         )
-        .first()
-    )
+    )).scalars().first()
 
 
-def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
+async def _find_library_item(db: AsyncSession, item: dict) -> "LibraryItem | None":
     """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé."""
-    return _find_library_item_by_ids(
+    return await _find_library_item_by_ids(
         db,
         item["plex_guid"],
         item["tmdb_id"],
@@ -83,7 +82,7 @@ def _find_library_item(db: Session, item: dict) -> "LibraryItem | None":
     )
 
 
-def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryItem | None":
+async def _link_request_to_library_item(db: AsyncSession, req: MediaRequest) -> "LibraryItem | None":
     """Lie une demande à son LibraryItem correspondant (source de vérité VF unique).
 
     Si déjà liée, renvoie directement le LibraryItem (retente un rapprochement si le lien
@@ -93,11 +92,11 @@ def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryIte
     demande reste scannée indépendamment jusqu'au prochain rapprochement).
     """
     if req.library_item_id:
-        li = db.query(LibraryItem).filter(LibraryItem.id == req.library_item_id).first()
+        li = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
         if li:
             return li
         req.library_item_id = None  # lien orphelin, on retente un rapprochement ci-dessous
-    li = _find_library_item_by_ids(
+    li = await _find_library_item_by_ids(
         db, req.plex_guid, req.tmdb_id, req.tvdb_id, req.imdb_id, req.title, req.year, req.media_type
     )
     if li:
@@ -105,21 +104,19 @@ def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryIte
     return li
 
 
-def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int:
+async def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int:
     """Intègre les médias Plex en base (insert/mise à jour).
 
-    Exécuté dans un thread (via asyncio.to_thread) pour ne PAS bloquer la boucle
-    asyncio pendant l'intégration de milliers d'éléments — sinon le serveur devient
-    non réactif juste après le démarrage. Commits par lots (200) pour borner la
-    durée de verrou SQLite. Session dédiée (jamais partagée entre threads).
+    Utilise une session async dédiée et des commits par lots de 200 éléments pour
+    borner la transaction sans bloquer la boucle asyncio.
     Retourne le nombre de nouveaux éléments ajoutés.
     """
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     now = now_utc_naive()
     added_count = 0
     try:
         for i, item in enumerate(plex_items, 1):
-            lib_item = _find_library_item(db, item)
+            lib_item = await _find_library_item(db, item)
 
             arr_match = None
             if item["media_type"] == "movie":
@@ -178,10 +175,10 @@ def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int:
 
             plex_sync_state["items_synced"] += 1
             if i % 200 == 0:
-                db.commit()
-        db.commit()
+                await db.commit()
+        await db.commit()
     finally:
-        db.close()
+        await db.close()
     return added_count
 
 
@@ -202,9 +199,9 @@ async def sync_plex_media():
     plex_sync_state["total_items"] = 0
     plex_sync_state["error"] = None
 
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.vff_enabled:
             plex_sync_state["status"] = "idle"
             return
@@ -228,7 +225,7 @@ async def sync_plex_media():
         logger.info(f"VFF Sync : {len(plex_items)} média(s) récupéré(s) de Plex, intégration en base...")
 
         # Charger la table de correspondance Sonarr/Radarr
-        instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+        instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
         arr_lookup = {}
         for inst in instances:
             try:
@@ -260,9 +257,7 @@ async def sync_plex_media():
             except Exception as inst_exc:
                 logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
 
-        # Intégration hors boucle asyncio (thread + commits par lots) pour garder
-        # le serveur réactif pendant la synchro, notamment au démarrage.
-        added_count = await asyncio.to_thread(_integrate_plex_items, plex_items, arr_lookup)
+        added_count = await _integrate_plex_items(plex_items, arr_lookup)
 
         if added_count > 0:
             logger.info(f"VFF Sync : {added_count} nouveau(x) média(s) Plex ajouté(s) à la bibliothèque")
@@ -280,4 +275,4 @@ async def sync_plex_media():
         plex_sync_state["status"] = "failed"
         plex_sync_state["error"] = str(e)
     finally:
-        db.close()
+        await db.close()

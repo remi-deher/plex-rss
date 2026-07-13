@@ -9,6 +9,7 @@ Couvre :
 """
 
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,6 +24,7 @@ from app.scheduler import (
     poll_watchlists,
     sync_seer_requests,
 )
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,7 +40,7 @@ def db():
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -90,37 +92,41 @@ def _req(
 # ---------------------------------------------------------------------------
 
 
-def test_find_global_request_by_tmdb_id(db):
+@pytest.mark.asyncio
+async def test_find_global_request_by_tmdb_id(db):
     """Trouve une demande existante par tmdb_id (tous utilisateurs)."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205"))
     db.commit()
 
-    result = _find_global_request(db, "movie", "27205", "Inception")
+    result = await _find_global_request(db, "movie", "27205", "Inception")
     assert result is not None
     assert result.plex_user_id == "alice"
 
 
-def test_find_global_request_by_title_fallback(db):
+@pytest.mark.asyncio
+async def test_find_global_request_by_title_fallback(db):
     """Sans tmdb_id, fallback sur le titre."""
     db.add(_req(plex_user_id="alice", tmdb_id=None, title="Inception"))
     db.commit()
 
-    result = _find_global_request(db, "movie", None, "Inception")
+    result = await _find_global_request(db, "movie", None, "Inception")
     assert result is not None
 
 
-def test_find_global_request_not_found(db):
+@pytest.mark.asyncio
+async def test_find_global_request_not_found(db):
     """Aucune demande correspondante → None."""
-    result = _find_global_request(db, "movie", "99999", "Inconnu")
+    result = await _find_global_request(db, "movie", "99999", "Inconnu")
     assert result is None
 
 
-def test_find_global_request_tmdb_takes_priority(db):
+@pytest.mark.asyncio
+async def test_find_global_request_tmdb_takes_priority(db):
     """Si tmdb_id fourni, cherche par tmdb même si le titre diffère."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205", title="Inception (2010)"))
     db.commit()
 
-    result = _find_global_request(db, "movie", "27205", "Titre différent")
+    result = await _find_global_request(db, "movie", "27205", "Titre différent")
     assert result is not None
 
 
@@ -185,8 +191,13 @@ def test_add_co_requester_multiple(db):
 # ---------------------------------------------------------------------------
 
 
+@contextmanager
 def _patch_session(db):
-    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
+    with (
+        patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db),
+        patch("app.services.seer_sync.AsyncSessionLocal", return_value=db),
+    ):
+        yield
 
 
 def _patch_watchlist(items):
@@ -198,7 +209,7 @@ def _patch_submit(arr_id=42, existed=False, slug=None):
 
 
 def _patch_enqueue():
-    return patch("app.services.notification_orchestrator.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock)
 
 
 def _movie_item(user="alice", user_id="alice", tmdb_id="27205"):
@@ -433,7 +444,8 @@ async def test_seer_sync_status_updated_to_available_when_plex_confirms(db):
 # ---------------------------------------------------------------------------
 
 
-def test_merge_duplicates_fuses_two_users(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_fuses_two_users(db):
     """Deux lignes même tmdb_id, utilisateurs différents → fusion en une seule."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -441,8 +453,8 @@ def test_merge_duplicates_fuses_two_users(db):
     db.add(_req(plex_user_id="bob", title="Inception", tmdb_id="27205"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     rows = db.query(MediaRequest).all()
     assert len(rows) == 1
@@ -450,7 +462,8 @@ def test_merge_duplicates_fuses_two_users(db):
     assert any(e["plex_user_id"] == "bob" for e in extras)
 
 
-def test_merge_duplicates_dry_run_no_change(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_dry_run_no_change(db):
     """Mode dry-run → aucune modification en base."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -458,14 +471,15 @@ def test_merge_duplicates_dry_run_no_change(db):
     db.add(_req(plex_user_id="bob", title="Inception", tmdb_id="27205"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=True)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=True)
 
     rows = db.query(MediaRequest).all()
     assert len(rows) == 2
 
 
-def test_merge_duplicates_no_duplicates(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_no_duplicates(db):
     """Sans doublons → aucune modification."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -473,13 +487,14 @@ def test_merge_duplicates_no_duplicates(db):
     db.add(_req(plex_user_id="alice", title="Dune", tmdb_id="438631"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     assert db.query(MediaRequest).count() == 2
 
 
-def test_merge_duplicates_keeps_best_status(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_keeps_best_status(db):
     """La ligne fusionnée conserve le meilleur statut (available > sent_to_arr)."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -487,14 +502,15 @@ def test_merge_duplicates_keeps_best_status(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", status=RequestStatus.available))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.status == RequestStatus.available
 
 
-def test_merge_duplicates_enriches_missing_poster(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_enriches_missing_poster(db):
     """La fusion copie le poster_url depuis un doublon si le primaire n'en a pas."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -502,14 +518,15 @@ def test_merge_duplicates_enriches_missing_poster(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", poster_url="https://img/poster.jpg"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.poster_url == "https://img/poster.jpg"
 
 
-def test_merge_duplicates_fixes_placeholder_title(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_fixes_placeholder_title(db):
     """Le placeholder [Seer #N] est remplacé par le vrai titre du doublon."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -517,14 +534,15 @@ def test_merge_duplicates_fixes_placeholder_title(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", title="Inception"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.title == "Inception"
 
 
-def test_merge_duplicates_ignores_no_tmdb(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_ignores_no_tmdb(db):
     """Les demandes sans tmdb_id ne sont pas fusionnées (risque faux positif)."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -532,7 +550,7 @@ def test_merge_duplicates_ignores_no_tmdb(db):
     db.add(_req(plex_user_id="bob", tmdb_id=None, title="Film sans ID"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     assert db.query(MediaRequest).count() == 2

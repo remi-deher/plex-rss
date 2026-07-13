@@ -22,16 +22,17 @@ router = APIRouter(prefix="/api", tags=["calendar"], dependencies=[Depends(requi
 async def upcoming_releases(db: AsyncSession = Depends(get_db_async), limit: int = 8):
     """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles."""
     rows = (
-        db.query(MediaRequest)
-        .filter(
-            MediaRequest.status == RequestStatus.sent_to_arr,
-            MediaRequest.next_release_at.isnot(None),
-            MediaRequest.next_release_at > now_utc_naive(),
+        await db.execute(
+            select(MediaRequest)
+            .filter(
+                MediaRequest.status == RequestStatus.sent_to_arr,
+                MediaRequest.next_release_at.isnot(None),
+                MediaRequest.next_release_at > now_utc_naive(),
+            )
+            .order_by(MediaRequest.next_release_at.asc())
+            .limit(limit)
         )
-        .order_by(MediaRequest.next_release_at.asc())
-        .limit(limit)
-        .all()
-    )
+    ).scalars().all()
     return [
         {
             "id": r.id,

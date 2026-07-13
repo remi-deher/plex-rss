@@ -17,7 +17,8 @@ from datetime import timedelta
 from typing import Optional
 
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from ..models import SearchCache, Settings
 from ..utils import now_utc_naive
@@ -35,8 +36,8 @@ class TmdbNotConfigured(Exception):
     """Levée quand aucune clé API TMDB n'est configurée."""
 
 
-def _api_key(db: Session) -> str:
-    s = db.query(Settings).first()
+async def _api_key(db: AsyncSession) -> str:
+    s = (await db.execute(select(Settings))).scalars().first()
     key = (s.tmdb_api_key if s else None) or ""
     if not key.strip():
         raise TmdbNotConfigured("Clé API TMDB non configurée")
@@ -51,8 +52,10 @@ def _backdrop(path: Optional[str], size: str = "w780") -> Optional[str]:
     return f"{IMG_BASE}/{size}{path}" if path else None
 
 
-def _cache_get(db: Session, key: str) -> Optional[dict]:
-    row = db.query(SearchCache).filter(SearchCache.query == key, SearchCache.category == "tmdb").first()
+async def _cache_get(db: AsyncSession, key: str) -> Optional[dict]:
+    row = (await db.execute(
+        select(SearchCache).filter(SearchCache.query == key, SearchCache.category == "tmdb")
+    )).scalars().first()
     if not row:
         return None
     if row.cached_at and (now_utc_naive() - row.cached_at) > CACHE_TTL:
@@ -63,20 +66,22 @@ def _cache_get(db: Session, key: str) -> Optional[dict]:
         return None
 
 
-def _cache_put(db: Session, key: str, payload: dict) -> None:
-    row = db.query(SearchCache).filter(SearchCache.query == key, SearchCache.category == "tmdb").first()
+async def _cache_put(db: AsyncSession, key: str, payload: dict) -> None:
+    row = (await db.execute(
+        select(SearchCache).filter(SearchCache.query == key, SearchCache.category == "tmdb")
+    )).scalars().first()
     if row:
         row.results_json = json.dumps(payload)
         row.cached_at = now_utc_naive()
     else:
         db.add(SearchCache(query=key, category="tmdb", results_json=json.dumps(payload), cached_at=now_utc_naive()))
-    db.commit()
+    await db.commit()
 
 
-async def check_connection(db: Session) -> tuple[bool, str]:
+async def check_connection(db: AsyncSession) -> tuple[bool, str]:
     """Valide la clé API TMDB via un appel léger (/configuration). Retourne (ok, message)."""
     try:
-        key = _api_key(db)
+        key = await _api_key(db)
     except TmdbNotConfigured:
         return False, "Clé API TMDB non configurée"
     try:
@@ -91,13 +96,13 @@ async def check_connection(db: Session) -> tuple[bool, str]:
         return False, f"Erreur de connexion TMDB : {e}"
 
 
-async def _get(db: Session, path: str, params: Optional[dict] = None, *, cache: bool = True) -> dict:
+async def _get(db: AsyncSession, path: str, params: Optional[dict] = None, *, cache: bool = True) -> dict:
     """Appel GET TMDB avec cache optionnel. `path` commence par '/'."""
-    key = _api_key(db)
+    key = await _api_key(db)
     params = {**(params or {}), "api_key": key, "language": LANG}
     cache_key = f"{path}?{json.dumps({k: v for k, v in params.items() if k != 'api_key'}, sort_keys=True)}"
     if cache:
-        cached = _cache_get(db, cache_key)
+        cached = await _cache_get(db, cache_key)
         if cached is not None:
             return cached
     async with httpx.AsyncClient(timeout=15) as client:
@@ -106,7 +111,7 @@ async def _get(db: Session, path: str, params: Optional[dict] = None, *, cache: 
         data = resp.json()
     if cache:
         try:
-            _cache_put(db, cache_key, data)
+            await _cache_put(db, cache_key, data)
         except Exception as e:
             logger.debug("Cache TMDB non écrit pour %s: %s", cache_key, e)
     return data
@@ -146,20 +151,20 @@ def _norm_list(data: dict, forced_type: Optional[str] = None) -> list[dict]:
 # --- API publiques (consommées par le routeur discover) ---------------------
 
 
-async def trending(db: Session, media_type: str = "all", window: str = "week") -> list[dict]:
+async def trending(db: AsyncSession, media_type: str = "all", window: str = "week") -> list[dict]:
     mt = media_type if media_type in ("movie", "tv", "all") else "all"
     data = await _get(db, f"/trending/{mt}/{window}")
     forced = None if mt == "all" else mt
     return _norm_list(data, forced)
 
 
-async def popular(db: Session, media_type: str, page: int = 1) -> list[dict]:
+async def popular(db: AsyncSession, media_type: str, page: int = 1) -> list[dict]:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(db, f"/{mt}/popular", {"page": page, "region": REGION})
     return _norm_list(data, mt)
 
 
-async def coming_soon(db: Session, media_type: str, page: int = 1) -> list[dict]:
+async def coming_soon(db: AsyncSession, media_type: str, page: int = 1) -> list[dict]:
     """Films : upcoming ; Séries : on_the_air."""
     if media_type in ("movie", "movies"):
         data = await _get(db, "/movie/upcoming", {"page": page, "region": REGION})
@@ -168,14 +173,14 @@ async def coming_soon(db: Session, media_type: str, page: int = 1) -> list[dict]
     return _norm_list(data, "tv")
 
 
-async def genres(db: Session, media_type: str) -> list[dict]:
+async def genres(db: AsyncSession, media_type: str) -> list[dict]:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(db, f"/genre/{mt}/list")
     return data.get("genres", [])
 
 
 async def discover(
-    db: Session, media_type: str, genre: Optional[int] = None, sort_by: str = "popularity.desc", page: int = 1
+    db: AsyncSession, media_type: str, genre: Optional[int] = None, sort_by: str = "popularity.desc", page: int = 1
 ) -> list[dict]:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     params = {"page": page, "sort_by": sort_by, "region": REGION}
@@ -185,12 +190,12 @@ async def discover(
     return _norm_list(data, mt)
 
 
-async def search(db: Session, query: str, page: int = 1) -> list[dict]:
+async def search(db: AsyncSession, query: str, page: int = 1) -> list[dict]:
     data = await _get(db, "/search/multi", {"query": query, "page": page, "include_adult": "false"}, cache=False)
     return _norm_list(data)
 
 
-async def detail(db: Session, media_type: str, tmdb_id: int) -> dict:
+async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(
         db,
@@ -214,7 +219,7 @@ async def detail(db: Session, media_type: str, tmdb_id: int) -> dict:
     return base
 
 
-async def external_ids(db: Session, media_type: str, tmdb_id: int) -> dict:
+async def external_ids(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
     data = await _get(db, f"/{mt}/{tmdb_id}/external_ids")
     return {"tvdb_id": data.get("tvdb_id"), "imdb_id": data.get("imdb_id")}

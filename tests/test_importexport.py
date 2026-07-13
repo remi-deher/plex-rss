@@ -9,10 +9,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, Settings
 from app.routers.importexport import require_admin as ie_require_auth
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Base de données en mémoire partagée entre les tests du module
@@ -36,7 +37,7 @@ def db_engine():
 @pytest.fixture()
 def db_session(db_engine):
     Session = sessionmaker(bind=db_engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.rollback()
     session.close()

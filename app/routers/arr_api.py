@@ -31,11 +31,10 @@ _direct_cache: dict = {"data": None, "ts": 0.0}
 
 async def _set_single_default(db: AsyncSession, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:
     """Remet is_default=False sur toutes les instances du même type, sauf exclude_id."""
-    q = db.query(model).filter(getattr(model, type_col) == type_val)
+    conditions = [getattr(model, type_col) == type_val]
     if exclude_id is not None:
-        q = q.filter(model.id != exclude_id)
-    await db.execute(sqlalchemy.update(model).where(getattr(model, type_col) == type_val).values({"is_default": False}))
-    # TODO fix exclude_id condition manually if needed
+        conditions.append(model.id != exclude_id)
+    await db.execute(sqlalchemy.update(model).where(*conditions).values(is_default=False))
 
 
 class ArrInstanceCreate(BaseModel):

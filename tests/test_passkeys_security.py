@@ -8,11 +8,12 @@ from sqlalchemy.orm import sessionmaker
 # In-memory SQLite DB for tests
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import current_user
 from app.main import app
 from app.models import Base, PasskeyCredential, PlexUser, Settings
 from app.services.auth import hash_password, verify_password
+from tests.async_support import TestSession
 
 engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -20,7 +21,7 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 def _db():
     Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
+    db = TestSession(TestingSessionLocal())
     # Seed default settings
     s = Settings(id=1, auth_username="admin", auth_password_hash=hash_password("adminpass"))
     db.add(s)

@@ -15,7 +15,7 @@ from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
 from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import check_arr_statuses, poll_watchlists
-from ..services.notification_orchestrator import _notify_async as _notify
+from ..services.notification_orchestrator import _notify
 from ..services import radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 

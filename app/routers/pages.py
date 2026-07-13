@@ -356,17 +356,16 @@ async def library_page(
     library_ids = [v["library_id"] for v in items if v["in_library"] and v["library_id"]]
     vf_secondary_library_ids: set[int] = set()
     if library_ids:
-        vf_secondary_library_ids = {
-            source_id
-            for source_id in select(VfEpisodeStatus.source_id)
-            .filter(
+        vf_secondary_library_ids = set(
+            (await db.execute(
+                select(VfEpisodeStatus.source_id).filter(
                 VfEpisodeStatus.source_type == "library_item",
                 VfEpisodeStatus.source_id.in_(library_ids),
                 VfEpisodeStatus.has_vf.is_(True),
                 VfEpisodeStatus.fr_is_default.is_(False),
-            )
-            
-        }
+                )
+            )).scalars().all()
+        )
 
     counts = {
         "vf": sum(1 for v in items if v["in_library"] and v["has_vf"] is True),
@@ -443,7 +442,7 @@ async def library_page(
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = max(1, min(page, total_pages))
     page_items = items[(page - 1) * per_page : page * per_page]
-    distinct_sources = [r[0] for r in (await db.execute(select(MediaRequest.source))).scalars().all() if r[0]]
+    distinct_sources = [source for source in (await db.execute(select(MediaRequest.source))).scalars().all() if source]
 
     return templates.TemplateResponse(
         request,
@@ -488,7 +487,7 @@ async def users_page(request: Request, _: None = Depends(require_admin), db: Asy
 
     # Calcul en Python pour éviter plusieurs sous-requêtes SQL
     counts_map: dict[str, dict] = {}
-    for r in (await db.execute(select(MediaRequest.plex_user_id, MediaRequest.status, MediaRequest.requested_at))).scalars().all():
+    for r in (await db.execute(select(MediaRequest.plex_user_id, MediaRequest.status, MediaRequest.requested_at))).all():
         uid = r.plex_user_id
         if uid not in counts_map:
             counts_map[uid] = {"total": 0, "available": 0, "failed": 0, "sent": 0, "last_requested_at": None}

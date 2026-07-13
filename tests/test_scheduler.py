@@ -1,5 +1,6 @@
 """Tests unitaires pour app/scheduler.py — poll_watchlists et check_arr_statuses."""
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import check_arr_statuses, poll_watchlists, sync_users_from_feed
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Fixtures DB in-memory
@@ -19,7 +21,7 @@ def db():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -93,17 +95,28 @@ def _show_item(**kwargs) -> dict:
 
 def _patch_session_poller(db):
     """Remplace SessionLocal pour watchlist_poller."""
-    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
+    return patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db)
 
 
+@contextmanager
 def _patch_session_arr(db):
     """Remplace SessionLocal pour arr_tracker."""
-    return patch("app.services.arr_tracker.SessionLocal", return_value=db)
+    with (
+        patch("app.services.arr_tracker.AsyncSessionLocal", return_value=db),
+        patch("app.services.arr_tracker.get_all_movies", new=AsyncMock(return_value=[])),
+        patch("app.services.arr_tracker.get_all_series", new=AsyncMock(return_value=[])),
+        patch("app.services.arr_tracker.get_queue_movie_ids", new=AsyncMock(return_value=set())),
+        patch("app.services.arr_tracker.get_queue_series_ids", new=AsyncMock(return_value=set())),
+        patch("app.services.arr_tracker.movie_exists", new=AsyncMock(return_value=True)),
+        patch("app.services.arr_tracker.series_exists", new=AsyncMock(return_value=True)),
+        patch("app.services.arr_tracker._refresh_next_release", new=AsyncMock()),
+    ):
+        yield
 
 
 def _patch_session(db):
     """Remplace SessionLocal par une factory retournant la session de test (poller par défaut)."""
-    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
+    return patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db)
 
 
 def _patch_watchlist(items):
@@ -118,7 +131,7 @@ def _patch_submit(arr_id=42, already_existed=False, arr_slug="inception"):
 
 
 def _patch_enqueue():
-    return patch("app.services.notification_orchestrator.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock)
 
 
 # ---------------------------------------------------------------------------

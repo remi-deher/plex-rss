@@ -3,15 +3,14 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-
+import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import Session
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import MediaRequest, NotificationLog, NotificationMilestone, PlexUser, PollHistory, Settings
-from ..notification_queue import enqueue, enqueue_from_sync as enqueue_notification
-from ..utils import db_session, now_utc, now_utc_naive, parse_email_list
+from ..notification_queue import enqueue
+from ..utils import now_utc, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,8 @@ async def _send_digest():
     from .email_service import _send as smtp_send
 
     try:
-        with db_session(SessionLocal) as db:
-            settings = db.query(Settings).first()
+        async with AsyncSessionLocal() as db:
+            settings = (await db.execute(select(Settings))).scalars().first()
             if not settings or not settings.digest_enabled or not settings.email_enabled:
                 return
             if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
@@ -30,24 +29,21 @@ async def _send_digest():
                 return
 
             cutoff = datetime.now() - timedelta(hours=24)
-            recent = (
-                db.query(MediaRequest)
+            recent = (await db.execute(
+                select(MediaRequest)
                 .filter(MediaRequest.requested_at >= cutoff)
                 .order_by(MediaRequest.requested_at.desc())
-                .all()
-            )
+            )).scalars().all()
             if not recent:
                 logger.info("Digest : aucune demande dans les 24h, skip")
                 return
 
-            users = (
-                db.query(PlexUser)
-                .filter(
+            users = (await db.execute(
+                select(PlexUser).filter(
                     PlexUser.enabled.is_(True),
                     PlexUser.notify_digest.is_(True),
                 )
-                .all()
-            )
+            )).scalars().all()
             if not users:
                 return
 
@@ -105,32 +101,34 @@ async def _send_digest():
         logger.error(f"Erreur job digest : {e}")
 
 
-def _purge_notification_logs():
+async def _purge_notification_logs():
     """Supprime les logs de notifications et l'historique de poll plus anciens que la rétention configurée."""
     try:
-        with db_session(SessionLocal) as db:
-            settings = db.query(Settings).first()
+        async with AsyncSessionLocal() as db:
+            settings = (await db.execute(select(Settings))).scalars().first()
             if not settings:
                 return
             days = settings.notification_log_retention_days
             if days:
                 cutoff = datetime.now() - timedelta(days=days)
-                deleted = db.query(NotificationLog).filter(NotificationLog.sent_at < cutoff).delete()
+                result = await db.execute(sqlalchemy.delete(NotificationLog).filter(NotificationLog.sent_at < cutoff))
+                deleted = int(result.rowcount or 0)
                 if deleted:
-                    db.commit()
+                    await db.commit()
                     logger.info(f"Purge logs notifications : {deleted} entrées supprimées (>{days}j)")
 
             poll_days = settings.poll_history_retention_days
             if poll_days:
                 poll_cutoff = datetime.now() - timedelta(days=poll_days)
-                deleted_polls = db.query(PollHistory).filter(PollHistory.started_at < poll_cutoff).delete()
+                result = await db.execute(sqlalchemy.delete(PollHistory).filter(PollHistory.started_at < poll_cutoff))
+                deleted_polls = int(result.rowcount or 0)
                 if deleted_polls:
-                    db.commit()
+                    await db.commit()
                     logger.info(f"Purge historique poll : {deleted_polls} entrées supprimées (>{poll_days}j)")
 
             from .download_history import purge_old_entries
 
-            purge_old_entries(db)
+            await purge_old_entries(db)
     except Exception as e:
         logger.error(f"Erreur purge logs / historique poll : {e}")
 
@@ -332,26 +330,6 @@ def _series_milestones(
     return milestones
 
 
-def _milestone_exists(db: Session, req: MediaRequest, direction: str, scope: str, season, episode) -> bool:
-    q = db.query(NotificationMilestone).filter(
-        NotificationMilestone.req_id == req.id,
-        NotificationMilestone.plex_user_id == req.plex_user_id,
-        NotificationMilestone.direction == direction,
-        NotificationMilestone.milestone_type == scope,
-    )
-    q = q.filter(
-        NotificationMilestone.season_number.is_(None)
-        if season is None
-        else NotificationMilestone.season_number == season
-    )
-    q = q.filter(
-        NotificationMilestone.episode_number.is_(None)
-        if episode is None
-        else NotificationMilestone.episode_number == episode
-    )
-    return q.first() is not None
-
-
 def _candidate_key(candidate: AvailabilityCandidate) -> tuple:
     return (
         candidate.language or "simple",
@@ -368,87 +346,7 @@ def _candidate_priority(candidate: AvailabilityCandidate) -> tuple[int, int, int
     return (_AVAILABILITY_PRIORITY.get(candidate.scope, 10), language_score, 1 if candidate.is_upgrade else 0)
 
 
-def resolve_and_notify_availability(
-    settings: Settings,
-    req: MediaRequest,
-    db: Session,
-    *,
-    candidates: list[AvailabilityCandidate],
-) -> bool:
-    """Record all detected availability milestones and enqueue at most one notification."""
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    unique_candidates = list({_candidate_key(candidate): candidate for candidate in candidates}.values())
-    if not unique_candidates:
-        return False
-
-    eligible: list[AvailabilityCandidate] = []
-    for candidate in unique_candidates:
-        if candidate.language is not None:
-            if not _user_wants_vf(user_obj, req.vf_category):
-                continue
-            if req.media_type == "movie" and not _resolve_movie_notify_language(settings, user_obj):
-                continue
-            
-            # --- INVARIANTS CENTRAUX (Audit) ---
-            if candidate.language == "vf":
-                # Un film notifié en VF doit être officiellement marqué has_vf = True
-                if req.media_type == "movie" and req.has_vf is not True:
-                    continue
-                # Une série notifiée en VF est autorisée même si has_vf=False car le statut peut être partiel.
-            
-            if candidate.is_upgrade and req.media_type == "movie" and req.has_vf is False:
-                continue
-                
-        eligible.append(candidate)
-    if not eligible:
-        return False
-
-    new_candidates: list[AvailabilityCandidate] = []
-    for candidate in eligible:
-        direction = candidate.language or "simple"
-        if _milestone_exists(db, req, direction, candidate.scope, candidate.season_number, candidate.episode_number):
-            continue
-        db.add(
-            NotificationMilestone(
-                req_id=req.id,
-                plex_user_id=req.plex_user_id,
-                direction=direction,
-                milestone_type=candidate.scope,
-                language=candidate.language,
-                is_upgrade=bool(candidate.is_upgrade),
-                season_number=candidate.season_number,
-                episode_number=candidate.episode_number,
-            )
-        )
-        new_candidates.append(candidate)
-    db.commit()
-
-    if not new_candidates:
-        return False
-
-    winner = max(new_candidates, key=_candidate_priority)
-    email_flag = settings.email_on_vf_available if winner.is_upgrade else settings.email_on_available
-    if winner.language is not None:
-        recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
-    else:
-        recipients = _get_recipients(user_obj, settings, "available") if email_flag else []
-
-    enqueue_notification(
-        "available",
-        req.id,
-        recipients,
-        {
-            "scope": winner.scope,
-            "language": winner.language,
-            "is_upgrade": bool(winner.is_upgrade),
-            "season_number": winner.season_number,
-            "episode_number": winner.episode_number,
-        },
-    )
-    return True
-
-
-async def resolve_and_notify_availability_async(
+async def resolve_and_notify_availability(
     settings: Settings,
     req: MediaRequest,
     db: AsyncSession,
@@ -541,7 +439,7 @@ async def resolve_and_notify_availability_async(
     return True
 
 
-async def _queue_milestone_async(
+async def _queue_milestone(
     settings: Settings,
     req: MediaRequest,
     db: AsyncSession,
@@ -551,7 +449,7 @@ async def _queue_milestone_async(
     season: int | None = None,
     episode: int | None = None,
 ) -> bool:
-    return await resolve_and_notify_availability_async(
+    return await resolve_and_notify_availability(
         settings,
         req,
         db,
@@ -567,7 +465,38 @@ async def _queue_milestone_async(
     )
 
 
-async def _notify_async(
+async def _queue_show_milestones(
+    settings: Settings,
+    req: MediaRequest,
+    db: AsyncSession,
+    *,
+    language: str | None,
+    episode_status: dict | None = None,
+    has_vf_full: bool = False,
+    season_aired_counts: dict[int, int] | None = None,
+) -> int:
+    user_obj = (await db.execute(
+        select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id)
+    )).scalars().first()
+    if language is not None and not _user_wants_vf(user_obj, req.vf_category):
+        return 0
+    granularity = _resolve_series_granularity(settings, user_obj)
+    candidates = [
+        AvailabilityCandidate(
+            scope=scope,
+            language=language,
+            is_upgrade=language == "vf",
+            season_number=season,
+            episode_number=episode,
+        )
+        for scope, season, episode in _series_milestones(
+            granularity, episode_status, has_vf_full, language, season_aired_counts
+        )
+    ]
+    return int(await resolve_and_notify_availability(settings, req, db, candidates=candidates))
+
+
+async def _notify(
     event: str,
     settings: Settings,
     req: MediaRequest,
@@ -600,7 +529,7 @@ async def _notify_async(
         return
     language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
     scope = "movie" if req.media_type == "movie" else "series_complete"
-    await resolve_and_notify_availability_async(
+    await resolve_and_notify_availability(
         settings,
         req,
         db,
@@ -608,130 +537,7 @@ async def _notify_async(
     )
 
 
-def _queue_milestone(
-    settings: Settings,
-    req: MediaRequest,
-    db: Session,
-    *,
-    scope: str,
-    language: str | None = None,
-    season: int | None = None,
-    episode: int | None = None,
-) -> bool:
-    """Empile UNE notification de disponibilité pour un jalon précis, avec dédup par
-    NotificationMilestone (clé : req + destinataire + langue + jalon + saison/épisode).
-
-    `language` None = suivi sans distinction de langue (granularité seule, remplace
-    l'ancien mode "simple"). `scope="movie"|"episode"|"season_start"|"season_complete"|
-    "series_complete"`. C'est le point de passage UNIQUE pour toute notification de
-    disponibilité avec jalon — garantit qu'un seul mail part par jalon réel, jamais un
-    générique "available" en plus (voir _notify, qui ne sert plus que de repli quand
-    aucun suivi fin n'est actif pour ce média).
-    """
-    return resolve_and_notify_availability(
-        settings,
-        req,
-        db,
-        candidates=[
-            AvailabilityCandidate(
-                scope=scope,
-                language=language,
-                is_upgrade=language == "vf",
-                season_number=season,
-                episode_number=episode,
-            )
-        ],
-    )
-
-
-def _queue_show_milestones(
-    settings: Settings,
-    req: MediaRequest,
-    db: Session,
-    *,
-    language: str | None,
-    episode_status: dict | None = None,
-    has_vf_full: bool = False,
-    season_aired_counts: dict[int, int] | None = None,
-) -> int:
-    """Calcule et empile les jalons d'une série selon la granularité configurée.
-
-    `language` : "vf"/"vo" si l'appelant vient du scan VF (audio Plex), ou None si
-    l'appelant vient du suivi "sans langue" (présence d'épisode seule, indépendant de
-    vff_enabled — voir check_episode_tracking).
-    """
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    if language is not None and not _user_wants_vf(user_obj, req.vf_category):
-        return 0
-    granularity = _resolve_series_granularity(settings, user_obj)
-    candidates = [
-        AvailabilityCandidate(
-            scope=scope,
-            language=language,
-            is_upgrade=language == "vf",
-            season_number=season,
-            episode_number=episode,
-        )
-        for scope, season, episode in _series_milestones(
-            granularity, episode_status, has_vf_full, language, season_aired_counts
-        )
-    ]
-    return int(resolve_and_notify_availability(settings, req, db, candidates=candidates))
-
-
-def _notify(event: str, settings: Settings, req: MediaRequest, db: Session, reason: str = "", force: bool = False):
-    """Notification générique (repli) : pas de jalon précis, ou évènement simple
-    (request/failed). Ne doit JAMAIS être appelée en plus d'un `_queue_milestone` pour le
-    même changement d'état — c'est le rôle de l'appelant (vff_scanner/webhook/arr_tracker)
-    de choisir l'un ou l'autre selon qu'un suivi fin est actif pour ce média.
-
-    force=True ignore les flags *_mail_sent (renvoi manuel demandé par l'utilisateur).
-    """
-    if not force:
-        if event == "request" and req.request_mail_sent:
-            return
-        if event == "available" and req.available_mail_sent:
-            return
-    if event in ("failed", "failure"):
-        email_flag = getattr(settings, "email_on_failure", True)
-    elif event == "request":
-        email_flag = settings.email_on_request
-    else:
-        email_flag = settings.email_on_available
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
-    recipients = _get_recipients(user_obj, settings, event) if email_flag else []
-
-    if event in ("failed", "failure"):
-        enqueue_notification("failed", req.id, recipients, {"reason": reason})
-        return
-    if event == "request":
-        enqueue_notification("request", req.id, recipients, None)
-        return
-
-    # "available" générique : aucun jalon précis (mode sans langue à granularité "minimal",
-    # ou média sans suivi fin possible pour l'instant). language déduit du dernier état connu.
-    language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
-    scope = "movie" if req.media_type == "movie" else "series_complete"
-    resolve_and_notify_availability(
-        settings,
-        req,
-        db,
-        candidates=[AvailabilityCandidate(scope=scope, language=language, is_upgrade=False)],
-    )
-
-
-def _notify_partial(settings: Settings, req: MediaRequest, db: Session):
-    """Notification « disponibilité partielle » via les compteurs Sonarr (VFF désactivé,
-    pas de scan Plex possible — seul filet de sécurité restant, sans langue)."""
-    resolve_and_notify_availability(
-        settings,
-        req,
-        db,
-        candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)],
-    )
-
-
-async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: Session) -> None:
+async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: AsyncSession) -> None:
     """Décide et envoie la notification de disponibilité pour une série.
 
     Le suivi fin (jalons épisode/saison, avec ou sans langue) tourne dès que Plex est
@@ -743,7 +549,7 @@ async def _handle_show_progress_notification(settings: Settings, req: MediaReque
 
     if req.media_type != "show" or not req.episodes_total_count:
         if not req.available_mail_sent:
-            _notify("available", settings, req, db)
+            await _notify("available", settings, req, db)
         return
 
     if settings.vff_enabled:
@@ -758,19 +564,23 @@ async def _handle_show_progress_notification(settings: Settings, req: MediaReque
     is_complete = (req.episodes_available_count or 0) >= req.episodes_total_count
     if is_complete:
         if not req.available_mail_sent:
-            _notify("available", settings, req, db)
+            await _notify("available", settings, req, db)
         return
     if (req.episodes_available_count or 0) <= 0:
         return
 
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     granularity = _resolve_series_granularity(settings, user_obj)
     if granularity == "tout":
         if (req.episodes_available_count or 0) > (req.last_notified_episode_count or 0):
-            _notify_partial(settings, req, db)
+            await resolve_and_notify_availability(
+                settings, req, db, candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)]
+            )
     else:  # "jalons"/"minimal" : une notif à la 1ère dispo partielle seulement
         if not req.partial_available_mail_sent:
-            _notify_partial(settings, req, db)
+            await resolve_and_notify_availability(
+                settings, req, db, candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)]
+            )
 
 
 # ---------------------------------------------------------------------------

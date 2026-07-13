@@ -257,14 +257,12 @@ async def delete_passkey(
     curr: dict = Depends(current_user),
 ):
     _check_permission(id, curr)
-    key = (
-        db.query(PasskeyCredential)
-        .filter(PasskeyCredential.user_id == id, PasskeyCredential.credential_id == credential_id)
-        .first()
-    )
+    key = (await db.execute(
+        select(PasskeyCredential).filter(PasskeyCredential.user_id == id, PasskeyCredential.credential_id == credential_id)
+    )).scalars().first()
     if not key:
         raise HTTPException(status_code=404, detail="Passkey introuvable.")
 
-    db.delete(key)
+    await db.delete(key)
     await db.commit()
     return {"success": True}

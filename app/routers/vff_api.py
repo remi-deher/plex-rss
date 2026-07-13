@@ -20,7 +20,7 @@ from ..scheduler import (
     sync_plex_media,
     vff_scan_state,
 )
-from ..services.notification_orchestrator import _notify_async as _notify, _queue_milestone_async as _queue_milestone
+from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
 from ..services import vff as vff_svc
 from ..services.radarr import lookup_movie
@@ -92,7 +92,7 @@ async def _vf_detail_payload(db: AsyncSession, req):
         )
         return {"enabled": True, "media_type": "movie", "vf_available": True, "release_date": release_date, **res}
 
-    known_vf = await _load_known_vf_episodes(db, source_type, [req.id]).get(req.id, {})
+    known_vf = (await _load_known_vf_episodes(db, source_type, [req.id])).get(req.id, {})
     plex_task = (
         asyncio.to_thread(
             vff_svc.get_show_episode_vf_blocking,
@@ -228,10 +228,16 @@ async def _vf_detail_payload(db: AsyncSession, req):
 @router.get("/vff/counts")
 async def vff_counts(db: AsyncSession = Depends(get_db_async)):
     """Compteurs VFF sur la bibliothèque."""
-    base = db.query(LibraryItem)
-    vo_pending = base.filter(LibraryItem.has_vf.is_(False)).count()
-    vf_available = base.filter(LibraryItem.has_vf.is_(True)).count()
-    unchecked = base.filter(LibraryItem.has_vf.is_(None)).count()
+    async def count_where(condition) -> int:
+        return int((await db.execute(
+            select(sqlalchemy.func.count()).select_from(LibraryItem).filter(condition)
+        )).scalar() or 0)
+
+    vo_pending, vf_available, unchecked = await asyncio.gather(
+        count_where(LibraryItem.has_vf.is_(False)),
+        count_where(LibraryItem.has_vf.is_(True)),
+        count_where(LibraryItem.has_vf.is_(None)),
+    )
     return {"vo_pending": vo_pending, "vf_available": vf_available, "unchecked": unchecked}
 
 
@@ -302,7 +308,7 @@ async def vff_scan_single_request(
 
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
-    known_vf = await _load_known_vf_episodes(db, "request", [req.id]).get(req.id, {})
+    known_vf = (await _load_known_vf_episodes(db, "request", [req.id])).get(req.id, {})
 
     def _scan_single_blocking():
         try:
@@ -435,7 +441,7 @@ async def library_vff_scan(
         raise HTTPException(400, "No Plex libraries configured for VFF")
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
-    known_vf = await _load_known_vf_episodes(db, "library_item", [item.id]).get(item.id, {})
+    known_vf = (await _load_known_vf_episodes(db, "library_item", [item.id])).get(item.id, {})
 
     def _blocking():
         try:

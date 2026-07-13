@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, PlexUser, Settings
 from app.scheduler import sync_seer_users
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,7 +42,7 @@ def _session_from_engine(engine):
     Session = sessionmaker(bind=engine)
     s = Session()
     try:
-        yield s
+        yield TestSession(s)
     finally:
         s.close()
 
@@ -98,7 +99,7 @@ def _run_sync_seer_users(db, seer_resp, seer_requests_resp=None):
     import asyncio
 
     with (
-        patch("app.services.seer_sync.SessionLocal", return_value=db),
+        patch("app.services.seer_sync.AsyncSessionLocal", return_value=db),
         patch("app.services.seer_sync.seer_get_users", new=AsyncMock(return_value=seer_resp)),
         patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=seer_requests_resp)),
     ):

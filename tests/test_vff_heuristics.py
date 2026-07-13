@@ -12,6 +12,7 @@ from app.services.vff import (
     show_has_full_french_audio,
     sync_plex_library_blocking,
 )
+from tests.async_support import TestSession
 
 
 def test_get_audio_info_filename_fallback():
@@ -195,8 +196,8 @@ async def test_sync_plex_media():
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    db = Session()
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    db = TestSession(Session())
 
     # Initialisation de settings
     settings = Settings(
@@ -233,7 +234,7 @@ async def test_sync_plex_media():
 
     with (
         patch("app.services.vff.sync_plex_library_blocking", return_value=[mock_item]),
-        patch("app.services.plex_sync.SessionLocal", return_value=db),
+        patch("app.services.plex_sync.AsyncSessionLocal", return_value=db),
         patch("app.services.plex_sync.get_all_movies", return_value=[mock_arr_movie]),
         patch("app.services.plex_sync.get_all_series", return_value=[]),
         patch("app.services.vff_scanner.check_vf_statuses"),

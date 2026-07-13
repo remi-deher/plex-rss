@@ -1,11 +1,11 @@
 """Utilitaires partagés entre les modules de l'application."""
 
-from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Protocol, TypeVar
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 
 class _HasId(Protocol):
@@ -15,25 +15,12 @@ class _HasId(Protocol):
 _T = TypeVar("_T", bound=_HasId)
 
 
-@contextmanager
-def db_session(SessionLocal):
-    """Context manager qui ouvre une session SQLAlchemy et garantit sa fermeture."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def get_or_404(db: Session, model: type[_T], obj_id: Any, detail: str = "Not found") -> _T:
-    """Retourne l'objet ou lève HTTPException 404."""
-    obj = db.query(model).filter(model.id == obj_id).first()
-    if not obj:
-        raise HTTPException(status_code=404, detail=detail)
-    return obj
-
-async def async_get_or_404(db, model: type[_T], obj_id: Any, detail: str = "Not found") -> _T:
-    from sqlalchemy.future import select
+async def async_get_or_404(
+    db: AsyncSession,
+    model: type[_T],
+    obj_id: Any,
+    detail: str = "Not found",
+) -> _T:
     obj = (await db.execute(select(model).filter(model.id == obj_id))).scalars().first()
     if not obj:
         raise HTTPException(status_code=404, detail=detail)

@@ -7,6 +7,7 @@ Tests pour les fonctionnalités de déduplication liées au tvdb_id :
 """
 
 import json
+from contextlib import contextmanager
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,6 +23,7 @@ from app.scheduler import (
     poll_watchlists,
     sync_seer_requests,
 )
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -37,7 +39,7 @@ def db():
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -86,8 +88,13 @@ def _req(
     )
 
 
+@contextmanager
 def _patch_session(db):
-    return patch("app.services.watchlist_poller.SessionLocal", return_value=db)
+    with (
+        patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db),
+        patch("app.services.seer_sync.AsyncSessionLocal", return_value=db),
+    ):
+        yield
 
 
 def _patch_watchlist(items):
@@ -99,7 +106,7 @@ def _patch_submit(arr_id=42, existed=False, slug=None):
 
 
 def _patch_enqueue():
-    return patch("app.services.notification_orchestrator.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock)
 
 
 # ---------------------------------------------------------------------------
@@ -133,50 +140,55 @@ def test_clean_title_empty_string():
 # ---------------------------------------------------------------------------
 
 
-def test_find_global_request_by_tvdb_id(db):
+@pytest.mark.asyncio
+async def test_find_global_request_by_tvdb_id(db):
     """Sans tmdb_id, trouve par tvdb_id avant le titre."""
     db.add(_req(plex_user_id="alice", tmdb_id=None, tvdb_id="81763", title="Liar Game"))
     db.commit()
 
-    result = _find_global_request(db, "show", None, "Titre différent", tvdb_id="81763")
+    result = await _find_global_request(db, "show", None, "Titre différent", tvdb_id="81763")
     assert result is not None
     assert result.plex_user_id == "alice"
 
 
-def test_find_global_request_tvdb_after_tmdb_miss(db):
+@pytest.mark.asyncio
+async def test_find_global_request_tvdb_after_tmdb_miss(db):
     """Si tmdb_id ne matche pas, tente tvdb_id avant le titre."""
     db.add(_req(plex_user_id="alice", tmdb_id="99999", tvdb_id="81763"))
     db.commit()
 
     # tmdb_id "00001" introuvable → fallback tvdb_id "81763" → trouvé
-    result = _find_global_request(db, "show", "00001", "Peu importe", tvdb_id="81763")
+    result = await _find_global_request(db, "show", "00001", "Peu importe", tvdb_id="81763")
     assert result is not None
 
 
-def test_find_global_request_tmdb_takes_priority_over_tvdb(db):
+@pytest.mark.asyncio
+async def test_find_global_request_tmdb_takes_priority_over_tvdb(db):
     """tmdb_id prioritaire : si deux entrées, retourne celle avec le bon tmdb_id."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205", tvdb_id="81763"))
     db.add(_req(plex_user_id="bob", tmdb_id="99999", tvdb_id="00000"))
     db.commit()
 
-    result = _find_global_request(db, "show", "27205", "Liar Game", tvdb_id="00000")
+    result = await _find_global_request(db, "show", "27205", "Liar Game", tvdb_id="00000")
     assert result is not None
     assert result.plex_user_id == "alice"
 
 
-def test_find_global_request_tvdb_not_found_falls_to_title(db):
+@pytest.mark.asyncio
+async def test_find_global_request_tvdb_not_found_falls_to_title(db):
     """tvdb_id inconnu → fallback titre."""
     db.add(_req(plex_user_id="alice", tmdb_id=None, tvdb_id=None, title="Liar Game"))
     db.commit()
 
-    result = _find_global_request(db, "show", None, "Liar Game", tvdb_id="99999")
+    result = await _find_global_request(db, "show", None, "Liar Game", tvdb_id="99999")
     assert result is not None
     assert result.plex_user_id == "alice"
 
 
-def test_find_global_request_all_miss_returns_none(db):
+@pytest.mark.asyncio
+async def test_find_global_request_all_miss_returns_none(db):
     """tmdb, tvdb et titre tous introuvables → None."""
-    result = _find_global_request(db, "show", "111", "Inconnu", tvdb_id="222")
+    result = await _find_global_request(db, "show", "111", "Inconnu", tvdb_id="222")
     assert result is None
 
 

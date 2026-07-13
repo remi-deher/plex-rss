@@ -1,23 +1,25 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_api_scope, require_auth
 from app.main import app
 from app.models import Base, LibraryItem, MediaIssue, Settings
 from app.services.totp import _totp_at, generate_secret, verify_code
+from tests.async_support import TestSession
 
 
 def _db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    return Session()
+    return TestSession(Session())
 
 
 def _client(db):
@@ -40,7 +42,8 @@ def test_totp_verifies_current_code():
     assert not verify_code(secret, "000000", at=1_700_000_000)
 
 
-def test_api_scope_rejects_missing_scope():
+@pytest.mark.asyncio
+async def test_api_scope_rejects_missing_scope():
     db = _db()
     try:
         db.add(Settings(api_token="secret", api_token_scopes="requests:read"))
@@ -48,7 +51,7 @@ def test_api_scope_rejects_missing_scope():
         req = type("Req", (), {"headers": {"X-Api-Key": "secret"}, "session": {}})()
         dep = require_api_scope("requests:write")
         try:
-            dep(req, db)
+            await dep(req, db)
             raised = None
         except HTTPException as exc:
             raised = exc

@@ -189,7 +189,7 @@ async def login_post(
     request.session["is_owner"] = True
     request.session["role"] = "admin"
     request.session["user_id"] = user_id
-    _record_login_attempt(db, ip, username, True)
+    await _record_login_attempt(db, ip, username, True)
 
     safe_next = next if next and next.startswith("/") else "/"
     return RedirectResponse(safe_next, status_code=302)
@@ -248,7 +248,7 @@ async def login_plex_check(pin_id: int, request: Request, db: AsyncSession = Dep
                 "SSO Login check: matched existing user by UUID: id=%s, plex_user_id=%s", user.id, user.plex_user_id
             )
     if not user:
-        user = db.query(PlexUser).filter(PlexUser.plex_user_id == account["username"]).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == account["username"]))).scalars().first()
         if user:
             logger.info(
                 "SSO Login check: matched existing user by username: id=%s, plex_user_id=%s", user.id, user.plex_user_id

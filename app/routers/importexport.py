@@ -266,14 +266,12 @@ async def import_data(
 
         async def _do_request(r_data=r_data):
             existing = (
-                db.query(MediaRequest)
-                .filter(
+                await db.execute(select(MediaRequest).filter(
                     MediaRequest.plex_user_id == r_data.get("plex_user_id"),
                     MediaRequest.title == r_data.get("title"),
                     MediaRequest.media_type == r_data.get("media_type"),
-                )
-                .first()
-            )
+                ))
+            ).scalars().first()
             if not existing:
                 existing = MediaRequest()
                 db.add(existing)
@@ -305,11 +303,9 @@ async def import_data(
             continue
 
         async def _do_client(c_data=c_data, name=name, client_type=client_type):
-            client = (
-                db.query(DownloadClient)
-                .filter(DownloadClient.name == name, DownloadClient.client_type == client_type)
-                .first()
-            )
+            client = (await db.execute(
+                select(DownloadClient).filter(DownloadClient.name == name, DownloadClient.client_type == client_type)
+            )).scalars().first()
             if not client:
                 client = DownloadClient()
                 db.add(client)

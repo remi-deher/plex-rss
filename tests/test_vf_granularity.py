@@ -7,7 +7,7 @@ persiste bien ce champ, pour piloter les badges "VF Ã‰pisode Partiel" /
 "VF Saison Partiel" sans requÃªte supplÃ©mentaire Ã  l'affichage.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -16,12 +16,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, LibraryItem, MediaRequest, NotificationMilestone, PlexUser, RequestStatus, Settings
 from app.scheduler import check_vf_statuses
+from tests.async_support import TestSession
 
 
 def _make_db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)()
+    return TestSession(sessionmaker(bind=engine)())
 
 
 @pytest.mark.asyncio
@@ -48,8 +49,8 @@ async def test_check_vf_statuses_sets_episode_partial_granularity():
         "episode_status": {1: {1: True, 2: False}, 2: {1: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -83,8 +84,8 @@ async def test_check_vf_statuses_sets_season_partial_granularity():
         "episode_status": {1: {1: True, 2: True}, 2: {1: False, 2: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -127,8 +128,8 @@ async def test_check_vf_statuses_sets_full_granularity_on_complete_show():
         "episode_status": {1: {1: True, 2: True}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -179,8 +180,8 @@ async def test_linked_request_shares_single_scan_with_library_item():
         "episode_status": {1: {1: True, 2: True}, 2: {1: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]) as mock_scan,
     ):
         await check_vf_statuses()
@@ -228,8 +229,8 @@ async def test_check_vf_statuses_notifies_vf_season_start_once_for_partial_upgra
         "episode_status": {1: {1: True, 2: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -293,8 +294,8 @@ async def test_linked_request_notifies_vf_milestone_from_library_episode_cache()
         "episode_status": {1: {1: True, 2: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -348,8 +349,8 @@ async def test_check_vf_statuses_notifies_vo_every_episode_on_first_detection():
         "episode_status": {1: {1: False, 2: False}},
     }
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -395,8 +396,8 @@ async def test_movie_first_vo_detection_uses_single_available_vo_tracking_event(
 
     scan_result = {"id": req_id, "found": True, "has_vf": False, "category": "movie"}
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -441,8 +442,8 @@ async def test_movie_first_vf_detection_uses_single_available_vf_event():
 
     scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()
@@ -493,8 +494,8 @@ async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
 
     scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
     ):
         await check_vf_statuses()

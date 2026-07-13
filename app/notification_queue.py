@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from . import metrics as app_metrics
-from .database import SessionLocalAsync
+from .database import AsyncSessionLocal
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
@@ -117,7 +117,7 @@ async def enqueue(event: str, req_id: int, recipients: list[str], context: dict 
     """
     event, context = _normalize_event_context(event, context)
     pending_id = None
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             recipients_json = json.dumps(recipients)
             reason_json = json.dumps(context)
@@ -146,36 +146,10 @@ async def enqueue(event: str, req_id: int, recipients: list[str], context: dict 
         _queue.put_nowait((pending_id, event, req_id, recipients, context))
 
 
-def enqueue_from_sync(event: str, req_id: int, recipients: list[str], context: dict | str | None = None) -> None:
-    """Planifie ``enqueue`` depuis le code historique encore synchrone.
-
-    La persistance reste faite par :func:`enqueue`; ce petit adaptateur évite de
-    créer une coroutine orpheline lorsque les jobs synchrones signalent un
-    événement de disponibilité.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        logger.error("Notification %s pour req#%s ignorée: aucune boucle asyncio active", event, req_id)
-        return
-
-    task = loop.create_task(enqueue(event, req_id, recipients, context))
-
-    def _report_failure(done: asyncio.Task) -> None:
-        try:
-            done.result()
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            logger.exception("Impossible d'empiler la notification %s pour req#%s", event, req_id)
-
-    task.add_done_callback(_report_failure)
-
-
 async def _delete_pending(pending_id: int | None):
     if pending_id is None:
         return
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             await db.execute(text("DELETE FROM pending_notifications WHERE id = :id"), {"id": int(pending_id)})
             await db.commit()
@@ -189,7 +163,7 @@ async def cancel_pending(ids: list[int]) -> int:
     if not clean_ids:
         return 0
     _cancelled_pending_ids.update(clean_ids)
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             stmt = text("DELETE FROM pending_notifications WHERE id IN :ids").bindparams(
                 bindparam("ids", expanding=True)
@@ -206,7 +180,7 @@ async def cancel_pending(ids: list[int]) -> int:
 
 async def cancel_all_pending() -> int:
     """Vide toute la queue persistée et annule les entrées déjà en mémoire."""
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             ids = [row[0] for row in (await db.execute(text("SELECT id FROM pending_notifications"))).fetchall()]
             _cancelled_pending_ids.update(int(i) for i in ids)
@@ -230,7 +204,7 @@ async def _load_pending():
     valide présente au même moment — perte silencieuse de vraies notifications en
     attente. Chaque ligne invalide est ignorée individuellement à la place.
     """
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             raw_rows = (await db.execute(
                 text("SELECT id, event, req_id, recipients, reason FROM pending_notifications ORDER BY id")
@@ -300,7 +274,7 @@ async def _send_with_retry(
 
 async def _process(event: str, req_id: int, recipients: list[str], context: dict):
     event, context = _normalize_event_context(event, context)
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         try:
             settings = (await db.execute(select(Settings))).scalars().first()
             req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == req_id))).scalars().first()

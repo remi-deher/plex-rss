@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import require_admin, require_auth
 from app.main import app
+from app.models import Settings
 from app.routers.maintenance import (
     ACTIONS_META,
     MaintenanceRun,
@@ -22,6 +23,7 @@ from app.routers.maintenance import (
     _run_seer_sync_users,
     _runs,
 )
+from tests.async_support import make_test_session
 
 # ---------------------------------------------------------------------------
 # Fixture : client avec auth bypassé
@@ -252,10 +254,9 @@ async def test_run_recalculate_dates_calls_sync():
 @pytest.mark.asyncio
 async def test_run_retry_failed_no_failures():
     run = MaintenanceRun(action="retry-failed")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.all.return_value = []
+    db = make_test_session()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_retry_failed(run)
 
     assert run.progress == 100
@@ -267,30 +268,27 @@ async def test_run_retry_failed_resets_status():
     from app.models import MediaRequest, RequestStatus
 
     run = MaintenanceRun(action="retry-failed")
-    req = MagicMock()
-    req.status = RequestStatus.failed
-
-    db = MagicMock()
-    db.query.return_value.filter.return_value.all.return_value = [req]
+    req = MediaRequest(plex_user_id="alice", title="Dune", media_type="movie", status=RequestStatus.failed)
+    db = make_test_session()
+    db.add(req)
+    db.commit()
 
     with (
-        patch("app.routers.maintenance.SessionLocal", return_value=db),
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
         patch("app.scheduler.poll_watchlists", new_callable=AsyncMock),
     ):
         await _run_retry_failed(run)
 
     assert req.status == RequestStatus.pending
-    db.commit.assert_called()
     assert run.progress == 100
 
 
 @pytest.mark.asyncio
 async def test_run_check_arr_statuses_no_settings():
     run = MaintenanceRun(action="check-arr-statuses")
-    db = MagicMock()
-    db.query.return_value.first.return_value = None
+    db = make_test_session()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_check_arr_statuses(run)
 
     assert any("paramètre" in log.lower() for log in run.logs)
@@ -299,12 +297,11 @@ async def test_run_check_arr_statuses_no_settings():
 @pytest.mark.asyncio
 async def test_run_check_arr_statuses_no_candidates():
     run = MaintenanceRun(action="check-arr-statuses")
-    db = MagicMock()
-    settings = MagicMock()
-    db.query.return_value.first.return_value = settings
-    db.query.return_value.filter.return_value.all.return_value = []
+    db = make_test_session()
+    db.add(Settings())
+    db.commit()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_check_arr_statuses(run)
 
     assert run.progress == 100

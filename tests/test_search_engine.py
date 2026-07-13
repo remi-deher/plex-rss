@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import ArrInstance, DownloadClient
@@ -23,7 +23,7 @@ def _cleanup():
     app.dependency_overrides.pop(get_db, None)
 
 
-def test_crud_download_clients():
+def test_crud_download_clients(async_db):
     client_obj = DownloadClient(
         id=1,
         name="Seedbox",
@@ -36,12 +36,9 @@ def test_crud_download_clients():
         is_default=True,
         enabled=True,
     )
-    db = MagicMock()
-    db.query.return_value.all.return_value = [client_obj]
-    db.commit = MagicMock()
-    db.refresh = MagicMock()
-
-    client = _client_with_db(db)
+    async_db.add(client_obj)
+    async_db.commit()
+    client = _client_with_db(async_db)
     try:
         # List
         resp = client.get("/api/download-clients")
@@ -65,31 +62,31 @@ def test_crud_download_clients():
             },
         )
         assert resp_create.status_code == 200
-        assert db.add.called
+        assert async_db.query(DownloadClient).filter(DownloadClient.name == "New Client").first() is not None
 
     finally:
         _cleanup()
 
 
 @pytest.mark.asyncio
-async def test_api_search_prowlarr_cached():
-    inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = inst
+async def test_api_search_prowlarr_cached(async_db):
+    inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key", enabled=True)
+    async_db.add(inst)
+    async_db.commit()
 
     mock_results = [{"title": "Release 1", "seeders": 10, "size": 1000000, "guid": "123", "downloadUrl": "http://dl"}]
 
-    client = _client_with_db(db)
+    client = _client_with_db(async_db)
     try:
         with patch("app.services.prowlarr.search", new=AsyncMock(return_value=mock_results)) as mock_search:
-            resp = client.get("/api/search?query=Inception&media_type=movie")
+            resp = client.get("/api/search?query=Inception&media_type=movie&instance_id=2")
             assert resp.status_code == 200
             data = resp.json()
             assert len(data) == 1
             assert data[0]["title"] == "Release 1"
 
             # Second call should use cache (mock_search only called once)
-            resp2 = client.get("/api/search?query=Inception&media_type=movie")
+            resp2 = client.get("/api/search?query=Inception&media_type=movie&instance_id=2")
             assert resp2.status_code == 200
             assert len(resp2.json()) == 1
             mock_search.assert_called_once()

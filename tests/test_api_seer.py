@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
@@ -31,17 +31,8 @@ from app.routers import pages as pages_router
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+def db(async_db):
+    return async_db
 
 
 @pytest.fixture()

@@ -5,7 +5,7 @@ physique pouvaient avoir un has_vf scanné indépendamment et donc en désaccord
 Bibliothèque affiche VF, Demandes affiche encore VO en attente pour le même titre).
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -14,15 +14,17 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import _link_request_to_library_item, check_vf_statuses
+from tests.async_support import TestSession
 
 
 def _make_db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)()
+    return TestSession(sessionmaker(bind=engine)())
 
 
-def test_link_by_plex_guid():
+@pytest.mark.asyncio
+async def test_link_by_plex_guid():
     db = _make_db()
     li = LibraryItem(title="Dune", year=2021, media_type="movie", plex_guid="plex://movie/abc")
     db.add(li)
@@ -39,13 +41,14 @@ def test_link_by_plex_guid():
     db.add(req)
     db.commit()
 
-    found = _link_request_to_library_item(db, req)
+    found = await _link_request_to_library_item(db, req)
     assert found is not None
     assert found.id == li.id
     assert req.library_item_id == li.id
 
 
-def test_link_by_tmdb_id_fallback():
+@pytest.mark.asyncio
+async def test_link_by_tmdb_id_fallback():
     db = _make_db()
     li = LibraryItem(title="Dune", year=2021, media_type="movie", tmdb_id="438631")
     db.add(li)
@@ -62,12 +65,13 @@ def test_link_by_tmdb_id_fallback():
     db.add(req)
     db.commit()
 
-    found = _link_request_to_library_item(db, req)
+    found = await _link_request_to_library_item(db, req)
     assert found is not None
     assert found.id == li.id
 
 
-def test_link_by_title_year_type_fallback():
+@pytest.mark.asyncio
+async def test_link_by_title_year_type_fallback():
     db = _make_db()
     li = LibraryItem(title="Arrival", year=2016, media_type="movie")
     db.add(li)
@@ -83,12 +87,13 @@ def test_link_by_title_year_type_fallback():
     db.add(req)
     db.commit()
 
-    found = _link_request_to_library_item(db, req)
+    found = await _link_request_to_library_item(db, req)
     assert found is not None
     assert found.id == li.id
 
 
-def test_no_match_returns_none():
+@pytest.mark.asyncio
+async def test_no_match_returns_none():
     db = _make_db()
     req = MediaRequest(
         plex_user_id="u1",
@@ -100,12 +105,13 @@ def test_no_match_returns_none():
     db.add(req)
     db.commit()
 
-    found = _link_request_to_library_item(db, req)
+    found = await _link_request_to_library_item(db, req)
     assert found is None
     assert req.library_item_id is None
 
 
-def test_orphaned_link_is_relinked():
+@pytest.mark.asyncio
+async def test_orphaned_link_is_relinked():
     db = _make_db()
     li_old = LibraryItem(title="Old", year=2000, media_type="movie")
     db.add(li_old)
@@ -129,7 +135,7 @@ def test_orphaned_link_is_relinked():
     db.add(li_new)
     db.commit()
 
-    found = _link_request_to_library_item(db, req)
+    found = await _link_request_to_library_item(db, req)
     assert found is not None
     assert found.id == li_new.id
     assert req.library_item_id == li_new.id
@@ -169,8 +175,8 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
     db.commit()
 
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue,
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
         patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
     ):
         await check_vf_statuses()
@@ -219,8 +225,8 @@ async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     db.commit()
 
     with (
-        patch("app.services.vff_scanner.SessionLocal", return_value=db),
-        patch("app.services.notification_orchestrator.enqueue_notification"),
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
         patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
     ):
         await check_vf_statuses()

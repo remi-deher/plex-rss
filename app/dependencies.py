@@ -5,31 +5,23 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from .database import get_db_async, get_db_async
+from .database import get_db_async
 from .models import PlexUser, Settings
 
 
 async def get_settings_or_404(db: AsyncSession = Depends(get_db_async)) -> Settings:
     """Récupère les paramètres de l'application ou lève une erreur 404."""
-    s = db.query(Settings).first()
-    if not s:
-        raise HTTPException(status_code=404, detail="Paramètres non initialisés")
-    return s
-
-async def async_get_settings_or_404(db = Depends(get_db_async)) -> Settings:
-    from sqlalchemy.future import select
     s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(status_code=404, detail="Paramètres non initialisés")
     return s
-
 
 async def _valid_api_key(request: Request, db: AsyncSession) -> bool:
     """Vrai si l'en-tête X-Api-Key correspond au token API (niveau admin)."""
     token = request.headers.get("X-Api-Key")
     if not token:
         return False
-    s = db.query(Settings).first()
+    s = (await db.execute(select(Settings))).scalars().first()
     return bool(s and s.api_token and hmac.compare_digest(s.api_token, token))
 
 
@@ -50,7 +42,7 @@ async def _api_key_has_scope(request: Request, db: AsyncSession, required_scope:
     return "*" in scopes or required_scope in scopes
 
 
-async def current_user(request: Request, db: AsyncSession = Depends(get_db_async)) -> dict | None:
+def current_user(request: Request, db: AsyncSession = Depends(get_db_async)) -> dict | None:
     """Décrit l'appelant authentifié par session (pour les pages et l'affichage conditionnel).
     
     Retourne None si non authentifié. L'API token n'accorde plus le statut d'admin global
@@ -73,7 +65,7 @@ def _is_admin(user: dict | None) -> bool:
 
 async def require_auth(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Dépendance : n'importe quel utilisateur authentifié (session ou token API)."""
-    if request.session.get("authenticated") or _valid_api_key(request, db):
+    if request.session.get("authenticated") or await _valid_api_key(request, db):
         return
     raise HTTPException(status_code=401, detail="Non authentifié")
 
@@ -84,7 +76,7 @@ def require_api_scope(scope: str) -> Callable:
             return
         if not request.headers.get("X-Api-Key"):
             return
-        if _api_key_has_scope(request, db, scope):
+        if await _api_key_has_scope(request, db, scope):
             return
         raise HTTPException(status_code=403, detail=f"Scope API requis: {scope}")
 
@@ -110,4 +102,4 @@ async def get_current_plex_user(request: Request, db: AsyncSession = Depends(get
     uid = request.session.get("plex_user_id")
     if not uid:
         return None
-    return db.query(PlexUser).filter(PlexUser.plex_user_id == uid).first()
+    return (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == uid))).scalars().first()

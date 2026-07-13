@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import ArrInstance
@@ -59,11 +59,11 @@ async def test_prowlarr_search():
         assert res[0]["title"] == "Inception"
 
 
-def test_api_prowlarr_indexers():
+def test_api_prowlarr_indexers(async_db):
     inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = inst
-    client = _client_with_db(db)
+    async_db.add(inst)
+    async_db.commit()
+    client = _client_with_db(async_db)
 
     try:
         with patch("app.services.prowlarr.get_indexers", new=AsyncMock(return_value=[{"id": 1, "name": "Indexer 1"}])):
@@ -107,11 +107,11 @@ async def test_prowlarr_grab_failure():
         assert "boom" in msg
 
 
-def test_api_prowlarr_download_client_status_true():
+def test_api_prowlarr_download_client_status_true(async_db):
     inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = inst
-    client = _client_with_db(db)
+    async_db.add(inst)
+    async_db.commit()
+    client = _client_with_db(async_db)
 
     try:
         with patch(
@@ -125,11 +125,11 @@ def test_api_prowlarr_download_client_status_true():
         _cleanup()
 
 
-def test_api_prowlarr_download_client_status_false():
+def test_api_prowlarr_download_client_status_false(async_db):
     inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = inst
-    client = _client_with_db(db)
+    async_db.add(inst)
+    async_db.commit()
+    client = _client_with_db(async_db)
 
     try:
         with patch("app.services.prowlarr.get_download_clients", new=AsyncMock(return_value=[])):
@@ -140,11 +140,11 @@ def test_api_prowlarr_download_client_status_false():
         _cleanup()
 
 
-def test_api_prowlarr_grab_endpoint():
+def test_api_prowlarr_grab_endpoint(async_db):
     inst = ArrInstance(id=2, name="Prowlarr", arr_type="prowlarr", url="http://prowlarr", api_key="key")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = inst
-    client = _client_with_db(db)
+    async_db.add(inst)
+    async_db.commit()
+    client = _client_with_db(async_db)
 
     try:
         with patch("app.services.prowlarr.grab", new=AsyncMock(return_value=(True, "ok"))):

@@ -15,13 +15,14 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, MediaIssue, MediaRequest, NotificationMilestone, PlexUser, RequestStatus
 from app.routers.users_api import _merge_users
+from tests.async_support import TestSession
 
 
 @pytest.fixture()
 def db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    session = sessionmaker(bind=engine)()
+    session = TestSession(sessionmaker(bind=engine)())
     yield session
     session.close()
 
@@ -41,7 +42,8 @@ def _mk_users(db):
     return keeper, source
 
 
-def test_merge_moves_primary_requests_and_deletes_source(db):
+@pytest.mark.asyncio
+async def test_merge_moves_primary_requests_and_deletes_source(db):
     keeper, source = _mk_users(db)
     db.add(
         MediaRequest(
@@ -55,7 +57,7 @@ def test_merge_moves_primary_requests_and_deletes_source(db):
     )
     db.commit()
 
-    _merge_users(db, source, keeper)
+    await _merge_users(db, source, keeper)
     db.commit()
 
     reqs = db.query(MediaRequest).all()
@@ -65,7 +67,8 @@ def test_merge_moves_primary_requests_and_deletes_source(db):
     assert db.query(PlexUser).filter(PlexUser.plex_user_id == "seer42").first() is None
 
 
-def test_merge_remaps_and_dedups_extra_requesters(db):
+@pytest.mark.asyncio
+async def test_merge_remaps_and_dedups_extra_requesters(db):
     keeper, source = _mk_users(db)
     # Demande où keeper est déjà principal et source co-demandeur -> l'entrée source doit disparaître.
     db.add(
@@ -93,7 +96,7 @@ def test_merge_remaps_and_dedups_extra_requesters(db):
     )
     db.commit()
 
-    _merge_users(db, source, keeper)
+    await _merge_users(db, source, keeper)
     db.commit()
 
     a = db.query(MediaRequest).filter(MediaRequest.title == "A").first()
@@ -103,7 +106,8 @@ def test_merge_remaps_and_dedups_extra_requesters(db):
     assert [e["plex_user_id"] for e in extras] == ["admin"]  # remappé
 
 
-def test_merge_milestones_respects_unique_constraint(db):
+@pytest.mark.asyncio
+async def test_merge_milestones_respects_unique_constraint(db):
     keeper, source = _mk_users(db)
     # Collision : même (req_id, direction, type, season, episode) pour keeper et source.
     db.add(NotificationMilestone(req_id=1, plex_user_id="admin", direction="vo", milestone_type="season"))
@@ -112,7 +116,7 @@ def test_merge_milestones_respects_unique_constraint(db):
     db.add(NotificationMilestone(req_id=2, plex_user_id="seer42", direction="vf", milestone_type="episode"))
     db.commit()
 
-    _merge_users(db, source, keeper)
+    await _merge_users(db, source, keeper)
     db.commit()  # ne doit PAS violer uq_notification_milestone
 
     admin_ms = db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == "admin").all()
@@ -121,12 +125,13 @@ def test_merge_milestones_respects_unique_constraint(db):
     assert db.query(NotificationMilestone).filter(NotificationMilestone.plex_user_id == "seer42").count() == 0
 
 
-def test_merge_reassigns_issues_and_fills_profile(db):
+@pytest.mark.asyncio
+async def test_merge_reassigns_issues_and_fills_profile(db):
     keeper, source = _mk_users(db)
     db.add(MediaIssue(issue_type="audio", title="X", media_type="movie", reporter_plex_user_id="seer42"))
     db.commit()
 
-    _merge_users(db, source, keeper)
+    await _merge_users(db, source, keeper)
     db.commit()
 
     issue = db.query(MediaIssue).first()

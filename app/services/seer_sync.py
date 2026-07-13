@@ -3,14 +3,16 @@ import re
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+import sqlalchemy
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
 from . import watchlist_poller
 from .availability_service import has_plex_proof
-from .notification_orchestrator import _add_co_requester, _notify
+from .notification_orchestrator import _add_co_requester
 from .seer import _headers as _seer_headers
 from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .seer import get_user_requests as seer_get_user_requests
@@ -19,15 +21,6 @@ from .seer import is_request_available as seer_available
 from .seer import request_media as seer_request
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_SESSION_LOCAL = SessionLocal
-
-
-def _open_session():
-    if SessionLocal is not _DEFAULT_SESSION_LOCAL:
-        return SessionLocal()
-    return watchlist_poller.SessionLocal()
-
 
 def _parse_seer_dt(iso: str | None) -> datetime | None:
     """Convertit une chaîne ISO 8601 Seer en datetime UTC naïf."""
@@ -40,14 +33,12 @@ def _parse_seer_dt(iso: str | None) -> datetime | None:
         return None
 
 
-def _merge_seer_only_user(db: Session, target: PlexUser, info: dict) -> bool:
+async def _merge_seer_only_user(db: AsyncSession, target: PlexUser, info: dict) -> bool:
     """Fusionne l'ancien utilisateur synthetique seer:{id} dans le vrai PlexUser."""
     synthetic_id = f"seer:{info['id']}"
-    seer_user = (
-        db.query(PlexUser)
-        .filter(PlexUser.plex_user_id == synthetic_id, PlexUser.id != target.id, PlexUser.source == "seer")
-        .first()
-    )
+    seer_user = (await db.execute(
+        select(PlexUser).filter(PlexUser.plex_user_id == synthetic_id, PlexUser.id != target.id, PlexUser.source == "seer")
+    )).scalars().first()
     if not seer_user:
         return False
 
@@ -59,11 +50,12 @@ def _merge_seer_only_user(db: Session, target: PlexUser, info: dict) -> bool:
         target.custom_name = seer_user.custom_name
 
     display_name = target.custom_name or target.display_name or target.plex_user_id
-    db.query(MediaRequest).filter(MediaRequest.plex_user_id == synthetic_id).update(
-        {"plex_user_id": target.plex_user_id, "plex_user": display_name},
-        synchronize_session=False,
+    await db.execute(
+        sqlalchemy.update(MediaRequest)
+        .filter(MediaRequest.plex_user_id == synthetic_id)
+        .values(plex_user_id=target.plex_user_id, plex_user=display_name)
     )
-    db.delete(seer_user)
+    await db.delete(seer_user)
     logger.info(f"Seer-only user fusionne : {synthetic_id} -> {target.plex_user_id}")
     return True
 
@@ -82,9 +74,9 @@ async def sync_seer_users():
     même sans demande (seer_active=False dans ce cas) — un compte Plex visible
     dans Seer mais jamais utilisé doit pouvoir apparaître dans l'app.
     """
-    db = _open_session()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.seer_url or not settings.seer_api_key:
             return
 
@@ -102,10 +94,10 @@ async def sync_seer_users():
         updated = 0
         # Les utilisateurs source="seer" sont gérés en passe 4, pas ici
         matched_seer_ids: set[int] = {
-            u.seer_user_id for u in db.query(PlexUser).all() if u.seer_user_id and u.source != "seer"
+            u.seer_user_id for u in (await db.execute(select(PlexUser))).scalars().all() if u.seer_user_id and u.source != "seer"
         }
 
-        all_plex_users = db.query(PlexUser).all()
+        all_plex_users = (await db.execute(select(PlexUser))).scalars().all()
 
         for user in all_plex_users:
             if user.source == "seer":
@@ -150,7 +142,7 @@ async def sync_seer_users():
             if user.seer_active != active:
                 user.seer_active = active
                 changed = True
-            if info and user.source != "seer" and _merge_seer_only_user(db, user, info):
+            if info and user.source != "seer" and await _merge_seer_only_user(db, user, info):
                 changed = True
             if changed:
                 updated += 1
@@ -170,14 +162,12 @@ async def sync_seer_users():
                     seer_media_map[seer_info["id"]] = tmdb_ids
 
             for user in unmatched_plex:
-                rows = (
-                    db.query(MediaRequest.tmdb_id)
-                    .filter(
+                rows = (await db.execute(
+                    select(MediaRequest.tmdb_id).filter(
                         MediaRequest.plex_user_id == user.plex_user_id,
                         MediaRequest.tmdb_id.isnot(None),
                     )
-                    .all()
-                )
+                )).all()
                 user_tmdb_ids = {r[0] for r in rows}
                 if len(user_tmdb_ids) < 2:
                     continue
@@ -208,7 +198,9 @@ async def sync_seer_users():
             if info["id"] in matched_seer_ids:
                 continue
             synthetic_id = f"seer:{info['id']}"
-            existing = db.query(PlexUser).filter(PlexUser.plex_user_id == synthetic_id).first()
+            existing = (await db.execute(
+                select(PlexUser).filter(PlexUser.plex_user_id == synthetic_id)
+            )).scalars().first()
             if existing:
                 # Mettre à jour les infos si elles ont changé
                 changed = False
@@ -242,12 +234,12 @@ async def sync_seer_users():
             logger.info(f"Seer-only user créé : {info['display_name']} (seer:{info['id']})")
 
         if updated or created:
-            db.commit()
+            await db.commit()
             logger.info(f"Seer sync users: {updated} mis à jour, {created} créé(s)")
     except Exception:
         logger.exception("Seer sync users échouée")
     finally:
-        db.close()
+        await db.close()
 
 
 async def sync_seer_requests():
@@ -258,13 +250,15 @@ async def sync_seer_requests():
     Statut : available si media.status 4 ou 5, sinon sent_to_arr.
     Cela permet d'outrepasser la limite des 50 items du flux RSS.
     """
-    db = _open_session()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.seer_url or not settings.seer_api_key:
             return
 
-        matched_users = db.query(PlexUser).filter(PlexUser.seer_user_id.isnot(None)).all()
+        matched_users = (await db.execute(
+            select(PlexUser).filter(PlexUser.seer_user_id.isnot(None))
+        )).scalars().all()
         if not matched_users:
             logger.info("Seer sync requests: aucun utilisateur associé à Seer")
             return
@@ -274,7 +268,7 @@ async def sync_seer_requests():
             requests = await seer_get_user_requests(settings.seer_url, settings.seer_api_key, user.seer_user_id)
             for req in requests:
                 # Dédup global : cherche par tmdb_id tous utilisateurs confondus
-                existing = watchlist_poller._find_global_request(
+                existing = await watchlist_poller._find_global_request(
                     db, req["media_type"], req["tmdb_id"], req["title"], req.get("tvdb_id")
                 )
 
@@ -331,7 +325,7 @@ async def sync_seer_requests():
                             f"'{existing.title}' (seer_req #{req.get('seer_request_id')}): "
                             f"createdAt absent — requested_at non corrigé (valeur actuelle: {existing.requested_at})"
                         )
-                    plex_confirmed = has_plex_proof(db, existing) if is_available else False
+                    plex_confirmed = await has_plex_proof(db, existing) if is_available else False
                     if is_available and plex_confirmed and existing.status != RequestStatus.available:
                         existing.status = RequestStatus.available
                         existing.arr_id = existing.arr_id or req["seer_request_id"]
@@ -369,13 +363,13 @@ async def sync_seer_requests():
                     )
                     total_upserted += 1
 
-            db.commit()
+            await db.commit()
 
         logger.info(f"Seer sync requests: {total_upserted} demande(s) importée(s)/mise(s) à jour")
     except Exception:
         logger.exception("Seer sync requests échouée")
     finally:
-        db.close()
+        await db.close()
 
 
 async def _seer_full_sync():

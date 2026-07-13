@@ -2,7 +2,8 @@ import logging
 from datetime import datetime
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from ..models import LibraryItem, MediaRequest, RequestStatus, Settings
 from ..utils import now_utc_naive
@@ -11,10 +12,10 @@ from .download_history import record_completed
 logger = logging.getLogger(__name__)
 
 
-def find_plex_library_item(db: Session, req: MediaRequest) -> LibraryItem | None:
+async def find_plex_library_item(db: AsyncSession, req: MediaRequest) -> LibraryItem | None:
     """Return the Plex library item that proves this request is available."""
     if req.library_item_id:
-        item = db.query(LibraryItem).filter(LibraryItem.id == req.library_item_id).first()
+        item = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
         if item:
             return item
         req.library_item_id = None
@@ -27,24 +28,22 @@ def find_plex_library_item(db: Session, req: MediaRequest) -> LibraryItem | None
     if req.imdb_id:
         conditions.append(LibraryItem.imdb_id == str(req.imdb_id))
 
-    item = db.query(LibraryItem).filter(or_(*conditions)).first() if conditions else None
+    item = (await db.execute(select(LibraryItem).filter(or_(*conditions)))).scalars().first() if conditions else None
     if not item and req.title and req.year:
-        item = (
-            db.query(LibraryItem)
-            .filter(
+        item = (await db.execute(
+            select(LibraryItem).filter(
                 LibraryItem.media_type == req.media_type,
                 LibraryItem.title.ilike(req.title),
                 LibraryItem.year == req.year,
             )
-            .first()
-        )
+        )).scalars().first()
     if item:
         req.library_item_id = item.id
     return item
 
 
-def has_plex_proof(db: Session, req: MediaRequest) -> bool:
-    return find_plex_library_item(db, req) is not None
+async def has_plex_proof(db: AsyncSession, req: MediaRequest) -> bool:
+    return await find_plex_library_item(db, req) is not None
 
 
 def note_arr_processed(
@@ -64,8 +63,8 @@ def note_arr_processed(
     req.is_downloading = False
 
 
-def _set_available(
-    db: Session,
+async def _set_available(
+    db: AsyncSession,
     req: MediaRequest,
     *,
     source: str,
@@ -73,7 +72,7 @@ def _set_available(
     available_at: datetime | None = None,
     require_plex: bool = True,
 ) -> bool:
-    if require_plex and not has_plex_proof(db, req):
+    if require_plex and not await has_plex_proof(db, req):
         logger.info(
             "Disponibilite refusee pour '%s': aucune preuve Plex associee a la demande.",
             req.title,
@@ -86,10 +85,10 @@ def _set_available(
     req.is_downloading = False
     req.next_release_at = None
     req.next_release_label = None
-    db.commit()
+    await db.commit()
 
     if not was_available:
-        record_completed(
+        await record_completed(
             db,
             title=req.title,
             year=req.year,
@@ -105,7 +104,7 @@ def _set_available(
 async def confirm_available_from_plex(
     settings: Settings | None,
     req: MediaRequest,
-    db: Session,
+    db: AsyncSession,
     *,
     source: str = "plex",
     instance_name: str | None = None,
@@ -114,7 +113,7 @@ async def confirm_available_from_plex(
     require_library_item: bool = True,
 ) -> bool:
     """Confirm final availability from Plex proof, then notify if this is a new transition."""
-    changed = _set_available(
+    changed = await _set_available(
         db,
         req,
         source=source,
@@ -134,16 +133,16 @@ async def confirm_available_from_plex(
     if not handled and not settings.vff_enabled and not req.available_mail_sent:
         from . import notification_orchestrator
 
-        notification_orchestrator._notify("available", settings, req, db)
+        await notification_orchestrator._notify("available", settings, req, db)
     return changed
 
 
-def force_available_by_admin(
+async def force_available_by_admin(
     settings: Settings | None,
     req: MediaRequest,
-    db: Session,
+    db: AsyncSession,
     *,
     source: str = "manual_admin",
 ) -> bool:
     """Admin override: manual action is allowed to be authoritative."""
-    return _set_available(db, req, source=source, require_plex=False)
+    return await _set_available(db, req, source=source, require_plex=False)

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import sqlalchemy
 
-from .database import SessionLocalAsync
+from .database import AsyncSessionLocal
 from .models import ArrInstance, Settings
 
 # --- Imports des services pour réexportation (compatibilité ascendante) ---
@@ -77,8 +77,6 @@ from .services.watchlist_poller import (
     poll_watchlists,
     sync_users_from_feed,
 )
-from .utils import db_session
-
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
@@ -90,7 +88,7 @@ async def start_scheduler(poll_seconds: int = 300):
     `poll_seconds` : intervalle de polling de la watchlist Plex, en secondes
     (permet un rafraîchissement sous la minute, façon Overseerr/Jellyseerr).
     """
-    async with SessionLocalAsync() as db:
+    async with AsyncSessionLocal() as db:
         settings = (await db.execute(select(Settings))).scalars().first()
         digest_hour = settings.digest_hour if settings and settings.digest_enabled else None
         vff_interval = (

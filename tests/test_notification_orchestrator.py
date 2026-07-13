@@ -1,21 +1,24 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.models import Base, MediaRequest, NotificationMilestone, PlexUser, RequestStatus, Settings
 from app.services.notification_orchestrator import AvailabilityCandidate, resolve_and_notify_availability
 
 
-def _make_db():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)()
+async def _make_db():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    return engine, async_sessionmaker(engine, expire_on_commit=False)()
 
 
-def test_resolve_and_notify_availability_sends_one_and_consumes_all_candidates():
-    db = _make_db()
+@pytest.mark.asyncio
+async def test_resolve_and_notify_availability_sends_one_and_consumes_all_candidates():
+    engine, db = await _make_db()
     settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True)
     user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
     req = MediaRequest(
@@ -26,10 +29,10 @@ def test_resolve_and_notify_availability_sends_one_and_consumes_all_candidates()
         status=RequestStatus.available,
     )
     db.add_all([settings, user, req])
-    db.commit()
+    await db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
-        sent = resolve_and_notify_availability(
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        sent = await resolve_and_notify_availability(
             settings,
             req,
             db,
@@ -50,9 +53,13 @@ def test_resolve_and_notify_availability_sends_one_and_consumes_all_candidates()
         "episode_number": 5,
     }
 
-    milestones = db.query(NotificationMilestone).filter_by(req_id=req.id).all()
+    milestones = (
+        await db.execute(select(NotificationMilestone).filter_by(req_id=req.id))
+    ).scalars().all()
     assert {(m.milestone_type, m.season_number, m.episode_number) for m in milestones} == {
         ("season_complete", 2, None),
         ("episode", 2, 5),
     }
     assert all(m.language is None and m.is_upgrade is False for m in milestones)
+    await db.close()
+    await engine.dispose()

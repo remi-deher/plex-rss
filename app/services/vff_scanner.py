@@ -6,10 +6,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import ColumnElement, true
-from sqlalchemy.orm import Session
+import sqlalchemy
+from sqlalchemy import ColumnElement, or_, true
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
 from . import radarr, sonarr, vff
@@ -44,10 +46,29 @@ episode_scan_state: dict[str, Any] = {
 }
 
 
-def _link_request_to_library_item(db: Session, req: MediaRequest) -> "LibraryItem | None":
-    from .plex_sync import _link_request_to_library_item as _link
-
-    return _link(db, req)
+async def _link_request_to_library_item(db: AsyncSession, req: MediaRequest) -> "LibraryItem | None":
+    if req.library_item_id:
+        item = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
+        if item:
+            return item
+        req.library_item_id = None
+    conditions = []
+    if req.plex_guid:
+        conditions.append(LibraryItem.plex_guid == req.plex_guid)
+    if req.tmdb_id:
+        conditions.append(LibraryItem.tmdb_id == req.tmdb_id)
+    if req.tvdb_id:
+        conditions.append(LibraryItem.tvdb_id == req.tvdb_id)
+    if req.imdb_id:
+        conditions.append(LibraryItem.imdb_id == req.imdb_id)
+    item = (await db.execute(select(LibraryItem).filter(or_(*conditions)))).scalars().first() if conditions else None
+    if not item:
+        item = (await db.execute(select(LibraryItem).filter(
+            LibraryItem.title.ilike(req.title), LibraryItem.year == req.year, LibraryItem.media_type == req.media_type
+        ))).scalars().first()
+    if item:
+        req.library_item_id = item.id
+    return item
 
 
 def _parse_vff_libraries(settings: Settings) -> list[dict]:
@@ -74,7 +95,7 @@ def _parse_vff_libraries(settings: Settings) -> list[dict]:
     return out
 
 
-def _load_known_vf_episodes(db: Session, source_type: str, source_ids: list[int]) -> dict[int, dict[int, set[int]]]:
+async def _load_known_vf_episodes(db: AsyncSession, source_type: str, source_ids: list[int]) -> dict[int, dict[int, set[int]]]:
     """Charge le cache des épisodes déjà confirmés VF pour une liste de médias.
 
     Retourne {source_id: {season_number: {episode_number, ...}}}. Ne contient que les
@@ -83,40 +104,36 @@ def _load_known_vf_episodes(db: Session, source_type: str, source_ids: list[int]
     """
     if not source_ids:
         return {}
-    rows = (
-        db.query(VfEpisodeStatus)
-        .filter(
+    rows = (await db.execute(
+        select(VfEpisodeStatus).filter(
             VfEpisodeStatus.source_type == source_type,
             VfEpisodeStatus.source_id.in_(source_ids),
             VfEpisodeStatus.has_vf.is_(True),
             VfEpisodeStatus.fr_is_default.is_(True),
         )
-        .all()
-    )
+    )).scalars().all()
     out: dict[int, dict[int, set[int]]] = {}
     for r in rows:
         out.setdefault(r.source_id, {}).setdefault(r.season_number, set()).add(r.episode_number)
     return out
 
 
-def _load_episode_status_map(
-    db: Session, source_type: str, source_ids: list[int]
+async def _load_episode_status_map(
+    db: AsyncSession, source_type: str, source_ids: list[int]
 ) -> dict[int, dict[int, dict[int, bool]]]:
     if not source_ids:
         return {}
-    rows = (
-        db.query(VfEpisodeStatus)
-        .filter(VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id.in_(source_ids))
-        .all()
-    )
+    rows = (await db.execute(select(VfEpisodeStatus).filter(
+        VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id.in_(source_ids)
+    ))).scalars().all()
     out: dict[int, dict[int, dict[int, bool]]] = {}
     for row in rows:
         out.setdefault(row.source_id, {}).setdefault(row.season_number, {})[row.episode_number] = bool(row.has_vf)
     return out
 
 
-def _persist_episode_status(
-    db: Session,
+async def _persist_episode_status(
+    db: AsyncSession,
     source_type: str,
     source_id: int,
     episode_status: dict[int, dict[int, bool]],
@@ -128,9 +145,9 @@ def _persist_episode_status(
         return
     existing = {
         (r.season_number, r.episode_number): r
-        for r in db.query(VfEpisodeStatus).filter(
+        for r in (await db.execute(select(VfEpisodeStatus).filter(
             VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id == source_id
-        )
+        ))).scalars().all()
     }
     for sn, eps in episode_status.items():
         for en, has_vf in eps.items():
@@ -156,8 +173,8 @@ def _persist_episode_status(
                 )
 
 
-def _invalidate_vf_cache(
-    db: Session,
+async def _invalidate_vf_cache(
+    db: AsyncSession,
     source_type: Optional[str] = None,
     source_id: Optional[int] = None,
     season_number: Optional[int] = None,
@@ -177,16 +194,17 @@ def _invalidate_vf_cache(
     Ne fait pas de commit : à la charge de l'appelant.
     Retourne le nombre de lignes supprimées.
     """
-    q = db.query(VfEpisodeStatus)
+    conditions = []
     if source_type is not None:
-        q = q.filter(VfEpisodeStatus.source_type == source_type)
+        conditions.append(VfEpisodeStatus.source_type == source_type)
     if source_id is not None:
-        q = q.filter(VfEpisodeStatus.source_id == source_id)
+        conditions.append(VfEpisodeStatus.source_id == source_id)
     if season_number is not None:
-        q = q.filter(VfEpisodeStatus.season_number == season_number)
+        conditions.append(VfEpisodeStatus.season_number == season_number)
     if episode_number is not None:
-        q = q.filter(VfEpisodeStatus.episode_number == episode_number)
-    return q.delete()
+        conditions.append(VfEpisodeStatus.episode_number == episode_number)
+    result = await db.execute(sqlalchemy.delete(VfEpisodeStatus).filter(*conditions))
+    return int(result.rowcount or 0)
 
 
 def _scan_vf_blocking(
@@ -244,24 +262,20 @@ def _scan_vf_blocking(
     return results
 
 
-def _resolve_vf_arr_instance(db: Session, req: MediaRequest, arr_type: str) -> ArrInstance | None:
+async def _resolve_vf_arr_instance(db: AsyncSession, req: MediaRequest, arr_type: str) -> ArrInstance | None:
     """Résout l'instance Sonarr/Radarr à utiliser pour l'auto-search VFF d'une demande."""
     if req.arr_instance_id:
-        inst = (
-            db.query(ArrInstance)
-            .filter(ArrInstance.id == req.arr_instance_id, ArrInstance.arr_type == arr_type, ArrInstance.enabled)
-            .first()
-        )
+        inst = (await db.execute(select(ArrInstance).filter(
+            ArrInstance.id == req.arr_instance_id, ArrInstance.arr_type == arr_type, ArrInstance.enabled
+        ))).scalars().first()
         if inst:
             return inst
-    return (
-        db.query(ArrInstance)
-        .filter(ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default)
-        .first()
-    )
+    return (await db.execute(select(ArrInstance).filter(
+        ArrInstance.arr_type == arr_type, ArrInstance.enabled, ArrInstance.is_default
+    ))).scalars().first()
 
 
-async def _prefetch_season_aired_counts(db: Session, requests: list[MediaRequest]) -> dict[int, dict[int, int]]:
+async def _prefetch_season_aired_counts(db: AsyncSession, requests: list[MediaRequest]) -> dict[int, dict[int, int]]:
     """Précharge, pour chaque série Sonarr, le nombre d'épisodes déjà diffusés par saison.
 
     Référence utilisée par `_series_language_milestones` pour ne pas confondre "tous les
@@ -274,7 +288,7 @@ async def _prefetch_season_aired_counts(db: Session, requests: list[MediaRequest
     for req in requests:
         if req.media_type != "show" or not req.arr_id or req.source == "seer" or req.id in counts:
             continue
-        inst = _resolve_vf_arr_instance(db, req, "sonarr")
+        inst = await _resolve_vf_arr_instance(db, req, "sonarr")
         if not inst:
             continue
         try:
@@ -284,7 +298,7 @@ async def _prefetch_season_aired_counts(db: Session, requests: list[MediaRequest
     return counts
 
 
-async def _trigger_vf_search(db: Session, settings: Settings, req: MediaRequest) -> None:
+async def _trigger_vf_search(db: AsyncSession, settings: Settings, req: MediaRequest) -> None:
     """Relance une recherche Sonarr/Radarr pour un média détecté en VO seule (auto-search VFF).
 
     Ignoré si arr_id absent ou si la demande provient de Seer (arr_id = ID Seer, pas Sonarr/Radarr).
@@ -292,7 +306,7 @@ async def _trigger_vf_search(db: Session, settings: Settings, req: MediaRequest)
     if not req.arr_id or req.source == "seer":
         return
     arr_type = "radarr" if req.media_type == "movie" else "sonarr"
-    inst = _resolve_vf_arr_instance(db, req, arr_type)
+    inst = await _resolve_vf_arr_instance(db, req, arr_type)
     if not inst:
         return
     try:
@@ -390,10 +404,10 @@ async def trigger_plex_library_refresh(
         logger.warning(f"Déclenchement du scan Plex échoué : {e}")
 
 
-def _queue_availability_progress(
+async def _queue_availability_progress(
     settings: Settings,
     req: MediaRequest,
-    db: Session,
+    db: AsyncSession,
     *,
     language: str,
     episode_status: dict | None = None,
@@ -405,17 +419,17 @@ def _queue_availability_progress(
     mode "classic" (movie_notify_language/series_notify_language désactivé) et le suivi
     "sans langue" des séries (délégué à `check_episode_tracking`, jamais les deux à la
     fois pour éviter un double suivi du même évènement)."""
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     if req.media_type != "show":
         if not _resolve_movie_notify_language(settings, user_obj):
             if not req.available_mail_sent:
-                _notify("available", settings, req, db)
+                await _notify("available", settings, req, db)
             return 0
-        return int(_queue_milestone(settings, req, db, scope="movie", language=language))
+        return int(await _queue_milestone(settings, req, db, scope="movie", language=language))
 
     if not _resolve_series_notify_language(settings, user_obj):
         return 0
-    return _queue_show_milestones(
+    return await _queue_show_milestones(
         settings,
         req,
         db,
@@ -426,11 +440,11 @@ def _queue_availability_progress(
     )
 
 
-def _apply_vf_result(
+async def _apply_vf_result(
     req: MediaRequest,
     has_vf: bool,
     category: str | None,
-    db: Session,
+    db: AsyncSession,
     settings: Settings,
     now: datetime,
     season_aired_counts: dict[int, int] | None = None,
@@ -463,8 +477,8 @@ def _apply_vf_result(
         if was_tracking:
             # Transition VO → VF : on prévient
             req.vf_available_at = now
-            db.commit()
-            vf_delta = _queue_availability_progress(
+            await db.commit()
+            vf_delta = await _queue_availability_progress(
                 settings,
                 req,
                 db,
@@ -477,8 +491,8 @@ def _apply_vf_result(
         else:
             # Première analyse, VF présente : envoie l'« available » différé
             # (une seule notification — pas de doublon avec vo_only).
-            db.commit()
-            _notify("available", settings, req, db)
+            await db.commit()
+            await _notify("available", settings, req, db)
     else:
         # VO uniquement
         req.has_vf = False
@@ -489,8 +503,8 @@ def _apply_vf_result(
                 # d'annonce de disponibilité. On marque available_mail_sent
                 # pour éviter tout doublon « available » ultérieur.
                 req.available_mail_sent = True
-                db.commit()
-                vo_delta = _queue_availability_progress(
+                await db.commit()
+                vo_delta = await _queue_availability_progress(
                     settings,
                     req,
                     db,
@@ -502,12 +516,12 @@ def _apply_vf_result(
                 logger.info(f"VFF : '{req.title}' disponible en VO uniquement — suivi VF activé")
             else:
                 # Dispo déjà notifiée (fallback scan-lag) → suivi silencieux
-                db.commit()
+                await db.commit()
             trigger_search = bool(settings.vff_auto_search)
         else:
-            db.commit()
+            await db.commit()
             if req.media_type != "movie":
-                vf_delta = _queue_availability_progress(
+                vf_delta = await _queue_availability_progress(
                     settings,
                     req,
                     db,
@@ -519,7 +533,7 @@ def _apply_vf_result(
     return trigger_search, vf_delta, vo_delta
 
 
-async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db: Session) -> bool:
+async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db: AsyncSession) -> bool:
     """Scanne Plex immédiatement pour CE seul média avant d'envoyer le mail de disponibilité.
 
     Appelé au moment précis où une demande devient disponible (webhook temps réel ou poll
@@ -536,7 +550,7 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
     if not settings.vff_enabled or not settings.plex_url or not settings.plex_token:
         return False
 
-    user_obj = db.query(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id).first()
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     series_no_language = False
     if req.media_type == "movie":
         if not _resolve_movie_notify_language(settings, user_obj):
@@ -558,7 +572,7 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         "imdb_id": req.imdb_id,
         "plex_guid": req.plex_guid,
     }
-    known_vf = _load_known_vf_episodes(db, "request", [req.id]) if req.media_type == "show" else {}
+    known_vf = await _load_known_vf_episodes(db, "request", [req.id]) if req.media_type == "show" else {}
     try:
         results = await asyncio.to_thread(
             _scan_vf_blocking, settings.plex_url, settings.plex_token, [candidate], libs, known_vf
@@ -576,11 +590,11 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
     now = now_utc_naive()
     episode_status: dict[int, dict[int, bool]] | None = res.get("episode_status")
     if episode_status:
-        _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
-        db.commit()
+        await _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
+        await db.commit()
 
     if req.media_type == "show" and series_no_language:
-        _queue_show_milestones(settings, req, db, language=None, episode_status=episode_status)
+        await _queue_show_milestones(settings, req, db, language=None, episode_status=episode_status)
         return True
 
     season_aired_counts = None
@@ -588,7 +602,7 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         counts = await _prefetch_season_aired_counts(db, [req])
         season_aired_counts = counts.get(req.id)
 
-    trigger_search, _, _ = _apply_vf_result(
+    trigger_search, _, _ = await _apply_vf_result(
         req,
         res["has_vf"],
         res.get("category"),
@@ -647,9 +661,9 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
     state["total_items"] = 0
     state["error"] = None
 
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.vff_enabled:
             state["status"] = "idle"
             return
@@ -671,18 +685,16 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
         # bibliothèque Plex prouve déjà sa présence réelle. La présence dans LibraryItem
         # devient donc un déclencheur de disponibilité à part entière, indépendant de ce
         # que rapporte *arr.
-        pending_q = (
-            db.query(MediaRequest)
-            .filter(
+        pending_q = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.status.notin_([RequestStatus.available, RequestStatus.failed]),
                 MediaRequest.library_item_id.is_(None),
             )
-            .all()
-        )
+        )).scalars().all()
         promoted = 0
         now_reconcile = now_utc_naive()
         for req in pending_q:
-            li = _link_request_to_library_item(db, req)
+            li = await _link_request_to_library_item(db, req)
             if not li:
                 continue
             req.status = RequestStatus.available
@@ -697,7 +709,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
             # reçoit "available" (VF présente) ou "vo_only" (VO) selon le résultat du scan,
             # sans jamais doubler la notification.
         if promoted:
-            db.commit()
+            await db.commit()
             logger.info(f"VFF ({label}) : {promoted} demande(s) promue(s) 'disponible' via la bibliothèque Plex")
 
         req_has_vf_filter: ColumnElement[bool]
@@ -716,10 +728,10 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
                 if only_unseen
                 else (LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False))
             )
-        candidates_q = (
-            db.query(MediaRequest).filter(MediaRequest.status == RequestStatus.available, req_has_vf_filter).all()
-        )
-        lib_q = db.query(LibraryItem).filter(lib_has_vf_filter).all()
+        candidates_q = (await db.execute(
+            select(MediaRequest).filter(MediaRequest.status == RequestStatus.available, req_has_vf_filter)
+        )).scalars().all()
+        lib_q = (await db.execute(select(LibraryItem).filter(lib_has_vf_filter))).scalars().all()
         if not candidates_q and not lib_q:
             state["status"] = "idle"
             state["finished_at"] = now_utc().isoformat()
@@ -732,13 +744,13 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
         linked_pairs: list[tuple[MediaRequest, LibraryItem]] = []
         unlinked_candidates_q: list[MediaRequest] = []
         for req in candidates_q:
-            li = _link_request_to_library_item(db, req)
+            li = await _link_request_to_library_item(db, req)
             if li:
                 linked_pairs.append((req, li))
             else:
                 unlinked_candidates_q.append(req)
         if linked_pairs:
-            db.commit()  # persiste les nouveaux library_item_id
+            await db.commit()  # persiste les nouveaux library_item_id
 
         def _to_candidate(r):
             return {
@@ -764,7 +776,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
 
         results_by_id = {}
         if candidates:
-            known_vf_requests = _load_known_vf_episodes(db, "request", [c["id"] for c in candidates])
+            known_vf_requests = await _load_known_vf_episodes(db, "request", [c["id"] for c in candidates])
             results = await asyncio.to_thread(
                 _scan_vf_blocking,
                 settings.plex_url,
@@ -778,9 +790,9 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
             for r in results:
                 episode_status = r.get("episode_status")
                 if episode_status:
-                    _persist_episode_status(db, "request", r["id"], episode_status, now, r.get("french_default"))
+                    await _persist_episode_status(db, "request", r["id"], episode_status, now, r.get("french_default"))
             if any(r.get("episode_status") for r in results):
-                db.commit()
+                await db.commit()
 
         season_counts_by_req_id = await _prefetch_season_aired_counts(
             db, unlinked_candidates_q + [req for req, _ in linked_pairs]
@@ -800,11 +812,11 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
                 # ne pas laisser l'utilisateur sans information. has_vf reste None :
                 # un passage ultérieur détectera la VF/VO (suivi silencieux, pas de doublon).
                 if req.has_vf is None and not req.available_mail_sent:
-                    _notify("available", settings, req, db)
+                    await _notify("available", settings, req, db)
                     newly_fallback += 1
                 continue
 
-            trigger_search, vf_delta, vo_delta = _apply_vf_result(
+            trigger_search, vf_delta, vo_delta = await _apply_vf_result(
                 req,
                 res["has_vf"],
                 res.get("category"),
@@ -822,7 +834,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
         # --- Médias de bibliothèque : état VF pour affichage (pas de notification) ---
         lib_updated = 0
         if lib_candidates:
-            known_vf_lib = _load_known_vf_episodes(db, "library_item", [c["id"] for c in lib_candidates])
+            known_vf_lib = await _load_known_vf_episodes(db, "library_item", [c["id"] for c in lib_candidates])
             lib_results = await asyncio.to_thread(
                 _scan_vf_blocking,
                 settings.plex_url,
@@ -847,16 +859,16 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
                 lib_updated += 1
                 episode_status = res.get("episode_status")
                 if episode_status:
-                    _persist_episode_status(db, "library_item", li.id, episode_status, now, res.get("french_default"))
-            db.commit()
+                    await _persist_episode_status(db, "library_item", li.id, episode_status, now, res.get("french_default"))
+            await db.commit()
 
         # --- Demandes liées à un LibraryItem : propager son has_vf, pas de re-scan Plex ---
         linked_updated = 0
-        linked_episode_status = _load_episode_status_map(db, "library_item", list({li.id for _, li in linked_pairs}))
+        linked_episode_status = await _load_episode_status_map(db, "library_item", list({li.id for _, li in linked_pairs}))
         for req, li in linked_pairs:
             if li.has_vf is None:
                 continue  # LibraryItem pas encore résolu ; réessaiera au prochain cycle
-            trigger_search, vf_delta, vo_delta = _apply_vf_result(
+            trigger_search, vf_delta, vo_delta = await _apply_vf_result(
                 req,
                 li.has_vf,
                 li.vf_category,
@@ -885,7 +897,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
         state["status"] = "failed"
         state["error"] = str(e)
     finally:
-        db.close()
+        await db.close()
 
 
 async def check_vf_statuses(force: bool = False) -> None:
@@ -924,9 +936,9 @@ async def check_episode_tracking():
     episode_scan_state["total_items"] = 0
     episode_scan_state["error"] = None
 
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.plex_url or not settings.plex_token:
             episode_scan_state["status"] = "idle"
             return
@@ -937,12 +949,10 @@ async def check_episode_tracking():
             return
 
         global_no_language = not _resolve_series_notify_language(settings, None)
-        candidates_q = (
-            db.query(MediaRequest)
-            .filter(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
-            .all()
-        )
-        users_by_id = {u.plex_user_id: u for u in db.query(PlexUser).all()}
+        candidates_q = (await db.execute(
+            select(MediaRequest).filter(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
+        )).scalars().all()
+        users_by_id = {u.plex_user_id: u for u in (await db.execute(select(PlexUser))).scalars().all()}
 
         def _wants_no_language(req: MediaRequest) -> bool:
             user_obj = users_by_id.get(req.plex_user_id)
@@ -986,9 +996,9 @@ async def check_episode_tracking():
                 continue
             episode_status = res.get("episode_status")
             if episode_status:
-                _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
-                db.commit()
-            notified += _queue_show_milestones(
+                await _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
+                await db.commit()
+            notified += await _queue_show_milestones(
                 settings,
                 req,
                 db,
@@ -1005,7 +1015,7 @@ async def check_episode_tracking():
         episode_scan_state["status"] = "failed"
         episode_scan_state["error"] = str(e)
     finally:
-        db.close()
+        await db.close()
 
 
 def trigger_vff_scan_background(force: bool = False):

@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -8,12 +8,13 @@ from sqlalchemy.pool import StaticPool
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import _handle_show_progress_notification
 from app.services.notification_orchestrator import _resolve_series_granularity
+from tests.async_support import TestSession
 
 
 def _make_db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)()
+    return TestSession(sessionmaker(bind=engine)())
 
 
 def _settings(**kwargs) -> Settings:
@@ -56,7 +57,7 @@ async def test_jalons_notifies_once_on_first_partial():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -78,7 +79,7 @@ async def test_jalons_does_not_repeat_once_flagged():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -98,7 +99,7 @@ async def test_tout_notifies_on_each_increase():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -120,7 +121,7 @@ async def test_tout_skips_when_count_unchanged():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -135,7 +136,7 @@ async def test_complete_series_sends_available_notification():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -157,7 +158,7 @@ async def test_complete_series_does_not_repeat_once_sent():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()
@@ -172,7 +173,7 @@ async def test_no_episode_data_falls_back_to_classic_available_notification():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_called_once()
@@ -188,7 +189,7 @@ async def test_zero_episodes_available_does_not_notify():
     db.add(req)
     db.commit()
 
-    with patch("app.services.notification_orchestrator.enqueue_notification") as mock_enqueue:
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
         await _handle_show_progress_notification(settings, req, db)
 
     mock_enqueue.assert_not_called()

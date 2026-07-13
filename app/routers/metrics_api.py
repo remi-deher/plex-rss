@@ -345,11 +345,9 @@ async def stats_counts(db: AsyncSession = Depends(get_db_async)):
 @router.get("/stats/top-requested")
 async def stats_top_requested(db: AsyncSession = Depends(get_db_async), limit: int = 5):
     """Retourne les demandes ayant le plus de co-demandeurs (les plus réclamées)."""
-    rows = (
-        db.query(MediaRequest)
-        .filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
-        .all()
-    )
+    rows = (await db.execute(
+        select(MediaRequest).filter(MediaRequest.extra_requesters.isnot(None), MediaRequest.extra_requesters != "[]")
+    )).scalars().all()
     items = []
     for r in rows:
         extras = _json.loads(r.extra_requesters or "[]")

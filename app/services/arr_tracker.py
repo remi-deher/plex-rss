@@ -3,10 +3,12 @@ import logging
 import re
 import time
 
+import sqlalchemy
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import SessionLocal
+from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
@@ -23,15 +25,15 @@ from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_
 logger = logging.getLogger(__name__)
 
 
-def _delete_vf_episode_cache(db: Session, request_id: int) -> None:
+async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
     """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines).
 
     Doublon volontaire du helper de `app/routers/requests_api.py` : les deux modules
     n'ont pas de dépendance commune vers les modèles sans risquer un import circulaire.
     """
-    db.query(VfEpisodeStatus).filter(
+    await db.execute(sqlalchemy.delete(VfEpisodeStatus).filter(
         VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
-    ).delete()
+    ))
 
 
 # Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
@@ -69,18 +71,17 @@ async def check_arr_statuses():
     deleted_count = 0
     errors_count = 0
     error_details: list[str] = []
-    db = SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     await _arr_status_lock.acquire()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
             return
 
-        _check_and_seed_instances_from_settings(db, settings)
+        await _check_and_seed_instances_from_settings(db, settings)
 
-        candidates = (
-            db.query(MediaRequest)
-            .filter(
+        candidates = (await db.execute(
+            select(MediaRequest).filter(
                 or_(
                     MediaRequest.status == RequestStatus.sent_to_arr,
                     # Séries déjà "available" mais encore partiellement diffusées : on
@@ -95,8 +96,7 @@ async def check_arr_statuses():
                     ),
                 )
             )
-            .all()
-        )
+        )).scalars().all()
 
         # Filter out requests handled by Prowlarr since Prowlarr does not track availability
         candidates = [c for c in candidates if not (c.arr_slug and c.arr_slug.startswith("prowlarr:"))]
@@ -108,7 +108,7 @@ async def check_arr_statuses():
         items_processed = len(candidates)
 
         # Load all enabled instances
-        instances = db.query(ArrInstance).filter(ArrInstance.enabled).all()
+        instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
 
         for inst in instances:
             if inst.arr_type not in ("sonarr", "radarr"):
@@ -216,7 +216,7 @@ async def check_arr_statuses():
                             )
                             new_arr_id = new_arr_id or arr_new_id
                             new_slug = new_slug or arr_new_slug
-                    elif seer_checked and available and not has_plex_proof(db, req):
+                    elif seer_checked and available and not await has_plex_proof(db, req):
                         logger.info(
                             "Seer indique '%s' disponible, mais Plex ne confirme pas encore sa presence; "
                             "la demande reste en attente.",
@@ -252,9 +252,9 @@ async def check_arr_statuses():
                         logger.info(
                             f"'{req.title}' n'existe plus dans {inst.arr_type} (id={req.arr_id}) — suppression de la demande"
                         )
-                        _delete_vf_episode_cache(db, req.id)
-                        db.delete(req)
-                        db.commit()
+                        await _delete_vf_episode_cache(db, req.id)
+                        await db.delete(req)
+                        await db.commit()
                         deleted_count += 1
                         continue
 
@@ -280,14 +280,14 @@ async def check_arr_statuses():
 
                 was_already_available = req.status == RequestStatus.available
                 if available:
-                    if not has_plex_proof(db, req):
+                    if not await has_plex_proof(db, req):
                         note_arr_processed(req, arr_id=new_arr_id, arr_slug=new_slug, arr_instance_id=inst.id)
                         logger.info(
                             "'%s' est traite cote %s, en attente de confirmation Plex avant disponibilite.",
                             req.title,
                             inst.arr_type,
                         )
-                        db.commit()
+                        await db.commit()
                         continue
                     if not was_already_available:
                         req.status = RequestStatus.available
@@ -296,8 +296,8 @@ async def check_arr_statuses():
                         req.next_release_label = None
                         newly_available += 1
                         logger.info(f"'{req.title}' is now available")
-                        db.commit()
-                        record_completed(
+                        await db.commit()
+                        await record_completed(
                             db,
                             title=req.title,
                             year=req.year,
@@ -308,7 +308,7 @@ async def check_arr_statuses():
                             request_id=req.id,
                         )
                     else:
-                        db.commit()
+                        await db.commit()
 
                     if req.media_type == "show":
                         # Gère la disponibilité partielle (série en cours de diffusion) :
@@ -323,12 +323,12 @@ async def check_arr_statuses():
                         # désactivé (sinon check_vf_statuses rattrapera au cycle suivant).
                         handled = await scan_and_notify_availability(req, settings, db)
                         if not handled and not settings.vff_enabled:
-                            notification_orchestrator._notify("available", settings, req, db)
+                            await notification_orchestrator._notify("available", settings, req, db)
                 else:
                     await _refresh_next_release(
                         req, settings, series_list=series_list, movies_list=movies_list, inst=inst
                     )
-                    db.commit()
+                    await db.commit()
 
         # Analyse VF immédiate des nouvelles disponibilités (évite le délai jusqu'au
         # prochain passage planifié pour l'envoi de la notification différée).
@@ -352,7 +352,7 @@ async def check_arr_statuses():
         # Persist PollHistory (concatène toutes les erreurs du cycle, pas seulement la dernière)
         duration_ms = int((time.monotonic() - _check_start) * 1000)
         error_detail = "; ".join(error_details)[:2000] if error_details else None
-        poll_db = SessionLocal()
+        poll_db: AsyncSession = AsyncSessionLocal()
         try:
             history = PollHistory(
                 job="arr_status",
@@ -365,35 +365,33 @@ async def check_arr_statuses():
                 error_detail=error_detail,
             )
             poll_db.add(history)
-            poll_db.commit()
+            await poll_db.commit()
         except Exception as pe:
             logger.error(f"Failed to persist arr_status PollHistory: {pe}")
         finally:
             if poll_db is not db:
-                poll_db.close()
-        db.close()
+                await poll_db.close()
+        await db.close()
         _arr_status_lock.release()
 
 
 async def check_torrent_statuses():
     """Tâche périodique de suivi et nettoyage des torrents actifs."""
     logger.info("Checking torrent statuses...")
-    db = watchlist_poller.SessionLocal()
+    db: AsyncSession = AsyncSessionLocal()
     try:
-        settings = db.query(Settings).first()
+        settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
             return
 
-        requests = (
-            db.query(MediaRequest)
-            .filter(
+        requests = (await db.execute(
+            select(MediaRequest).filter(
                 MediaRequest.torrent_hash.isnot(None),
                 MediaRequest.status != RequestStatus.available,
             )
-            .all()
-        )
+        )).scalars().all()
 
-        clients = {c.id: c for c in db.query(DownloadClient).all()}
+        clients = {c.id: c for c in (await db.execute(select(DownloadClient))).scalars().all()}
         for req in requests:
             client = clients.get(req.download_client_id)
             if not client or not client.enabled:
@@ -413,7 +411,7 @@ async def check_torrent_statuses():
             if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
                 if req.status != RequestStatus.available:
                     req.is_downloading = False
-                    db.commit()
+                    await db.commit()
                     logger.info(
                         "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
                         req.title,
@@ -442,10 +440,10 @@ async def check_torrent_statuses():
                     if deleted:
                         logger.info(f"Torrent '{req.title}' nettoyé (suppression des fichiers={delete_files})")
                         req.torrent_hash = None
-                        db.commit()
+                        await db.commit()
                     else:
                         logger.error(f"Échec de suppression du torrent '{req.title}'")
     except Exception as e:
         logger.error(f"Erreur check_torrent_statuses : {e}")
     finally:
-        db.close()
+        await db.close()

@@ -310,7 +310,7 @@ async def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: AsyncSe
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     user = await async_get_or_404(db, PlexUser, user_id, "User not found")
-    db.delete(user)
+    await db.delete(user)
     await db.commit()
     return {"status": "deleted"}
 
@@ -534,7 +534,7 @@ async def _merge_users(db: AsyncSession, source: PlexUser, keeper: PlexUser) -> 
     for m in (await db.execute(select(NotificationMilestone).filter(NotificationMilestone.plex_user_id == old))).scalars().all():
         key = (m.req_id, m.direction, m.milestone_type, m.season_number, m.episode_number)
         if key in keeper_keys:
-            db.delete(m)  # déjà couvert par le keeper → on jette le doublon
+            await db.delete(m)  # déjà couvert par le keeper → on jette le doublon
         else:
             m.plex_user_id = new
             keeper_keys.add(key)
@@ -563,7 +563,7 @@ async def _merge_users(db: AsyncSession, source: PlexUser, keeper: PlexUser) -> 
     if not keeper.source and source.source:
         keeper.source = source.source
 
-    db.delete(source)
+    await db.delete(source)
 
     return {
         "status": "merged",
@@ -778,7 +778,7 @@ async def bulk_delete_users(payload: BulkDeleteUpdate, db: AsyncSession = Depend
     count = len(users)
     for user in users:
         # Also clean up credentials
-        db.query(PasskeyCredential).filter(PasskeyCredential.user_id == user.id).delete()
-        db.delete(user)
+        await db.execute(sqlalchemy.delete(PasskeyCredential).filter(PasskeyCredential.user_id == user.id))
+        await db.delete(user)
     await db.commit()
     return {"deleted": count}

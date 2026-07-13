@@ -236,13 +236,14 @@ async def preview_email_template(event: str = "request", user_id: Optional[int] 
 
 @router.get("/notifications/log")
 async def list_notification_logs(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db_async)):
+    effective_limit = min(limit, 200)
     q = select(NotificationLog).order_by(NotificationLog.sent_at.desc())
     total = (await db.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(q.subquery()))).scalar()
-    logs = (await db.execute(q.offset(offset).limit(min(limit, 200)))).scalars().all()
+    logs = (await db.execute(q.offset(offset).limit(effective_limit))).scalars().all()
     return {
         "total": total,
         "offset": offset,
-        "limit": limit,
+        "limit": effective_limit,
         "items": [
             {
                 "id": log.id,

@@ -9,12 +9,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import ArrInstance, Base, LibraryItem, MediaRequest, RequestStatus
 from app.routers.calendar_api import unified_calendar
+from tests.async_support import TestSession
 
 
 def _make_db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
-    return sessionmaker(bind=engine)()
+    return TestSession(sessionmaker(bind=engine)())
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import PollHistory
@@ -24,7 +24,7 @@ def _cleanup():
     app.dependency_overrides.pop(get_db, None)
 
 
-def test_get_poll_history():
+def test_get_poll_history(async_db):
     history = PollHistory(
         id=1,
         job="watchlist",
@@ -35,15 +35,9 @@ def test_get_poll_history():
         newly_available=0,
         errors=0,
     )
-    db = MagicMock()
-    # Mocking chain: db.query().filter().order_by().limit().all()
-    q = db.query.return_value
-    q.filter.return_value = q
-    q.order_by.return_value = q
-    q.limit.return_value = q
-    q.all.return_value = [history]
-
-    client = _client_with_db(db)
+    async_db.add(history)
+    async_db.commit()
+    client = _client_with_db(async_db)
     try:
         resp = client.get("/api/poll-history")
         assert resp.status_code == 200

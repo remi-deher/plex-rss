@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import ArrInstance, Base, DownloadClient, MediaRequest, RequestStatus, Settings
 from app.scheduler import check_torrent_statuses, poll_watchlists
+from tests.async_support import TestSession
 
 
 @pytest.fixture()
@@ -13,7 +14,7 @@ def db():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -91,14 +92,17 @@ async def test_watchlist_torrent_automation_fallback(db):
     ]
 
     with (
-        patch("app.services.watchlist_poller.SessionLocal", return_value=db),
+        patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db),
         patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=[watchlist_item])),
         patch("app.services.prowlarr.search", new=AsyncMock(return_value=mock_search_results)),
         patch(
             "app.services.watchlist_poller.add_torrent_to_client",
             new=AsyncMock(return_value=(True, "Added", "inception_hash")),
         ),
-        patch("app.services.notification_orchestrator._notify") as mock_notify,
+        patch(
+            "app.services.watchlist_poller.notification_orchestrator._notify",
+            new=AsyncMock(return_value=True),
+        ) as mock_notify,
     ):
         await poll_watchlists()
 
@@ -151,10 +155,9 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
     }
 
     with (
-        patch("app.services.watchlist_poller.SessionLocal", return_value=db),
+        patch("app.services.arr_tracker.AsyncSessionLocal", return_value=db),
         patch("app.services.arr_tracker.get_torrent_status", new=AsyncMock(return_value=mock_status)),
         patch("app.services.arr_tracker.delete_torrent", new=AsyncMock(return_value=True)) as mock_delete,
-        patch("app.services.notification_orchestrator._notify") as mock_notify,
     ):
         await check_torrent_statuses()
 
@@ -166,12 +169,11 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
         try:
             req_db = new_session.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
             assert req_db is not None
-            # Request should now be available
-            assert req_db.status == RequestStatus.available
+            # Completion alone is not proof of Plex availability.
+            assert req_db.status == RequestStatus.sent_to_arr
             # Torrent should be cleaned up (deleted) and hash cleared
             assert req_db.torrent_hash is None
         finally:
             new_session.close()
 
         mock_delete.assert_called_once_with("qbittorrent", "http://localhost:8080", None, None, "inception_hash", True)
-        mock_notify.assert_called_once()
