@@ -452,10 +452,10 @@ function formatDownloadProgress(item) {
 }
 
 const statCards = computed(() => [
-  { label: 'Demandes', value: counts.value.total ?? '-' },
-  { label: 'A valider', value: counts.value.pending_approval ?? pending.value.length },
+  { label: 'Demandes totales', value: counts.value.total ?? '-' },
+  { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length },
+  { label: 'Chez Sonarr/Radarr', value: counts.value.sent_to_arr ?? '-' },
   { label: 'Disponibles', value: counts.value.available ?? '-' },
-  { label: 'Echouees', value: counts.value.failed ?? '-' }
 ]);
 
 const doneSteps = computed(() => onboarding.value.steps?.filter(x => x.done).length || 0);
