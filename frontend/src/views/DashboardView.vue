@@ -37,10 +37,17 @@
 
     <!-- Stats summary metrics -->
     <section class="metric-grid">
-      <article v-for="card in statCards" :key="card.label" class="metric-card">
+      <component 
+        v-for="card in statCards" 
+        :key="card.label" 
+        :is="card.route ? 'RouterLink' : 'article'"
+        :to="card.route"
+        class="metric-card"
+        :style="card.route ? 'text-decoration: none; color: inherit;' : ''"
+      >
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>
-      </article>
+      </component>
     </section>
 
     <div class="dashboard-grid">
@@ -509,10 +516,11 @@ function formatDownloadProgress(item) {
 }
 
 const statCards = computed(() => [
-  { label: 'Demandes en cours', value: ((counts.value.sent_to_arr ?? 0) + (counts.value.pending ?? 0) + (counts.value.pending_approval ?? 0)) || '-' },
-  { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length },
-  { label: 'Chez Sonarr/Radarr', value: counts.value.sent_to_arr ?? '-' },
-  { label: 'Disponibles', value: counts.value.available ?? '-' },
+  { label: 'Demandes en cours', value: ((counts.value.sent_to_arr ?? 0) + (counts.value.pending ?? 0) + (counts.value.pending_approval ?? 0)) || '-', route: { path: '/requests', query: { status: 'pending,sent_to_arr,pending_approval' } } },
+  { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length, route: { path: '/requests', query: { status: 'pending_approval' } } },
+  { label: 'Chez Sonarr', value: counts.value.by_type?.show?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'show' } } },
+  { label: 'Chez Radarr', value: counts.value.by_type?.movie?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'movie' } } },
+  { label: 'Disponibles', value: counts.value.available ?? '-', route: { path: '/requests', query: { status: 'available' } } },
 ]);
 
 const doneSteps = computed(() => onboarding.value.steps?.filter(x => x.done).length || 0);
