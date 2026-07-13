@@ -48,7 +48,7 @@ services:
       ENABLE_ARQ: "1"
       AUTO_MIGRATE_LEGACY_SQLITE: "0"
       PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
-      ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-4}
+      ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-15}
       ARQ_JOB_TIMEOUT: ${ARQ_JOB_TIMEOUT:-3600}
     depends_on:
       plex-rss:
