@@ -135,8 +135,8 @@ const libraryItems = computed(() => items.value.filter(x => x._kind === 'library
 const metrics = computed(() => [
   { label: 'Dans Plex', value: rawMetrics.value.total ?? libraryItems.value.length },
   { label: 'En cours', value: items.value.length - libraryItems.value.length },
-  { label: 'Films', value: rawMetrics.value.by_type?.movie ?? libraryItems.value.filter(x => x.media_type === 'movie').length },
-  { label: 'Avec VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
+  { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
+  { label: 'En VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
 ]);
 
 function proxyUrl(url) {
