@@ -55,15 +55,27 @@ if DATABASE_URL.startswith("sqlite"):
 
 
 def run_migrations():
-    """Run Alembic migrations in a subprocess."""
+    """Run Alembic migrations in a subprocess with retries."""
     import subprocess
     import sys
+    import time
+    import logging
 
-    subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        capture_output=False,
-        check=True,
-    )
+    max_retries = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                capture_output=False,
+                check=True,
+            )
+            return
+        except subprocess.CalledProcessError as e:
+            if attempt == max_retries:
+                logging.error(f"Failed to run migrations after {max_retries} attempts.")
+                raise e
+            logging.warning(f"Database not ready or migration failed, retrying in 5 seconds (attempt {attempt}/{max_retries})...")
+            time.sleep(5)
 
 
 async def seed_defaults():
