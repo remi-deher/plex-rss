@@ -66,7 +66,7 @@ def main():
             key = (row.title, row.year, row.media_type)
             pg_lib_map[key] = row.id
 
-        lib_id_mapping = {} 
+        lib_id_mapping = {}
         for sq_id, row in sq_lib_map.items():
             key = (row['title'], row['year'], row['media_type'])
             if key in pg_lib_map:
@@ -116,7 +116,7 @@ def main():
                     source=sq_r['source'],
                     arr_id=sq_r['arr_id'],
                     arr_slug=sq_r['arr_slug'],
-                    requested_at=sq_r['requested_at'], 
+                    requested_at=sq_r['requested_at'],
                     available_at=sq_r['available_at'],
                     poster_url=sq_r['poster_url'],
                     overview=sq_r['overview'],
