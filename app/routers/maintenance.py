@@ -583,14 +583,37 @@ _ACTION_RUNNERS = {
 # Endpoints
 # ---------------------------------------------------------------------------
 
+async def _is_action_enabled(action: str, db: AsyncSession) -> tuple[bool, str | None]:
+    from sqlalchemy import select
+    from ..models import Settings
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings:
+        return True, None
+
+    if action.startswith("seer-"):
+        if not settings.seer_enabled:
+            return False, "Seer n'est pas activé dans les paramètres."
+        if not settings.seer_url or not settings.seer_api_key:
+            return False, "L'URL ou la clé API Seer n'est pas configurée."
+
+    if action == "discover-users":
+        if not settings.plex_rss_url:
+            return False, "Le flux RSS Plex n'est pas configuré."
+
+    return True, None
 
 @router.get("/actions")
-def list_actions(_: None = Depends(require_admin)):
+async def list_actions(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     result = {}
     for key, meta in ACTIONS_META.items():
         last = _last_runs.get(key)
+        
+        enabled, disabled_reason = await _is_action_enabled(key, db)
+        
         result[key] = {
             **meta,
+            "enabled": enabled,
+            "disabled_reason": disabled_reason,
             "last_run": {
                 "status": last.status,
                 "finished_at": last.finished_at,
@@ -603,9 +626,13 @@ def list_actions(_: None = Depends(require_admin)):
 
 
 @router.post("/run/{action}")
-async def start_run(action: str, _: None = Depends(require_admin)):
+async def start_run(action: str, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
     if action not in _ACTION_RUNNERS:
         raise HTTPException(404, f"Action inconnue : {action}")
+
+    enabled, reason = await _is_action_enabled(action, db)
+    if not enabled:
+        raise HTTPException(400, f"Action désactivée : {reason}")
 
     from ..job_queue import arq_enabled, enqueue_job, set_json
 
