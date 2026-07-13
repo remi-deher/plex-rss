@@ -331,6 +331,59 @@
         </article>
         <p v-if="!recentNotifs.length" class="empty">Aucune notification envoyee.</p>
       </section>
+
+      <!-- Scan VF / Sync Plex -->
+      <section class="panel span-two">
+        <div class="panel-head">
+          <h2>Etat des scans</h2>
+          <div class="actions">
+            <button class="secondary" :disabled="vffScan.status==='running'" @click="triggerVffScan">Scan VF</button>
+            <button class="secondary" :disabled="plexSync.status==='running'" @click="triggerPlexSync">Sync Plex</button>
+          </div>
+        </div>
+
+        <!-- VFF scan -->
+        <div class="detail-row flex-column gap-6" style="margin-bottom:8px">
+          <div class="inline-row justify-between w-100">
+            <strong>Analyse VF</strong>
+            <span class="badge" :class="vffScan.status==='running'?'pending':vffScan.status==='failed'?'failed':'available'">
+              {{ vffScan.status==='running'?'En cours':vffScan.status==='failed'?'Erreur':'Inactif' }}
+            </span>
+          </div>
+          <div v-if="vffScan.status==='running'" class="progress-bar-wrap">
+            <div class="progress-bar animated" :style="{width: vffScan.total_items>0 ? `${Math.round(vffScan.items_scanned/vffScan.total_items*100)}%` : '5%'}"></div>
+          </div>
+          <span v-if="vffScan.status==='running'" style="font-size:12px;opacity:.6">
+            {{ vffScan.items_scanned }} / {{ vffScan.total_items || '?' }} items
+          </span>
+          <span v-else-if="vffScan.finished_at" style="font-size:12px;opacity:.6">Termine le {{ formatDate(vffScan.finished_at) }}</span>
+        </div>
+
+        <!-- Plex sync -->
+        <div class="detail-row flex-column gap-6">
+          <div class="inline-row justify-between w-100">
+            <strong>Synchronisation Plex</strong>
+            <span class="badge" :class="plexSync.status==='running'?'pending':plexSync.status==='failed'?'failed':'available'">
+              {{ plexSync.status==='running'?'En cours':plexSync.status==='failed'?'Erreur':'Inactif' }}
+            </span>
+          </div>
+          <div v-if="plexSync.status==='running'" class="progress-bar-wrap">
+            <div class="progress-bar animated" :style="{width: plexSync.total_items>0 ? `${Math.round(plexSync.items_synced/plexSync.total_items*100)}%` : '5%'}"></div>
+          </div>
+          <span v-if="plexSync.status==='running'" style="font-size:12px;opacity:.6">
+            {{ plexSync.items_synced }} / {{ plexSync.total_items || '?' }} items
+          </span>
+          <span v-else-if="plexSync.finished_at" style="font-size:12px;opacity:.6">Termine le {{ formatDate(plexSync.finished_at) }}</span>
+        </div>
+
+        <!-- VFF counts -->
+        <div v-if="vffCounts.vf_available!=null" class="inline-row gap-10" style="margin-top:8px;flex-wrap:wrap">
+          <span class="badge available">VF : {{ vffCounts.vf_available }}</span>
+          <span class="badge pending">VO en attente : {{ vffCounts.vo_pending }}</span>
+          <span class="badge">Non analysé : {{ vffCounts.unchecked }}</span>
+        </div>
+      </section>
+
     </div>
   </div>
 </template>
@@ -358,7 +411,11 @@ const upcoming = ref([]);
 const recentNotifs = ref([]);
 const downloadQueue = ref([]);
 const loadingQueue = ref(false);
+const vffScan = ref({ status: 'idle', items_scanned: 0, total_items: 0, finished_at: null });
+const plexSync = ref({ status: 'idle', items_synced: 0, total_items: 0, finished_at: null });
+const vffCounts = ref({});
 let timer;
+let vffTimer;
 
 // Disk Space Categorization
 const categorizedVolumes = computed(() => {
@@ -452,7 +509,7 @@ function formatDownloadProgress(item) {
 }
 
 const statCards = computed(() => [
-  { label: 'Demandes totales', value: counts.value.total ?? '-' },
+  { label: 'Demandes en cours', value: ((counts.value.sent_to_arr ?? 0) + (counts.value.pending ?? 0) + (counts.value.pending_approval ?? 0)) || '-' },
   { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length },
   { label: 'Chez Sonarr/Radarr', value: counts.value.sent_to_arr ?? '-' },
   { label: 'Disponibles', value: counts.value.available ?? '-' },
@@ -471,6 +528,25 @@ async function loadDownloadQueue() {
   } finally {
     loadingQueue.value = false;
   }
+}
+
+async function loadVffStatus() {
+  const [scanData, syncData, countsData] = await Promise.all([
+    api('/api/vff/scan-status').catch(() => null),
+    api('/api/vff/sync-status').catch(() => null),
+    api('/api/vff/counts').catch(() => null),
+  ]);
+  if (scanData) vffScan.value = scanData;
+  if (syncData) plexSync.value = syncData;
+  if (countsData) vffCounts.value = countsData;
+}
+
+async function triggerVffScan() {
+  try { await api('/api/vff/scan', { method: 'POST' }); await loadVffStatus(); } catch(e) {}
+}
+
+async function triggerPlexSync() {
+  try { await api('/api/vff/sync-plex', { method: 'POST' }); await loadVffStatus(); } catch(e) {}
 }
 
 async function load() {
@@ -529,10 +605,13 @@ useRealtime(['request.updated'], load);
 
 onMounted(async () => {
   await load();
+  await loadVffStatus();
   timer = setInterval(() => {
     if (seconds.value > 0) seconds.value--;
   }, 1000);
+  // Poll VFF status every 5s to update progress bars
+  vffTimer = setInterval(loadVffStatus, 5000);
 });
 
-onUnmounted(() => clearInterval(timer));
+onUnmounted(() => { clearInterval(timer); clearInterval(vffTimer); });
 </script>

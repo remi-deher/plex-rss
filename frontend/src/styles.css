@@ -2032,6 +2032,18 @@ button:disabled {
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.progress-bar.animated {
+  background: linear-gradient(90deg, var(--accent) 0%, hsl(270, 80%, 70%) 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+
 .volume-sources {
   font-size: 10.5px;
   color: var(--muted);
