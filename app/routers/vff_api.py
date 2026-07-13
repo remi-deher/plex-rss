@@ -239,11 +239,10 @@ async def vff_counts(db: AsyncSession = Depends(get_db_async)):
             select(sqlalchemy.func.count()).select_from(LibraryItem).filter(condition)
         )).scalar() or 0)
 
-    vo_pending, vf_available, unchecked = await asyncio.gather(
-        count_where(LibraryItem.has_vf.is_(False)),
-        count_where(LibraryItem.has_vf.is_(True)),
-        count_where(LibraryItem.has_vf.is_(None)),
-    )
+    vo_pending = await count_where(LibraryItem.has_vf.is_(False))
+    vf_available = await count_where(LibraryItem.has_vf.is_(True))
+    unchecked = await count_where(LibraryItem.has_vf.is_(None))
+    
     return {"vo_pending": vo_pending, "vf_available": vf_available, "unchecked": unchecked}
 
 

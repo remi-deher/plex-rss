@@ -783,7 +783,7 @@ async def recheck_plex(
     plex_guid = getattr(found, "guid", None)
     now = now_utc_naive()
 
-    lib_item = _find_library_item_by_ids(
+    lib_item = await _find_library_item_by_ids(
         db, plex_guid, tmdb_id, tvdb_id, imdb_id, found.title, getattr(found, "year", None), media.media_type
     )
     if not lib_item:
