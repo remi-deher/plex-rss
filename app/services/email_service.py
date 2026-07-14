@@ -264,10 +264,10 @@ def build_tmdb_url(request: MediaRequest | LibraryItem) -> str | None:
 
 def _resolve_plex_deep_link_sync(settings: Settings, request: MediaRequest | LibraryItem) -> str | None:
     """Bloquant (plexapi) : à appeler uniquement via asyncio.to_thread."""
-    plex = vff.connect(settings.plex_url, settings.plex_token)
+    plex = plex_finder.connect(settings.plex_url, settings.plex_token)
     section_type = "show" if request.media_type == "show" else "movie"
     library_names = [s.title for s in plex.library.sections() if s.type == section_type]
-    item = vff.find_item_in_libraries(
+    item = plex_finder.find_item_in_libraries(
         plex,
         library_names,
         request.title,

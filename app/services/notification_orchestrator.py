@@ -19,6 +19,13 @@ async def _send_digest():
     """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
     from .email_service import _send as smtp_send
 
+logger = logging.getLogger(__name__)
+
+
+async def _send_digest():
+    """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
+    from .email_service import _send as smtp_send
+
     try:
         async with AsyncSessionLocal() as db:
             settings = (await db.execute(select(Settings))).scalars().first()
@@ -28,7 +35,7 @@ async def _send_digest():
                 logger.warning("Digest : SMTP non configuré, skip")
                 return
 
-            cutoff = datetime.now() - timedelta(hours=24)
+            cutoff = now_utc_naive() - timedelta(hours=24)
             recent = (await db.execute(
                 select(MediaRequest)
                 .filter(MediaRequest.requested_at >= cutoff)
@@ -87,7 +94,7 @@ async def _send_digest():
 </table>
 </body></html>"""
 
-            subject = f"[Plexarr] Récap du {datetime.now().strftime('%d/%m/%Y')} — {count} demande{plural}"
+            subject = f"[Plexarr] Récap du {now_utc_naive().strftime('%d/%m/%Y')} — {count} demande{plural}"
             for user in users:
                 recipient = user.notification_email or user.plex_email
                 if not recipient:
@@ -110,7 +117,7 @@ async def _purge_notification_logs():
                 return
             days = settings.notification_log_retention_days
             if days:
-                cutoff = datetime.now() - timedelta(days=days)
+                cutoff = now_utc_naive() - timedelta(days=days)
                 result = await db.execute(sqlalchemy.delete(NotificationLog).filter(NotificationLog.sent_at < cutoff))
                 deleted = int(result.rowcount or 0)
                 if deleted:
@@ -119,12 +126,11 @@ async def _purge_notification_logs():
 
             poll_days = settings.poll_history_retention_days
             if poll_days:
-                poll_cutoff = datetime.now() - timedelta(days=poll_days)
+                poll_cutoff = now_utc_naive() - timedelta(days=poll_days)
                 result = await db.execute(sqlalchemy.delete(PollHistory).filter(PollHistory.started_at < poll_cutoff))
                 deleted_polls = int(result.rowcount or 0)
                 if deleted_polls:
                     await db.commit()
-                    logger.info(f"Purge historique poll : {deleted_polls} entrées supprimées (>{poll_days}j)")
 
             from .download_history import purge_old_entries
 

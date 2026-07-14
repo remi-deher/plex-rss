@@ -403,6 +403,39 @@ async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
                 "created_at": str(row.created_at or ""),
                 "event": row.event,
                 "event_label": get_event(row.event).label,
+    req_ids = []
+    for row in rows:
+        try:
+            req_ids.append(int(row.req_id))
+        except Exception:
+            pass
+    titles = {
+        req.id: {"title": req.title, "media_type": req.media_type}
+        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(req_ids)))).scalars().all()
+    }
+
+    def _json_value(raw, fallback):
+        try:
+            value = _json.loads(raw) if raw else fallback
+            return value if value is not None else fallback
+        except Exception:
+            return fallback
+
+    items = []
+    invalid = 0
+    for row in rows:
+        recipients = _json_value(row.recipients, [])
+        context = _json_value(row.reason, {})
+        is_valid = row.event in ("request", "available", "failed") and isinstance(recipients, list)
+        if not is_valid:
+            invalid += 1
+        media = titles.get(row.req_id, {})
+        items.append(
+            {
+                "id": row.id,
+                "created_at": str(row.created_at or ""),
+                "event": row.event,
+                "event_label": get_event(row.event).label,
                 "req_id": row.req_id,
                 "media_title": media.get("title"),
                 "media_type": media.get("media_type"),
@@ -419,8 +452,10 @@ async def _pending_rows_for_purge(db: AsyncSession, ids: list[int]) -> list:
         stmt = text(
             "SELECT id, event, req_id, recipients, reason FROM pending_notifications WHERE id IN :ids"
         ).bindparams(bindparam("ids", expanding=True))
-        return await db.execute(stmt, {"ids": [int(i) for i in ids]}).fetchall()
-    return await db.execute(text("SELECT id, event, req_id, recipients, reason FROM pending_notifications")).fetchall()
+        result = await db.execute(stmt, {"ids": [int(i) for i in ids]})
+        return result.fetchall()
+    result = await db.execute(text("SELECT id, event, req_id, recipients, reason FROM pending_notifications"))
+    return result.fetchall()
 
 
 def _safe_json_value(raw, fallback):
@@ -492,12 +527,12 @@ async def purge_pending_notifications(
     else:
         await db.rollback()
     if ids:
-        deleted = cancel_pending(ids)
+        deleted = await cancel_pending(ids)
         action = "notification_queue_delete"
         summary = f"{deleted} notification(s) en attente supprimée(s)"
         details = {"ids": ids, "mark_handled": body.mark_handled, "handled_requests": handled}
     else:
-        deleted = cancel_all_pending()
+        deleted = await cancel_all_pending()
         action = "notification_queue_purge_handled" if body.mark_handled else "notification_queue_purge"
         summary = f"{deleted} notification(s) en attente purgée(s)"
         if body.mark_handled:
