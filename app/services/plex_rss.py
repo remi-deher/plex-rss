@@ -62,10 +62,8 @@ def _parse_rss_entry(entry) -> dict | None:
     from datetime import datetime, timezone
     
     requested_at = None
-    if entry.get("published_parsed"):
-        # published_parsed est un time.struct_time en UTC
-        dt = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), timezone.utc)
-        requested_at = dt.replace(tzinfo=None)  # Enlever la timezone pour coller avec now_utc_naive
+    # On ignore published_parsed car Plex met la date de sortie du film dans l'attribut pubDate du flux RSS,
+    # et non la date d'ajout à la watchlist.
 
     # <category> = "movie" ou "show" — valeur déjà normalisée par Plex
     categories = [t.get("term", "").lower() for t in entry.get("tags", [])]
