@@ -393,7 +393,7 @@ async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
     for row in rows:
         recipients = _json_value(row.recipients, [])
         context = _json_value(row.reason, {})
-        is_valid = row.event in ("request", "available", "failed") and isinstance(recipients, list)
+        is_valid = row.event in ("request", "available", "failed", "correction") and isinstance(recipients, list)
         if not is_valid:
             invalid += 1
         media = titles.get(row.req_id, {})
@@ -522,7 +522,7 @@ async def resend_notification(log_id: int, db: AsyncSession = Depends(get_db_asy
     # Les anciens évènements de disponibilité (available_vf, vo_only, vf_available,
     # episode_track, partially_available, available_vo_tracking — retirés du catalogue,
     # voir notification_catalog.py) sont tous fusionnés dans "available" aujourd'hui.
-    event = log.event if log.event in ("request", "available", "failed") else "available"
+    event = log.event if log.event in ("request", "available", "failed", "correction") else "available"
     context = (
         {
             "scope": log.scope,

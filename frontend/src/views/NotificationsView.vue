@@ -308,10 +308,10 @@ onMounted(() => {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   min-width: 200px;
   z-index: 100;
   padding: 8px 0;
@@ -333,7 +333,7 @@ onMounted(() => {
 }
 
 .dropdown-item:hover {
-  background: var(--bg-modifier);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .dropdown-item input {

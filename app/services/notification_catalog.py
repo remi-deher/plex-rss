@@ -74,6 +74,17 @@ EVENTS: dict[str, NotificationEvent] = {
         default_subject="[Plexarr] Échec de transmission : {titre}",
         preview_context={"reason": "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."},
     ),
+    "correction": NotificationEvent(
+        key="correction",
+        label="Correction",
+        group="Administration",
+        description="L'administrateur a envoyé une correction concernant ce média.",
+        color=0x20C997,
+        badge_class="bg-info",
+        template_field=None,
+        subject_field=None,
+        default_subject="[Plexarr] Correction : {titre}",
+    ),
 }
 
 UNKNOWN_EVENT = NotificationEvent(
