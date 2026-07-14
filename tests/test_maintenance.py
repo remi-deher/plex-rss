@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.dependencies import require_admin, require_auth
 from app.main import app
+from app.database import get_db_async
 from app.models import Settings
 from app.routers.maintenance import (
     ACTIONS_META,
@@ -31,13 +32,15 @@ from tests.async_support import make_test_session
 
 
 @pytest.fixture()
-def client():
+def client(async_db):
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[require_admin] = lambda: None
-    c = TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides[get_db_async] = lambda: async_db
+    c = TestClient(app, raise_server_exceptions=True)
     yield c
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(get_db_async, None)
 
 
 # ---------------------------------------------------------------------------

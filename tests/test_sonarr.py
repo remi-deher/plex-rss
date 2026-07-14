@@ -51,7 +51,7 @@ async def test_add_series_new():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", ITEM)
 
     assert arr_id == 42
@@ -72,7 +72,7 @@ async def test_add_series_selected_seasons_payload():
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
     item = {**ITEM, "seasons": [1, 3]}
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         await add_series(URL, KEY, 1, "/tv", item)
 
     payload = client_mock.post.call_args.kwargs["json"]
@@ -93,7 +93,7 @@ async def test_add_series_already_exists():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", ITEM)
 
     assert arr_id == 7
@@ -119,7 +119,7 @@ async def test_add_series_no_tvdb_id_lookup_success():
     client_mock.get = AsyncMock(side_effect=[lookup_resp, existing_resp])
     client_mock.post = AsyncMock(return_value=add_resp)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", item)
 
     assert arr_id == 99
@@ -136,7 +136,7 @@ async def test_add_series_no_tvdb_id_lookup_fails():
     client_mock.__aexit__ = AsyncMock(return_value=False)
     client_mock.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", item)
 
     assert arr_id is None
@@ -164,7 +164,7 @@ async def test_is_series_available_true():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=7)
 
     assert available is True
@@ -187,7 +187,7 @@ async def test_is_series_available_false():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=7)
 
     assert available is False
@@ -204,7 +204,7 @@ async def test_is_series_available_not_found():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=999)
 
     assert available is False
@@ -225,7 +225,7 @@ async def test_is_series_available_by_tvdb_id():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, tvdb_id="81189")
 
     assert available is True
@@ -246,7 +246,7 @@ async def test_connection_success():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         success, msg = await check_connection(URL, KEY)
 
     assert success is True
@@ -260,7 +260,7 @@ async def test_connection_failure():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         success, msg = await check_connection(URL, KEY)
 
     assert success is False
@@ -292,7 +292,7 @@ async def test_get_calendar_success():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         result = await get_calendar(URL, KEY, "2026-07-01T00:00:00", "2026-07-31T00:00:00")
 
     assert len(result) == 1
@@ -308,7 +308,7 @@ async def test_get_calendar_failure_returns_empty_list():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         result = await get_calendar(URL, KEY, "2026-07-01", "2026-07-31")
 
     assert result == []

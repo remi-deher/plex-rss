@@ -54,7 +54,7 @@ async def test_request_movie_success():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         req_id, already_existed, slug = await request_media(URL, KEY, MOVIE_ITEM)
 
     assert req_id == 42
@@ -72,7 +72,7 @@ async def test_request_show_includes_seasons():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         await request_media(URL, KEY, SHOW_ITEM)
 
     call_kwargs = client.post.call_args
@@ -91,7 +91,7 @@ async def test_request_conflict_already_existed():
     client.__aexit__ = AsyncMock(return_value=False)
     client.post = AsyncMock(return_value=conflict_resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         req_id, already_existed, slug = await request_media(URL, KEY, MOVIE_ITEM)
 
     assert req_id is None
@@ -112,7 +112,7 @@ async def test_request_no_tmdb_id_search_success():
     client.get = AsyncMock(return_value=search_resp)
     client.post = AsyncMock(return_value=post_resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         req_id, already_existed, _ = await request_media(URL, KEY, item)
 
     assert req_id == 55
@@ -129,7 +129,7 @@ async def test_request_no_tmdb_id_search_fails():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         with pytest.raises(ValueError, match="TMDB ID introuvable"):
             await request_media(URL, KEY, item)
 
@@ -146,7 +146,7 @@ async def test_request_search_no_matching_media_type():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(return_value=search_resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         with pytest.raises(ValueError, match="TMDB ID introuvable"):
             await request_media(URL, KEY, item)
 
@@ -162,7 +162,7 @@ async def test_is_request_available_status_5():
     resp = _resp(200, {"media": {"status": 5}})
     client = _mock_client(resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is True
@@ -175,7 +175,7 @@ async def test_is_request_available_status_4():
     resp = _resp(200, {"media": {"status": 4}})
     client = _mock_client(resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is True
@@ -187,7 +187,7 @@ async def test_is_request_available_status_pending():
     resp = _resp(200, {"media": {"status": 2}})
     client = _mock_client(resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is False
@@ -203,7 +203,7 @@ async def test_is_request_available_404():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(return_value=resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=999)
 
     assert available is False
@@ -218,7 +218,7 @@ async def test_is_request_available_network_error():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         available, req_id, _ = await is_request_available(URL, KEY, seer_request_id=42)
 
     assert available is False
@@ -235,7 +235,7 @@ async def test_connection_success():
     resp = _resp(200, {"displayName": "admin", "email": "admin@example.com"})
     client = _mock_client(resp)
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, KEY)
 
     assert success is True
@@ -249,7 +249,7 @@ async def test_connection_failure():
     client.__aexit__ = AsyncMock(return_value=False)
     client.get = AsyncMock(side_effect=Exception("Connection refused"))
 
-    with patch("app.services.seer.httpx.AsyncClient", return_value=client):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, KEY)
 
     assert success is False

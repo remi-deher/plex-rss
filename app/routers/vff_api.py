@@ -9,7 +9,7 @@ import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
-from ..models import LibraryItem, MediaRequest, RequestStatus, Settings
+from ..models import LibraryItem, MediaRequest, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import (
     _invalidate_vf_cache,
     _load_known_vf_episodes,
@@ -22,7 +22,7 @@ from ..scheduler import (
 )
 from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
-from ..services import vff as vff_svc
+from ..services import plex_finder as vff_svc
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
@@ -92,23 +92,21 @@ async def _vf_detail_payload(db: AsyncSession, req):
         )
         return {"enabled": True, "media_type": "movie", "vf_available": True, "release_date": release_date, **res}
 
-    known_vf = (await _load_known_vf_episodes(db, source_type, [req.id])).get(req.id, {})
-    plex_task = (
-        asyncio.to_thread(
-            vff_svc.get_show_episode_vf_blocking,
-            settings.plex_url,
-            settings.plex_token,
-            show_libs,
-            req.title,
-            req.year,
-            req.tmdb_id,
-            req.tvdb_id,
-            req.imdb_id,
-            known_vf,
-        )
-        if vf_detected
-        else None
-    )
+    if vf_detected:
+        rows = (await db.execute(
+            select(VfEpisodeStatus).filter(
+                VfEpisodeStatus.source_type == source_type,
+                VfEpisodeStatus.source_id == req.id
+            )
+        )).scalars().all()
+        plex_eps = {}
+        plex_fr_default = {}
+        for r in rows:
+            plex_eps.setdefault(r.season_number, {})[r.episode_number] = r.has_vf
+            plex_fr_default.setdefault(r.season_number, {})[r.episode_number] = r.fr_is_default
+    else:
+        plex_eps = {}
+        plex_fr_default = {}
 
     sonarr_episodes = None
     first_aired = None
@@ -145,12 +143,9 @@ async def _vf_detail_payload(db: AsyncSession, req):
     except Exception as e:
         logger.warning(f"vf-detail: liste épisodes Sonarr indisponible pour '{req.title}': {e}")
 
-    plex_res = await plex_task if plex_task else {}
-    plex_eps = plex_res.get("episodes", {}) if plex_res.get("found") else {}
-    plex_fr_default = plex_res.get("french_default", {}) if plex_res.get("found") else {}
-    if plex_eps:
-        await _persist_episode_status(db, source_type, req.id, plex_eps, now_utc_naive(), plex_fr_default)
-        await db.commit()
+    # Les épisodes sont déjà stockés en BDD par le poll background,
+    # on n'a plus besoin d'écrire en DB ici lors du GET.
+
 
     def _status(in_plex, has_file, fr_is_default=None):
         if vf_detected:
@@ -222,7 +217,7 @@ async def _vf_detail_payload(db: AsyncSession, req):
         "enabled": True,
         "media_type": "show",
         "vf_available": vf_detected,
-        "found": bool(plex_res.get("found")) or bool(sonarr_episodes),
+        "found": bool(plex_eps) or bool(sonarr_episodes),
         "sonarr_available": sonarr_episodes is not None,
         "first_aired": first_aired,
         "next_episode_at": next_episode_at,

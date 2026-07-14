@@ -16,12 +16,13 @@ import re
 from datetime import datetime, timezone
 
 import httpx
+from .arr_http_client import ArrClient
 
 logger = logging.getLogger(__name__)
 
 
 async def add_series(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     quality_profile_id: int,
     root_folder: str,
@@ -36,36 +37,36 @@ async def add_series(
           (la notification de demande ne doit pas être renvoyée).
     """
     headers = {"X-Api-Key": api_key}
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
 
     tvdb_id = item.get("tvdb_id")
     if not tvdb_id:
         # TVDB ID absent du flux RSS/API : résolution via Sonarr, en privilégiant
         # les IDs externes. Un lookup au titre seul peut matcher un homonyme.
-        tvdb_id = await _search_tvdb_id(base, headers, item)
+        tvdb_id = await _search_tvdb_id(url, api_key, item)
     if not tvdb_id:
         logger.warning(f"Cannot find TVDB ID for '{item['title']}'")
         return None, False, None
 
     if not quality_profile_id:
-        profiles = await get_quality_profiles(sonarr_url, api_key)
+        profiles = await get_quality_profiles(url, api_key)
         if profiles:
             quality_profile_id = profiles[0]["id"]
             
     if not root_folder:
-        folders = await get_root_folders(sonarr_url, api_key)
+        folders = await get_root_folders(url, api_key)
         if folders:
             root_folder = folders[0]["path"]
 
     # Vérification d'existence avant ajout pour retourner already_existed=True
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            existing = await client.get(f"{base}/api/v3/series", headers=headers)
-            existing.raise_for_status()
-            for s in existing.json():
-                if str(s.get("tvdbId")) == str(tvdb_id):
-                    logger.info(f"'{item['title']}' already in Sonarr (id={s['id']})")
-                    return s["id"], True, s.get("titleSlug")
+        client = ArrClient(url, api_key, timeout=15)
+        existing = await client.get(f"/api/v3/series")
+        existing.raise_for_status()
+        for s in existing.json():
+            if str(s.get("tvdbId")) == str(tvdb_id):
+                logger.info(f"'{item['title']}' already in Sonarr (id={s['id']})")
+                return s["id"], True, s.get("titleSlug")
     except httpx.HTTPError:
         pass
 
@@ -90,11 +91,11 @@ async def add_series(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{base}/api/v3/series", json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("id"), False, data.get("titleSlug")
+        client = ArrClient(url, api_key, timeout=30)
+        resp = await client.post(f"/api/v3/series", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("id"), False, data.get("titleSlug")
     except httpx.HTTPStatusError as e:
         body = e.response.text if hasattr(e, 'response') else ''
         logger.error(f"Sonarr error adding '{item['title']}': {e} — response: {body}")
@@ -142,28 +143,27 @@ def _candidate_matches_item(candidate: dict, item: dict, *, strict_ids: bool = F
     return False
 
 
-async def _lookup_series_candidates(base: str, headers: dict, term: str) -> list[dict]:
+async def _lookup_series_candidates(url: str, api_key: str, term: str) -> list[dict]:
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{base}/api/v3/series/lookup",
-                params={"term": term},
-                headers=headers,
+        client = ArrClient(url, api_key, timeout=15)
+        resp = await client.get(
+            f"/api/v3/series/lookup",
+            params={"term": term},
             )
-            resp.raise_for_status()
-            return resp.json()
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.warning(f"Sonarr lookup failed for '{term}': {e}")
     return []
 
 
-async def _search_tvdb_id(base: str, headers: dict, item: dict) -> str | None:
+async def _search_tvdb_id(url: str, api_key: str, item: dict) -> str | None:
     """Cherche un TVDB ID via le lookup Sonarr (fallback quand absent du flux/API)."""
     for key, prefix in (("imdb_id", "imdb"), ("tmdb_id", "tmdb")):
         value = _norm_external_id(item.get(key))
         if not value:
             continue
-        for candidate in await _lookup_series_candidates(base, headers, f"{prefix}:{value}"):
+        for candidate in await _lookup_series_candidates(url, api_key, f"{prefix}:{value}"):
             if _candidate_matches_item(candidate, item, strict_ids=True) and candidate.get("tvdbId"):
                 return str(candidate["tvdbId"])
 
@@ -178,7 +178,7 @@ async def _search_tvdb_id(base: str, headers: dict, item: dict) -> str | None:
         if term in seen_terms:
             continue
         seen_terms.add(term)
-        for candidate in await _lookup_series_candidates(base, headers, term):
+        for candidate in await _lookup_series_candidates(url, api_key, term):
             if _candidate_matches_item(candidate, item, strict_ids=True) and candidate.get("tvdbId"):
                 return str(candidate["tvdbId"])
 
@@ -194,7 +194,7 @@ async def _search_tvdb_id(base: str, headers: dict, item: dict) -> str | None:
 
     # Dernier filet pour les vieux flux sans identifiants : titre exact + année.
     try:
-        for candidate in await _lookup_series_candidates(base, headers, terms[0]):
+        for candidate in await _lookup_series_candidates(url, api_key, terms[0]):
             if _candidate_matches_item(candidate, item) and candidate.get("tvdbId"):
                 return str(candidate["tvdbId"])
     except Exception as e:
@@ -202,17 +202,17 @@ async def _search_tvdb_id(base: str, headers: dict, item: dict) -> str | None:
     return None
 
 
-async def get_all_series(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_all_series(url: str, api_key: str) -> list[dict]:
     """Retourne la liste complète des séries connues de Sonarr (pour le scan de fallback)."""
-    base = sonarr_url.rstrip("/")
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(f"{base}/api/v3/series", headers={"X-Api-Key": api_key})
-        resp.raise_for_status()
-        return resp.json()
+    base = url.rstrip("/")
+    client = ArrClient(url, api_key, timeout=15)
+    resp = await client.get(f"/api/v3/series")
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def lookup_series(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
@@ -229,45 +229,45 @@ async def lookup_series(
     Returns:
         Dictionnaire Sonarr brut ou None si introuvable.
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     headers = {"X-Api-Key": api_key}
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            if arr_id:
-                resp = await client.get(f"{base}/api/v3/series/{arr_id}", headers=headers)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    expected = {"tvdb_id": tvdb_id, "tmdb_id": tmdb_id, "imdb_id": imdb_id}
-                    if not any(expected.values()) or _candidate_matches_item(data, expected, strict_ids=True):
-                        return data
-                    logger.warning(
-                        "Sonarr arr_id %s points to '%s' but expected IDs are tvdb=%s, tmdb=%s, imdb=%s",
-                        arr_id,
-                        data.get("title"),
-                        tvdb_id,
-                        tmdb_id,
-                        imdb_id,
-                    )
-            if tvdb_id or tmdb_id or imdb_id:
-                series = series_list
-                if series is None:
-                    resp = await client.get(f"{base}/api/v3/series", headers=headers)
-                    resp.raise_for_status()
-                    series = resp.json()
-                for s in series:
-                    if tvdb_id and str(s.get("tvdbId")) == str(tvdb_id):
-                        return s
-                    if tmdb_id and str(s.get("tmdbId")) == str(tmdb_id):
-                        return s
-                    if imdb_id and s.get("imdbId") == imdb_id:
-                        return s
+        client = ArrClient(url, api_key, timeout=15)
+        if arr_id:
+            resp = await client.get(f"/api/v3/series/{arr_id}")
+            if resp.status_code == 200:
+                data = resp.json()
+                expected = {"tvdb_id": tvdb_id, "tmdb_id": tmdb_id, "imdb_id": imdb_id}
+                if not any(expected.values()) or _candidate_matches_item(data, expected, strict_ids=True):
+                    return data
+                logger.warning(
+                    "Sonarr arr_id %s points to '%s' but expected IDs are tvdb=%s, tmdb=%s, imdb=%s",
+                    arr_id,
+                    data.get("title"),
+                    tvdb_id,
+                    tmdb_id,
+                    imdb_id,
+                )
+        if tvdb_id or tmdb_id or imdb_id:
+            series = series_list
+            if series is None:
+                resp = await client.get(f"/api/v3/series")
+                resp.raise_for_status()
+                series = resp.json()
+            for s in series:
+                if tvdb_id and str(s.get("tvdbId")) == str(tvdb_id):
+                    return s
+                if tmdb_id and str(s.get("tmdbId")) == str(tmdb_id):
+                    return s
+                if imdb_id and s.get("imdbId") == imdb_id:
+                    return s
     except Exception as e:
         logger.warning(f"Sonarr lookup failed: {e}")
     return None
 
 
 async def get_series_episode_stats(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
@@ -285,7 +285,7 @@ async def get_series_episode_stats(
     Retourne None si la série n'est pas trouvée dans Sonarr.
     """
     data = await lookup_series(
-        sonarr_url,
+        url,
         api_key,
         arr_id=arr_id,
         tvdb_id=tvdb_id,
@@ -306,7 +306,7 @@ async def get_series_episode_stats(
 
 
 async def is_series_available(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     arr_id: int = None,
     tvdb_id: str = None,
@@ -320,7 +320,7 @@ async def is_series_available(
         (is_available, arr_id, title_slug)
     """
     stats = await get_series_episode_stats(
-        sonarr_url,
+        url,
         api_key,
         arr_id=arr_id,
         tvdb_id=tvdb_id,
@@ -333,58 +333,56 @@ async def is_series_available(
     return stats["episode_file_count"] > 0, stats["arr_id"], stats["title_slug"]
 
 
-async def series_exists(sonarr_url: str, api_key: str, arr_id: int) -> bool:
+async def series_exists(url: str, api_key: str, arr_id: int) -> bool:
     """Vérifie par GET direct si une série existe encore dans Sonarr.
 
     Contrairement à `lookup_series`, ne catch PAS les erreurs réseau/HTTP : elles
     remontent à l'appelant pour ne jamais être confondues avec un 404 confirmé
     (Sonarr injoignable != série supprimée).
     """
-    base = sonarr_url.rstrip("/")
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(f"{base}/api/v3/series/{arr_id}", headers={"X-Api-Key": api_key})
-        if resp.status_code == 404:
-            return False
-        resp.raise_for_status()
-        return True
+    base = url.rstrip("/")
+    client = ArrClient(url, api_key, timeout=15)
+    resp = await client.get(f"/api/v3/series/{arr_id}")
+    if resp.status_code == 404:
+        return False
+    resp.raise_for_status()
+    return True
 
 
-async def delete_series(sonarr_url: str, api_key: str, arr_id: int, delete_files: bool = False) -> tuple[bool, str]:
+async def delete_series(url: str, api_key: str, arr_id: int, delete_files: bool = False) -> tuple[bool, str]:
     """Supprime une série de Sonarr (et ses fichiers si demandé).
 
     Un 404 est traité comme un succès (déjà absente). Toute autre erreur (réseau,
     timeout, 5xx) lève une exception — l'appelant ne doit jamais supprimer la
     demande locale correspondante si cet appel échoue.
     """
-    base = sonarr_url.rstrip("/")
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.delete(
-            f"{base}/api/v3/series/{arr_id}",
-            params={"deleteFiles": "true" if delete_files else "false", "addImportListExclusion": "false"},
-            headers={"X-Api-Key": api_key},
-        )
-        if resp.status_code == 404:
-            return True, "Déjà absente de Sonarr"
-        resp.raise_for_status()
-        return True, "Supprimée de Sonarr"
+    base = url.rstrip("/")
+    client = ArrClient(url, api_key, timeout=20)
+    resp = await client.delete(
+        f"/api/v3/series/{arr_id}",
+        params={"deleteFiles": "true" if delete_files else "false", "addImportListExclusion": "false"},
+    )
+    if resp.status_code == 404:
+        return True, "Déjà absente de Sonarr"
+    resp.raise_for_status()
+    return True, "Supprimée de Sonarr"
 
 
-async def search_series(sonarr_url: str, api_key: str, series_id: int) -> bool:
+async def search_series(url: str, api_key: str, series_id: int) -> bool:
     """Lance une recherche de fichiers pour une série Sonarr (commande SeriesSearch).
 
     Utilisé par l'auto-search VFF : relance une recherche quand une série n'est
     disponible qu'en VO, dans l'espoir de trouver une version française.
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{base}/api/v3/command",
-                json={"name": "SeriesSearch", "seriesId": series_id},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return True
+        client = ArrClient(url, api_key, timeout=15)
+        resp = await client.post(
+            f"/api/v3/command",
+            json={"name": "SeriesSearch", "seriesId": series_id},
+        )
+        resp.raise_for_status()
+        return True
     except Exception as e:
         logger.warning(f"Sonarr SeriesSearch échec (series {series_id}): {e}")
         return False
@@ -412,9 +410,9 @@ def _normalize_release(r: dict) -> dict:
     }
 
 
-async def get_releases(sonarr_url: str, api_key: str, series_id: int = None, episode_id: int = None) -> list[dict]:
+async def get_releases(url: str, api_key: str, series_id: int = None, episode_id: int = None) -> list[dict]:
     """Recherche interactive Sonarr : releases scorées pour une série ou un épisode."""
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     params = {}
     if episode_id:
         params["episodeId"] = episode_id
@@ -423,50 +421,48 @@ async def get_releases(sonarr_url: str, api_key: str, series_id: int = None, epi
     else:
         return []
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.get(f"{base}/api/v3/release", params=params, headers={"X-Api-Key": api_key})
-            resp.raise_for_status()
-            return [_normalize_release(r) for r in resp.json()]
+        client = ArrClient(url, api_key, timeout=90)
+        resp = await client.get(f"/api/v3/release", params=params)
+        resp.raise_for_status()
+        return [_normalize_release(r) for r in resp.json()]
     except Exception as e:
         logger.warning(f"Sonarr get_releases échec (series {series_id}, ep {episode_id}): {e}")
         return []
 
 
-async def grab_release(sonarr_url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool, str]:
+async def grab_release(url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool, str]:
     """Grab d'une release choisie manuellement : Sonarr télécharge ET importe."""
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{base}/api/v3/release",
-                json={"guid": guid, "indexerId": indexer_id},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return True, "Release envoyée à Sonarr"
+        client = ArrClient(url, api_key, timeout=30)
+        resp = await client.post(
+            f"/api/v3/release",
+            json={"guid": guid, "indexerId": indexer_id},
+        )
+        resp.raise_for_status()
+        return True, "Release envoyée à Sonarr"
     except Exception as e:
         logger.warning(f"Sonarr grab_release échec (guid {guid}): {e}")
         return False, str(e)
 
 
-async def get_episodes(sonarr_url: str, api_key: str, series_id: int) -> list[dict]:
+async def get_episodes(url: str, api_key: str, series_id: int) -> list[dict]:
     """Retourne tous les épisodes d'une série Sonarr (saison, numéro, titre, présence fichier).
 
     Utilisé pour le détail VF par saison/épisode : Sonarr donne la liste attendue
     complète (y compris épisodes non encore téléchargés), Plex fournit la VF réelle.
     """
-    base = sonarr_url.rstrip("/")
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            f"{base}/api/v3/episode",
-            params={"seriesId": series_id},
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return resp.json()
+    base = url.rstrip("/")
+    client = ArrClient(url, api_key, timeout=20)
+    resp = await client.get(
+        f"/api/v3/episode",
+        params={"seriesId": series_id},
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
-async def get_season_aired_episode_counts(sonarr_url: str, api_key: str, series_id: int) -> dict[int, int]:
+async def get_season_aired_episode_counts(url: str, api_key: str, series_id: int) -> dict[int, int]:
     """Nombre d'épisodes surveillés déjà diffusés, par saison (saison 0/spéciales exclue).
 
     Sert à distinguer une vraie "saison complète" (tous les épisodes déjà diffusés sont
@@ -474,7 +470,7 @@ async def get_season_aired_episode_counts(sonarr_url: str, api_key: str, series_
     remonte que les épisodes déjà importés, donc un début de saison (1 seul épisode
     sorti) matcherait à tort "tous correspondent" sans ce compteur de référence.
     """
-    episodes = await get_episodes(sonarr_url, api_key, series_id)
+    episodes = await get_episodes(url, api_key, series_id)
     now = datetime.now(timezone.utc)
     counts: dict[int, int] = {}
     for ep in episodes:
@@ -538,30 +534,29 @@ def _normalize_queue_record(r: dict, title: str, *, series: dict | None = None, 
     }
 
 
-async def get_manual_import_candidates(sonarr_url: str, api_key: str, download_id: str) -> list[dict]:
+async def get_manual_import_candidates(url: str, api_key: str, download_id: str) -> list[dict]:
     """Fichiers en attente d'import manuel pour un téléchargement (GET /manualimport).
 
     Utilisé quand Sonarr ne peut pas matcher automatiquement un épisode (ex : épisode
     pas encore officiellement sorti dans ses métadonnées), pour laisser l'utilisateur
     choisir l'épisode à la main, comme dans l'UI native de Sonarr.
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{base}/api/v3/manualimport",
-                params={"downloadId": download_id, "filterExistingFiles": "true"},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.get(
+            f"/api/v3/manualimport",
+            params={"downloadId": download_id, "filterExistingFiles": "true"},
+        )
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.warning(f"Sonarr get_manual_import_candidates échec: {e}")
         return []
 
 
 async def manual_import_episode(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     *,
     path: str,
@@ -575,7 +570,7 @@ async def manual_import_episode(
     indexer_flags: int | None,
 ) -> tuple[bool, str]:
     """Force l'import d'un fichier téléchargé sur un épisode choisi manuellement."""
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     file_entry = {
         "path": path,
         "folderName": folder_name,
@@ -588,14 +583,13 @@ async def manual_import_episode(
         "indexerFlags": indexer_flags or 0,
     }
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(
-                f"{base}/api/v3/command",
-                json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return True, "Import manuel lancé"
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.post(
+            f"/api/v3/command",
+            json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
+        )
+        resp.raise_for_status()
+        return True, "Import manuel lancé"
     except httpx.HTTPStatusError as e:
         return False, f"Sonarr a refusé l'import : {e.response.text[:200]}"
     except Exception as e:
@@ -603,7 +597,7 @@ async def manual_import_episode(
 
 
 async def trigger_import(
-    sonarr_url: str,
+    url: str,
     api_key: str,
     *,
     output_path: str | None = None,
@@ -613,39 +607,37 @@ async def trigger_import(
     (trackedDownloadState == importPending). Utilise la commande DownloadedEpisodesScan
     avec le chemin de sortie ou le downloadId.
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     payload: dict = {"name": "DownloadedEpisodesScan"}
     if output_path:
         payload["path"] = output_path
     if download_id:
         payload["downloadClientId"] = download_id
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(
-                f"{base}/api/v3/command",
-                json=payload,
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return True, "Import lancé"
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.post(
+            f"/api/v3/command",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return True, "Import lancé"
     except httpx.HTTPStatusError as e:
         return False, f"Sonarr a refusé l'import : {e.response.text[:200]}"
     except Exception as e:
         return False, str(e)
 
 
-async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_queue(url: str, api_key: str) -> list[dict]:
     """File d'attente de téléchargement Sonarr (GET /queue), format compact."""
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{base}/api/v3/queue",
-                params={"pageSize": 100, "includeSeries": "true", "includeEpisode": "true"},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            records = resp.json().get("records", [])
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.get(
+            f"/api/v3/queue",
+            params={"pageSize": 100, "includeSeries": "true", "includeEpisode": "true"},
+        )
+        resp.raise_for_status()
+        records = resp.json().get("records", [])
     except Exception as e:
         logger.warning(f"Sonarr get_queue échec: {e}")
         return []
@@ -664,81 +656,77 @@ async def get_queue(sonarr_url: str, api_key: str) -> list[dict]:
 
 
 async def delete_queue_item(
-    sonarr_url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
+    url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
 ) -> tuple[bool, str]:
     """Supprime un item de la file d'attente Sonarr, avec blocklist et relance de recherche optionnelles."""
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.delete(
-                f"{base}/api/v3/queue/{queue_id}",
-                params={
-                    "removeFromClient": "true",
-                    "blocklist": "true" if blocklist else "false",
-                    "skipRedownload": "false" if search else "true",
-                },
-                headers={"X-Api-Key": api_key},
-            )
-            if resp.status_code in (200, 204):
-                return True, "Item supprimé de la file Sonarr"
-            resp.raise_for_status()
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.delete(
+            f"/api/v3/queue/{queue_id}",
+            params={
+                "removeFromClient": "true",
+                "blocklist": "true" if blocklist else "false",
+                "skipRedownload": "false" if search else "true",
+            },
+        )
+        if resp.status_code in (200, 204):
             return True, "Item supprimé de la file Sonarr"
+        resp.raise_for_status()
+        return True, "Item supprimé de la file Sonarr"
     except Exception as e:
         logger.warning(f"Sonarr delete_queue_item échec (queue {queue_id}): {e}")
         return False, str(e)
 
 
-async def get_queue_series_ids(sonarr_url: str, api_key: str) -> set[int]:
+async def get_queue_series_ids(url: str, api_key: str) -> set[int]:
     """IDs des séries ayant au moins un item actif dans la file de téléchargement Sonarr.
 
     Utilisé pour distinguer une vraie anomalie Plex (fichier importé mais introuvable dans
     Plex) d'une série encore partiellement en cours de téléchargement (ex: d'autres épisodes
     de la même série toujours en file pendant qu'un premier épisode est déjà disponible).
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{base}/api/v3/queue",
-                params={"pageSize": 200},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            records = resp.json().get("records", [])
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.get(
+            f"/api/v3/queue",
+            params={"pageSize": 200},
+        )
+        resp.raise_for_status()
+        records = resp.json().get("records", [])
     except Exception as e:
         logger.warning(f"Sonarr get_queue_series_ids échec: {e}")
         return set()
     return {r["seriesId"] for r in records if r.get("seriesId")}
 
 
-async def check_connection(sonarr_url: str, api_key: str) -> tuple[bool, str]:
+async def check_connection(url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Sonarr.
 
     Returns:
         (success, message)
     """
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{sonarr_url.rstrip('/')}/api/v3/system/status",
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return True, f"Sonarr v{data.get('version', '?')} connecté"
+        client = ArrClient(url, api_key, timeout=10)
+        resp = await client.get(
+            "/api/v3/system/status",
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return True, f"Sonarr v{data.get('version', '?')} connecté"
     except Exception as e:
         return False, str(e)
 
 
-async def get_notifications(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_notifications(url: str, api_key: str) -> list[dict]:
     """Retourne les connecteurs de notification configurés dans Sonarr (Settings → Connect)."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{sonarr_url.rstrip('/')}/api/v3/notification",
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return resp.json()
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get(
+        "/api/v3/notification",
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def find_webhook_notification(notifications: list[dict], webhook_path: str) -> dict | None:
@@ -764,106 +752,100 @@ def find_plex_notification(notifications: list[dict]) -> dict | None:
     return None
 
 
-async def test_notification(sonarr_url: str, api_key: str, notification: dict) -> tuple[bool, str]:
+async def test_notification(url: str, api_key: str, notification: dict) -> tuple[bool, str]:
     """Déclenche depuis Sonarr un test réel du connecteur Webhook (round-trip vers notre endpoint).
 
     Réutilise l'endpoint /api/v3/notification/test de Sonarr, qui envoie une notification de
     test avec la configuration fournie sans la re-sauvegarder.
     """
-    base = sonarr_url.rstrip("/")
+    base = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(
-                f"{base}/api/v3/notification/test",
-                json=notification,
-                headers={"X-Api-Key": api_key},
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.post(
+            f"/api/v3/notification/test",
+            json=notification,
+        )
+        if resp.status_code in (200, 204):
+            return True, "Test envoyé et accepté par Sonarr"
+        try:
+            errors = resp.json()
+            msg = (
+                "; ".join(e.get("errorMessage", str(e)) for e in errors)
+                if isinstance(errors, list)
+                else str(errors)
             )
-            if resp.status_code in (200, 204):
-                return True, "Test envoyé et accepté par Sonarr"
-            try:
-                errors = resp.json()
-                msg = (
-                    "; ".join(e.get("errorMessage", str(e)) for e in errors)
-                    if isinstance(errors, list)
-                    else str(errors)
-                )
-            except Exception:
-                msg = resp.text
-            return False, msg or f"HTTP {resp.status_code}"
+        except Exception:
+            msg = resp.text
+        return False, msg or f"HTTP {resp.status_code}"
     except Exception as e:
         return False, str(e)
 
 
-async def get_quality_profiles(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_quality_profiles(url: str, api_key: str) -> list[dict]:
     """Retourne les profils de qualité disponibles (pour le formulaire de config)."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{sonarr_url.rstrip('/')}/api/v3/qualityprofile",
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return [{"id": p["id"], "name": p["name"]} for p in resp.json()]
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get(
+        "/api/v3/qualityprofile",
+    )
+    resp.raise_for_status()
+    return [{"id": p["id"], "name": p["name"]} for p in resp.json()]
 
 
-async def get_root_folders(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_root_folders(url: str, api_key: str) -> list[dict]:
     """Retourne les dossiers racine configurés dans Sonarr (pour le formulaire de config)."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{sonarr_url.rstrip('/')}/api/v3/rootfolder",
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return [
-            {
-                "path": f["path"],
-                "free_bytes": f.get("freeSpace"),
-                "total_bytes": f.get("totalSpace"),
-            }
-            for f in resp.json()
-        ]
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get(
+        "/api/v3/rootfolder",
+    )
+    resp.raise_for_status()
+    return [
+        {
+            "path": f["path"],
+            "free_bytes": f.get("freeSpace"),
+            "total_bytes": f.get("totalSpace"),
+        }
+        for f in resp.json()
+    ]
 
 
-async def get_tags(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_tags(url: str, api_key: str) -> list[dict]:
     """Retourne les tags configurés dans Sonarr (id + label)."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{sonarr_url.rstrip('/')}/api/v3/tag",
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return [{"id": t["id"], "label": t["label"]} for t in resp.json()]
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get(
+        "/api/v3/tag",
+    )
+    resp.raise_for_status()
+    return [{"id": t["id"], "label": t["label"]} for t in resp.json()]
 
 
-async def get_disk_space(sonarr_url: str, api_key: str) -> list[dict]:
+async def get_disk_space(url: str, api_key: str) -> list[dict]:
     """Retourne l'espace disque des volumes connus de Sonarr.
 
     Returns:
         Liste de {path, free_bytes, total_bytes}.
     """
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{sonarr_url.rstrip('/')}/api/v3/diskspace",
-            headers={"X-Api-Key": api_key},
-        )
-        resp.raise_for_status()
-        return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get(
+        "/api/v3/diskspace",
+    )
+    resp.raise_for_status()
+    return [{"path": d["path"], "free_bytes": d["freeSpace"], "total_bytes": d["totalSpace"]} for d in resp.json()]
 
 
-async def get_calendar(sonarr_url: str, api_key: str, start: str, end: str) -> list[dict]:
+async def get_calendar(url: str, api_key: str, start: str, end: str) -> list[dict]:
     """Épisodes attendus/diffusés entre deux dates (GET /api/v3/calendar).
 
     `start`/`end` : dates ISO 8601. Chaque entrée inclut la série (includeSeries=true)
     pour le titre, les identifiants externes et l'affiche.
     """
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{sonarr_url.rstrip('/')}/api/v3/calendar",
-                params={"start": start, "end": end, "includeSeries": "true"},
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        client = ArrClient(url, api_key, timeout=20)
+        resp = await client.get(
+            "/api/v3/calendar",
+            params={"start": start, "end": end, "includeSeries": "true"},
+        )
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.error(f"Sonarr get_calendar failed: {e}")
         return []

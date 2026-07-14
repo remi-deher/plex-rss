@@ -20,6 +20,7 @@
         <span class="menu-label">Administration</span>
         <RouterLink to="/users"><Users />Utilisateurs</RouterLink>
         <RouterLink to="/notifications"><Bell />Notifications</RouterLink>
+        <RouterLink to="/issues"><Flag />Problemes</RouterLink>
         <RouterLink to="/logs"><ScrollText />Journaux</RouterLink>
         <RouterLink to="/maintenance"><Wrench />Maintenance</RouterLink>
         <RouterLink to="/settings"><Settings />Parametres</RouterLink>
@@ -63,6 +64,7 @@
               <span class="menu-label">Administration</span>
               <RouterLink to="/users" @click="closeMoreMenu"><Users />Utilisateurs</RouterLink>
               <RouterLink to="/notifications" @click="closeMoreMenu"><Bell />Notifications</RouterLink>
+              <RouterLink to="/issues" @click="closeMoreMenu"><Flag />Problemes</RouterLink>
               <RouterLink to="/logs" @click="closeMoreMenu"><ScrollText />Journaux</RouterLink>
               <RouterLink to="/maintenance" @click="closeMoreMenu"><Wrench />Maintenance</RouterLink>
               <RouterLink to="/settings" @click="closeMoreMenu"><Settings />Parametres</RouterLink>

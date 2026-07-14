@@ -1,0 +1,83 @@
+<template>
+  <div class="vf-summary" style="margin-top: 1.5rem;">
+    <div class="panel-head" style="margin-bottom: 0.5rem;">
+      <h3 style="margin-bottom: 0;">Contenu audio & Disponibilité</h3>
+      <div class="actions">
+        <button class="secondary" :disabled="busy" @click="$emit('scan')"><RefreshCw />Actualiser</button>
+      </div>
+    </div>
+    
+    <div v-if="vfDetail" style="margin-top: 0.5rem;">
+      <div v-if="vfDetail.media_type === 'show'">
+        <details v-for="season in vfDetail.seasons || []" :key="season.season_number" class="detail-row" style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 6px;">
+          <summary style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+            <strong>Saison {{ season.season_number }}</strong>
+            <div class="inline-row compact" style="gap: 4px;">
+              <span class="badge available" v-if="season.counts.vf">VF: {{ season.counts.vf }}</span>
+              <span class="badge" v-if="season.counts.vo">VO: {{ season.counts.vo }}</span>
+              <span class="badge" v-if="season.counts.vf_secondary">VF(sec): {{ season.counts.vf_secondary }}</span>
+              <span class="badge danger" v-if="season.counts.absent">Absent: {{ season.counts.absent }}</span>
+              <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison"><MessageSquareWarning size="16" /></button>
+            </div>
+          </summary>
+          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+            <div v-for="ep in season.episodes" :key="ep.episode" class="inline-row compact" style="margin-bottom: 6px; align-items: center;">
+              <span style="min-width: 30px; font-weight: 500;">{{ ep.episode }}.</span>
+              <span style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.title || `Episode ${ep.episode}` }}</span>
+              <button class="badge" :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent'}" @click="$emit('correction', 'episode', season.season_number, ep.episode)" style="cursor: pointer;" title="Signaler une correction">
+                {{ ep.status.toUpperCase() }}
+              </button>
+            </div>
+          </div>
+        </details>
+        <p v-if="!vfDetail.seasons?.length" class="empty">Aucun detail de saison disponible.</p>
+      </div>
+      <div v-else>
+        <details class="season-details" style="margin-bottom: 0.5rem;" v-if="vfDetail.tracks?.length">
+          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: 8px; font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
+            <span>Audio ({{ vfDetail.tracks.length }})</span>
+            <ChevronDown size="16" />
+          </summary>
+          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+            <article v-for="(track, index) in vfDetail.tracks" :key="'audio-'+index" class="detail-row" style="margin-bottom: 6px;">
+              <div>
+                <strong>{{ track.lang ? track.lang.toUpperCase() : 'Inconnu' }} <span v-if="track.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>
+                <span>{{ track.label || 'Audio' }}</span>
+              </div>
+              <span class="badge" :class="track.is_fr ? 'available' : ''">{{ track.lang ? track.lang.toUpperCase() : '??' }}</span>
+            </article>
+          </div>
+        </details>
+        <p v-if="!vfDetail.tracks?.length" class="empty" style="margin-bottom: 0.5rem;">Aucune piste audio detectee.</p>
+
+        <details class="season-details" v-if="vfDetail.subtitles?.length">
+          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: 8px; font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
+            <span>Sous-titres ({{ vfDetail.subtitles.length }})</span>
+            <ChevronDown size="16" />
+          </summary>
+          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+            <article v-for="(sub, index) in vfDetail.subtitles" :key="'sub-'+index" class="detail-row" style="margin-bottom: 6px;">
+              <div>
+                <strong>{{ sub.lang ? sub.lang.toUpperCase() : 'Inconnu' }} <span v-if="sub.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>
+                <span>{{ sub.label || 'Sous-titre' }}</span>
+              </div>
+              <span class="badge">{{ sub.lang ? sub.lang.toUpperCase() : '??' }}</span>
+            </article>
+          </div>
+        </details>
+      </div>
+    </div>
+    <p v-else class="empty">Chargement de l'analyse VF...</p>
+  </div>
+</template>
+
+<script setup>
+import { RefreshCw, MessageSquareWarning, ChevronDown } from "@lucide/vue";
+
+defineProps({
+  vfDetail: { type: Object, default: null },
+  busy: { type: Boolean, default: false }
+});
+
+defineEmits(['scan', 'correction']);
+</script>

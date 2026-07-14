@@ -37,6 +37,8 @@ from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
 from .routers import (
+    corrections_api,
+    issues_api,
     api_v1,
     arr_api,
     auth,
@@ -288,6 +290,8 @@ app.include_router(security_api.router)
 app.include_router(requests_api.router)
 app.include_router(calendar_api.router)
 app.include_router(library_api.router)
+app.include_router(issues_api.router)
+app.include_router(corrections_api.router)
 app.include_router(discover_api.router)
 app.include_router(vff_api.router)
 app.include_router(metrics_api.router)

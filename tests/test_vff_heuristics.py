@@ -6,12 +6,12 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import ArrInstance, Base, LibraryItem, MediaRequest, Settings
-from app.services.vff import (
+from app.services.audio_analyzer import (
     compute_vf_granularity,
     get_audio_info,
     show_has_full_french_audio,
-    sync_plex_library_blocking,
 )
+from app.services.plex_finder import sync_plex_library_blocking
 from tests.async_support import TestSession
 
 
@@ -33,7 +33,7 @@ def test_get_audio_info_filename_fallback():
     mock_movie = MagicMock()
     mock_movie.media = [mock_media]
 
-    has_fr, tracks = get_audio_info(mock_movie)
+    has_fr, tracks, _ = get_audio_info(mock_movie)
     assert has_fr is True
     assert any(t["is_fr"] for t in tracks)
     assert any("nom de fichier" in t["label"].lower() for t in tracks)
@@ -56,14 +56,14 @@ def test_show_has_full_french_audio_rules():
     mock_ep_s2_e2 = MagicMock()
     mock_ep_s2_e2.title = "S02E02"
 
-    with patch("app.services.vff._reload"):
+    with patch("app.services.plex_finder._reload"):
         # Case 1: 1 Season (VF) and 1 Season (VO)
         # Season 1 has VF, Season 2 has VO (0 VF)
         # N_vf_seasons = 1.
         # Season 2 has VO episodes, but since N_vf_seasons == 1, we do NOT track Season 2.
         # So should_track should be False!
 
-        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
+        with patch("app.services.audio_analyzer.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
                 has_fr = ep == mock_ep_s1_e1 or ep == mock_ep_s1_e2
@@ -98,7 +98,7 @@ def test_show_has_full_french_audio_rules():
 
         mock_ep_s3_e1 = MagicMock()
 
-        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
+        with patch("app.services.audio_analyzer.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
                 has_fr = ep in (mock_ep_s1_e1, mock_ep_s1_e2, mock_ep_s2_e1)
@@ -134,7 +134,7 @@ def test_show_has_full_french_audio_rules():
         # Season 1 has VO episodes, and info["vf"] > 0.
         # So should_track should be True (Rule 1).
 
-        with patch("app.services.vff.get_french_audio_state") as mock_audio_state:
+        with patch("app.services.audio_analyzer.get_french_audio_state") as mock_audio_state:
 
             def side_effect(ep):
                 has_fr = ep == mock_ep_s1_e1
@@ -178,7 +178,7 @@ def test_sync_plex_library_blocking():
     mock_plex = MagicMock()
     mock_plex.library.section.return_value = mock_section
 
-    with patch("app.services.vff.connect", return_value=mock_plex):
+    with patch("app.services.plex_finder.connect", return_value=mock_plex):
         results = sync_plex_library_blocking("http://localhost:32400", "token", [{"name": "Films", "kind": "movie"}])
 
         assert len(results) == 1
@@ -233,7 +233,7 @@ async def test_sync_plex_media():
     from app.scheduler import plex_sync_state, sync_plex_media
 
     with (
-        patch("app.services.vff.sync_plex_library_blocking", return_value=[mock_item]),
+        patch("app.services.plex_finder.sync_plex_library_blocking", return_value=[mock_item]),
         patch("app.services.plex_sync.AsyncSessionLocal", return_value=db),
         patch("app.services.plex_sync.get_all_movies", return_value=[mock_arr_movie]),
         patch("app.services.plex_sync.get_all_series", return_value=[]),

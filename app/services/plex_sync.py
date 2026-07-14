@@ -10,7 +10,7 @@ from sqlalchemy.future import select
 from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
-from . import vff
+from . import plex_finder
 from .radarr import get_all_movies
 from .sonarr import get_all_series
 from .vff_scanner import _invalidate_vf_cache, _parse_vff_libraries
@@ -218,7 +218,7 @@ async def sync_plex_media():
 
         logger.info("VFF Sync : début de la synchronisation de la bibliothèque Plex")
         plex_items = await asyncio.to_thread(
-            vff.sync_plex_library_blocking, settings.plex_url, settings.plex_token, libs
+            plex_finder.sync_plex_library_blocking, settings.plex_url, settings.plex_token, libs
         )
 
         plex_sync_state["total_items"] = len(plex_items)

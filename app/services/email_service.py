@@ -9,7 +9,7 @@ from jinja2 import TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 
 from ..models import LibraryItem, MediaRequest, Settings
-from . import vff
+from . import audio_analyzer, plex_finder
 
 logger = logging.getLogger(__name__)
 

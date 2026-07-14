@@ -29,7 +29,7 @@ async def test_prowlarr_check_connection():
     mock_response = MagicMock()
     mock_response.status_code = 200
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
+    with patch("app.services.prowlarr.ArrClient.get", new=AsyncMock(return_value=mock_response)) as mock_get:
         ok = await check_connection("http://prowlarr", "api_key")
         assert ok is True
         mock_get.assert_called_once()
@@ -41,7 +41,7 @@ async def test_prowlarr_get_indexers():
     mock_response.status_code = 200
     mock_response.json.return_value = [{"id": 1, "name": "TorrentIndexer"}]
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+    with patch("app.services.prowlarr.ArrClient.get", new=AsyncMock(return_value=mock_response)):
         res = await get_indexers("http://prowlarr", "api_key")
         assert len(res) == 1
         assert res[0]["name"] == "TorrentIndexer"
@@ -53,7 +53,7 @@ async def test_prowlarr_search():
     mock_response.status_code = 200
     mock_response.json.return_value = [{"title": "Inception"}]
 
-    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_response)):
+    with patch("app.services.prowlarr.ArrClient.post", new=AsyncMock(return_value=mock_response)):
         res = await search("http://prowlarr", "api_key", "Inception", "movie")
         assert len(res) == 1
         assert res[0]["title"] == "Inception"
@@ -80,7 +80,7 @@ async def test_prowlarr_get_download_clients():
     mock_response.status_code = 200
     mock_response.json.return_value = [{"id": 1, "name": "qBittorrent", "enable": True}]
 
-    with patch("httpx.AsyncClient.get", new=AsyncMock(return_value=mock_response)):
+    with patch("app.services.prowlarr.ArrClient.get", new=AsyncMock(return_value=mock_response)):
         res = await get_download_clients("http://prowlarr", "api_key")
         assert len(res) == 1
         assert res[0]["enable"] is True
@@ -92,7 +92,7 @@ async def test_prowlarr_grab_success():
     mock_response.status_code = 200
     mock_response.raise_for_status = MagicMock()
 
-    with patch("httpx.AsyncClient.post", new=AsyncMock(return_value=mock_response)) as mock_post:
+    with patch("app.services.prowlarr.ArrClient.post", new=AsyncMock(return_value=mock_response)) as mock_post:
         ok, msg = await grab("http://prowlarr", "api_key", "guid-123", 5)
         assert ok is True
         _, kwargs = mock_post.call_args
@@ -101,7 +101,7 @@ async def test_prowlarr_grab_success():
 
 @pytest.mark.asyncio
 async def test_prowlarr_grab_failure():
-    with patch("httpx.AsyncClient.post", side_effect=Exception("boom")):
+    with patch("app.services.prowlarr.ArrClient.post", side_effect=Exception("boom")):
         ok, msg = await grab("http://prowlarr", "api_key", "guid-123", 5)
         assert ok is False
         assert "boom" in msg

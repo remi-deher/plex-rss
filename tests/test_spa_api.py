@@ -49,6 +49,9 @@ def test_spa_library_list_supports_search_and_type(async_db):
                 "arr_instance_id": None,
                 "arr_id": None,
                 "added_at": None,
+                "custom_name": None,
+                "plex_user": None,
+                "plex_user_id": None,
             }
         ]
         metrics = client.get("/api/library-metrics")

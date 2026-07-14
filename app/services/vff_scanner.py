@@ -14,7 +14,7 @@ from sqlalchemy.future import select
 from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
-from . import radarr, sonarr, vff
+from . import radarr, sonarr, plex_finder, audio_analyzer
 from .notification_orchestrator import (
     _notify,
     _queue_milestone,
@@ -229,7 +229,7 @@ def _scan_vf_blocking(
     known_vf_by_id = known_vf_by_id or {}
     state = state if state is not None else vff_scan_state
     try:
-        plex = vff.connect(plex_url, plex_token)
+        plex = plex_finder.connect(plex_url, plex_token)
     except Exception as exc:
         logger.warning(f"VFF : connexion Plex impossible : {exc}")
         return []
@@ -240,7 +240,7 @@ def _scan_vf_blocking(
     results: list[dict] = []
     for c in candidates:
         try:
-            res = vff.scan_media_vf(
+            res = plex_finder.scan_media_vf(
                 plex,
                 c["media_type"],
                 movie_libs,
@@ -496,7 +496,7 @@ async def _apply_vf_result(
     else:
         # VO uniquement
         req.has_vf = False
-        req.vf_granularity = granularity if granularity is not None else vff.compute_vf_granularity(episode_status)
+        req.vf_granularity = granularity if granularity is not None else audio_analyzer.compute_vf_granularity(episode_status)
         if not was_tracking:
             if not req.available_mail_sent:
                 # Première détection VO : la notification « VO » tient lieu
@@ -853,7 +853,7 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
                 li.vf_category = res.get("category") or li.vf_category
                 li.vf_checked_at = now
                 li.has_vf = bool(res["has_vf"])
-                li.vf_granularity = "full" if li.has_vf else vff.compute_vf_granularity(res.get("episode_status"))
+                li.vf_granularity = "full" if li.has_vf else audio_analyzer.compute_vf_granularity(res.get("episode_status"))
                 if li.has_vf and prev is False:
                     li.vf_available_at = now
                 lib_updated += 1

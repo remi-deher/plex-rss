@@ -13,6 +13,7 @@ import logging
 from typing import List, Optional
 
 import httpx
+from .arr_http_client import ArrClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,11 @@ logger = logging.getLogger(__name__)
 async def check_connection(url: str, api_key: str) -> bool:
     """Vérifie la connectivité avec Prowlarr."""
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{url.rstrip('/')}/api/v1/system/status",
-                headers={"X-Api-Key": api_key},
-            )
-            return resp.status_code == 200
+        client = ArrClient(url, api_key, timeout=10)
+        resp = await client.get(
+            "/api/v1/system/status",
+        )
+        return resp.status_code == 200
     except Exception as e:
         logger.warning(f"Prowlarr connection check failed: {e}")
         return False
@@ -48,14 +48,13 @@ async def search(
         payload["indexerIds"] = indexer_ids
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{url.rstrip('/')}/api/v1/search",
-                headers={"X-Api-Key": api_key},
-                json=payload,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        client = ArrClient(url, api_key, timeout=30)
+        resp = await client.post(
+            "/api/v1/search",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.error(f"Prowlarr search failed for '{query}': {e}")
         return []
@@ -64,14 +63,13 @@ async def search(
 async def get_indexers(url: str, api_key: str) -> list[dict]:
     """Récupère la liste des indexeurs configurés dans Prowlarr."""
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{url.rstrip('/')}/api/v1/indexer",
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            # On retourne la liste des indexeurs configurés (seulement ceux activés/configurés)
-            return resp.json()
+        client = ArrClient(url, api_key, timeout=15)
+        resp = await client.get(
+            "/api/v1/indexer",
+        )
+        resp.raise_for_status()
+        # On retourne la liste des indexeurs configurés (seulement ceux activés/configurés)
+        return resp.json()
     except Exception as e:
         logger.error(f"Prowlarr get_indexers failed: {e}")
         return []
@@ -84,13 +82,12 @@ async def get_download_clients(url: str, api_key: str) -> list[dict]:
     plutôt que d'exiger un client de téléchargement configuré séparément dans l'app.
     """
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{url.rstrip('/')}/api/v1/downloadClient",
-                headers={"X-Api-Key": api_key},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        client = ArrClient(url, api_key, timeout=15)
+        resp = await client.get(
+            "/api/v1/downloadClient",
+        )
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
         logger.error(f"Prowlarr get_download_clients failed: {e}")
         return []
@@ -104,14 +101,13 @@ async def grab(url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool
     vers le client de téléchargement actif correspondant au protocole (torrent/usenet).
     """
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{url.rstrip('/')}/api/v1/search",
-                headers={"X-Api-Key": api_key},
-                json={"guid": guid, "indexerId": indexer_id},
-            )
-            resp.raise_for_status()
-            return True, "Envoyé au client de téléchargement configuré dans Prowlarr"
+        client = ArrClient(url, api_key, timeout=30)
+        resp = await client.post(
+            "/api/v1/search",
+            json={"guid": guid, "indexerId": indexer_id},
+        )
+        resp.raise_for_status()
+        return True, "Envoyé au client de téléchargement configuré dans Prowlarr"
     except Exception as e:
         logger.error(f"Prowlarr grab failed (guid={guid}, indexerId={indexer_id}): {e}")
         return False, str(e)

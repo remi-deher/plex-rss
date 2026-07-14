@@ -1,0 +1,243 @@
+.panel,
+.metric-card,
+.media-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.panel {
+  padding: 16px;
+}
+
+.primary,
+.secondary,
+.icon-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--surface-2);
+  border-radius: var(--btn-radius);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.primary {
+  color: #151515;
+  background: var(--accent-gradient, var(--accent));
+  border: none;
+  padding: 0 16px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(229, 160, 13, 0.15);
+}
+
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(229, 160, 13, 0.3);
+}
+
+.secondary:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.secondary {
+  color: var(--text);
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.icon-button {
+  width: 38px;
+}
+
+.toolbar,
+.actions,
+.segmented,
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge,
+.language-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.badge.available,
+.badge.sent_to_arr,
+.language-tag.vf {
+  border-color: rgba(34, 197, 94, .55);
+  color: var(--green);
+}
+
+.badge.failed,
+.danger,
+.language-tag.vo {
+  border-color: rgba(239, 68, 68, .6);
+  color: var(--red);
+}
+
+.action-card,
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.form-section label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.form-section .check,
+.check {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13.5px;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.danger-button {
+  color: white;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.notice {
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.detail-drawer,
+.modal-panel {
+  position: fixed;
+  z-index: 41;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--panel-radius, 16px);
+  inset: 5vh auto auto 50%;
+  width: min(680px, calc(100% - 24px));
+  max-height: 90vh;
+  padding: 24px;
+  transform: translateX(-50%);
+}
+
+.modal-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(40px) brightness(0.22);
+  transform: scale(1.15);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.form-section textarea,
+.code-editor {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.template-settings .form-section {
+  padding: 0 0 16px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-glow {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* --- Panel link ghost pill button --- */
+.panel-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.panel-link:hover {
+  color: var(--accent);
+  background: rgba(229, 160, 13, 0.08);
+  border-color: rgba(229, 160, 13, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(229, 160, 13, 0.12);
+}
+
+.unmatched-header > .panel-link {
+  margin-left: auto;
+  flex-shrink: 0;
+}
