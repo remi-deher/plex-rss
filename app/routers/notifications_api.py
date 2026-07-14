@@ -237,9 +237,41 @@ async def preview_email_template(event: str = "request", user_id: Optional[int] 
 
 
 @router.get("/notifications/log")
-async def list_notification_logs(limit: int = 50, offset: int = 0, db: AsyncSession = Depends(get_db_async)):
+async def list_notification_logs(
+    limit: int = 50,
+    offset: int = 0,
+    state: str = None,
+    eventType: str = None,
+    search: str = None,
+    db: AsyncSession = Depends(get_db_async)
+):
     effective_limit = min(limit, 200)
-    q = select(NotificationLog).order_by(NotificationLog.sent_at.desc())
+    q = select(NotificationLog)
+
+    if state == "success":
+        q = q.filter(NotificationLog.success == True)
+    elif state == "error":
+        q = q.filter(NotificationLog.success == False)
+
+    if eventType == "request":
+        q = q.filter(NotificationLog.event.like("request.%"))
+    elif eventType == "available":
+        q = q.filter(NotificationLog.event.like("available.%"))
+    elif eventType == "system":
+        q = q.filter(NotificationLog.event.like("system.%"))
+
+    if search:
+        search_str = f"%{search}%"
+        q = q.filter(
+            sqlalchemy.or_(
+                NotificationLog.media_title.ilike(search_str),
+                NotificationLog.recipient.ilike(search_str),
+                NotificationLog.event.ilike(search_str),
+                NotificationLog.error_msg.ilike(search_str)
+            )
+        )
+
+    q = q.order_by(NotificationLog.sent_at.desc())
     total = (await db.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(q.subquery()))).scalar()
     logs = (await db.execute(q.offset(offset).limit(effective_limit))).scalars().all()
     return {

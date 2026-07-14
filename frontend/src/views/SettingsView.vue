@@ -50,6 +50,7 @@
               <label>Cle API Seer<input v-model="form.seer_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
               <label class="check"><input v-model="form.seer_send_requests" type="checkbox"> Envoyer les demandes a Seer</label>
               <label class="check"><input v-model="form.seer_fallback_arr" type="checkbox"> Repli direct Sonarr/Radarr</label>
+              <label class="check"><input v-model="form.seer_suppress_notifications" type="checkbox"> Laisser Plex-RSS gerer les emails de demande pour les utilisateurs Seer</label>
             </div>
           </div>
         </div>
