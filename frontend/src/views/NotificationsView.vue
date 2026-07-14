@@ -22,7 +22,7 @@
     <div v-if="tab==='history'" class="filters-wrap">
       
       <!-- Filtre Etat -->
-      <div class="custom-dropdown" v-click-outside="() => activeDropdown = null">
+      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'state') activeDropdown = null }">
         <button class="secondary" @click="activeDropdown = activeDropdown === 'state' ? null : 'state'" :class="{active: state}">
           Etat <span class="badge" v-if="state">{{ state === 'success' ? 'Envoyees' : 'Erreurs' }}</span> <ChevronDown class="dropdown-icon" />
         </button>
@@ -40,7 +40,7 @@
       </div>
 
       <!-- Filtre Types (Choix Multiple) -->
-      <div class="custom-dropdown" v-click-outside="() => activeDropdown = null">
+      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'types') activeDropdown = null }">
         <button class="secondary" @click="activeDropdown = activeDropdown === 'types' ? null : 'types'" :class="{active: selectedTypes.length > 0}">
           Types <span class="badge" v-if="selectedTypes.length">{{ selectedTypes.length }}</span> <ChevronDown class="dropdown-icon" />
         </button>
@@ -52,7 +52,7 @@
       </div>
 
       <!-- Filtre Utilisateurs (Choix Multiple) -->
-      <div class="custom-dropdown" v-click-outside="() => activeDropdown = null">
+      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'users') activeDropdown = null }">
         <button class="secondary" @click="activeDropdown = activeDropdown === 'users' ? null : 'users'" :class="{active: selectedUsers.length > 0}">
           Utilisateurs <span class="badge" v-if="selectedUsers.length">{{ selectedUsers.length }}</span> <ChevronDown class="dropdown-icon" />
         </button>
