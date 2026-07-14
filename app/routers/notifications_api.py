@@ -241,7 +241,8 @@ async def list_notification_logs(
     limit: int = 50,
     offset: int = 0,
     state: str = None,
-    eventType: str = None,
+    types: str = None,
+    users: str = None,
     search: str = None,
     db: AsyncSession = Depends(get_db_async)
 ):
@@ -253,12 +254,31 @@ async def list_notification_logs(
     elif state == "error":
         q = q.filter(NotificationLog.success == False)
 
-    if eventType == "request":
-        q = q.filter(NotificationLog.event.like("request.%"))
-    elif eventType == "available":
-        q = q.filter(NotificationLog.event.like("available.%"))
-    elif eventType == "system":
-        q = q.filter(NotificationLog.event.like("system.%"))
+    if types:
+        type_list = [t.strip() for t in types.split(",") if t.strip()]
+        if type_list:
+            conditions = []
+            for t in type_list:
+                conditions.append(NotificationLog.event.startswith(t))
+            q = q.filter(sqlalchemy.or_(*conditions))
+
+    if users:
+        user_ids = []
+        for u in users.split(","):
+            if u.strip().isdigit():
+                user_ids.append(int(u.strip()))
+        if user_ids:
+            db_users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(user_ids)))).scalars().all()
+            emails = []
+            for u in db_users:
+                if u.notification_email:
+                    emails.append(u.notification_email.strip())
+                if u.plex_email:
+                    emails.append(u.plex_email.strip())
+            if emails:
+                q = q.filter(NotificationLog.recipient.in_(emails))
+            else:
+                q = q.filter(sqlalchemy.false())
 
     if search:
         search_str = f"%{search}%"

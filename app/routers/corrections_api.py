@@ -10,9 +10,9 @@ from sqlalchemy.future import select
 
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
-from ..models import LibraryItem, MediaRequest, PlexUser, Settings
+from ..models import LibraryItem, MediaRequest, PlexUser, Settings, NotificationLog
 from ..services.email_service import build_correction_email, send_correction_notification
-from ..utils import async_get_or_404
+from ..utils import async_get_or_404, now_utc_naive
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +181,30 @@ async def send_media_correction(body: MediaCorrectionRequest, db: AsyncSession =
                 episode_number=episode_number,
             )
             sent.append({"user_id": user_id, "recipient": recipient, "name": display_name})
+            db.add(NotificationLog(
+                sent_at=now_utc_naive(),
+                event="request.correction",
+                recipient=recipient,
+                success=True,
+                media_title=media.title,
+                media_type=media.media_type,
+                req_id=body.request_id,
+                is_admin=True
+            ))
         except Exception as exc:
             errors.append({"user_id": user_id, "recipient": recipient, "name": display_name, "error": str(exc)})
+            db.add(NotificationLog(
+                sent_at=now_utc_naive(),
+                event="request.correction",
+                recipient=recipient,
+                success=False,
+                error_msg=str(exc),
+                media_title=media.title,
+                media_type=media.media_type,
+                req_id=body.request_id,
+                is_admin=True
+            ))
+    await db.commit()
 
     if errors and not sent:
         raise HTTPException(500, {"message": "Aucun email envoyé", "errors": errors, "skipped": skipped})
