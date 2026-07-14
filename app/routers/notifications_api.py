@@ -260,6 +260,13 @@ async def list_notification_logs(
             conditions = []
             for t in type_list:
                 conditions.append(NotificationLog.event.startswith(t))
+                if t == "available":
+                    legacy_prefixes = [
+                        "episode_track", "vo_only", "vf_available", 
+                        "partially_available", "language_"
+                    ]
+                    for lp in legacy_prefixes:
+                        conditions.append(NotificationLog.event.startswith(lp))
             q = q.filter(sqlalchemy.or_(*conditions))
 
     if users:
