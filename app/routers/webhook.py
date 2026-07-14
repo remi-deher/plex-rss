@@ -445,9 +445,12 @@ async def plex_webhook(request: Request):
     event = data.get("event", "")
     logger.info(f"Plex webhook: {event}")
 
+    # N'importe quel événement reçu de Plex confirme que le webhook fonctionne
+    if event:
+        _last_webhook_test["plex"] = datetime.now(timezone.utc)
+
     if event == "media.play" and data.get("Metadata") is None:
         # Plex envoie un event vide pour tester la connectivité
-        _last_webhook_test["plex"] = datetime.now(timezone.utc)
         logger.info("Plex webhook test reçu avec succès")
         return {"status": "ok", "event": "Test", "message": "Webhook Plex opérationnel"}
 
