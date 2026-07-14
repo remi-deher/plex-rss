@@ -577,6 +577,12 @@ async def _process_watchlist_item(
     result = "sent"
     try:
         arr_id, already_existed, arr_slug = await _submit_to_arr(settings, item, user_obj, db=db)
+        
+        # Si aucun ID Radarr/Sonarr n'est retourné, et que ce n'est pas un film pré-existant,
+        # et que le fallback torrent n'a pas non plus retourné de hash, c'est un échec.
+        if arr_id is None and not already_existed and not item.get("_torrent_hash"):
+            raise Exception("Transmission échouée : métadonnées introuvables (TMDB/TVDB) ou instance inaccessible.")
+            
         req.status = RequestStatus.sent_to_arr
         req.arr_id = arr_id
         req.arr_slug = arr_slug
