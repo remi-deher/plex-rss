@@ -23,6 +23,7 @@ from ..scheduler import (
 from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
 from ..services import plex_finder as vff_svc
+from ..services import audio_analyzer
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
@@ -359,7 +360,7 @@ async def vff_scan_single_request(
             await _notify("available", settings, req, db)
     else:
         req.has_vf = False
-        req.vf_granularity = vff_svc.compute_vf_granularity(episode_status)
+        req.vf_granularity = audio_analyzer.compute_vf_granularity(episode_status)
         if not was_tracking:
             if not req.available_mail_sent:
                 req.available_mail_sent = True
@@ -474,7 +475,7 @@ async def library_vff_scan(
     item.vf_category = res.get("category") or item.vf_category
     item.vf_checked_at = now
     item.has_vf = bool(res["has_vf"])
-    item.vf_granularity = "full" if item.has_vf else vff_svc.compute_vf_granularity(res.get("episode_status"))
+    item.vf_granularity = "full" if item.has_vf else audio_analyzer.compute_vf_granularity(res.get("episode_status"))
     if item.has_vf and prev is False:
         item.vf_available_at = now
     item.updated_at = now

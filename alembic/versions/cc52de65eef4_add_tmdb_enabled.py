@@ -1,5 +1,5 @@
-"""add tmdb_enabled
 
+"""add tmdb_enabled
 Revision ID: cc52de65eef4
 Revises: 0064_admin_action_logs
 Create Date: 2026-07-13 15:05:16.509505
