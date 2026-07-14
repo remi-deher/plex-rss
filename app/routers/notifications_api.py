@@ -403,39 +403,7 @@ async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
                 "created_at": str(row.created_at or ""),
                 "event": row.event,
                 "event_label": get_event(row.event).label,
-    req_ids = []
-    for row in rows:
-        try:
-            req_ids.append(int(row.req_id))
-        except Exception:
-            pass
-    titles = {
-        req.id: {"title": req.title, "media_type": req.media_type}
-        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(req_ids)))).scalars().all()
-    }
 
-    def _json_value(raw, fallback):
-        try:
-            value = _json.loads(raw) if raw else fallback
-            return value if value is not None else fallback
-        except Exception:
-            return fallback
-
-    items = []
-    invalid = 0
-    for row in rows:
-        recipients = _json_value(row.recipients, [])
-        context = _json_value(row.reason, {})
-        is_valid = row.event in ("request", "available", "failed") and isinstance(recipients, list)
-        if not is_valid:
-            invalid += 1
-        media = titles.get(row.req_id, {})
-        items.append(
-            {
-                "id": row.id,
-                "created_at": str(row.created_at or ""),
-                "event": row.event,
-                "event_label": get_event(row.event).label,
                 "req_id": row.req_id,
                 "media_title": media.get("title"),
                 "media_type": media.get("media_type"),
