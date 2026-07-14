@@ -537,7 +537,7 @@ function formatDownloadProgress(item) {
 }
 
 const statCards = computed(() => [
-  { label: 'Demandes en cours', value: ((counts.value.sent_to_arr ?? 0) + (counts.value.pending ?? 0) + (counts.value.pending_approval ?? 0)) || '-', route: { path: '/requests', query: { status: 'pending,sent_to_arr,pending_approval' } } },
+  { label: 'Demandes en cours', value: counts.value.sent_to_arr || '-', route: { path: '/requests', query: { status: 'sent_to_arr' } } },
   { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length, route: { path: '/requests', query: { status: 'pending_approval' } } },
   { label: 'Chez Sonarr', value: counts.value.by_type?.show?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'show' } } },
   { label: 'Chez Radarr', value: counts.value.by_type?.movie?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'movie' } } }
