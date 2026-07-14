@@ -259,14 +259,21 @@ async def list_notification_logs(
         if type_list:
             conditions = []
             for t in type_list:
-                conditions.append(NotificationLog.event.startswith(t))
-                if t == "available":
-                    legacy_prefixes = [
-                        "episode_track", "vo_only", "vf_available", 
-                        "partially_available", "language_"
-                    ]
-                    for lp in legacy_prefixes:
-                        conditions.append(NotificationLog.event.startswith(lp))
+                if t == "correction":
+                    conditions.append(NotificationLog.event.startswith("correction"))
+                    conditions.append(NotificationLog.event.startswith("request.correction"))
+                elif t == "upgrade":
+                    conditions.append(NotificationLog.is_upgrade == True)
+                    conditions.append(NotificationLog.event == "vf_available")
+                else:
+                    conditions.append(NotificationLog.event.startswith(t))
+                    if t == "available":
+                        legacy_prefixes = [
+                            "episode_track", "vo_only", 
+                            "partially_available", "language_"
+                        ]
+                        for lp in legacy_prefixes:
+                            conditions.append(NotificationLog.event.startswith(lp))
             q = q.filter(sqlalchemy.or_(*conditions))
 
     if users:
@@ -400,7 +407,7 @@ async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
     for row in rows:
         recipients = _json_value(row.recipients, [])
         context = _json_value(row.reason, {})
-        is_valid = row.event in ("request", "available", "failed", "correction") and isinstance(recipients, list)
+        is_valid = row.event in ("request", "available", "failed", "correction", "request.correction") and isinstance(recipients, list)
         if not is_valid:
             invalid += 1
         media = titles.get(row.req_id, {})

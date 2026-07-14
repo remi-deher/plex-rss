@@ -156,6 +156,7 @@ const activeDropdown = ref(null);
 const typeOptions = [
   { value: 'request', label: 'Demandes' },
   { value: 'available', label: 'Disponibilites' },
+  { value: 'upgrade', label: 'Améliorations (VF)' },
   { value: 'correction', label: 'Corrections' },
   { value: 'failed', label: 'Erreurs systeme' }
 ];

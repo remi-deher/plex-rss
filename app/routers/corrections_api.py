@@ -183,7 +183,7 @@ async def send_media_correction(body: MediaCorrectionRequest, db: AsyncSession =
             sent.append({"user_id": user_id, "recipient": recipient, "name": display_name})
             db.add(NotificationLog(
                 sent_at=now_utc_naive(),
-                event="request.correction",
+                event="correction",
                 recipient=recipient,
                 success=True,
                 media_title=media.title,
@@ -195,7 +195,7 @@ async def send_media_correction(body: MediaCorrectionRequest, db: AsyncSession =
             errors.append({"user_id": user_id, "recipient": recipient, "name": display_name, "error": str(exc)})
             db.add(NotificationLog(
                 sent_at=now_utc_naive(),
-                event="request.correction",
+                event="correction",
                 recipient=recipient,
                 success=False,
                 error_msg=str(exc),

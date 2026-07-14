@@ -107,6 +107,7 @@ LEGACY_EVENT_LABELS: dict[str, str] = {
     "partially_available": "Disponibilité partielle",
     "language_vo": "Disponible en VO",
     "language_vf": "Disponible en VF",
+    "request.correction": "Correction",
 }
 
 
