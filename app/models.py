@@ -155,6 +155,7 @@ class Settings(Base):
     seer_enabled: Mapped[bool] = mapped_column(default=False)  # legacy, remplacé par seer_send_requests
     seer_send_requests: Mapped[bool] = mapped_column(default=False)
     seer_fallback_arr: Mapped[bool] = mapped_column(default=True)
+    seer_suppress_notifications: Mapped[bool] = mapped_column(default=True)
 
     # --- Notifications push (Discord / Telegram) ---
     discord_enabled: Mapped[bool] = mapped_column(default=True)
