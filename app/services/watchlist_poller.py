@@ -571,6 +571,8 @@ async def _process_watchlist_item(
             await db.commit()
             return "skip"
 
+    was_failed = existing and existing.status == RequestStatus.failed
+
     already_existed = False
     result = "sent"
     try:
@@ -594,7 +596,7 @@ async def _process_watchlist_item(
         logger.info(f"'{item['title']}' already in arr — skipping notifications")
     elif req.status == RequestStatus.sent_to_arr:
         await notification_orchestrator._notify("request", settings, req, db)
-    elif req.status == RequestStatus.failed:
+    elif req.status == RequestStatus.failed and not was_failed:
         arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
         await notification_orchestrator._notify(
             "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
