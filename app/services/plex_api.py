@@ -183,13 +183,9 @@ def _parse_api_item(item: dict, username: str, user_id: str) -> dict:
     
     from datetime import datetime, timezone
     requested_at = None
-    if item.get("addedAt"):
-        # addedAt est un timestamp en secondes (UTC)
-        try:
-            dt = datetime.fromtimestamp(int(item["addedAt"]), timezone.utc)
-            requested_at = dt.replace(tzinfo=None)
-        except (ValueError, TypeError):
-            pass
+    # We ignore "addedAt" because Plex API (discover.provider.plex.tv) often 
+    # populates it with the item's release date rather than the watchlist addition date.
+    # The watchlist_poller will assign the current date if requested_at is None.
     return {
         "title": item.get("title", ""),
         "year": item.get("year"),
