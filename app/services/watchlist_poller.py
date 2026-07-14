@@ -585,7 +585,10 @@ async def _process_watchlist_item(
             req.torrent_hash = item.get("_torrent_hash")
             req.download_client_id = item.get("_download_client_id")
     except Exception as e:
-        logger.error(f"Failed to send '{item['title']}' to arr: {e}")
+        body_log = ""
+        if hasattr(e, "response") and hasattr(e.response, "text"):
+            body_log = f" | Body: {e.response.text}"
+        logger.error(f"Failed to send '{item['title']}' to arr: {e}{body_log}")
         req.status = RequestStatus.failed
         result = "failed"
 
