@@ -96,7 +96,7 @@ async def _submit_to_arr(
         (arr_id, already_existed, arr_slug)
     """
     if user_obj and user_obj.seer_active is True:
-        if settings.seer_suppress_notifications:
+        if getattr(settings, "seer_suppress_notifications", True):
             logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
             return None, True, None
         else:

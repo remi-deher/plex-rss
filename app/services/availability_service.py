@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 
+import sqlalchemy
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -43,6 +44,12 @@ async def find_plex_library_item(db: AsyncSession, req: MediaRequest) -> Library
 
 
 async def has_plex_proof(db: AsyncSession, req: MediaRequest) -> bool:
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings or not settings.plex_url or not settings.plex_token:
+        return True
+    count = (await db.execute(select(sqlalchemy.func.count(LibraryItem.id)))).scalar()
+    if not count:
+        return True
     return await find_plex_library_item(db, req) is not None
 
 
