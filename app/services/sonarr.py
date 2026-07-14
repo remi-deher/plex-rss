@@ -98,7 +98,8 @@ async def add_series(
         return data.get("id"), False, data.get("titleSlug")
     except httpx.HTTPStatusError as e:
         body = e.response.text if hasattr(e, 'response') else ''
-        if e.response.status_code == 400 and ("SeriesExistsValidator" in body or "already been added" in body.lower() or "already configured" in body.lower()):
+        b_lower = body.lower()
+        if e.response.status_code == 400 and ("seriesexistsvalidator" in b_lower or "already been added" in b_lower or "already configured" in b_lower or "déjà été ajouté" in b_lower or "déjà configuré" in b_lower or "deja ete ajoute" in b_lower or "deja configure" in b_lower):
             logger.info(f"'{item['title']}' already in Sonarr (caught 400 Exists/PathConfigured)")
             return None, True, None
         logger.error(f"Sonarr error adding '{item['title']}': {e} — response: {body}")
