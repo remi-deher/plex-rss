@@ -84,6 +84,9 @@ async def add_movie(
         return data.get("id"), False, data.get("titleSlug")
     except httpx.HTTPStatusError as e:
         body = e.response.text if hasattr(e, 'response') else ''
+        if e.response.status_code == 400 and ("MovieExistsValidator" in body or "already been added" in body.lower()):
+            logger.info(f"'{item['title']}' already in Radarr (caught 400 MovieExistsValidator)")
+            return None, True, None
         logger.error(f"Radarr error adding '{item['title']}': {e} — response: {body}")
         raise
     except httpx.HTTPError as e:

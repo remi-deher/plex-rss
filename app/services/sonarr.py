@@ -98,6 +98,9 @@ async def add_series(
         return data.get("id"), False, data.get("titleSlug")
     except httpx.HTTPStatusError as e:
         body = e.response.text if hasattr(e, 'response') else ''
+        if e.response.status_code == 400 and ("SeriesExistsValidator" in body or "already been added" in body.lower()):
+            logger.info(f"'{item['title']}' already in Sonarr (caught 400 SeriesExistsValidator)")
+            return None, True, None
         logger.error(f"Sonarr error adding '{item['title']}': {e} — response: {body}")
         raise
     except httpx.HTTPError as e:
