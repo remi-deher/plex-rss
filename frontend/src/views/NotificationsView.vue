@@ -310,7 +310,9 @@ onMounted(() => {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: var(--surface-2);
+  background: var(--surface-2, rgba(20, 20, 20, 0.95));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.5);
