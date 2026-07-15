@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 
@@ -50,7 +51,54 @@ async def has_plex_proof(db: AsyncSession, req: MediaRequest) -> bool:
     count = (await db.execute(select(sqlalchemy.func.count(LibraryItem.id)))).scalar()
     if not count:
         return True
-    return await find_plex_library_item(db, req) is not None
+    if await find_plex_library_item(db, req) is not None:
+        return True
+    # Repli live Plex : le cache LibraryItem ne se resynchronise entierement qu'une
+    # fois par jour (cron_plex_sync, 03:15) — un media tout juste importe par *arr peut
+    # donc etre absent du cache alors qu'il est deja present dans Plex, bloquant la
+    # confirmation de disponibilite (webhook ET poll periodique check_arr_statuses)
+    # jusqu'au prochain sync complet, jusqu'a ~24h plus tard. Incident observe :
+    # "Society of the Snow" disponible dans Plex/Radarr a 14h03, jamais marque
+    # disponible faute d'entree LibraryItem correspondante. Repli borne (une requete
+    # Plex ciblee, pas un scan complet) : appele uniquement au moment precis ou une
+    # demande vient d'etre detectee disponible cote *arr, jamais en boucle sur tout
+    # le catalogue.
+    return await _live_plex_proof(settings, req)
+
+
+async def _live_plex_proof(settings: Settings, req: MediaRequest) -> bool:
+    from . import plex_finder
+    from .vff_scanner import _parse_vff_libraries
+
+    libs = _parse_vff_libraries(settings)
+    if not libs:
+        return False
+    kinds = ("movie",) if req.media_type == "movie" else ("series", "anime")
+    library_names = [lib["name"] for lib in libs if lib["kind"] in kinds]
+    if not library_names:
+        return False
+    try:
+        return await asyncio.to_thread(_find_item_live_blocking, settings.plex_url, settings.plex_token, library_names, req)
+    except Exception as e:
+        logger.warning("Verification Plex live echouee pour '%s': %s", req.title, e)
+        return False
+
+
+def _find_item_live_blocking(plex_url: str, plex_token: str, library_names: list[str], req: MediaRequest) -> bool:
+    from . import plex_finder
+
+    plex = plex_finder.connect(plex_url, plex_token)
+    item = plex_finder.find_item_in_libraries(
+        plex,
+        library_names,
+        req.title,
+        req.year,
+        req.tmdb_id,
+        req.tvdb_id,
+        req.imdb_id,
+        plex_guid=req.plex_guid,
+    )
+    return item is not None
 
 
 def note_arr_processed(
