@@ -11,7 +11,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .crypto import EncryptedText
@@ -51,6 +51,11 @@ class Settings(Base):
     # Intervalle de polling de la watchlist en secondes (prioritaire sur poll_interval_minutes
     # s'il est défini). Permet un rafraîchissement sous la minute. None → poll_interval_minutes*60.
     poll_interval_seconds: Mapped[Optional[int]] = mapped_column(default=None)
+    # Intervalle du cycle de vérification de disponibilité *arr (check_arr_statuses), en
+    # minutes. Existait auparavant comme "arr_poll_interval_hours" côté API/UI sans colonne
+    # réelle derrière (setattr silencieusement perdu au commit) — jamais branché sur le job,
+    # qui tournait toujours toutes les 15 min en dur (voir app/jobs.py:job_arr_statuses).
+    arr_poll_interval_minutes: Mapped[int] = mapped_column(default=15)
 
     # --- Sonarr ---
     sonarr_url: Mapped[Optional[str]]
@@ -467,6 +472,28 @@ class PollHistory(Base):
     newly_available: Mapped[int] = mapped_column(default=0)
     errors: Mapped[int] = mapped_column(default=0)
     error_detail: Mapped[Optional[str]]
+
+
+class JobRunLog(Base):
+    """Historique générique d'exécution des tâches planifiées (app/jobs.py:_run).
+
+    Contrairement à `PollHistory` (spécifique à watchlist/arr_status, avec des colonnes
+    métier dédiées), cette table couvre TOUTES les tâches planifiées de façon uniforme
+    (nom + statut + durée + erreur) — alimente l'onglet Réglages > Tâches planifiées.
+    Un run "not_due" (verrou Redis d'intervalle non expiré) n'est PAS journalisé ici :
+    seules les exécutions réelles (succès ou échec) le sont, sans quoi cette table
+    grossirait à chaque tick de cron plutôt qu'à chaque exécution effective.
+    """
+
+    __tablename__ = "job_run_logs"
+    __table_args__ = (Index("ix_job_run_logs_job_started", "job", "started_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    job: Mapped[str]
+    started_at: Mapped[datetime]
+    duration_ms: Mapped[Optional[int]]
+    status: Mapped[str]  # "complete" | "failed"
+    error: Mapped[Optional[str]]
 
 
 class DownloadHistory(Base):

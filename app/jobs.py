@@ -15,9 +15,9 @@ from arq.connections import RedisSettings
 from sqlalchemy.future import select
 
 from .database import AsyncSessionLocal, init_db
-from .models import PendingNotification, Settings
+from .models import JobRunLog, PendingNotification, Settings
 from .realtime import publish
-from .utils import now_utc
+from .utils import now_utc, now_utc_naive
 
 logger = logging.getLogger(__name__)
 LOCK_TTL = 60 * 60
@@ -46,6 +46,26 @@ async def _due(ctx: dict, name: str, interval_seconds: int, force: bool) -> bool
     return bool(await ctx["redis"].set(key, str(time.time()), ex=max(interval_seconds, 1), nx=True))
 
 
+async def _log_job_run(name: str, started_at, duration_ms: float, status: str, error: str | None) -> None:
+    """Persiste une exécution réelle dans job_run_logs (voir JobRunLog / onglet
+    Réglages > Tâches planifiées). Best-effort : une erreur ici ne doit jamais faire
+    échouer le job qu'elle journalise."""
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                JobRunLog(
+                    job=name,
+                    started_at=started_at,
+                    duration_ms=round(duration_ms),
+                    status=status,
+                    error=error,
+                )
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning("Impossible de journaliser l'execution de '%s' dans job_run_logs: %s", name, e)
+
+
 async def _run(
     ctx: dict,
     name: str,
@@ -54,6 +74,7 @@ async def _run(
     force: bool = False,
     interval_seconds: int | None = None,
     event_type: str | None = None,
+    log_history: bool = True,
 ) -> dict[str, Any]:
     redis = ctx["redis"]
     if await redis.exists(MIGRATION_LOCK_KEY):
@@ -67,6 +88,7 @@ async def _run(
         await _state(redis, name, status="skipped", progress=0, message="already running")
         return {"status": "skipped"}
     started = time.monotonic()
+    started_at_naive = now_utc_naive()
     job_id = ctx.get("job_id")
     await _state(
         redis,
@@ -80,28 +102,34 @@ async def _run(
     )
     try:
         result = await function()
+        duration_ms = (time.monotonic() - started) * 1000
         state = await _state(
             redis,
             name,
             status="complete",
             progress=100,
             finished_at=now_utc().isoformat(),
-            duration_ms=round((time.monotonic() - started) * 1000, 1),
+            duration_ms=round(duration_ms, 1),
         )
+        if log_history:
+            await _log_job_run(name, started_at_naive, duration_ms, "complete", None)
         if event_type:
             public_signal = event_type in {"request.updated", "download.updated", "health.updated"}
             await publish(event_type, {"source": "worker"}, admin_only=not public_signal)
         return state | {"result": result}
     except Exception as exc:
+        duration_ms = (time.monotonic() - started) * 1000
         await _state(
             redis,
             name,
             status="failed",
             progress=100,
             finished_at=now_utc().isoformat(),
-            duration_ms=round((time.monotonic() - started) * 1000, 1),
+            duration_ms=round(duration_ms, 1),
             last_error=str(exc),
         )
+        if log_history:
+            await _log_job_run(name, started_at_naive, duration_ms, "failed", str(exc))
         logger.exception("ARQ job %s failed", name)
         raise
     finally:
@@ -168,10 +196,12 @@ async def job_watchlist(ctx: dict, force: bool = False, run_id: str | None = Non
 async def job_arr_statuses(ctx: dict, force: bool = False, run_id: str | None = None, action: str | None = None):
     from .services.arr_tracker import check_arr_statuses
 
+    settings = await _settings()
+    interval = ((settings.arr_poll_interval_minutes if settings else None) or 15) * 60
     return await _manual_result(
         run_id,
         action,
-        _run(ctx, "arr-statuses", check_arr_statuses, force=force, interval_seconds=900, event_type="request.updated"),
+        _run(ctx, "arr-statuses", check_arr_statuses, force=force, interval_seconds=interval, event_type="request.updated"),
     )
 
 
@@ -260,7 +290,7 @@ async def job_send_notification(ctx: dict, pending_id: int):
     async def send():
         return await process_pending_id(pending_id)
 
-    result = await _run(ctx, f"notification-{pending_id}", send)
+    result = await _run(ctx, f"notification-{pending_id}", send, log_history=False)
     user_id = result.get("result")
     await publish("notification.updated", {"pending_id": pending_id}, user_id=user_id)
     return result

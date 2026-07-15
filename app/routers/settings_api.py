@@ -110,7 +110,7 @@ class SettingsUpdate(BaseModel):
     tmdb_enabled: Optional[bool] = None
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
-    arr_poll_interval_hours: Optional[int] = None
+    arr_poll_interval_minutes: Optional[int] = None
     # --- RSS Output ---
     rss_hash: Optional[str] = None
     # --- Torrent client config ---

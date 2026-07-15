@@ -53,6 +53,7 @@ from .routers import (
     misc_api,
     notifications_api,
     requests_api,
+    scheduled_tasks_api,
     security_api,
     settings_api,
     users_api,
@@ -296,6 +297,7 @@ app.include_router(discover_api.router)
 app.include_router(vff_api.router)
 app.include_router(metrics_api.router)
 app.include_router(notifications_api.router)
+app.include_router(scheduled_tasks_api.router)
 app.include_router(misc_api.router)
 app.include_router(api_v1.router)
 app.include_router(webhook.router)

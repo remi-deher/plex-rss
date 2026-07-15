@@ -37,7 +37,6 @@
 
       <SettingsCard title="Conservation" :icon="Archive" status="active">
         <label>Journaux (jours)<input v-model.number="form.notification_log_retention_days" type="number"></label>
-        <label>Verification Arr (heures)<input v-model.number="form.arr_poll_interval_hours" type="number"></label>
         <label class="check"><input v-model="form.digest_enabled" type="checkbox"> Digest actif</label>
         <label>Heure du digest<input v-model.number="form.digest_hour" type="number" min="0" max="23"></label>
       </SettingsCard>
