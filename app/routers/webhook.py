@@ -21,7 +21,7 @@ from ..services.notification_orchestrator import (
     resolve_and_notify_availability,
 )
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
-from ..utils import now_utc
+from ..utils import now_utc_naive
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = logging.getLogger(__name__)
@@ -162,7 +162,7 @@ async def _mark_available_and_notify(
             await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
             continue
         req.status = RequestStatus.available
-        req.available_at = now_utc()
+        req.available_at = now_utc_naive()
         req.is_downloading = False
         if arr_id and not req.arr_id:
             req.arr_id = int(arr_id)
@@ -511,7 +511,7 @@ async def plex_webhook(request: Request):
         requests = (await db.execute(q)).scalars().all()
         for req in requests:
             req.status = RequestStatus.available
-            req.available_at = now_utc()
+            req.available_at = now_utc_naive()
             req.is_downloading = False
             await db.commit()
             logger.info(f"Plex webhook: '{req.title}' marqué disponible")

@@ -434,8 +434,12 @@ async def test_poll_failure_message_names_actual_attempted_target(db):
 
 
 @pytest.mark.asyncio
-async def test_poll_already_existed_skips_notification(db):
-    """already_existed=True → status sent_to_arr mais aucune notification."""
+async def test_poll_already_existed_still_notifies_new_request(db):
+    """already_existed=True (le média était déjà catalogué côté Radarr/Sonarr pour une
+    raison indépendante) ne doit PAS empêcher la notification "demande envoyée" pour un
+    utilisateur qui la demande pour la première fois : seul `request_mail_sent` (vérifié
+    par `_notify`) doit régir l'anti-spam, pas `already_existed`.
+    """
     db.add(_settings())
     db.add(PlexUser(plex_user_id="alice", enabled=True))
     db.commit()
@@ -450,7 +454,8 @@ async def test_poll_already_existed_skips_notification(db):
 
     req = db.query(MediaRequest).first()
     assert req.status == RequestStatus.sent_to_arr
-    mock_enqueue.assert_not_called()
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args[0][0] == "request"
 
 
 @pytest.mark.asyncio

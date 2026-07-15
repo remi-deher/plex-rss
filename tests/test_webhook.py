@@ -262,6 +262,29 @@ def test_plex_webhook_episode_uses_show_title():
     assert response.json()["title"] == "Breaking Bad"
 
 
+def test_plex_webhook_library_new_marks_available_with_naive_datetime():
+    """Régression : `available_at` doit être un datetime naïf (comme la colonne
+    Postgres `TIMESTAMP WITHOUT TIME ZONE`). Un `now_utc()` (aware) faisait planter
+    ce webhook en production avec asyncpg ("can't subtract offset-naive and
+    offset-aware datetimes"), silencieusement côté SQLite des tests (qui n'a pas ce
+    typage strict) — d'où l'assertion explicite sur `tzinfo` plutôt qu'un simple
+    contrôle de statut HTTP.
+    """
+    req = _req(tmdb_id="438631", status_val=RequestStatus.sent_to_arr)
+    db = _make_db(settings=_settings(), requests=[req])
+    payload = {
+        "event": "library.new",
+        "Metadata": {"type": "movie", "title": "Dune", "Guid": [{"id": "tmdb://438631"}]},
+    }
+    response = _post_plex(db, payload)
+    assert response.status_code == 200
+
+    updated = db.query(MediaRequest).filter(MediaRequest.tmdb_id == "438631").first()
+    assert updated.status == RequestStatus.available
+    assert updated.available_at is not None
+    assert updated.available_at.tzinfo is None
+
+
 def test_plex_webhook_unsupported_media_type():
     payload = {"event": "library.new", "Metadata": {"type": "track", "title": "A song"}}
     response = _post_plex(_make_db(settings=_settings()), payload)

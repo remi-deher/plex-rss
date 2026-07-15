@@ -19,6 +19,15 @@ from .models import JobRunLog, PendingNotification, Settings
 from .realtime import publish
 from .utils import now_utc, now_utc_naive
 
+# Le worker ARQ est un process séparé (commande `arq app.jobs.WorkerSettings`) qui
+# n'importe jamais app.main — sans ce basicConfig, aucun logger.info/warning/error de
+# tout le code exécuté par les jobs (radarr/sonarr/notifications/vff/plex_sync...)
+# n'apparaît dans `docker logs`, faute de handler sur le root logger.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 LOCK_TTL = 60 * 60
 STATE_TTL = 7 * 24 * 60 * 60

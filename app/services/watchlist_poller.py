@@ -691,10 +691,16 @@ async def _process_watchlist_item(
 
     await db.commit()
 
-    if already_existed:
-        # Média déjà dans *arr : pas de notification (évite le spam au redémarrage)
-        logger.info(f"'{item['title']}' already in arr — skipping notifications")
-    elif req.status == RequestStatus.sent_to_arr:
+    if req.status == RequestStatus.sent_to_arr:
+        # `already_existed` signifie seulement que le tmdb_id était déjà catalogué côté
+        # Radarr/Sonarr (ajouté par un autre biais, ou lors d'un cycle de poll précédent) —
+        # ça ne veut pas dire que CETTE demande a déjà été notifiée. La garde anti-spam
+        # correcte est `req.request_mail_sent` (vérifiée par `_notify` lui-même) : se fier
+        # à `already_existed` ici a fait sauter le mail de confirmation pour toute demande
+        # dont le média était déjà présent dans Radarr (ex: film déjà ajouté avant que ce
+        # suivi n'existe), même pour un utilisateur jamais notifié.
+        if already_existed:
+            logger.info(f"'{item['title']}' already in arr — no new arr add, but notifying requester")
         await notification_orchestrator._notify("request", settings, req, db)
     elif req.status == RequestStatus.failed and not was_failed:
         target_labels = {

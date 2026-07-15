@@ -731,12 +731,14 @@ async def _create_pending_request(db: AsyncSession, body: "MediaAddRequest") -> 
         existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str))).scalars().first()
     if not existing and tvdb_str:
         existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str))).scalars().first()
-    if not existing:
+    if not existing and not tmdb_str and not tvdb_str:
         existing = (
-            select(MediaRequest)
-            .filter(MediaRequest.title == body.title, MediaRequest.media_type == body.media_type)
-            .first()
-        )
+            await db.execute(
+                select(MediaRequest).filter(
+                    MediaRequest.title == body.title, MediaRequest.media_type == body.media_type
+                )
+            )
+        ).scalars().first()
     if existing:
         # Média déjà connu : on ne recrée pas de doublon en attente.
         return {"ok": True, "pending_approval": True, "already_existed": True, "id": existing.id}
@@ -872,18 +874,22 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
 
     tmdb_str = str(body.tmdb_id) if body.tmdb_id else None
     tvdb_str = str(body.tvdb_id) if body.tvdb_id else None
-    existing = (
-        select(MediaRequest)
-        .filter(
-            MediaRequest.title == body.title,
-            MediaRequest.media_type == body.media_type,
-        )
-        .first()
-    )
-    if tmdb_str and not existing:
+    # Priorité aux identifiants certains (tmdb/tvdb) ; le titre n'est utilisé qu'en
+    # dernier recours, quand aucun identifiant n'est disponible.
+    existing = None
+    if tmdb_str:
         existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tmdb_id == tmdb_str))).scalars().first()
     if tvdb_str and not existing:
         existing = (await db.execute(select(MediaRequest).filter(MediaRequest.tvdb_id == tvdb_str))).scalars().first()
+    if not existing and not tmdb_str and not tvdb_str:
+        existing = (
+            await db.execute(
+                select(MediaRequest).filter(
+                    MediaRequest.title == body.title,
+                    MediaRequest.media_type == body.media_type,
+                )
+            )
+        ).scalars().first()
 
     # Source de suivi : "seer" → suivi par seer_sync (interroge Overseerr) ;
     # sinon → suivi par check_arr_statuses via l'instance *arr enregistrée.
