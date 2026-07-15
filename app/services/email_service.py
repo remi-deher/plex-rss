@@ -525,8 +525,13 @@ async def send_available_notification(
 
 async def _send(settings: Settings, recipient: str, subject: str, html: str):
     if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
-        logger.warning("SMTP not configured, skipping email")
-        return
+        # Lever plutôt que retourner silencieusement : un retour silencieux remonte comme un
+        # succès jusqu'à _send_with_retry (aucune exception = tentative réussie), ce qui fait
+        # poser request_mail_sent/available_mail_sent=True et logger un NotificationLog
+        # success=True alors qu'aucun email n'a été envoyé — perte silencieuse indétectable
+        # tant que la config SMTP reste incomplète (champ manquant après une sauvegarde
+        # partielle, rotation de mot de passe qui vide le champ, etc.).
+        raise RuntimeError("Configuration SMTP incomplète (host/user/password/from) — email non envoyé")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

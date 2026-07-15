@@ -171,11 +171,17 @@ async def test_send_request_includes_footer_credit():
 
 
 @pytest.mark.asyncio
-async def test_send_skipped_when_smtp_not_configured():
-    """SMTP non configuré → aucun envoi, pas d'exception."""
+async def test_send_raises_when_smtp_not_configured():
+    """SMTP non configuré → exception levée (pas de succès silencieux sans envoi réel).
+
+    Un retour silencieux remonterait comme un succès jusqu'à _send_with_retry (aucune
+    exception = tentative réussie) : request_mail_sent serait posé à True et un
+    NotificationLog success=True créé alors qu'aucun email n'a été envoyé.
+    """
     s = _settings(smtp_host=None)
     with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_request_notification(s, _req(), "dest@example.com")
+        with pytest.raises(RuntimeError, match="incomplète"):
+            await send_request_notification(s, _req(), "dest@example.com")
 
     mock_send.assert_not_called()
 
