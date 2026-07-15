@@ -133,7 +133,11 @@
   flex-wrap: wrap;
 }
 
-.filter-toolbar {
+.filter-row .search {
+  flex-grow: 1;
+}
+
+.filter-pills-scroll {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -155,11 +159,19 @@
   white-space: nowrap;
 }
 
-.filter-toolbar .divider {
+.filter-pills-scroll .divider {
   width: 1px;
   height: 22px;
   background: var(--border);
   flex-shrink: 0;
+}
+
+.filter-select {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  width: auto;
 }
 
 .filter-pill {
@@ -183,8 +195,7 @@
   transform: translateY(-1px);
 }
 
-.filter-pill.active,
-.filter-pill:not(.dropdown-toggle).active {
+.filter-pill.active {
   color: #151515;
   background: var(--accent-gradient, var(--accent));
   border-color: transparent;

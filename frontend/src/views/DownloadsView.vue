@@ -30,7 +30,7 @@
       </div>
     </section>
 
-    <nav class="detail-tabs page-tabs">
+    <nav class="detail-tabs">
       <button :class="{active:tab==='queue'}" @click="tab='queue'; statusFilter=''">
         File active
         <span v-if="errorItems.length" class="tab-badge error-badge">{{ errorItems.length }}</span>

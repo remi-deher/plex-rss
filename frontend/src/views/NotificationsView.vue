@@ -10,10 +10,10 @@
     </button>
   </header>
 
-  <div class="segmented page-tabs">
+  <nav class="detail-tabs">
     <button :class="{active:tab==='history'}" @click="tab='history';offset=0;load()">Historique</button>
     <button :class="{active:tab==='pending'}" @click="tab='pending';offset=0;load()">En attente <span v-if="pendingTotal" class="badge">{{ pendingTotal }}</span></button>
-  </div>
+  </nav>
 
   <div class="toolbar wrap">
     <input v-model="search" class="search" type="search" placeholder="Media, destinataire ou evenement">

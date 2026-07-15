@@ -1,12 +1,8 @@
 <template>
-  <div class="drawer-backdrop" @click.self="$emit('close')">
-    <aside class="detail-drawer" role="dialog" aria-modal="true" :aria-label="detail?.title || 'Detail media'">
-      <div v-if="detail?.backdrop_url" class="modal-bg" :style="{ backgroundImage: `url(${detail.backdrop_url})` }"></div>
-      <header class="drawer-head">
-        <div><span class="eyebrow">{{ typeLabel }}</span><h2>{{ detail?.title || 'Chargement...' }}</h2></div>
-        <button class="icon-button" title="Fermer" @click="$emit('close')"><X /></button>
-      </header>
-      <p v-if="error" class="notice error-text">{{ error }}</p>
+  <DrawerShell :eyebrow="typeLabel" :title="detail?.title || 'Chargement...'" :error="error" @close="$emit('close')">
+      <template #background>
+        <div v-if="detail?.backdrop_url" class="modal-bg" :style="{ backgroundImage: `url(${detail.backdrop_url})` }"></div>
+      </template>
       <div v-if="loading" class="drawer-loading"><LoaderCircle class="spin" /> Chargement</div>
       <template v-else-if="detail">
         <MediaHero 
@@ -122,15 +118,15 @@
 
         <section v-if="mode === 'discover' && recommendations.length" class="drawer-section"><h3>Recommandations</h3><div class="mini-media-grid"><button v-for="item in recommendations" :key="`${item.media_type}:${item.tmdb_id}`" @click="$emit('select', item)"><img v-if="item.poster_url" :src="item.poster_url" alt=""><span>{{ item.title }}</span></button></div></section>
       </template>
-    </aside>
-  </div>
+  </DrawerShell>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { CalendarDays, CheckCheck, EyeOff, LoaderCircle, Mail, MailCheck, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, X, MessageSquareWarning } from "@lucide/vue";
+import { CalendarDays, CheckCheck, EyeOff, LoaderCircle, Mail, MailCheck, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, MessageSquareWarning } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api";
+import DrawerShell from "./DrawerShell.vue";
 import MediaHero from "./media/MediaHero.vue";
 import MediaAudioSection from "./media/MediaAudioSection.vue";
 import MediaIssueForm from "./media/MediaIssueForm.vue";
