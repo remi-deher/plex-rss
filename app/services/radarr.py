@@ -36,8 +36,11 @@ async def add_movie(
     base = url.rstrip("/")
 
     tmdb_id = item.get("tmdb_id")
+    if not tmdb_id and item.get("imdb_id"):
+        # TMDB ID absent : tentative de résolution via IMDB ID
+        tmdb_id = await resolve_tmdb_id(url, api_key, item["imdb_id"])
     if not tmdb_id:
-        # TMDB ID absent : recherche via le lookup Radarr (inclut l'année pour la précision)
+        # Toujours absent : recherche par texte via le lookup Radarr (inclut l'année)
         tmdb_id = await _search_tmdb_id(url, api_key, item["title"], item.get("year"))
     if not tmdb_id:
         logger.warning(f"Cannot find TMDB ID for '{item['title']}'")
@@ -327,6 +330,9 @@ async def grab_release(url: str, api_key: str, guid: str, indexer_id: int) -> tu
         return True, "Release envoyée à Radarr"
     except Exception as e:
         logger.warning(f"Radarr grab_release échec (guid {guid}): {e}")
+        return False, str(e)
+
+
 async def get_manual_import_candidates(url: str, api_key: str, download_id: str) -> list[dict]:
     """Fichiers en attente d'import manuel pour un téléchargement (GET /manualimport)."""
     base = url.rstrip("/")

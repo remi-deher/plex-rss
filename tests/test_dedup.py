@@ -61,11 +61,41 @@ def _settings(**kwargs) -> Settings:
         seer_enabled=False,
         seer_url=None,
         seer_api_key=None,
+        # plex_url/plex_token configurés par défaut : has_plex_proof() bypasse en True
+        # (proof considérée acquise) si l'un des deux est absent — ce qui rendrait les
+        # tests de disponibilité muets. Voir _unmatched_library_item ci-dessous.
+        plex_url="http://plex.local",
+        plex_token="plex-token",
         email_on_request=False,
         email_on_available=False,
     )
     defaults.update(kwargs)
     return Settings(**defaults)
+
+
+def _unmatched_library_item(**kwargs) -> LibraryItem:
+    """LibraryItem qui ne correspond à aucune des demandes de test ci-dessous.
+
+    Force has_plex_proof() à effectuer une vraie recherche de correspondance
+    (count(LibraryItem) > 0) sans jamais matcher.
+    """
+    defaults = dict(
+        title="Some Other Movie",
+        year=1999,
+        media_type="movie",
+        tmdb_id="999999",
+        tvdb_id=None,
+        imdb_id=None,
+        plex_guid="plex://movie/unrelated",
+        poster_url=None,
+        overview="",
+        added_at=None,
+        arr_instance_id=None,
+        arr_id=None,
+        arr_slug=None,
+    )
+    defaults.update(kwargs)
+    return LibraryItem(**defaults)
 
 
 def _req(
@@ -383,6 +413,7 @@ async def test_seer_sync_status_updated_to_available(db):
     alice = PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True)
     db.add(alice)
     db.add(_req(plex_user_id="alice", tmdb_id="27205", status=RequestStatus.sent_to_arr))
+    db.add(_unmatched_library_item())
     settings = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(settings)
     db.commit()

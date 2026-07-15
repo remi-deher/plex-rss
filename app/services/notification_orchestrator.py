@@ -19,13 +19,6 @@ async def _send_digest():
     """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
     from .email_service import _send as smtp_send
 
-logger = logging.getLogger(__name__)
-
-
-async def _send_digest():
-    """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
-    from .email_service import _send as smtp_send
-
     try:
         async with AsyncSessionLocal() as db:
             settings = (await db.execute(select(Settings))).scalars().first()

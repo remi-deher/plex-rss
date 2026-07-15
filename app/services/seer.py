@@ -39,6 +39,29 @@ MEDIA_STATUS_AVAILABLE = 5
 MEDIA_STATUS_PARTIALLY = 4
 
 
+def resolve_mode(settings) -> str | None:
+    """Résout le rôle effectif de Seer depuis les Settings.
+
+    Returns:
+        None       : Seer désactivé ou non configuré — aucune API Seer ne doit être appelée.
+        "observer" : Seer est consulté en lecture seule (sync, statut affiché) mais la
+                     soumission et la disponibilité restent pilotées par *arr/Plex.
+        "actor"    : Seer est aussi la cible de soumission prioritaire et son statut
+                     participe à la détection de disponibilité.
+
+    Repli legacy : les installs pas encore migrées (seer_mode absent) retombent sur
+    l'ancien seer_send_requests.
+    """
+    if not settings or not getattr(settings, "seer_enabled", False):
+        return None
+    if not (getattr(settings, "seer_url", None) and getattr(settings, "seer_api_key", None)):
+        return None
+    mode = getattr(settings, "seer_mode", None)
+    if mode not in ("observer", "actor"):
+        mode = "actor" if getattr(settings, "seer_send_requests", False) else "observer"
+    return mode
+
+
 def _headers(api_key: str, base: str = "") -> dict:
     headers = {
         "X-Api-Key": api_key,

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from sqlalchemy import text
 
-from app.notification_queue import _process, enqueue
+from app.notification_queue import NotificationDeliveryError, _process, enqueue
 from app.models import MediaRequest, PlexUser, Settings
 from tests.async_support import TestSession
 
@@ -284,6 +284,51 @@ async def test_process_partial_failure_all_retries_flag_not_set():
     assert success_calls == 1  # ok@b.com réussit du premier coup
     assert fail_calls == 3  # fail@b.com: 3 tentatives (1 + 2 retries)
     assert req.request_mail_sent is False
+
+
+@pytest.mark.asyncio
+async def test_process_returns_true_on_full_success():
+    """_process() retourne True quand tous les destinataires sont livrés."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_process_returns_false_when_delivery_fails():
+    """_process() retourne False si un destinataire échoue après tous ses retries.
+
+    Signal exploité par process_pending_id/_worker pour NE PAS supprimer la
+    PendingNotification persistée — voir les tests process_pending_id ci-dessous.
+    """
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP down")),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is False
 
 
 @pytest.mark.asyncio
@@ -736,6 +781,71 @@ async def test_load_pending_recovers_all_rows_when_none_are_corrupt(pending_db):
 
     loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
     assert len(loaded) == 3
+
+
+# ---------------------------------------------------------------------------
+# process_pending_id — survie de la PendingNotification en cas d'échec de livraison
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_pending_id_deletes_row_on_success(pending_db):
+    """Livraison réussie → la PendingNotification est bien supprimée."""
+    from app.models import MediaRequest, Settings
+    from app.notification_queue import process_pending_id
+
+    pending_db.add(Settings(smtp_from="admin@example.com", email_enabled=True))
+    pending_db.add(MediaRequest(id=1, plex_user_id="alice", title="Inception", media_type="movie"))
+    pending_db.commit()
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_id = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).first()[0]
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await process_pending_id(pending_id)
+
+    remaining = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).all()
+    assert remaining == []
+
+
+@pytest.mark.asyncio
+async def test_process_pending_id_keeps_row_and_raises_on_failure(pending_db):
+    """Livraison échouée → NotificationDeliveryError levée ET la ligne persiste.
+
+    C'est ce qui permet à ARQ (WorkerSettings.max_tries=3) de retenter le job, et,
+    si toutes les tentatives ARQ échouent aussi, à jobs.py::startup() de la
+    réenfiler au prochain démarrage du worker — plutôt que de la perdre en silence
+    comme avant (suppression inconditionnelle dans un `finally`).
+    """
+    from app.models import MediaRequest, Settings
+    from app.notification_queue import process_pending_id
+
+    pending_db.add(Settings(smtp_from="admin@example.com", email_enabled=True))
+    pending_db.add(MediaRequest(id=1, plex_user_id="alice", title="Inception", media_type="movie"))
+    pending_db.commit()
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_id = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).first()[0]
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db),
+        patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP down")),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        with pytest.raises(NotificationDeliveryError):
+            await process_pending_id(pending_id)
+
+    remaining = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).all()
+    assert len(remaining) == 1
 
 
 # ---------------------------------------------------------------------------

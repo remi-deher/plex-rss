@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import ArrInstance, Base, DownloadClient, MediaRequest, RequestStatus, Settings
+from app.models import ArrInstance, Base, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
 from app.scheduler import check_torrent_statuses, poll_watchlists
 from tests.async_support import TestSession
 
@@ -30,9 +30,39 @@ def _settings(**kwargs) -> Settings:
         torrent_ratio_limit=2.0,
         torrent_seed_time_limit_hours=24,
         torrent_auto_delete_files=True,
+        # plex_url/plex_token configurés : has_plex_proof() bypasse en True (proof
+        # considérée acquise) si l'un des deux est absent, ce qui rendrait muets les
+        # tests qui vérifient qu'une preuve Plex réelle est requise avant "available".
+        plex_url="http://plex.local",
+        plex_token="plex-token",
     )
     defaults.update(kwargs)
     return Settings(**defaults)
+
+
+def _unmatched_library_item(**kwargs) -> LibraryItem:
+    """LibraryItem qui ne correspond à aucune des demandes de test ci-dessous.
+
+    Force has_plex_proof() à effectuer une vraie recherche de correspondance
+    (count(LibraryItem) > 0) sans jamais matcher.
+    """
+    defaults = dict(
+        title="Some Other Movie",
+        year=1999,
+        media_type="movie",
+        tmdb_id="999999",
+        tvdb_id=None,
+        imdb_id=None,
+        plex_guid="plex://movie/unrelated",
+        poster_url=None,
+        overview="",
+        added_at=None,
+        arr_instance_id=None,
+        arr_id=None,
+        arr_slug=None,
+    )
+    defaults.update(kwargs)
+    return LibraryItem(**defaults)
 
 
 @pytest.mark.asyncio
@@ -141,6 +171,7 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
         download_client_id=client_id,
     )
     db.add(req)
+    db.add(_unmatched_library_item())
     db.commit()
 
     mock_status = {
@@ -177,3 +208,71 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
             new_session.close()
 
         mock_delete.assert_called_once_with("qbittorrent", "http://localhost:8080", None, None, "inception_hash", True)
+
+
+@pytest.mark.asyncio
+async def test_check_torrent_statuses_promotes_available_with_plex_proof(db):
+    """Torrent terminé + LibraryItem correspondant → passe available sans dépendre de VFF.
+
+    Couvre la faille où une demande routée via Prowlarr/torrent (donc jamais vue par
+    check_arr_statuses, faute d'ID Sonarr/Radarr) restait bloquée en sent_to_arr
+    indéfiniment sur une install sans VFF actif.
+    """
+    settings = _settings()
+    db.add(settings)
+    client_obj = DownloadClient(
+        name="Default Client", client_type="qbittorrent", url="http://localhost:8080", is_default=True, enabled=True
+    )
+    db.add(client_obj)
+    db.flush()
+    client_id = client_obj.id
+
+    req = MediaRequest(
+        title="Inception",
+        media_type="movie",
+        plex_user_id="alice",
+        tmdb_id="27205",
+        status=RequestStatus.sent_to_arr,
+        torrent_hash="inception_hash",
+        download_client_id=client_id,
+    )
+    db.add(req)
+    db.add(
+        LibraryItem(
+            title="Inception",
+            year=None,
+            media_type="movie",
+            tmdb_id="27205",
+            tvdb_id=None,
+            imdb_id=None,
+            plex_guid="plex://movie/inception",
+            poster_url=None,
+            overview="",
+            added_at=None,
+            arr_instance_id=None,
+            arr_id=None,
+            arr_slug=None,
+        )
+    )
+    db.commit()
+
+    mock_status = {
+        "name": "Inception",
+        "progress": 100.0,
+        "status": "completed",
+        "ratio": 0.1,
+        "seeding_time": 60,
+        "download_speed": 0,
+        "upload_speed": 0,
+        "eta": 0,
+    }
+
+    with (
+        patch("app.services.arr_tracker.AsyncSessionLocal", return_value=db),
+        patch("app.services.arr_tracker.get_torrent_status", new=AsyncMock(return_value=mock_status)),
+    ):
+        await check_torrent_statuses()
+
+    req_db = db.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
+    assert req_db.status == RequestStatus.available
+    assert req_db.library_item_id is not None

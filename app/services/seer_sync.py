@@ -77,7 +77,9 @@ async def sync_seer_users():
     db: AsyncSession = AsyncSessionLocal()
     try:
         settings = (await db.execute(select(Settings))).scalars().first()
-        if not settings or not settings.seer_url or not settings.seer_api_key:
+        from .seer import resolve_mode
+
+        if resolve_mode(settings) is None:
             return
 
         seer_users = await seer_get_users(settings.seer_url, settings.seer_api_key)
@@ -253,7 +255,9 @@ async def sync_seer_requests():
     db: AsyncSession = AsyncSessionLocal()
     try:
         settings = (await db.execute(select(Settings))).scalars().first()
-        if not settings or not settings.seer_url or not settings.seer_api_key:
+        from .seer import resolve_mode
+
+        if resolve_mode(settings) is None:
             return
 
         matched_users = (await db.execute(

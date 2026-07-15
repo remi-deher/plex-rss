@@ -21,6 +21,7 @@ from .radarr import add_movie, lookup_movie, resolve_tmdb_id
 from .seer import _headers as _seer_headers
 from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .seer import request_media as seer_request
+from .seer import resolve_mode as seer_resolve_mode
 from .sonarr import add_series, lookup_series
 from .watchlist import fetch_watchlist
 
@@ -86,31 +87,53 @@ async def sync_users_from_feed(items: list[dict], db: AsyncSession):
 async def _submit_to_arr(
     settings: Settings, item: dict, user_obj: PlexUser | None = None, db: AsyncSession | None = None
 ) -> tuple[int | None, bool, str | None]:
-    """Envoie un média à Seer (si activé) ou Sonarr/Radarr/Prowlarr directement.
+    """Envoie un média à Seer (mode acteur uniquement) ou Sonarr/Radarr/Prowlarr directement.
 
-    Si l'utilisateur est actif sur Seer (seer_active=True), la demande
-    est ignorée par défaut (il la gère lui-même depuis Seer), 
-    sauf si seer_suppress_notifications est désactivé.
+    Rôle de Seer (voir seer.resolve_mode) :
+    - None / "observer" : Seer n'est jamais sollicité pour traiter la demande — le
+      pipeline local (*arr / Prowlarr) soumet toujours lui-même.
+    - "actor" : Seer est la cible prioritaire ; les demandes des utilisateurs actifs
+      sur Seer sont ignorées (il les gère lui-même), sauf si
+      seer_suppress_notifications est désactivé.
 
     Returns:
         (arr_id, already_existed, arr_slug)
-    """
-    if user_obj and user_obj.seer_active is True:
-        if getattr(settings, "seer_suppress_notifications", True):
-            logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
-            return None, True, None
-        else:
-            logger.debug(f"Process '{item['title']}' for Seer user (suppression disabled)")
 
-    if settings.seer_send_requests and settings.seer_url and settings.seer_api_key:
+    Pose `item["_attempted_target"]` ("seer"/"sonarr"/"radarr"/"prowlarr"/"torrent")
+    avant chaque tentative, pour que l'appelant puisse rapporter la vraie cible en
+    cas d'échec plutôt qu'un message générique "Sonarr/Radarr" trompeur.
+    """
+    seer_mode = seer_resolve_mode(settings)
+
+    if seer_mode == "actor":
+        if user_obj and user_obj.seer_active is True:
+            if getattr(settings, "seer_suppress_notifications", True):
+                logger.debug(f"Skip '{item['title']}' — utilisateur actif sur Seer")
+                return None, True, None
+            else:
+                logger.debug(f"Process '{item['title']}' for Seer user (suppression disabled)")
+
+        # L'appel Seer est isolé dans son propre try/except : request_media lève une
+        # exception sur toute erreur (HTTP, réseau, TMDB introuvable). Sans ce catch,
+        # l'exception court-circuitait le fallback *arr même avec seer_fallback_arr=True.
+        item["_attempted_target"] = "seer"
         t0 = time.monotonic()
-        result = await seer_request(settings.seer_url, settings.seer_api_key, item)
+        result = None
+        seer_error: Exception | None = None
+        try:
+            result = await seer_request(settings.seer_url, settings.seer_api_key, item)
+        except Exception as e:
+            seer_error = e
         app_metrics.record_seer_latency((time.monotonic() - t0) * 1000)
-        seer_ok = result[0] is not None or result[1]
+        seer_ok = result is not None and (result[0] is not None or result[1])
         app_metrics.record_arr_submission(seer_ok)
-        if seer_ok or not settings.seer_fallback_arr:
+        if seer_ok:
             return result
-        logger.warning("Seer request failed, falling back to Sonarr/Radarr")
+        if not settings.seer_fallback_arr:
+            if seer_error is not None:
+                raise seer_error
+            raise Exception("Envoi à Seer échoué et fallback Sonarr/Radarr désactivé")
+        logger.warning(f"Seer request failed ({seer_error}), falling back to Sonarr/Radarr")
 
     if db is None:
         async with AsyncSessionLocal() as owned_db:
@@ -133,6 +156,7 @@ async def _submit_to_arr(
             )).scalars().first()
 
         if not instance or instance.arr_type not in ("sonarr", "radarr"):
+            item["_attempted_target"] = "torrent"
             info_hash, already_existed, arr_slug, client_id = await _submit_to_torrent(active_db, settings, item)
             if info_hash:
                 item["_torrent_hash"] = info_hash
@@ -149,6 +173,7 @@ async def _submit_to_arr(
         item["_arr_instance_id"] = instance.id
 
         if instance.arr_type == "prowlarr":
+            item["_attempted_target"] = "prowlarr"
             info_hash, arr_slug, client_id = await _prowlarr_search_and_download(active_db, settings, instance, item)
             if info_hash:
                 item["_torrent_hash"] = info_hash
@@ -159,6 +184,7 @@ async def _submit_to_arr(
             )
 
         if instance.arr_type == "sonarr":
+            item["_attempted_target"] = "sonarr"
             t0 = time.monotonic()
             result = await add_series(
                 instance.url, instance.api_key, instance.quality_profile_id, instance.root_folder, item
@@ -168,6 +194,7 @@ async def _submit_to_arr(
             return result
 
         if instance.arr_type == "radarr":
+            item["_attempted_target"] = "radarr"
             t0 = time.monotonic()
             result = await add_movie(
                 instance.url,
@@ -306,12 +333,16 @@ async def _submit_to_torrent(
     return info_hash, False, arr_slug, client_id
 
 
-async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj) -> dict:
+async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj, db: AsyncSession | None = None) -> dict:
     """Garantit un tmdb_id sur l'item quand c'est possible (normalisation déduplication).
 
     - Films : résout IMDB → TMDB via Radarr (disponible pour TOUS les utilisateurs,
       pas seulement les hybrides Seer). Radarr utilise la table de correspondance
       externe de TMDB, donc le résultat coïncide avec ce que produit Seer.
+      Utilise d'abord les champs legacy `settings.radarr_*` (installs historiques),
+      puis à défaut l'instance Radarr par défaut (`ArrInstance`) — sans ce repli, une
+      install configurée uniquement via les instances sautait silencieusement cette
+      normalisation, et la dédup RSS↔Seer retombait sur le titre (dépendant de la langue).
     - Fallback Seer (utilisateurs hybrides) : couvre les rares cas sans IMDB ni TVDB.
 
     Renvoie l'item (éventuellement enrichi d'un tmdb_id) sans le muter sur place.
@@ -319,26 +350,26 @@ async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj) -> dict:
     if item.get("tmdb_id"):
         return item
 
-    if (
-        item.get("media_type") == "movie"
-        and item.get("imdb_id")
-        and settings
-        and settings.radarr_url
-        and settings.radarr_api_key
-    ):
-        resolved = await resolve_tmdb_id(settings.radarr_url, settings.radarr_api_key, item["imdb_id"])
-        if resolved:
-            logger.info(f"tmdb_id résolu via Radarr pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
-            return {**item, "tmdb_id": resolved}
+    if item.get("media_type") == "movie" and item.get("imdb_id") and settings:
+        radarr_url, radarr_api_key = settings.radarr_url, settings.radarr_api_key
+        if not (radarr_url and radarr_api_key) and db is not None:
+            inst = (await db.execute(
+                select(ArrInstance).filter(ArrInstance.arr_type == "radarr", ArrInstance.enabled, ArrInstance.is_default)
+            )).scalars().first()
+            if inst:
+                radarr_url, radarr_api_key = inst.url, inst.api_key
+        if radarr_url and radarr_api_key:
+            resolved = await resolve_tmdb_id(radarr_url, radarr_api_key, item["imdb_id"])
+            if resolved:
+                logger.info(f"tmdb_id résolu via Radarr pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
+                return {**item, "tmdb_id": resolved}
 
     if (
         not item.get("tvdb_id")
         and user_obj
         and user_obj.seer_user_id
         and user_obj.seer_active
-        and settings
-        and settings.seer_url
-        and settings.seer_api_key
+        and seer_resolve_mode(settings) is not None
     ):
         base = settings.seer_url.rstrip("/")
         headers = _seer_headers(settings.seer_api_key)
@@ -487,7 +518,7 @@ async def _process_watchlist_item(
     # IMDB ID (films) ou un TVDB ID (séries). Sans TMDB, la dédup retombe sur le
     # titre — qui diffère selon la langue → doublons RSS ↔ Seer. On résout donc
     # le TMDB ID pour tous les utilisateurs (pas seulement les hybrides).
-    item = await _ensure_tmdb_id(item, settings, user_obj)
+    item = await _ensure_tmdb_id(item, settings, user_obj, db)
 
     # Dédup global : même média déjà demandé par un autre utilisateur ?
     global_req = await _find_global_request(db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"))
@@ -552,11 +583,13 @@ async def _process_watchlist_item(
         logger.info("Demande en attente de validation : %s -> '%s'", display_name, item["title"])
         return "sent"
 
-    # Routage intelligent : si l'utilisateur est Hybride (RSS + Seer actif),
-    # vérifier si Seer a déjà traité cette demande.
+    # Routage intelligent (mode acteur uniquement) : si l'utilisateur est Hybride
+    # (RSS + Seer actif), vérifier si Seer a déjà traité cette demande.
     # Si oui → skip la soumission arr (Seer l'a déjà faite).
     # Si non → RSS sert de fallback et soumet lui-même.
-    if user_obj and user_obj.seer_user_id and user_obj.seer_active:
+    # En mode observateur, on ne skip jamais : le pipeline local soumet toujours
+    # lui-même (la dédup *arr rattrape le cas où Seer a déjà ajouté le média).
+    if seer_resolve_mode(settings) == "actor" and user_obj and user_obj.seer_user_id and user_obj.seer_active:
         tmdb_id = item.get("tmdb_id")
         seer_id_filter = (MediaRequest.tmdb_id == tmdb_id) if tmdb_id else (MediaRequest.title == item["title"])
         seer_handled = (await db.execute(
@@ -606,9 +639,17 @@ async def _process_watchlist_item(
     elif req.status == RequestStatus.sent_to_arr:
         await notification_orchestrator._notify("request", settings, req, db)
     elif req.status == RequestStatus.failed and not was_failed:
-        arr_name = "Sonarr" if req.media_type == "show" else "Radarr"
+        target_labels = {
+            "seer": "Seer",
+            "sonarr": "Sonarr",
+            "radarr": "Radarr",
+            "prowlarr": "Prowlarr",
+            "torrent": "Prowlarr/client torrent",
+        }
+        default_target = "Sonarr" if item["media_type"] == "show" else "Radarr"
+        target_name = target_labels.get(item.get("_attempted_target"), default_target)
         await notification_orchestrator._notify(
-            "failed", settings, req, db, f"Impossible de transmettre a {arr_name}. Verifiez la configuration."
+            "failed", settings, req, db, f"Impossible de transmettre a {target_name}. Verifiez la configuration."
         )
 
     return result

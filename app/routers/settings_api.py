@@ -102,6 +102,7 @@ class SettingsUpdate(BaseModel):
     seer_enabled: Optional[bool] = None
     seer_url: Optional[str] = None
     seer_api_key: Optional[str] = None
+    seer_mode: Optional[str] = None  # "observer" | "actor"
     seer_send_requests: Optional[bool] = None
     seer_fallback_arr: Optional[bool] = None
     # --- TMDB (découverte) ---
@@ -200,7 +201,19 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
             continue
         if key == "notification_log_retention_days" and val == 0:
             val = None
+        if key == "seer_mode" and val not in ("observer", "actor"):
+            continue
         setattr(s, key, val)
+    # seer_send_requests est un champ dérivé (= Seer activé ET mode acteur), maintenu
+    # pour les consommateurs existants. Il est recalculé dès qu'un réglage Seer bouge,
+    # sauf si le client legacy pilote encore directement seer_send_requests sans
+    # connaître seer_mode (dans ce cas on aligne le mode dessus).
+    if data.seer_mode is not None or data.seer_enabled is not None:
+        s.seer_send_requests = bool(s.seer_enabled and s.seer_mode == "actor")
+    elif data.seer_send_requests is not None:
+        s.seer_mode = "actor" if data.seer_send_requests else "observer"
+        if data.seer_send_requests:
+            s.seer_enabled = True
     await db.commit()
     # Priorité aux secondes (polling sous la minute) ; repli sur les minutes.
     if data.poll_interval_seconds:

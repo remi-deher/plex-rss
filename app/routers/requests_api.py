@@ -123,11 +123,13 @@ async def _delete_media_from_arr(db: AsyncSession, req: MediaRequest, delete_fil
     Ne renvoie jamais ok=True suite à une erreur réseau/HTTP pour Sonarr/Radarr.
     La suppression dans Seer est "best effort" et ne bloque pas la suppression locale.
     """
-    # 1. Suppression Seer (best effort)
+    # 1. Suppression Seer (best effort, mode acteur uniquement : en observateur on ne
+    # modifie jamais l'état de Seer, on se contente de le lire)
     try:
         settings = (await db.execute(select(Settings))).scalars().first()
-        if settings and settings.seer_enabled and settings.seer_url and settings.seer_api_key and req.tmdb_id:
-            from ..services.seer import delete_request_by_tmdb
+        from ..services.seer import delete_request_by_tmdb, resolve_mode
+
+        if settings and resolve_mode(settings) == "actor" and req.tmdb_id:
             await delete_request_by_tmdb(
                 settings.seer_url,
                 settings.seer_api_key,

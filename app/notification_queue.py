@@ -281,14 +281,33 @@ async def _send_with_retry(
     return False, error_msg
 
 
-async def _process(event: str, req_id: int, recipients: list[str], context: dict):
+class NotificationDeliveryError(Exception):
+    """Levée quand au moins un destinataire n'a pas pu être livré après retries.
+
+    Signale à l'appelant (ARQ ou worker asyncio) de NE PAS supprimer la
+    PendingNotification persistée, pour qu'elle survive à un redémarrage/à un
+    nouveau job ARQ plutôt que d'être perdue silencieusement (voir
+    process_pending_id / _worker).
+    """
+
+
+async def _process(event: str, req_id: int, recipients: list[str], context: dict) -> bool:
+    """Traite une notification en attente.
+
+    Returns:
+        True si tout a été livré (ou s'il n'y avait rien à faire — settings/req
+        introuvables, aucun destinataire) : la PendingNotification peut être
+        supprimée. False si au moins un destinataire n'a pas pu être livré après
+        les retries internes (_send_with_retry) : la ligne doit être conservée
+        pour une reprise ultérieure plutôt que perdue.
+    """
     event, context = _normalize_event_context(event, context)
     async with AsyncSessionLocal() as db:
         try:
             settings = (await db.execute(select(Settings))).scalars().first()
             req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == req_id))).scalars().first()
             if not settings or not req:
-                return
+                return True
 
             # Résolution des emails admin pour marquer is_admin dans les logs
             admin_emails = set(parse_email_list(settings.admin_notification_email))
@@ -349,12 +368,22 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                 if user_obj.telegram_chat_id and settings.telegram_bot_token and _push_allowed(settings, "telegram", event):
                     await send_telegram_to_chat(settings.telegram_bot_token, user_obj.telegram_chat_id, req, event)
 
+            return all_ok
         except Exception as e:
             logger.error(f"Notification worker erreur inattendue [{event}] req#{req_id}: {e}")
+            return False
 
 
 async def process_pending_id(pending_id: int) -> str | int | None:
-    """Process one persisted notification from ARQ and return its target user id."""
+    """Process one persisted notification from ARQ and return its target user id.
+
+    Ne supprime la PendingNotification que si la livraison a réussi. En cas
+    d'échec, la ligne est conservée et une NotificationDeliveryError est levée :
+    ARQ retente le job (WorkerSettings.max_tries=3, avec son propre backoff) ;
+    si toutes les tentatives ARQ échouent, la ligne reste en base et sera
+    récupérée au prochain démarrage du worker (voir jobs.py::startup, qui
+    réenfile toute PendingNotification restante) plutôt que perdue en silence.
+    """
     async with AsyncSessionLocal() as db:
         row = (
             await db.execute(
@@ -372,11 +401,12 @@ async def process_pending_id(pending_id: int) -> str | int | None:
         context = json.loads(reason_raw) if reason_raw else {}
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == int(req_id)))).scalars().first()
         user_id = req.plex_user_id if req else None
-    try:
-        await _process(event, int(req_id), recipients, context)
-        return user_id
-    finally:
-        await _delete_pending(pending_id)
+
+    ok = await _process(event, int(req_id), recipients, context)
+    if not ok:
+        raise NotificationDeliveryError(f"Notification #{pending_id} [{event}] non livrée à tous les destinataires")
+    await _delete_pending(pending_id)
+    return user_id
 
 
 async def _worker():
@@ -384,14 +414,20 @@ async def _worker():
     while True:
         try:
             pending_id, event, req_id, recipients, context = await _queue.get()
-            try:
-                if pending_id in _cancelled_pending_ids:
-                    logger.info(f"Notification en attente #{pending_id} annulée avant envoi")
-                    _cancelled_pending_ids.discard(pending_id)
-                else:
-                    await _process(event, req_id, recipients, context)
-            finally:
+            if pending_id in _cancelled_pending_ids:
+                logger.info(f"Notification en attente #{pending_id} annulée avant envoi")
+                _cancelled_pending_ids.discard(pending_id)
                 await _delete_pending(pending_id)
+            else:
+                ok = await _process(event, req_id, recipients, context)
+                if ok:
+                    await _delete_pending(pending_id)
+                else:
+                    # Conservée en base plutôt que perdue : ce worker en mémoire ne la
+                    # retentera pas lui-même dans ce cycle de vie du process, mais
+                    # _load_pending() la réenfilera au prochain démarrage de l'app —
+                    # cohérent avec la garantie de survie déjà documentée sur ce modèle.
+                    logger.warning(f"Notification #{pending_id} [{event}] non livrée, conservée pour reprise ultérieure")
         except asyncio.CancelledError:
             logger.info("Notification worker arrêté")
             break

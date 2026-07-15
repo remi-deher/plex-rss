@@ -40,6 +40,14 @@ def _settings(**kwargs) -> Settings:
         radarr_root_folder="/movies",
         radarr_minimum_availability="released",
         seer_enabled=False,
+        # plex_url/plex_token configurés par défaut : has_plex_proof() bypass en True
+        # (proof toujours considérée acquise) dès que l'un des deux est absent, ce qui
+        # rendrait ces tests de disponibilité muets. Un LibraryItem non-matchant
+        # (_unmatched_library_item ci-dessous) est nécessaire en complément pour forcer
+        # un vrai contrôle de correspondance (has_plex_proof bypasse aussi si la table
+        # LibraryItem est vide).
+        plex_url="http://plex.local",
+        plex_token="plex-token",
         email_on_request=True,
         email_on_available=True,
         smtp_from="admin@example.com",
@@ -48,6 +56,32 @@ def _settings(**kwargs) -> Settings:
     )
     defaults.update(kwargs)
     return Settings(**defaults)
+
+
+def _unmatched_library_item(**kwargs) -> LibraryItem:
+    """LibraryItem qui ne correspond à aucune des demandes de test ci-dessous.
+
+    Force has_plex_proof() à effectuer une vraie recherche de correspondance
+    (count(LibraryItem) > 0) sans jamais matcher — la demande reste donc sans
+    preuve Plex, comme avant l'introduction du bypass "bibliothèque vide".
+    """
+    defaults = dict(
+        title="Some Other Movie",
+        year=1999,
+        media_type="movie",
+        tmdb_id="999999",
+        tvdb_id=None,
+        imdb_id=None,
+        plex_guid="plex://movie/unrelated",
+        poster_url=None,
+        overview="",
+        added_at=None,
+        arr_instance_id=None,
+        arr_id=None,
+        arr_slug=None,
+    )
+    defaults.update(kwargs)
+    return LibraryItem(**defaults)
 
 
 def _movie_item(**kwargs) -> dict:
@@ -257,7 +291,11 @@ async def test_poll_arr_error_sets_failed_and_notifies_failure(db):
     with (
         _patch_session(db),
         _patch_watchlist([_movie_item()]),
-        patch("app.scheduler._submit_to_arr", new=AsyncMock(side_effect=Exception("timeout"))),
+        # Patcher watchlist_poller._submit_to_arr (pas app.scheduler._submit_to_arr,
+        # simple ré-export non résolu par _process_watchlist_item, qui referme sur le
+        # nom module-local) : sans ça, le vrai appel réseau part et le test ne passe
+        # que par accident (timeout DNS coïncidant avec le statut "failed" attendu).
+        patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(side_effect=Exception("timeout"))),
         _patch_enqueue() as mock_enqueue,
     ):
         await poll_watchlists()
@@ -266,6 +304,35 @@ async def test_poll_arr_error_sets_failed_and_notifies_failure(db):
     assert req.status == RequestStatus.failed
     mock_enqueue.assert_called_once()
     assert mock_enqueue.call_args[0][0] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_poll_failure_message_names_actual_attempted_target(db):
+    """Le mail d'échec nomme la cible réellement tentée (ex: Prowlarr), pas toujours Sonarr/Radarr.
+
+    _submit_to_arr pose item["_attempted_target"] avant de tenter chaque cible ; le
+    message d'échec doit le refléter plutôt que le générique "Sonarr/Radarr" d'avant.
+    """
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.commit()
+
+    async def _fail_via_prowlarr(settings, item, user_obj=None, db=None):
+        item["_attempted_target"] = "prowlarr"
+        raise Exception("Aucun résultat exploitable trouvé via Prowlarr")
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(side_effect=_fail_via_prowlarr)),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.failed
+    context = mock_enqueue.call_args[0][3]
+    assert "Prowlarr" in context["reason"]
 
 
 @pytest.mark.asyncio
@@ -365,9 +432,10 @@ def _sent_request(**kwargs) -> MediaRequest:
 
 @pytest.mark.asyncio
 async def test_check_arr_movie_becomes_available(db):
-    """is_movie_available → True : statut passe à available, notification enqueued."""
+    """is_movie_available → True : statut reste sent_to_arr tant que Plex ne confirme pas."""
     db.add(_settings())
     db.add(_sent_request())
+    db.add(_unmatched_library_item())
     db.commit()
 
     with (
@@ -404,9 +472,10 @@ async def test_check_arr_movie_not_yet_available(db):
 
 @pytest.mark.asyncio
 async def test_check_arr_show_becomes_available(db):
-    """get_series_episode_stats → série complète : statut passe à available."""
+    """get_series_episode_stats → série complète, mais reste sent_to_arr sans preuve Plex."""
     db.add(_settings())
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
+    db.add(_unmatched_library_item())
     db.commit()
 
     series_stats = {
@@ -449,10 +518,11 @@ async def test_check_arr_no_candidates_returns_early(db):
 
 @pytest.mark.asyncio
 async def test_check_arr_seer_used_when_enabled(db):
-    """Seer activé → seer_available utilisé à la place de is_movie_available."""
-    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    """Seer en mode acteur → seer_available utilisé à la place de is_movie_available."""
+    s = _settings(seer_enabled=True, seer_mode="actor", seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
     db.add(_sent_request(source="seer"))
+    db.add(_unmatched_library_item())
     db.commit()
 
     with (
@@ -472,7 +542,7 @@ async def test_check_arr_seer_used_when_enabled(db):
 @pytest.mark.asyncio
 async def test_check_arr_seer_available_with_plex_match_becomes_available(db):
     """Seer available + Plex match => local availability is confirmed."""
-    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    s = _settings(seer_enabled=True, seer_mode="actor", seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
     db.add(_sent_request(source="seer"))
     db.add(
@@ -512,10 +582,11 @@ async def test_check_arr_seer_available_with_plex_match_becomes_available(db):
 
 @pytest.mark.asyncio
 async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
-    """Seer dit non dispo → fallback direct sur Radarr qui dit dispo."""
-    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    """Seer dit non dispo → fallback direct sur Radarr qui dit dispo (mais pas de preuve Plex)."""
+    s = _settings(seer_enabled=True, seer_mode="actor", seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
     db.add(_sent_request(source="seer"))
+    db.add(_unmatched_library_item())
     db.commit()
 
     with (
@@ -537,10 +608,11 @@ async def test_check_arr_seer_unavailable_falls_back_to_radarr(db):
 
 @pytest.mark.asyncio
 async def test_check_arr_seer_unavailable_falls_back_to_sonarr(db):
-    """Seer dit non dispo → fallback direct sur Sonarr qui dit dispo."""
-    s = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    """Seer dit non dispo → fallback direct sur Sonarr qui dit dispo (mais pas de preuve Plex)."""
+    s = _settings(seer_enabled=True, seer_mode="actor", seer_url="http://seer.local", seer_api_key="key")
     db.add(s)
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189", source="seer"))
+    db.add(_unmatched_library_item())
     db.commit()
 
     series_stats = {
@@ -596,6 +668,7 @@ async def test_check_arr_exception_does_not_crash_loop(db):
     db.add(_settings())
     db.add(_sent_request(title="Movie A", arr_id=1, tmdb_id="111"))
     db.add(_sent_request(title="Movie B", arr_id=2, tmdb_id="222"))
+    db.add(_unmatched_library_item())
     db.commit()
 
     call_count = 0

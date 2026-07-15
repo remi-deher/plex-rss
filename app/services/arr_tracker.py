@@ -12,12 +12,13 @@ from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings, VfEpisodeStatus
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
-from .availability_service import has_plex_proof, note_arr_processed
+from .availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
 from .download_clients import delete_torrent, get_torrent_status
 from .download_history import record_completed
 from .notification_orchestrator import _handle_show_progress_notification
 from .radarr import get_all_movies, get_queue_movie_ids, is_movie_available, movie_exists
 from .seer import is_request_available as seer_available
+from .seer import resolve_mode as seer_resolve_mode
 from .sonarr import get_all_series, get_queue_series_ids, get_series_episode_stats, is_series_available, series_exists
 from .vff_scanner import scan_and_notify_availability
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
@@ -98,8 +99,12 @@ async def check_arr_statuses():
             )
         )).scalars().all()
 
-        # Filter out requests handled by Prowlarr since Prowlarr does not track availability
-        candidates = [c for c in candidates if not (c.arr_slug and c.arr_slug.startswith("prowlarr:"))]
+        # Exclut les demandes routées vers un client torrent (filet Prowlarr) : elles n'ont
+        # pas d'ID Sonarr/Radarr exploitable pour un lookup ici, leur disponibilité est
+        # suivie par check_torrent_statuses (progression du download) puis le scan Plex/VFF
+        # (confirmation finale). Le slug posé par _prowlarr_search_and_download est "torrent",
+        # pas "prowlarr:*" — l'ancien filtre ne matchait donc jamais aucune demande.
+        candidates = [c for c in candidates if not c.torrent_hash]
 
         if not candidates:
             return
@@ -152,14 +157,19 @@ async def check_arr_statuses():
                     error_details.append(f"[{inst.name}] prefetch Radarr: {e}")
                 queue_ids = await get_queue_movie_ids(inst.url, inst.api_key)
 
+            seer_mode = seer_resolve_mode(settings)
             for req in inst_candidates:
                 available = False
                 new_arr_id = None
                 new_slug = None
                 seer_checked = False
                 series_stats = None
+                # Pour une demande importée de Seer, req.arr_id est l'ID de demande SEER,
+                # pas l'ID Sonarr/Radarr : il ne doit jamais servir aux lookups *arr.
+                is_seer_req = req.source == "seer"
+                arr_lookup_id = None if is_seer_req else req.arr_id
                 try:
-                    if req.source == "seer" and settings.seer_url and settings.seer_api_key:
+                    if is_seer_req and seer_mode == "actor":
                         seer_checked = True
                         available, new_arr_id, new_slug = await seer_available(
                             settings.seer_url,
@@ -170,7 +180,7 @@ async def check_arr_statuses():
                         series_stats = await get_series_episode_stats(
                             inst.url,
                             inst.api_key,
-                            arr_id=req.arr_id,
+                            arr_id=arr_lookup_id,
                             tvdb_id=req.tvdb_id,
                             tmdb_id=req.tmdb_id,
                             imdb_id=req.imdb_id,
@@ -184,7 +194,7 @@ async def check_arr_statuses():
                         available, new_arr_id, new_slug = await is_movie_available(
                             inst.url,
                             inst.api_key,
-                            arr_id=req.arr_id,
+                            arr_id=arr_lookup_id,
                             tmdb_id=req.tmdb_id,
                             imdb_id=req.imdb_id,
                             movies_list=movies_list,
@@ -236,7 +246,7 @@ async def check_arr_statuses():
                 # explicitement via movie_exists/series_exists, qui eux ne catchent pas les
                 # erreurs réseau : toute exception ici est traitée comme "on ne sait pas",
                 # jamais comme une suppression.
-                if not seer_checked and req.arr_id and new_arr_id is None:
+                if not is_seer_req and req.arr_id and new_arr_id is None:
                     try:
                         if req.media_type == "movie" and inst.arr_type == "radarr":
                             still_exists = await movie_exists(inst.url, inst.api_key, req.arr_id)
@@ -275,7 +285,7 @@ async def check_arr_statuses():
                 # *arr pour ce média. Permet de distinguer, côté UI, une vraie anomalie Plex
                 # (fichier importé mais introuvable dans Plex) d'un média encore en cours de
                 # téléchargement/import (ex: série avec d'autres épisodes en cours de téléchargement).
-                effective_arr_id = None if seer_checked else (new_arr_id or req.arr_id)
+                effective_arr_id = None if seer_checked else (new_arr_id or arr_lookup_id)
                 req.is_downloading = bool(effective_arr_id and effective_arr_id in queue_ids)
 
                 was_already_available = req.status == RequestStatus.available
@@ -410,12 +420,21 @@ async def check_torrent_statuses():
 
             if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
                 if req.status != RequestStatus.available:
-                    req.is_downloading = False
-                    await db.commit()
-                    logger.info(
-                        "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
-                        req.title,
-                    )
+                    # Ces demandes n'ont pas d'ID Sonarr/Radarr (filet Prowlarr) : elles ne
+                    # sont jamais vues par check_arr_statuses. Sans ce contrôle, seule la
+                    # réconciliation VFF (si activée) pouvait les faire passer "available" —
+                    # une install sans VFF les laissait bloquées en sent_to_arr indéfiniment
+                    # malgré un torrent terminé et présent dans Plex.
+                    promoted = await confirm_available_from_plex(settings, req, db, source="torrent")
+                    if promoted:
+                        logger.info(f"'{req.title}' est desormais disponible (torrent termine + preuve Plex)")
+                    else:
+                        req.is_downloading = False
+                        await db.commit()
+                        logger.info(
+                            "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
+                            req.title,
+                        )
 
             # Nettoyage automatique
             if status["status"] in ("seeding", "completed") or (status["progress"] >= 100.0):

@@ -23,7 +23,6 @@ from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
 from app.routers import email_templates as email_templates_router
-from app.routers import pages as pages_router
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -37,8 +36,6 @@ def db(async_db):
 
 @pytest.fixture()
 def client(db):
-    app.dependency_overrides[pages_router.require_auth] = lambda: None
-    app.dependency_overrides[pages_router.require_admin] = lambda: None
     app.dependency_overrides[email_templates_router.require_admin] = lambda: None
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[require_admin] = lambda: None

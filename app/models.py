@@ -152,7 +152,15 @@ class Settings(Base):
     # --- Seer ---
     seer_url: Mapped[Optional[str]]
     seer_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
-    seer_enabled: Mapped[bool] = mapped_column(default=False)  # legacy, remplacé par seer_send_requests
+    # Switch général : False = Seer totalement ignoré (aucune API appelée).
+    seer_enabled: Mapped[bool] = mapped_column(default=False)
+    # "observer" : Seer n'est qu'une source d'information (sync users/demandes, statut
+    # affiché) — la soumission et la disponibilité restent 100 % pilotées par *arr/Plex.
+    # "actor" : Seer est en plus la cible de soumission prioritaire et son statut
+    # participe à la détection de disponibilité.
+    seer_mode: Mapped[str] = mapped_column(default="observer")
+    # Dérivé (= seer_enabled and seer_mode == "actor"), maintenu en écriture par
+    # settings_api pour les consommateurs existants (library_api, users_api, metrics…).
     seer_send_requests: Mapped[bool] = mapped_column(default=False)
     seer_fallback_arr: Mapped[bool] = mapped_column(default=True)
     seer_suppress_notifications: Mapped[bool] = mapped_column(default=True)
