@@ -63,7 +63,7 @@
     <p v-if="error" class="notice error-text">{{ error }}</p>
     
     <section :class="view==='grid'?'media-grid':'panel media-list'">
-      <button v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" @click="selected=item">
+      <div v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="selected=item" @keydown.enter="selected=item">
         <div class="poster-shell">
           <img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'">
           <div v-else class="poster-fallback">
@@ -77,10 +77,13 @@
           <span v-if="item.custom_name || item.requested_by || item.plex_user || item.plex_user_id" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">
             👤 {{ item.custom_name || item.requested_by || item.plex_user || item.plex_user_id }}
           </span>
-          <small v-if="item._kind==='request'">{{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template></small>
+          <small v-if="item._kind==='request'">
+            {{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template>
+            <button class="manage-link" @click.stop="goToRequest(item)">Gerer la demande <ArrowRight/></button>
+          </small>
           <small v-else-if="item.overview">{{ item.overview }}</small>
         </div>
-      </button>
+      </div>
     </section>
     
     <p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p>
@@ -91,9 +94,16 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
+import { ArrowRight, Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
+import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
+
+const router = useRouter();
+
+function goToRequest(item) {
+  router.push({ path: '/requests', query: { query: item.title } });
+}
 
 const items = ref([]);
 const rawMetrics = ref({});
@@ -286,5 +296,24 @@ onMounted(() => {
   color: var(--text);
   font-size: 0.85rem;
   cursor: pointer;
+}
+.manage-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.manage-link:hover {
+  text-decoration: underline;
+}
+.manage-link svg {
+  width: 14px;
+  height: 14px;
 }
 </style>
