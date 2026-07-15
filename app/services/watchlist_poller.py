@@ -1,10 +1,8 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import time
-import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy
@@ -17,6 +15,7 @@ from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, prowlarr
+from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .download_clients import add_torrent_to_client
 from .notification_orchestrator import _add_co_requester
 from .radarr import add_movie, lookup_movie, resolve_tmdb_id
@@ -54,46 +53,13 @@ async def _acquire_distributed_poll_lock() -> str | None:
 
     Returns:
         Un token si le verrou est acquis (à repasser à `_release_distributed_poll_lock`),
-        None si un autre process le détient déjà. Renvoie un token sentinelle sans
-        toucher Redis si `REDIS_URL` n'est pas configuré (mode legacy mono-process,
-        où la contention inter-process ne peut pas se produire).
+        None si un autre process le détient déjà.
     """
-    redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
-        return "no-redis"
-    try:
-        from redis.asyncio import Redis
-
-        token = uuid.uuid4().hex
-        redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
-        try:
-            acquired = await redis.set(_DISTRIBUTED_POLL_LOCK_KEY, token, nx=True, ex=_DISTRIBUTED_POLL_LOCK_TTL)
-            return token if acquired else None
-        finally:
-            await redis.aclose()
-    except Exception as e:
-        # Redis injoignable : on ne bloque pas le poll pour autant (mieux vaut un risque
-        # de doublon résiduel qu'un poll qui ne tourne plus jamais), mais on le signale.
-        logger.warning(f"Verrou Redis poll_watchlists indisponible, repli sur le verrou local seul: {e}")
-        return "redis-error"
+    return await acquire_distributed_lock(_DISTRIBUTED_POLL_LOCK_KEY, _DISTRIBUTED_POLL_LOCK_TTL)
 
 
 async def _release_distributed_poll_lock(token: str | None) -> None:
-    if not token or token in ("no-redis", "redis-error"):
-        return
-    try:
-        from redis.asyncio import Redis
-
-        redis = Redis.from_url(os.environ["REDIS_URL"], encoding="utf-8", decode_responses=True)
-        try:
-            # Ne supprime que si on détient toujours le verrou (évite de relâcher celui
-            # d'un autre holder après expiration de notre propre TTL).
-            script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
-            await redis.eval(script, 1, _DISTRIBUTED_POLL_LOCK_KEY, token)
-        finally:
-            await redis.aclose()
-    except Exception as e:
-        logger.warning(f"Impossible de relâcher le verrou Redis poll_watchlists: {e}")
+    await release_distributed_lock(_DISTRIBUTED_POLL_LOCK_KEY, token)
 
 
 async def _check_and_seed_instances_from_settings(db: AsyncSession, settings: Settings):

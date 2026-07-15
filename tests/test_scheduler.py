@@ -569,6 +569,48 @@ async def test_check_arr_movie_not_yet_available(db):
 
 
 @pytest.mark.asyncio
+async def test_check_arr_statuses_skipped_when_distributed_lock_held_elsewhere(db):
+    """Verrou Redis déjà détenu (autre process/conteneur) → cycle ignoré, aucun traitement.
+
+    Même schéma que poll_watchlists : check_arr_statuses est déclenché à la fois par
+    APScheduler (conteneur API), le cron ARQ (conteneur worker) et /api/requests/poll
+    (HTTP manuel) — le verrou asyncio local ne protège que dans un seul process.
+    """
+    db.add(_settings())
+    db.add(_sent_request())
+    db.commit()
+
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(True, 42, None))) as mock_check,
+        patch("app.services.arr_tracker.acquire_distributed_lock", new=AsyncMock(return_value=None)),
+    ):
+        await check_arr_statuses()
+
+    mock_check.assert_not_called()
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+
+
+@pytest.mark.asyncio
+async def test_check_arr_statuses_releases_distributed_lock_after_run(db):
+    """Le verrou Redis est relâché après un cycle, même en cas d'erreur, pour ne pas bloquer le suivant."""
+    db.add(_settings())
+    db.add(_sent_request())
+    db.commit()
+
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.is_movie_available", new=AsyncMock(return_value=(False, None, None))),
+        patch("app.services.arr_tracker.acquire_distributed_lock", new=AsyncMock(return_value="tok")),
+        patch("app.services.arr_tracker.release_distributed_lock", new=AsyncMock()) as mock_release,
+    ):
+        await check_arr_statuses()
+
+    mock_release.assert_called_once_with("plexarr:lock:check_arr_statuses", "tok")
+
+
+@pytest.mark.asyncio
 async def test_check_arr_show_becomes_available(db):
     """get_series_episode_stats → série complète, mais reste sent_to_arr sans preuve Plex."""
     db.add(_settings())

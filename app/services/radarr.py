@@ -10,11 +10,31 @@ Fonctions principales :
 """
 
 import logging
+import re
 
 import httpx
 from .arr_http_client import ArrClient
 
 logger = logging.getLogger(__name__)
+
+
+def _norm_title(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).strip()
+
+
+def _candidate_matches_title(candidate: dict, title: str | None, year: int | None) -> bool:
+    """Valide qu'un résultat de recherche Radarr correspond bien au titre/année demandés.
+
+    Sans cette vérification, le premier résultat du lookup textuel Radarr est utilisé
+    aveuglément (contrairement à Sonarr) : un remake ou un homonyme placé en tête de
+    liste ferait ajouter le mauvais film silencieusement.
+    """
+    expected_title = _norm_title(title)
+    candidate_title = _norm_title(candidate.get("title"))
+    if not (expected_title and candidate_title and expected_title == candidate_title):
+        return False
+    candidate_year = candidate.get("year")
+    return not year or not candidate_year or str(year) == str(candidate_year)
 
 
 async def add_movie(
@@ -127,20 +147,30 @@ async def resolve_tmdb_id(url: str, api_key: str, imdb_id: str) -> str | None:
 async def _search_tmdb_id(url: str, api_key: str, title: str, year: int | None) -> str | None:
     """Cherche un TMDB ID via le lookup Radarr.
 
-    L'année est ajoutée au terme de recherche pour lever les ambiguïtés
-    entre remakes et homonymes.
+    L'année est ajoutée au terme de recherche pour lever les ambiguïtés entre remakes
+    et homonymes, mais Radarr peut quand même renvoyer un premier résultat différent
+    (tri par pertinence/popularité) : on valide donc titre+année sur les résultats
+    avant de retenir un candidat, plutôt que de prendre le premier aveuglément.
     """
-    term = f"{title} {year}" if year else title
     try:
         client = ArrClient(url, api_key, timeout=15)
-        resp = await client.get(
-            f"/api/v3/movie/lookup",
-            params={"term": term},
-            )
-        resp.raise_for_status()
-        results = resp.json()
+        for term in ([f"{title} {year}", title] if year else [title]):
+            resp = await client.get(
+                f"/api/v3/movie/lookup",
+                params={"term": term},
+                )
+            resp.raise_for_status()
+            results = resp.json()
+            for candidate in results:
+                if _candidate_matches_title(candidate, title, year) and candidate.get("tmdbId"):
+                    return str(candidate["tmdbId"])
         if results:
-            return str(results[0].get("tmdbId"))
+            logger.warning(
+                "Radarr lookup for '%s' (%s) returned no result matching title/year; "
+                "refusing ambiguous match",
+                title,
+                year,
+            )
     except Exception as e:
         logger.warning(f"Radarr lookup failed for '{title}': {e}")
     return None

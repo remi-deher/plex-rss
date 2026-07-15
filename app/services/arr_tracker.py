@@ -13,6 +13,7 @@ from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, Req
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
 from .availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
+from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .download_clients import delete_torrent, get_torrent_status
 from .download_history import record_completed
 from .notification_orchestrator import _handle_show_progress_notification
@@ -38,8 +39,15 @@ async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
 
 
 # Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
-# cycle planifié (toutes les 15 min) sur les mêmes demandes.
+# cycle planifié (toutes les 15 min) sur les mêmes demandes DANS LE MÊME PROCESS.
+# Insuffisant seul en déploiement multi-conteneurs (APScheduler tourne dans le
+# conteneur API, le cron ARQ dans le conteneur worker, et /api/requests/poll peut
+# aussi être déclenché manuellement depuis l'API) — d'où le verrou Redis ci-dessous,
+# même schéma que poll_watchlists (voir distributed_lock.py).
 _arr_status_lock = asyncio.Lock()
+
+_DISTRIBUTED_ARR_STATUS_LOCK_KEY = "plexarr:lock:check_arr_statuses"
+_DISTRIBUTED_ARR_STATUS_LOCK_TTL = 300
 
 
 async def check_arr_statuses():
@@ -61,7 +69,16 @@ async def check_arr_statuses():
     Seer et non l'ID Sonarr/Radarr).
     """
     if _arr_status_lock.locked():
-        logger.info("check_arr_statuses déjà en cours, cycle ignoré")
+        logger.info("check_arr_statuses déjà en cours (verrou local), cycle ignoré")
+        return
+
+    await _arr_status_lock.acquire()
+    dist_lock_token = await acquire_distributed_lock(
+        _DISTRIBUTED_ARR_STATUS_LOCK_KEY, _DISTRIBUTED_ARR_STATUS_LOCK_TTL
+    )
+    if dist_lock_token is None:
+        logger.info("check_arr_statuses déjà en cours ailleurs (verrou Redis), cycle ignoré")
+        _arr_status_lock.release()
         return
 
     logger.info("Checking arr statuses...")
@@ -73,7 +90,6 @@ async def check_arr_statuses():
     errors_count = 0
     error_details: list[str] = []
     db: AsyncSession = AsyncSessionLocal()
-    await _arr_status_lock.acquire()
     try:
         settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
@@ -382,6 +398,7 @@ async def check_arr_statuses():
             if poll_db is not db:
                 await poll_db.close()
         await db.close()
+        await release_distributed_lock(_DISTRIBUTED_ARR_STATUS_LOCK_KEY, dist_lock_token)
         _arr_status_lock.release()
 
 
