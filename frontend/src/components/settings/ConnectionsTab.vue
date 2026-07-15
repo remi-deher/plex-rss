@@ -57,32 +57,20 @@
       >
         <template #actions>
           <button class="icon-button" title="Actualiser" @click.stop="loadArr"><RefreshCw/></button>
+          <button class="secondary" @click.stop="openArrModal()"><Plus/>Ajouter</button>
         </template>
         <div class="connection-list">
           <article v-for="instance in arrInstances" :key="instance.id" class="inline-row">
             <div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div>
             <div class="actions">
               <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
-              <button class="icon-button" title="Modifier" @click="editArr(instance)"><Pencil/></button>
+              <button class="icon-button" title="Modifier" @click="openArrModal(instance)"><Pencil/></button>
               <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
               <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
             </div>
           </article>
         </div>
-        <div class="compact-form">
-          <label>Nom<input v-model="arrForm.name"></label>
-          <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
-          <label>URL<input v-model="arrForm.url" type="url"></label>
-          <label>Cle API<input v-model="arrForm.api_key" type="password"></label>
-          <label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label>
-          <label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label>
-          <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
-        </div>
-        <div class="actions">
-          <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
-          <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
-          <button v-if="editingArrId" class="secondary" @click="resetArr">Annuler</button>
-        </div>
+        <p v-if="!arrInstances.length" class="empty">Aucune instance configuree.</p>
       </SettingsCard>
 
       <SettingsCard
@@ -122,11 +110,34 @@
         </div>
       </SettingsCard>
     </div>
+
+    <div v-if="showArrModal" class="drawer-backdrop" @click.self="closeArrModal">
+      <aside class="modal-panel import-modal">
+        <div class="panel-head">
+          <h2>{{ editingArrId?'Modifier l\'instance':'Ajouter une instance' }}</h2>
+          <button class="icon-button" title="Fermer" @click="closeArrModal"><X/></button>
+        </div>
+        <div class="compact-form">
+          <label>Nom<input v-model="arrForm.name"></label>
+          <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
+          <label>URL<input v-model="arrForm.url" type="url"></label>
+          <label>Cle API<input v-model="arrForm.api_key" type="password"></label>
+          <label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label>
+          <label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label>
+          <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
+        </div>
+        <div class="actions">
+          <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
+          <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
+          <button class="secondary" @click="closeArrModal">Annuler</button>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { Clapperboard, Download, ListRestart, LogIn, Pencil, PlugZap, Power, Radar, RefreshCw, Rss, Save, Server, ServerCog, Trash2 } from '@lucide/vue';
+import { Clapperboard, Download, ListRestart, LogIn, Pencil, Plus, PlugZap, Power, Radar, RefreshCw, Rss, Save, Server, ServerCog, Trash2, X } from '@lucide/vue';
 import { api } from '@/api';
 import { form, load, secretsPresent, success, fail, testSaved } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
@@ -166,11 +177,17 @@ async function startPlexSso() {
 
 // Instances Sonarr/Radarr/Prowlarr
 const arrInstances = ref([]), arrProfiles = ref([]), arrFolders = ref([]), editingArrId = ref(null);
+const showArrModal = ref(false);
 const arrDefaults = { name: '', arr_type: 'sonarr', url: '', api_key: '', quality_profile_id: null, root_folder: '', minimum_availability: 'released', is_default: false, enabled: true, indexer_ids: null };
 const arrForm = reactive({ ...arrDefaults });
 async function loadArr() { arrInstances.value = await api('/api/arr-instances'); }
 function resetArr() { editingArrId.value = null; Object.assign(arrForm, arrDefaults); arrProfiles.value = []; arrFolders.value = []; }
-function editArr(instance) { editingArrId.value = instance.id; Object.assign(arrForm, arrDefaults, instance); loadArrOptions(); }
+function openArrModal(instance) {
+  resetArr();
+  if (instance) { editingArrId.value = instance.id; Object.assign(arrForm, arrDefaults, instance); loadArrOptions(); }
+  showArrModal.value = true;
+}
+function closeArrModal() { showArrModal.value = false; resetArr(); }
 async function loadArrOptions() {
   if (arrForm.arr_type === 'prowlarr') { arrProfiles.value = []; arrFolders.value = []; return; }
   const q = editingArrId.value ? `?instance_id=${editingArrId.value}` : `?url=${encodeURIComponent(arrForm.url)}&api_key=${encodeURIComponent(arrForm.api_key)}`;
@@ -184,6 +201,7 @@ async function saveArr() {
   try {
     await api(editingArrId.value ? `/api/arr-instances/${editingArrId.value}` : '/api/arr-instances', { method: editingArrId.value ? 'PUT' : 'POST', body: JSON.stringify(arrForm) });
     success(editingArrId.value ? 'Instance mise a jour.' : 'Instance ajoutee.');
+    showArrModal.value = false;
     resetArr();
     await loadArr();
   } catch (e) { fail(e); } finally { busy.value = false; }
