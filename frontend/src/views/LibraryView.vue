@@ -87,7 +87,14 @@
     </section>
     
     <p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p>
-    
+
+    <div v-if="hasMoreLibrary" class="load-more-row">
+      <button class="secondary" :disabled="loadingMore" @click="loadMore">
+        <RefreshCw v-if="loadingMore" class="spin"/>
+        {{ loadingMore ? 'Chargement...' : 'Charger plus' }}
+      </button>
+    </div>
+
     <MediaDetailDrawer v-if="selected" :item="selected" :mode="selected._kind==='request'?'request':'library'" @close="selected=null" @updated="load"/>
   </div>
 </template>
@@ -105,9 +112,17 @@ function goToRequest(item) {
   router.push({ path: '/requests', query: { query: item.title } });
 }
 
-const items = ref([]);
+const PAGE_SIZE = 200;
+
+const libraryItemsRaw = ref([]);
+const pendingRequests = ref([]);
 const rawMetrics = ref({});
 const users = ref([]);
+const libraryOffset = ref(0);
+const hasMoreLibrary = ref(false);
+const loadingMore = ref(false);
+
+const items = computed(() => [...libraryItemsRaw.value, ...pendingRequests.value]);
 
 const query = ref('');
 const type = ref('');
@@ -184,34 +199,55 @@ function requestLabel(s) {
   })[s] || s;
 }
 
-async function load() {
-  loading.value = true;
-  error.value = '';
-  
+function _libraryParams(offset) {
   const p = new URLSearchParams();
   if (query.value.trim()) p.set('query', query.value.trim());
   if (type.value) p.set('media_type', type.value);
-  
+  p.set('limit', PAGE_SIZE);
+  p.set('offset', offset);
+  return p;
+}
+
+async function load() {
+  loading.value = true;
+  error.value = '';
+  libraryOffset.value = 0;
+
   try {
     const [library, requests, stats] = await Promise.all([
-      api(`/api/library?${p}`),
+      api(`/api/library?${_libraryParams(0)}`),
       api(`/api/requests${query.value.trim() ? `?query=${encodeURIComponent(query.value.trim())}` : ''}`),
       api(`/api/library-metrics${type.value ? `?media_type=${type.value}` : ''}`).catch(() => ({}))
     ]);
-    
+
     const pending = requests
       .filter(x => x.status !== 'available' && !x.library_item_id && (!type.value || x.media_type === type.value))
       .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
-      
-    items.value = [
-      ...library.map(x => ({ ...x, _kind: 'library' })),
-      ...pending
-    ];
+
+    libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
+    pendingRequests.value = pending;
+    libraryOffset.value = library.length;
+    hasMoreLibrary.value = library.length === PAGE_SIZE;
     rawMetrics.value = stats;
   } catch (e) {
     error.value = e.message;
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadMore() {
+  if (loadingMore.value || !hasMoreLibrary.value) return;
+  loadingMore.value = true;
+  try {
+    const library = await api(`/api/library?${_libraryParams(libraryOffset.value)}`);
+    libraryItemsRaw.value = [...libraryItemsRaw.value, ...library.map(x => ({ ...x, _kind: 'library' }))];
+    libraryOffset.value += library.length;
+    hasMoreLibrary.value = library.length === PAGE_SIZE;
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    loadingMore.value = false;
   }
 }
 
@@ -315,5 +351,10 @@ onMounted(() => {
 .manage-link svg {
   width: 14px;
   height: 14px;
+}
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
 }
 </style>

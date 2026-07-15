@@ -232,9 +232,15 @@ async def list_library(
     query: Optional[str] = None,
     media_type: Optional[str] = None,
     limit: int = 200,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Return Plex library items for the SPA library browser."""
+    """Return Plex library items for the SPA library browser (paginee via limit/offset).
+
+    `limit` est plafonne a 500 par appel ; le client pagine avec des appels successifs
+    en incrementant `offset` (voir LibraryView.vue) plutot que de tout charger d'un coup —
+    necessaire des que la bibliotheque depasse quelques centaines de medias.
+    """
     stmt = (
         select(LibraryItem, sqlalchemy.func.max(PlexUser.custom_name), sqlalchemy.func.max(MediaRequest.plex_user), sqlalchemy.func.max(MediaRequest.plex_user_id))
         .outerjoin(MediaRequest, MediaRequest.library_item_id == LibraryItem.id)
@@ -246,7 +252,11 @@ async def list_library(
     if media_type in ("movie", "show"):
         stmt = stmt.filter(LibraryItem.media_type == media_type)
     items = (
-        await db.execute(stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title).limit(min(limit, 500)))
+        await db.execute(
+            stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title, LibraryItem.id)
+            .offset(max(offset, 0))
+            .limit(min(limit, 500))
+        )
     ).all()
     return [
         {

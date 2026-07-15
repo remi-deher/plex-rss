@@ -62,6 +62,31 @@ def test_spa_library_list_supports_search_and_type(async_db):
         _cleanup()
 
 
+def test_spa_library_list_paginates_with_offset(async_db):
+    """Regression : /api/library plafonnait a 200 resultats sans offset ni indication de
+    troncature, et LibraryView.vue ne paginait jamais -> la majorite d'une grosse
+    bibliotheque (ex: 1339 medias en prod) restait invisible dans l'UI alors que
+    /api/library-metrics affichait le vrai total, sans lien apparent entre les deux."""
+    async_db.add_all(
+        [LibraryItem(title=f"Movie {i:02d}", media_type="movie", year=2000 + i) for i in range(5)]
+    )
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        page1 = client.get("/api/library?limit=2&offset=0").json()
+        page2 = client.get("/api/library?limit=2&offset=2").json()
+        page3 = client.get("/api/library?limit=2&offset=4").json()
+        # Tri par added_at desc puis titre asc, en tie-break sur added_at=None partout ici.
+        assert [i["title"] for i in page1] == ["Movie 00", "Movie 01"]
+        assert [i["title"] for i in page2] == ["Movie 02", "Movie 03"]
+        assert [i["title"] for i in page3] == ["Movie 04"]
+        # Aucun doublon ni item manquant entre les pages.
+        all_ids = [i["id"] for i in page1 + page2 + page3]
+        assert len(all_ids) == len(set(all_ids)) == 5
+    finally:
+        _cleanup()
+
+
 def test_spa_notification_feeds_are_async(async_db):
     client = _client(async_db)
     try:
