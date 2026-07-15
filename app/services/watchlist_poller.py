@@ -1,8 +1,10 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 
 import sqlalchemy
@@ -28,9 +30,70 @@ from .watchlist import fetch_watchlist
 logger = logging.getLogger(__name__)
 
 # Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
-# cycle planifié (ou qu'un autre déclenchement manuel) : sans ce verrou, deux passages
-# concurrents sur la même watchlist peuvent soumettre deux fois la même demande.
+# cycle planifié (ou qu'un autre déclenchement manuel) DANS LE MÊME PROCESS : sans ce
+# verrou, deux passages concurrents sur la même watchlist peuvent soumettre deux fois
+# la même demande. Insuffisant à lui seul en déploiement multi-conteneurs (API +
+# worker ARQ séparés) — voir _acquire_distributed_poll_lock ci-dessous.
 _poll_lock = asyncio.Lock()
+
+_DISTRIBUTED_POLL_LOCK_KEY = "plexarr:lock:poll_watchlists"
+_DISTRIBUTED_POLL_LOCK_TTL = 300  # secondes ; filet de sécurité si le holder crash sans relâcher
+
+
+async def _acquire_distributed_poll_lock() -> str | None:
+    """Verrou Redis (SET NX EX), en plus de `_poll_lock`.
+
+    `_poll_lock` est un `asyncio.Lock` local à un process Python : il ne protège pas
+    contre deux déclenchements concurrents dans DEUX process différents — typiquement
+    le cron ARQ (conteneur `worker`, toutes les 30s) et un déclenchement manuel HTTP
+    (/api/requests/poll, retry, bulk retry...) qui appelle `poll_watchlists()`
+    directement depuis le conteneur `plex-rss` (API), sans passer par ARQ. Sans verrou
+    partagé, les deux process peuvent chacun croire l'item absent au même instant et
+    créer un doublon — incident observé : deux `MediaRequest` identiques créées à
+    369 ms d'écart, donnant deux mails de disponibilité pour le même film.
+
+    Returns:
+        Un token si le verrou est acquis (à repasser à `_release_distributed_poll_lock`),
+        None si un autre process le détient déjà. Renvoie un token sentinelle sans
+        toucher Redis si `REDIS_URL` n'est pas configuré (mode legacy mono-process,
+        où la contention inter-process ne peut pas se produire).
+    """
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return "no-redis"
+    try:
+        from redis.asyncio import Redis
+
+        token = uuid.uuid4().hex
+        redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        try:
+            acquired = await redis.set(_DISTRIBUTED_POLL_LOCK_KEY, token, nx=True, ex=_DISTRIBUTED_POLL_LOCK_TTL)
+            return token if acquired else None
+        finally:
+            await redis.aclose()
+    except Exception as e:
+        # Redis injoignable : on ne bloque pas le poll pour autant (mieux vaut un risque
+        # de doublon résiduel qu'un poll qui ne tourne plus jamais), mais on le signale.
+        logger.warning(f"Verrou Redis poll_watchlists indisponible, repli sur le verrou local seul: {e}")
+        return "redis-error"
+
+
+async def _release_distributed_poll_lock(token: str | None) -> None:
+    if not token or token in ("no-redis", "redis-error"):
+        return
+    try:
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url(os.environ["REDIS_URL"], encoding="utf-8", decode_responses=True)
+        try:
+            # Ne supprime que si on détient toujours le verrou (évite de relâcher celui
+            # d'un autre holder après expiration de notre propre TTL).
+            script = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end"
+            await redis.eval(script, 1, _DISTRIBUTED_POLL_LOCK_KEY, token)
+        finally:
+            await redis.aclose()
+    except Exception as e:
+        logger.warning(f"Impossible de relâcher le verrou Redis poll_watchlists: {e}")
 
 
 async def _check_and_seed_instances_from_settings(db: AsyncSession, settings: Settings):
@@ -667,12 +730,21 @@ async def poll_watchlists():
        - Si déjà `sent_to_arr` ou `available` : ignoré.
     4. Notifie selon le résultat (succès, échec, déjà existant).
 
-    Un verrou (`_poll_lock`) empêche un déclenchement manuel de tourner en même temps
-    qu'un cycle planifié : sans lui, deux passages concurrents pourraient soumettre
-    deux fois la même demande à *arr.
+    Deux verrous empêchent un déclenchement manuel de tourner en même temps qu'un
+    cycle planifié (sans quoi deux passages concurrents peuvent soumettre deux fois
+    la même demande à *arr, et envoyer deux notifications) : `_poll_lock` protège
+    contre la concurrence dans le même process, `_acquire_distributed_poll_lock`
+    contre la concurrence entre le conteneur API et le conteneur worker ARQ.
     """
     if _poll_lock.locked():
-        logger.info("poll_watchlists déjà en cours, cycle ignoré")
+        logger.info("poll_watchlists déjà en cours (verrou local), cycle ignoré")
+        return
+
+    await _poll_lock.acquire()
+    dist_lock_token = await _acquire_distributed_poll_lock()
+    if dist_lock_token is None:
+        logger.info("poll_watchlists déjà en cours ailleurs (verrou Redis), cycle ignoré")
+        _poll_lock.release()
         return
 
     logger.info("Polling watchlists...")
@@ -684,7 +756,6 @@ async def poll_watchlists():
     error_details: list[str] = []
     db: AsyncSession = AsyncSessionLocal()
     _poll_error = False
-    await _poll_lock.acquire()
     try:
         settings = (await db.execute(select(Settings))).scalars().first()
         if not settings:
@@ -757,6 +828,7 @@ async def poll_watchlists():
             if poll_db is not db:
                 await poll_db.close()
         await db.close()
+        await _release_distributed_poll_lock(dist_lock_token)
         _poll_lock.release()
 
 

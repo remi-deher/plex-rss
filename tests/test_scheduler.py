@@ -194,6 +194,53 @@ async def test_poll_new_item_creates_request_and_notifies(db):
 
 
 @pytest.mark.asyncio
+async def test_poll_skipped_when_distributed_lock_held_elsewhere(db):
+    """Verrou Redis déjà détenu (autre process/conteneur) → cycle ignoré, aucun traitement.
+
+    Couvre l'incident : deux MediaRequest identiques créées à 369ms d'écart (source
+    'api') suite à un poll manuel via /api/requests/poll qui a couru en même temps que
+    le cron ARQ dans le conteneur worker — le verrou asyncio local ne protège que dans
+    un seul process, pas entre deux conteneurs distincts.
+    """
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.commit()
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        _patch_submit() as mock_submit,
+        patch("app.services.watchlist_poller._acquire_distributed_poll_lock", new=AsyncMock(return_value=None)),
+    ):
+        await poll_watchlists()
+
+    mock_submit.assert_not_called()
+    assert db.query(MediaRequest).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_poll_releases_distributed_lock_after_run(db):
+    """Le verrou Redis est relâché après un cycle, même en cas d'erreur, pour ne pas bloquer le suivant."""
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.commit()
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        _patch_submit(),
+        _patch_enqueue(),
+        patch(
+            "app.services.watchlist_poller._acquire_distributed_poll_lock", new=AsyncMock(return_value="tok")
+        ),
+        patch("app.services.watchlist_poller._release_distributed_poll_lock", new=AsyncMock()) as mock_release,
+    ):
+        await poll_watchlists()
+
+    mock_release.assert_called_once_with("tok")
+
+
+@pytest.mark.asyncio
 async def test_poll_requires_approval_for_standard_user(db):
     """Validation globale active -> demande creee mais pas transmise a Arr."""
     db.add(_settings(require_approval=True))
