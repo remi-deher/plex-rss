@@ -414,18 +414,35 @@ async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj, db: AsyncSes
     return item
 
 
+def _norm_title_for_dedup(value: str | None) -> str:
+    """Normalise un titre pour la dédup par repli (aucun identifiant exploitable).
+
+    Une comparaison `==` stricte rate les variantes de ponctuation entre sources —
+    incident observé : Seer renvoie "Spider-Man : Across the Spider-Verse" (espace
+    avant le ':', typographie FR) alors que le flux RSS Plex renvoie "Spider-Man:
+    Across the Spider-Verse" (sans espace) pour le même film, créant un doublon
+    quand la résolution tmdb_id échoue (ex: Radarr temporairement injoignable).
+    Même normalisation que sonarr.py/radarr.py : casefold + tout non-alphanumérique
+    réduit à un espace.
+    """
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").casefold()).strip()
+
+
 async def _find_global_request(
     db: AsyncSession,
     media_type: str,
     tmdb_id: str | None,
     title: str | None,
     tvdb_id: str | None = None,
+    imdb_id: str | None = None,
 ):
     """Cherche une demande existante globalement (tous utilisateurs).
 
-    Ordre de priorité : tmdb_id → tvdb_id → titre.
+    Ordre de priorité : tmdb_id → tvdb_id → imdb_id → titre (normalisé).
     Le fallback tvdb_id permet de déduper RSS (tvdb) ↔ Seer (tmdb) pour les séries.
-    Le fallback titre rattrape les anciennes entrées RSS créées sans identifiant.
+    Le fallback titre rattrape les anciennes entrées RSS créées sans identifiant —
+    comparaison normalisée (voir _norm_title_for_dedup) plutôt qu'une égalité stricte,
+    fragile aux variantes de ponctuation entre sources.
     """
     if tmdb_id:
         found = (await db.execute(
@@ -445,13 +462,24 @@ async def _find_global_request(
         )).scalars().first()
         if found:
             return found
-    if title:
-        return (await db.execute(
+    if imdb_id:
+        found = (await db.execute(
             select(MediaRequest).filter(
                 MediaRequest.media_type == media_type,
-                MediaRequest.title == title,
+                MediaRequest.imdb_id == imdb_id,
             )
         )).scalars().first()
+        if found:
+            return found
+    if title:
+        norm = _norm_title_for_dedup(title)
+        if norm:
+            candidates = (await db.execute(
+                select(MediaRequest).filter(MediaRequest.media_type == media_type)
+            )).scalars().all()
+            for candidate in candidates:
+                if _norm_title_for_dedup(candidate.title) == norm:
+                    return candidate
     return None
 
 
@@ -550,7 +578,9 @@ async def _process_watchlist_item(
     item = await _ensure_tmdb_id(item, settings, user_obj, db)
 
     # Dédup global : même média déjà demandé par un autre utilisateur ?
-    global_req = await _find_global_request(db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"))
+    global_req = await _find_global_request(
+        db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id")
+    )
     if global_req and global_req.plex_user_id != uid:
         added = _add_co_requester(global_req, uid, display_name)
         if added:
@@ -558,23 +588,19 @@ async def _process_watchlist_item(
             logger.info(f"Co-demandeur ajouté : {display_name} → '{global_req.title}'")
         return "skip"
 
+    # `_find_global_request` matche déjà tous utilisateurs confondus (y compris le
+    # demandeur courant) via tmdb_id/tvdb_id/imdb_id puis titre normalisé, donc
+    # `global_req` couvre aussi le cas "même utilisateur, ancienne demande sans
+    # identifiant" — pas besoin d'un second lookup dédié. On complète juste les
+    # identifiants manquants sur l'entrée retrouvée.
     existing = global_req if global_req else None
-
-    # Fallback : même utilisateur, même titre — ancienne demande sans identifiant
-    if not existing and item.get("title"):
-        existing = (await db.execute(
-            select(MediaRequest).filter(
-                MediaRequest.plex_user_id == uid,
-                MediaRequest.media_type == item["media_type"],
-                MediaRequest.title == item["title"],
-                MediaRequest.tmdb_id.is_(None),
-            )
-        )).scalars().first()
-        if existing:
-            if item.get("tmdb_id"):
-                existing.tmdb_id = item["tmdb_id"]
-            if item.get("tvdb_id") and not existing.tvdb_id:
-                existing.tvdb_id = item["tvdb_id"]
+    if existing:
+        if item.get("tmdb_id") and not existing.tmdb_id:
+            existing.tmdb_id = item["tmdb_id"]
+        if item.get("tvdb_id") and not existing.tvdb_id:
+            existing.tvdb_id = item["tvdb_id"]
+        if item.get("imdb_id") and not existing.imdb_id:
+            existing.imdb_id = item["imdb_id"]
 
     if existing:
         # Ne retenter que les statuts récupérables
@@ -827,7 +853,7 @@ async def sync_plex_dates(db: AsyncSession):
             continue
 
         existing = await _find_global_request(
-            db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id")
+            db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id")
         )
         if existing and existing.requested_at != req_date:
             existing.requested_at = req_date

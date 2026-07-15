@@ -160,6 +160,39 @@ async def test_find_global_request_tmdb_takes_priority(db):
     assert result is not None
 
 
+@pytest.mark.asyncio
+async def test_find_global_request_by_imdb_id(db):
+    """Sans tmdb_id ni tvdb_id, matche par imdb_id."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, imdb_id="tt1375666", title="Inception"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Un autre titre", None, "tt1375666")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_ignores_punctuation_spacing(db):
+    """Régression production : Seer renvoie "Spider-Man : Across..." (espace avant le
+    ':', typographie FR) alors que le flux RSS Plex renvoie "Spider-Man: Across..."
+    (sans espace) pour le même film — une comparaison stricte créait un doublon quand
+    la résolution tmdb_id échouait (ex: Radarr injoignable). Le fallback titre doit
+    matcher malgré cette différence de ponctuation."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Spider-Man : Across the Spider-Verse"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Spider-Man: Across the Spider-Verse")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_case_insensitive(db):
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Dune"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "DUNE")
+    assert result is not None
+
+
 # ---------------------------------------------------------------------------
 # _add_co_requester
 # ---------------------------------------------------------------------------
@@ -296,6 +329,55 @@ async def test_poll_same_user_same_movie_no_duplicate(db):
 
     rows = db.query(MediaRequest).all()
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_poll_no_duplicate_when_tmdb_resolution_fails_and_title_punctuation_differs(db):
+    """Régression production (Spider-Man: Across the Spider-Verse) : une demande Seer
+    existante ("Spider-Man : Across..." avec espace FR avant ':', déjà 'available')
+    ne doit pas être dupliquée par un item RSS ultérieur du même utilisateur portant
+    le même film avec un titre ponctué différemment et sans tmdb_id résolu (imdb_id
+    seul — simule un échec de résolution Radarr)."""
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.add(_req(
+        plex_user_id="alice",
+        title="Spider-Man : Across the Spider-Verse",
+        tmdb_id="569094",
+        tvdb_id="132814",
+        imdb_id=None,
+        status=RequestStatus.available,
+        source="seer",
+    ))
+    db.commit()
+
+    item = {
+        "title": "Spider-Man: Across the Spider-Verse",
+        "year": 2023,
+        "media_type": "movie",
+        "plex_user": "alice",
+        "plex_user_id": "alice",
+        "tmdb_id": None,
+        "tvdb_id": None,
+        "imdb_id": "tt9362722",
+        "plex_guid": None,
+        "poster_url": None,
+        "overview": "",
+        "source": "rss",
+    }
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([item]),
+        _patch_submit(),
+        _patch_enqueue(),
+        patch("app.services.watchlist_poller.resolve_tmdb_id", new=AsyncMock(return_value=None)),
+    ):
+        await poll_watchlists()
+
+    rows = db.query(MediaRequest).all()
+    assert len(rows) == 1
+    assert rows[0].status == RequestStatus.available
 
 
 @pytest.mark.asyncio
