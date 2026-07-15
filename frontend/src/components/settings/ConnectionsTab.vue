@@ -53,10 +53,8 @@
         :subtitle="`${arrInstances.length} instance(s) configuree(s)`"
         :icon="ServerCog"
         :status="arrInstances.some(i => i.enabled) ? 'active' : 'inactive'"
-        :collapsible="false"
       >
         <template #actions>
-          <button class="icon-button" title="Actualiser" @click.stop="loadArr"><RefreshCw/></button>
           <button class="secondary" @click.stop="openArrModal()"><Plus/>Ajouter</button>
         </template>
         <div v-if="arrInstances.length" class="table-wrap">
@@ -88,36 +86,32 @@
         :subtitle="`${clients.length} client(s) configure(s)`"
         :icon="Download"
         :status="clients.some(c => c.enabled) ? 'active' : 'inactive'"
-        :collapsible="false"
       >
         <template #actions>
-          <button class="icon-button" title="Actualiser" @click.stop="loadClients"><RefreshCw/></button>
+          <button class="secondary" @click.stop="openClientModal()"><Plus/>Ajouter</button>
         </template>
-        <div class="connection-list">
-          <article v-for="client in clients" :key="client.id" class="inline-row">
-            <div><strong>{{ client.name }}</strong><span>{{ client.client_type }} · {{ client.url }}</span></div>
-            <div class="actions">
-              <button class="icon-button" @click="testClient(client)"><PlugZap/></button>
-              <button class="icon-button" @click="editClient(client)"><Pencil/></button>
-              <button class="icon-button" @click="toggleClient(client)"><Power/></button>
-              <button class="icon-button danger" @click="removeClient(client)"><Trash2/></button>
-            </div>
-          </article>
+        <div v-if="clients.length" class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Nom</th><th>Type</th><th>Adresse</th><th>Statut</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="client in clients" :key="client.id">
+                <td><strong>{{ client.name }}</strong><small v-if="client.is_default">Par defaut</small></td>
+                <td><span class="badge">{{ client.client_type }}</span></td>
+                <td class="url-cell">{{ client.url }}</td>
+                <td><span class="badge" :class="client.enabled?'available':'failed'">{{ client.enabled?'Actif':'Inactif' }}</span></td>
+                <td class="actions">
+                  <button class="icon-button" title="Tester" @click="testClient(client)"><PlugZap/></button>
+                  <button class="icon-button" title="Modifier" @click="openClientModal(client)"><Pencil/></button>
+                  <button class="icon-button" :title="client.enabled?'Desactiver':'Activer'" @click="toggleClient(client)"><Power/></button>
+                  <button class="icon-button danger" title="Supprimer" @click="removeClient(client)"><Trash2/></button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="compact-form">
-          <label>Nom<input v-model="clientForm.name"></label>
-          <label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label>
-          <label>URL<input v-model="clientForm.url" type="url"></label>
-          <label>Utilisateur<input v-model="clientForm.username"></label>
-          <label>Mot de passe<input v-model="clientForm.password" type="password"></label>
-          <label>Categorie<input v-model="clientForm.category"></label>
-          <label>Tags<input v-model="clientForm.tags"></label>
-          <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
-        </div>
-        <div class="actions">
-          <button class="primary" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
-          <button v-if="editingClientId" class="secondary" @click="resetClient">Annuler</button>
-        </div>
+        <p v-else class="empty">Aucun client configure.</p>
       </SettingsCard>
     </div>
 
@@ -143,11 +137,34 @@
         </div>
       </aside>
     </div>
+
+    <div v-if="showClientModal" class="drawer-backdrop" @click.self="closeClientModal">
+      <aside class="modal-panel arr-instance-modal">
+        <div class="panel-head">
+          <h2>{{ editingClientId?'Modifier le client':'Ajouter un client' }}</h2>
+          <button class="icon-button" title="Fermer" @click="closeClientModal"><X/></button>
+        </div>
+        <div class="compact-form">
+          <label>Nom<input v-model="clientForm.name"></label>
+          <label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label>
+          <label>URL<input v-model="clientForm.url" type="url"></label>
+          <label>Utilisateur<input v-model="clientForm.username"></label>
+          <label>Mot de passe<input v-model="clientForm.password" type="password"></label>
+          <label>Categorie<input v-model="clientForm.category"></label>
+          <label>Tags<input v-model="clientForm.tags"></label>
+          <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
+        </div>
+        <div class="actions">
+          <button class="primary" :disabled="!clientForm.name||!clientForm.url" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
+          <button class="secondary" @click="closeClientModal">Annuler</button>
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { Clapperboard, Download, ListRestart, LogIn, Pencil, Plus, PlugZap, Power, Radar, RefreshCw, Rss, Save, Server, ServerCog, Trash2, X } from '@lucide/vue';
+import { Clapperboard, Download, ListRestart, LogIn, Pencil, Plus, PlugZap, Power, Radar, Rss, Save, Server, ServerCog, Trash2, X } from '@lucide/vue';
 import { api } from '@/api';
 import { form, load, secretsPresent, success, fail, testSaved } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
@@ -227,14 +244,21 @@ async function removeArr(instance) { if (!confirm(`Supprimer ${instance.name} ?`
 
 // Clients de telechargement
 const clients = ref([]), editingClientId = ref(null);
+const showClientModal = ref(false);
 const clientDefaults = { name: '', client_type: 'qbittorrent', url: '', username: '', password: '', category: '', tags: '', is_default: false, enabled: true };
 const clientForm = reactive({ ...clientDefaults });
 async function loadClients() { clients.value = await api('/api/download-clients'); }
 function resetClient() { editingClientId.value = null; Object.assign(clientForm, clientDefaults); }
-function editClient(client) { editingClientId.value = client.id; Object.assign(clientForm, clientDefaults, client); }
+function openClientModal(client) {
+  resetClient();
+  if (client) { editingClientId.value = client.id; Object.assign(clientForm, clientDefaults, client); }
+  showClientModal.value = true;
+}
+function closeClientModal() { showClientModal.value = false; resetClient(); }
 async function saveClient() {
   try {
     await api(editingClientId.value ? `/api/download-clients/${editingClientId.value}` : '/api/download-clients', { method: editingClientId.value ? 'PUT' : 'POST', body: JSON.stringify(clientForm) });
+    showClientModal.value = false;
     resetClient();
     await loadClients();
     success('Client enregistre.');
