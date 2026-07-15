@@ -313,6 +313,7 @@ SPA_ROOTS = {
     "library",
     "calendar",
     "users",
+    "issues",
     "notifications",
     "logs",
     "settings",

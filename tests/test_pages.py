@@ -71,6 +71,7 @@ def test_spa_is_served_at_root_after_login(client, db):
         "/downloads",
         "/requests",
         "/library",
+        "/issues",
         "/calendar",
         "/users",
         "/notifications",
