@@ -398,7 +398,7 @@ async def trigger_plex_library_refresh(
         _last_section_refresh[n] = now
 
     try:
-        await asyncio.to_thread(vff.refresh_sections_blocking, settings.plex_url, settings.plex_token, due)
+        await asyncio.to_thread(plex_finder.refresh_sections_blocking, settings.plex_url, settings.plex_token, due)
         logger.info(f"Plex : scan déclenché pour {due}")
     except Exception as e:
         logger.warning(f"Déclenchement du scan Plex échoué : {e}")
