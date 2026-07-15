@@ -1,6 +1,6 @@
 <template>
   <section class="settings-card" :class="[status, { collapsed: collapsible && !open }]">
-    <header class="settings-card-head" @click="collapsible && toggle()">
+    <header class="settings-card-head">
       <div class="settings-card-title">
         <span class="settings-card-icon" v-if="icon"><component :is="icon"/></span>
         <div class="settings-card-heading">
@@ -11,9 +11,10 @@
           <p v-if="subtitle" class="settings-card-subtitle">{{ subtitle }}</p>
         </div>
       </div>
-      <div class="settings-card-head-actions" @click.stop>
+      <div class="settings-card-head-actions">
         <slot name="actions"/>
-        <button v-if="collapsible" class="chevron" :class="{ open }" type="button" title="Deplier/replier" @click="toggle">
+        <button v-if="collapsible" class="chevron" :class="{ open }" type="button" :aria-expanded="open" @click="toggle">
+          <span class="chevron-label">{{ open ? 'Replier' : 'Deplier' }}</span>
           <ChevronDown/>
         </button>
       </div>
