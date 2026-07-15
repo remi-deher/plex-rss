@@ -69,6 +69,7 @@ EVENTS: dict[str, NotificationEvent] = {
         description="La demande n'a pas pu être transmise à Sonarr ou Radarr.",
         color=0xDC3545,
         badge_class="bg-danger",
+        mail_flags=("failure_mail_sent",),
         template_field="email_failure_template",
         subject_field="email_failure_subject",
         default_subject="[Plexarr] Échec de transmission : {titre}",

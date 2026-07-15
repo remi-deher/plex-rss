@@ -354,6 +354,57 @@ async def test_poll_arr_error_sets_failed_and_notifies_failure(db):
 
 
 @pytest.mark.asyncio
+async def test_poll_repeated_failure_does_not_renotify_once_flag_persisted(db):
+    """Une demande déjà 'failed' + failure_mail_sent=True (le worker a fini de traiter le
+    1er échec) qui échoue à nouveau au cycle suivant NE renvoie PAS de notification.
+
+    Couvre l'incident de production : jusqu'à 12 mails d'échec consécutifs pour la même
+    demande, un cycle de poll toutes les 60-90s relançant _submit_to_arr et renvoyant la
+    notification malgré le garde-fou `was_failed` (qui pouvait racer entre deux process —
+    voir le verrou distribué). `failure_mail_sent` est désormais un flag persisté vérifié
+    par _notify() lui-même — le scénario réaliste est que le worker a déjà traité et posé
+    le flag avant le cycle de poll suivant (la queue traite en ~1-3s, largement avant les
+    60-90s d'intervalle).
+    """
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.add(_sent_request(status=RequestStatus.failed, failure_mail_sent=True))
+    db.commit()
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item()]),
+        patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(side_effect=Exception("timeout"))),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.failed
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retry_endpoint_resets_failure_mail_sent(db):
+    """Un retry manuel remet failure_mail_sent à False : un nouvel échec doit renotifier."""
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    req = _sent_request(status=RequestStatus.failed, failure_mail_sent=True)
+    db.add(req)
+    db.commit()
+
+    from app.routers.requests_api import retry_request
+
+    # poll_watchlists() ferme sa propre session (partagée avec `db` via _patch_session) dans
+    # son `finally` — la mocker évite de rendre `db` inutilisable pour l'assertion qui suit.
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
+        await retry_request(req.id, db=db)
+
+    reloaded = db.query(MediaRequest).filter(MediaRequest.id == req.id).first()
+    assert reloaded.failure_mail_sent is False
+
+
+@pytest.mark.asyncio
 async def test_poll_failure_message_names_actual_attempted_target(db):
     """Le mail d'échec nomme la cible réellement tentée (ex: Prowlarr), pas toujours Sonarr/Radarr.
 

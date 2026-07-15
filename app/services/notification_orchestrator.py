@@ -509,6 +509,13 @@ async def _notify(
             return
         if event == "available" and req.available_mail_sent:
             return
+        # Flag persisté plutôt qu'un état recalculé à la volée par l'appelant (l'ancien
+        # garde-fou `was_failed` de watchlist_poller.py pouvait racer entre deux process —
+        # voir le correctif du verrou distribué sur poll_watchlists). Remis à False par les
+        # endpoints de retry (requests_api.py) et à la resoumission réussie, pour qu'un
+        # nouvel échec après un retry redéclenche bien une notification.
+        if event in ("failed", "failure") and req.failure_mail_sent:
+            return
     email_flag = (
         getattr(settings, "email_on_failure", True)
         if event in ("failed", "failure")

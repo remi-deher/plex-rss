@@ -386,6 +386,7 @@ async def _run_retry_failed(run: MaintenanceRun):
         emit.info(f"{len(failed)} demande(s) en échec — repassage en pending…")
         for req in failed:
             req.status = RequestStatus.pending
+            req.failure_mail_sent = False
         await db.commit()
         run.progress = 40
         emit.info("Déclenchement du polling…")

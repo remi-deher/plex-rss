@@ -683,6 +683,9 @@ async def _process_watchlist_item(
         req.arr_id = arr_id
         req.arr_slug = arr_slug
         req.arr_instance_id = item.get("_arr_instance_id")
+        # Resoumission réussie après un échec précédent : autorise une nouvelle
+        # notification d'échec si une future resoumission échoue à son tour.
+        req.failure_mail_sent = False
         if item.get("_torrent_hash"):
             req.torrent_hash = item.get("_torrent_hash")
             req.download_client_id = item.get("_download_client_id")

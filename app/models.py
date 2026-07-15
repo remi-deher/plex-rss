@@ -342,6 +342,10 @@ class NotificationLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     sent_at: Mapped[datetime] = mapped_column(default=now_utc_naive, index=True)
     event: Mapped[str] = mapped_column(index=True)
+    # "email" (défaut, valeur historique) | "discord" | "telegram" | "ntfy" | "gotify".
+    # Les canaux push n'étaient jusqu'ici ni journalisés, ni retentés en cas d'échec —
+    # une seule erreur réseau perdait la notification sans trace.
+    channel: Mapped[str] = mapped_column(default="email")
     recipient: Mapped[str]
     is_admin: Mapped[bool] = mapped_column(default=False)
     media_title: Mapped[Optional[str]]
@@ -507,6 +511,11 @@ class MediaRequest(Base):
 
     request_mail_sent: Mapped[bool] = mapped_column(default=False)
     available_mail_sent: Mapped[bool] = mapped_column(default=False)
+    # Contrairement à request_mail_sent/available_mail_sent, ce flag doit être remis à False
+    # quand la demande repart en pending (retry manuel/auto) : une nouvelle tentative qui
+    # échoue à nouveau doit pouvoir renotifier. Voir requests_api.py (retry*) et
+    # watchlist_poller.py (reset au succès).
+    failure_mail_sent: Mapped[bool] = mapped_column(default=False)
 
     requested_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
     available_at: Mapped[Optional[datetime]]

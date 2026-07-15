@@ -50,6 +50,7 @@ async def retry_request_v1(request_id: int, db: AsyncSession = Depends(get_db_as
     if req.status not in (RequestStatus.pending, RequestStatus.failed):
         raise HTTPException(status_code=400, detail="Only failed or pending requests can be retried")
     req.status = RequestStatus.pending
+    req.failure_mail_sent = False
     await db.commit()
     await poll_watchlists()
     return {"status": "retrying"}

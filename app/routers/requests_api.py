@@ -328,6 +328,7 @@ async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_d
     for req in reqs:
         if req.status in ("failed", "pending"):
             req.status = "pending"
+            req.failure_mail_sent = False
             count += 1
     if count > 0:
         await db.commit()
@@ -469,6 +470,7 @@ async def retry_request(request_id: int, db: AsyncSession = Depends(get_db_async
     if req.status not in ("failed", "pending"):
         raise HTTPException(400, "Only failed or pending requests can be retried")
     req.status = "pending"
+    req.failure_mail_sent = False
     await db.commit()
     await poll_watchlists()
     return {"status": "retrying"}
@@ -481,6 +483,7 @@ async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
     count = len(failed)
     for req in failed:
         req.status = "pending"
+        req.failure_mail_sent = False
     await db.commit()
     await poll_watchlists()
     return {"status": "ok", "retried": count}

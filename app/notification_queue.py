@@ -24,6 +24,7 @@ from .database import AsyncSessionLocal
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
+from .services.notifications import ChannelNotConfigured
 from .services.notifications import (
     send_discord,
     send_discord_to_webhook,
@@ -281,6 +282,27 @@ async def _send_with_retry(
     return False, error_msg
 
 
+async def _send_push_with_retry(coro_factory) -> tuple[bool | None, str | None]:
+    """Tente un envoi push (Discord/Telegram/ntfy/Gotify) avec le même retry que l'email.
+
+    Returns:
+        (success, error_msg). success=None si le canal n'est pas configuré (ChannelNotConfigured)
+        — rien à journaliser ni retenter dans ce cas, contrairement à un échec réel.
+    """
+    error_msg = None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            await coro_factory()
+            return True, None
+        except ChannelNotConfigured:
+            return None, None
+        except Exception as e:
+            error_msg = str(e)
+            if attempt < len(_RETRY_DELAYS):
+                await asyncio.sleep(_RETRY_DELAYS[attempt])
+    return False, error_msg
+
+
 class NotificationDeliveryError(Exception):
     """Levée quand au moins un destinataire n'a pas pu être livré après retries.
 
@@ -327,6 +349,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                     NotificationLog(
                         sent_at=now_utc_naive(),
                         event=event,
+                        channel="email",
                         recipient=recipient,
                         is_admin=recipient in admin_emails,
                         media_title=req.title,
@@ -351,22 +374,60 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                     req.last_notified_episode_count = req.episodes_available_count
             await db.commit()
 
-            # Push global (Discord + Telegram + ntfy + Gotify configurés dans Settings)
+            # Push (Discord/Telegram global + par utilisateur, ntfy, Gotify) : retry +
+            # journalisation au même titre que l'email (voir _send_push_with_retry). Ne
+            # participe PAS à `all_ok`/à la survie de la PendingNotification pour retry ARQ :
+            # cette fonction n'a pas de garde-fou "déjà envoyé" pour l'email comme _notify()
+            # en a un côté appelant — un retry ARQ du job entier renverrait le même email une
+            # deuxième fois si un push échoue après que l'email a déjà réussi.
+            push_targets: list[tuple[str, str, object]] = []
             if _push_allowed(settings, "discord", event):
-                await send_discord(settings, req, event)
+                push_targets.append(("discord", "discord (global)", lambda: send_discord(settings, req, event, context)))
             if _push_allowed(settings, "telegram", event):
-                await send_telegram(settings, req, event)
+                push_targets.append(("telegram", "telegram (global)", lambda: send_telegram(settings, req, event, context)))
             if _push_allowed(settings, "ntfy", event):
-                await send_ntfy_notif(settings, req, event)
+                push_targets.append(("ntfy", "ntfy", lambda: send_ntfy_notif(settings, req, event, context)))
             if _push_allowed(settings, "gotify", event):
-                await send_gotify_notif(settings, req, event)
-
-            # Push par utilisateur (webhook Discord / chat_id Telegram individuels)
+                push_targets.append(("gotify", "gotify", lambda: send_gotify_notif(settings, req, event, context)))
             if user_obj:
                 if user_obj.discord_webhook_url and _push_allowed(settings, "discord", event):
-                    await send_discord_to_webhook(user_obj.discord_webhook_url, req, event)
+                    webhook_url = user_obj.discord_webhook_url
+                    push_targets.append((
+                        "discord", f"discord (utilisateur {req.plex_user_id})",
+                        lambda: send_discord_to_webhook(webhook_url, req, event, context),
+                    ))
                 if user_obj.telegram_chat_id and settings.telegram_bot_token and _push_allowed(settings, "telegram", event):
-                    await send_telegram_to_chat(settings.telegram_bot_token, user_obj.telegram_chat_id, req, event)
+                    bot_token, chat_id = settings.telegram_bot_token, user_obj.telegram_chat_id
+                    push_targets.append((
+                        "telegram", f"telegram (utilisateur {req.plex_user_id})",
+                        lambda: send_telegram_to_chat(bot_token, chat_id, req, event, context),
+                    ))
+
+            for channel, recipient_label, coro_factory in push_targets:
+                success, error_msg = await _send_push_with_retry(coro_factory)
+                if success is None:
+                    continue  # canal non configuré : pas d'entrée dans le journal
+                db.add(
+                    NotificationLog(
+                        sent_at=now_utc_naive(),
+                        event=event,
+                        channel=channel,
+                        recipient=recipient_label,
+                        is_admin=False,
+                        media_title=req.title,
+                        media_type=req.media_type,
+                        success=success,
+                        error_msg=error_msg,
+                        req_id=req.id,
+                        scope=context.get("scope"),
+                        language=context.get("language"),
+                        is_upgrade=bool(context.get("is_upgrade")),
+                        season_number=context.get("season_number"),
+                        episode_number=context.get("episode_number"),
+                    )
+                )
+            if push_targets:
+                await db.commit()
 
             return all_ok
         except Exception as e:

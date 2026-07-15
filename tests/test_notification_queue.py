@@ -366,7 +366,7 @@ async def test_process_retry_uses_correct_delays():
 @pytest.mark.asyncio
 async def test_process_logs_success_entry():
     """Un envoi réussi → NotificationLog avec success=True ajouté à la DB."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
@@ -396,7 +396,7 @@ async def test_process_logs_success_entry():
 @pytest.mark.asyncio
 async def test_process_logs_failure_entry_with_error_msg():
     """Un envoi en échec → NotificationLog avec success=False + error_msg."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
@@ -424,7 +424,7 @@ async def test_process_logs_failure_entry_with_error_msg():
 @pytest.mark.asyncio
 async def test_process_logs_one_entry_per_recipient():
     """2 destinataires → 2 entrées de log distinctes."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
@@ -498,7 +498,7 @@ async def test_process_per_user_discord_webhook_called():
     ):
         await _process("request", 1, ["a@b.com"], "")
 
-    mock_discord_user.assert_called_once_with("https://discord.com/api/webhooks/xxx", req, "request")
+    mock_discord_user.assert_called_once_with("https://discord.com/api/webhooks/xxx", req, "request", {})
 
 
 @pytest.mark.asyncio
@@ -520,7 +520,7 @@ async def test_process_per_user_telegram_called_with_global_token():
     ):
         await _process("request", 1, ["a@b.com"], "")
 
-    mock_tg_user.assert_called_once_with("BOT:TOKEN123", "-100123456", req, "request")
+    mock_tg_user.assert_called_once_with("BOT:TOKEN123", "-100123456", req, "request", {})
 
 
 @pytest.mark.asyncio
@@ -616,6 +616,85 @@ async def test_process_discord_called_even_if_email_fails():
         await _process("request", 1, ["a@b.com"], "")
 
     mock_discord.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_push_failure_is_retried_and_logged():
+    """Un push qui échoue est retenté (comme l'email) puis journalisé avec channel='discord'."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+    added_logs = []
+    db.add.side_effect = lambda obj: added_logs.append(obj)
+
+    mock_discord = AsyncMock(side_effect=Exception("Discord down"))
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", mock_discord),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        await _process("request", 1, ["a@b.com"], "")
+
+    from app.models import NotificationLog
+
+    assert mock_discord.call_count == 3  # 1 + 2 retries, comme _send_with_retry pour l'email
+    push_logs = [o for o in added_logs if isinstance(o, NotificationLog) and o.channel == "discord"]
+    assert len(push_logs) == 1
+    assert push_logs[0].success is False
+    assert "Discord down" in push_logs[0].error_msg
+
+
+@pytest.mark.asyncio
+async def test_process_push_not_configured_is_not_logged():
+    """ChannelNotConfigured (canal non configuré) ne crée aucune entrée de log."""
+    from app.services.notifications import ChannelNotConfigured
+
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+    added_logs = []
+    db.add.side_effect = lambda obj: added_logs.append(obj)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock, side_effect=ChannelNotConfigured()),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock, side_effect=ChannelNotConfigured()),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await _process("request", 1, ["a@b.com"], "")
+
+    from app.models import NotificationLog
+
+    push_logs = [o for o in added_logs if isinstance(o, NotificationLog) and o.channel != "email"]
+    assert push_logs == []
+
+
+@pytest.mark.asyncio
+async def test_process_push_failure_does_not_block_pending_notification_return():
+    """Un push en échec ne doit PAS faire garder la PendingNotification (risque de renvoyer l'email en double)."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock, side_effect=Exception("down")),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is True  # email seul détermine all_ok, malgré l'échec Discord
+    assert req.request_mail_sent is True
 
 
 # ---------------------------------------------------------------------------
