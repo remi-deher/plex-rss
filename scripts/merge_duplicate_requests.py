@@ -70,7 +70,14 @@ async def merge_duplicates(dry_run: bool = False):
                             existing_key,
                         )
                         other_key = (media_type, tmdb_id) if seer_key == existing_key else existing_key
-                        groups_to_merge[other_key] = seer_key
+                        # Deux doublons du MÊME groupe tmdb partageant aussi le même tvdb_id
+                        # (ex: deux lignes créées par une race de poll concurrent) retombent ici
+                        # avec other_key == seer_key (fusion d'une clé sur elle-même). Le faire
+                        # via pop()+extend() plus bas évacue silencieusement le groupe du dict
+                        # (pop retire l'entrée, extend() sur la liste orpheline ne la réinsère
+                        # pas) — le groupe disparaît sans jamais être signalé/fusionné.
+                        if other_key != seer_key:
+                            groups_to_merge[other_key] = seer_key
                     else:
                         tvdb_to_key[vkey] = (media_type, tmdb_id)
 
