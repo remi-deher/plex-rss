@@ -240,7 +240,16 @@ async def _build_user_activity(user: PlexUser, db: AsyncSession, limit: int = 12
 
 @router.get("/users")
 async def list_users(db: AsyncSession = Depends(get_db_async)):
-    return (await db.execute(select(PlexUser))).scalars().all()
+    users = (await db.execute(select(PlexUser))).scalars().all()
+    counts = dict(
+        (await db.execute(
+            select(MediaRequest.plex_user_id, func.count()).group_by(MediaRequest.plex_user_id)
+        )).all()
+    )
+    return [
+        serialize_plex_user(user, {"total": counts.get(user.plex_user_id, 0)})
+        for user in users
+    ]
 
 
 @router.get("/users/{user_id}")

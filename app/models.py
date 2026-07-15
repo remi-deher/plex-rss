@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
 
 from .crypto import EncryptedText
 from .utils import now_utc_naive
@@ -539,6 +539,12 @@ class MediaRequest(Base):
     source: Mapped[Optional[str]]
     arr_id: Mapped[Optional[int]]
     arr_slug: Mapped[Optional[str]]
+    # Horodatage de la première transition vers "sent_to_arr" (validation par Radarr/
+    # Sonarr) — distinct de `requested_at` (création de la demande, peut être bien plus
+    # tôt si elle a d'abord attendu une approbation admin). Rempli automatiquement via
+    # `_stamp_arr_processed` ci-dessous plutôt qu'à chaque site d'assignation de statut
+    # (une dizaine, dispersés dans webhook/watchlist_poller/arr_api/seer_sync/...).
+    arr_processed_at: Mapped[Optional[datetime]] = mapped_column(default=None)
 
     request_mail_sent: Mapped[bool] = mapped_column(default=False)
     available_mail_sent: Mapped[bool] = mapped_column(default=False)
@@ -612,6 +618,12 @@ class MediaRequest(Base):
     # d'un média encore en cours de téléchargement/import (ex: série avec des épisodes
     # déjà disponibles pendant que d'autres sont encore en file de téléchargement).
     is_downloading: Mapped[bool] = mapped_column(default=False)
+
+    @validates("status")
+    def _stamp_arr_processed(self, key, value):
+        if value == RequestStatus.sent_to_arr and self.status != RequestStatus.sent_to_arr:
+            self.arr_processed_at = now_utc_naive()
+        return value
 
 
 class LibraryItem(Base):

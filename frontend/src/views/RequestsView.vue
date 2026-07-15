@@ -27,7 +27,7 @@
       <div class="filter-pills-scroll">
         <span class="filter-label">Statut:</span>
         <div class="multi-select" :class="{open:statusMenuOpen}">
-          <button class="filter-pill dropdown-toggle" @click="statusMenuOpen=!statusMenuOpen">
+          <button class="filter-pill dropdown-toggle" @click="toggleMenu('status')">
             {{ statusFilters.length ? statusFilters.map(label).join(', ') : 'Tous les statuts' }}
             <ChevronDown/>
           </button>
@@ -41,24 +41,51 @@
 
         <div class="divider"></div>
         <span class="filter-label">Type:</span>
-        <button class="filter-pill" :class="{active:type===''}" @click="type=''">Tout</button>
-        <button class="filter-pill" :class="{active:type==='movie'}" @click="type='movie'">Films</button>
-        <button class="filter-pill" :class="{active:type==='show'}" @click="type='show'">Series</button>
+        <div class="multi-select" :class="{open:typeMenuOpen}">
+          <button class="filter-pill dropdown-toggle" @click="toggleMenu('type')">
+            {{ typeFilters.length ? typeFilters.map(typeLabel).join(', ') : 'Tous les types' }}
+            <ChevronDown/>
+          </button>
+          <div v-if="typeMenuOpen" class="multi-select-menu" @click.stop>
+            <label v-for="value in types" :key="value" class="check">
+              <input type="checkbox" :value="value" v-model="typeFilters"> {{ typeLabel(value) }}
+            </label>
+            <button v-if="typeFilters.length" class="text-button clear-selection" @click="typeFilters=[]">Effacer</button>
+          </div>
+        </div>
 
         <template v-if="sources.length">
           <div class="divider"></div>
           <span class="filter-label">Source:</span>
-          <button class="filter-pill" :class="{active:source===''}" @click="source=''">Toutes</button>
-          <button v-for="value in sources" :key="value" class="filter-pill" :class="{active:source===value}" @click="source=value">{{ value }}</button>
+          <div class="multi-select" :class="{open:sourceMenuOpen}">
+            <button class="filter-pill dropdown-toggle" @click="toggleMenu('source')">
+              {{ sourceFilters.length ? sourceFilters.join(', ') : 'Toutes les sources' }}
+              <ChevronDown/>
+            </button>
+            <div v-if="sourceMenuOpen" class="multi-select-menu" @click.stop>
+              <label v-for="value in sources" :key="value" class="check">
+                <input type="checkbox" :value="value" v-model="sourceFilters"> {{ value }}
+              </label>
+              <button v-if="sourceFilters.length" class="text-button clear-selection" @click="sourceFilters=[]">Effacer</button>
+            </div>
+          </div>
         </template>
 
         <template v-if="requesters.length > 1">
           <div class="divider"></div>
           <span class="filter-label">Demandeur:</span>
-          <select v-model="requester" class="filter-select">
-            <option value="">Tous</option>
-            <option v-for="r in requesters" :key="r.id" :value="r.id">{{ r.label }}</option>
-          </select>
+          <div class="multi-select" :class="{open:requesterMenuOpen}">
+            <button class="filter-pill dropdown-toggle" @click="toggleMenu('requester')">
+              {{ requesterFilters.length ? requesterLabels : 'Tous les demandeurs' }}
+              <ChevronDown/>
+            </button>
+            <div v-if="requesterMenuOpen" class="multi-select-menu" @click.stop>
+              <label v-for="r in requesters" :key="r.id" class="check">
+                <input type="checkbox" :value="r.id" v-model="requesterFilters"> {{ r.label }}
+              </label>
+              <button v-if="requesterFilters.length" class="text-button clear-selection" @click="requesterFilters=[]">Effacer</button>
+            </div>
+          </div>
         </template>
       </div>
     </div>
@@ -130,9 +157,12 @@ const rows = ref([]);
 const query = ref(route.query.query || '');
 const statusFilters = ref(route.query.status ? [route.query.status] : []);
 const statusMenuOpen = ref(false);
-const type = ref(route.query.type || '');
-const source = ref('');
-const requester = ref('');
+const typeFilters = ref(route.query.type ? [route.query.type] : []);
+const typeMenuOpen = ref(false);
+const sourceFilters = ref([]);
+const sourceMenuOpen = ref(false);
+const requesterFilters = ref([]);
+const requesterMenuOpen = ref(false);
 const selectedIds = ref([]);
 const detail = ref(null);
 const loading = ref(false);
@@ -144,6 +174,7 @@ const view = ref(localStorage.getItem('requests.view') || 'grid');
 let timer, fallback;
 
 const statuses = ['pending_approval', 'pending', 'sent_to_arr', 'available', 'failed', 'rejected'];
+const types = ['movie', 'show'];
 const sources = computed(() => [...new Set(rows.value.map(x => x.source).filter(Boolean))]);
 const requesters = computed(() => {
   const seen = new Map();
@@ -154,14 +185,27 @@ const requesters = computed(() => {
   }
   return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
+const requesterLabels = computed(() => {
+  const byId = new Map(requesters.value.map(r => [r.id, r.label]));
+  return requesterFilters.value.map(id => byId.get(id) || id).join(', ');
+});
 const filtered = computed(() => rows.value.filter(row =>
   (!statusFilters.value.length || statusFilters.value.includes(row.status)) &&
-  (!type.value || row.media_type === type.value) &&
-  (!source.value || row.source === source.value) &&
-  (!requester.value || row.plex_user_id === requester.value)
+  (!typeFilters.value.length || typeFilters.value.includes(row.media_type)) &&
+  (!sourceFilters.value.length || sourceFilters.value.includes(row.source)) &&
+  (!requesterFilters.value.length || requesterFilters.value.includes(row.plex_user_id))
 ));
 
-function closeStatusMenu() { statusMenuOpen.value = false; }
+const menus = { status: statusMenuOpen, type: typeMenuOpen, source: sourceMenuOpen, requester: requesterMenuOpen };
+function toggleMenu(name) {
+  for (const key in menus) menus[key].value = key === name ? !menus[key].value : false;
+}
+function closeAllMenus() {
+  for (const key in menus) menus[key].value = false;
+}
+function typeLabel(value) {
+  return value === 'show' ? 'Series' : 'Films';
+}
 
 function label(value) {
   return ({
@@ -263,7 +307,7 @@ async function runUtility(path) {
 }
 
 function handleOutsideClick(event) {
-  if (statusMenuOpen.value && !event.target.closest('.multi-select')) closeStatusMenu();
+  if (!event.target.closest('.multi-select')) closeAllMenus();
 }
 
 useRealtime(['request.updated'], load);
@@ -302,18 +346,6 @@ onUnmounted(() => {
 }
 .request-title-row .status-tag {
   flex-shrink: 0;
-}
-.status-tag.pending_approval {
-  border-color: rgba(229, 160, 13, .6);
-  color: var(--accent);
-}
-.status-tag.pending {
-  border-color: var(--border);
-  color: var(--muted);
-}
-.status-tag.rejected {
-  border-color: rgba(239, 68, 68, .6);
-  color: var(--red);
 }
 .poster-shell .select-tag {
   position: absolute;

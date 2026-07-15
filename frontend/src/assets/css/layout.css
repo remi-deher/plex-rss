@@ -148,10 +148,11 @@ button svg {
 @media (max-width: 768px) {
   .detail-drawer,
   .modal-panel {
+    --drawer-pad: 16px;
     inset: 2vh auto auto 50%;
     width: min(680px, calc(100% - 16px));
     max-height: 96vh;
-    padding: 16px;
+    padding: var(--drawer-pad);
   }
 }
 
@@ -166,12 +167,13 @@ button svg {
 
 .drawer-head {
   position: sticky;
-  top: -20px;
+  top: calc(-1 * var(--drawer-pad, 24px));
   z-index: 2;
-  margin: -20px -20px 18px;
-  padding: 14px 20px;
+  margin: calc(-1 * var(--drawer-pad, 24px)) calc(-1 * var(--drawer-pad, 24px)) 18px;
+  padding: 14px var(--drawer-pad, 24px);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  border-radius: var(--panel-radius, 16px) var(--panel-radius, 16px) 0 0;
 }
 
 .detail-copy,

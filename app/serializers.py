@@ -45,6 +45,7 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "requested_by": ", ".join(requesters),
         "extra_requesters": _json.dumps(extras),
         "requested_at": format_datetime(req.requested_at),
+        "arr_processed_at": format_datetime(req.arr_processed_at),
         "available_at": format_datetime(req.available_at),
         "request_mail_sent": req.request_mail_sent,
         "available_mail_sent": req.available_mail_sent,

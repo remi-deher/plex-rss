@@ -43,15 +43,24 @@
                 </div>
               </label>
             </div>
-            <article v-for="row in detail.requests || []" :key="row.id" class="detail-row">
+            <article v-for="row in detail.requests || []" :key="row.id" class="detail-row request-detail-row">
               <div>
-                <strong>{{ row.requested_by || row.plex_user || row.plex_user_id }}</strong>
-                <span>{{ row.status }} · {{ formatDate(row.requested_at) }}</span>
+                <div class="request-detail-top">
+                  <strong>{{ row.requested_by || row.plex_user || row.plex_user_id }}</strong>
+                  <span class="badge status-tag" :class="row.status">{{ requestStatusLabel(row.status) }}</span>
+                </div>
+                <small>Demandee le {{ formatDate(row.requested_at) }}</small>
+                <small v-if="row.arr_processed_at" class="mail-history">
+                  Validee par *arr le {{ formatDateTime(row.arr_processed_at) }}
+                </small>
                 <small v-if="row.last_request_mail" class="mail-history">
-                  Mail demande {{ formatDate(row.last_request_mail.sent_at) }} ({{ row.last_request_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
+                  Mail demande {{ formatDateTime(row.last_request_mail.sent_at) }} ({{ row.last_request_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
+                </small>
+                <small v-if="row.available_at" class="mail-history">
+                  Disponible le {{ formatDateTime(row.available_at) }}
                 </small>
                 <small v-if="row.last_available_mail" class="mail-history">
-                  Mail dispo {{ formatDate(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
+                  Mail dispo {{ formatDateTime(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
                 </small>
               </div>
               <div class="actions">
@@ -150,6 +159,17 @@ const recommendations=computed(()=>[...(detail.value?.recommendations||[]),...(d
 
 function tabLabel(value){return ({summary:'Resume',requests:'Demandes',calendar:'Calendrier'})[value]}
 function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)):'-'}
+function formatDateTime(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'}
+function requestStatusLabel(value){
+  return ({
+    pending_approval: 'A approuver',
+    pending: 'En attente',
+    sent_to_arr: 'Transmise',
+    available: 'Disponible',
+    failed: 'Erreur',
+    rejected: 'Refusee'
+  })[value] || value;
+}
 function mediaPath(){const source=props.item;if(props.mode==='discover'){const p=new URLSearchParams();p.set('media_type',source.media_type);if(source.tmdb_id)p.set('tmdb_id',source.tmdb_id);else if(source.tvdb_id)p.set('tvdb_id',source.tvdb_id);else p.set('tmdb_id',source.id);return `/api/discover/detail?${p}`}if(props.mode==='request')return `/api/media/detail?request_id=${source.id}`;const id=source.library_id||source.id;return `/api/media/detail?library_id=${id}`}
 
 async function loadUsers(){
@@ -282,3 +302,16 @@ async function sendCorrection(formPayload){
 watch(()=>props.item,load,{deep:true});
 onMounted(load);
 </script>
+
+<style scoped>
+.request-detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.request-detail-row .mail-history {
+  display: block;
+  color: var(--muted);
+}
+</style>
