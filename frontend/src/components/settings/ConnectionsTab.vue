@@ -59,18 +59,28 @@
           <button class="icon-button" title="Actualiser" @click.stop="loadArr"><RefreshCw/></button>
           <button class="secondary" @click.stop="openArrModal()"><Plus/>Ajouter</button>
         </template>
-        <div class="connection-list">
-          <article v-for="instance in arrInstances" :key="instance.id" class="inline-row">
-            <div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div>
-            <div class="actions">
-              <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
-              <button class="icon-button" title="Modifier" @click="openArrModal(instance)"><Pencil/></button>
-              <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
-              <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
-            </div>
-          </article>
+        <div v-if="arrInstances.length" class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Nom</th><th>Type</th><th>Adresse</th><th>Statut</th><th></th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="instance in arrInstances" :key="instance.id">
+                <td><strong>{{ instance.name }}</strong><small v-if="instance.is_default">Par defaut</small></td>
+                <td><span class="badge">{{ instance.arr_type }}</span></td>
+                <td class="url-cell">{{ instance.url }}</td>
+                <td><span class="badge" :class="instance.enabled?'available':'failed'">{{ instance.enabled?'Actif':'Inactif' }}</span></td>
+                <td class="actions">
+                  <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
+                  <button class="icon-button" title="Modifier" @click="openArrModal(instance)"><Pencil/></button>
+                  <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
+                  <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <p v-if="!arrInstances.length" class="empty">Aucune instance configuree.</p>
+        <p v-else class="empty">Aucune instance configuree.</p>
       </SettingsCard>
 
       <SettingsCard
@@ -112,7 +122,7 @@
     </div>
 
     <div v-if="showArrModal" class="drawer-backdrop" @click.self="closeArrModal">
-      <aside class="modal-panel import-modal">
+      <aside class="modal-panel arr-instance-modal">
         <div class="panel-head">
           <h2>{{ editingArrId?'Modifier l\'instance':'Ajouter une instance' }}</h2>
           <button class="icon-button" title="Fermer" @click="closeArrModal"><X/></button>

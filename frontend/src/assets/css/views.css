@@ -220,6 +220,15 @@ input[type="checkbox"]:focus-visible {
   overflow-x: auto;
 }
 
+.url-cell {
+  color: var(--muted);
+  font-size: 13px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 th,
 td {
   padding: 12px 10px;
@@ -1841,6 +1850,17 @@ button:disabled {
   flex-direction: column;
   gap: 0;
   max-width: 560px !important;
+}
+
+.arr-instance-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(720px, calc(100% - 24px)) !important;
+}
+
+.arr-instance-modal .compact-form {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .import-steps {
