@@ -1,46 +1,52 @@
 <template>
   <div class="settings-grid">
-    <section class="panel form-section span-two">
-      <h2>Configuration des Webhooks</h2>
-      <p>Les webhooks permettent aux applications tierces de notifier Plex-RSS en temps réel.</p>
-
-      <div v-if="!form.webhook_secret" class="notice warning">
-        <p>Le secret webhook n'est pas configuré. L'authentification des webhooks entrants est désactivée.</p>
-        <button class="primary" @click="generateWebhookSecret">Générer un secret</button>
-      </div>
-
-      <div v-else class="webhook-list">
-        <div v-for="svc in ['plex', 'radarr', 'sonarr']" :key="svc" class="webhook-item">
-          <div class="webhook-title">
-            <strong>{{ svc.charAt(0).toUpperCase() + svc.slice(1) }}</strong>
-          </div>
-          <div class="webhook-url">
-            <input type="text" readonly :value="`${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`">
-            <button class="icon-button" @click="copyWebhook(svc)" title="Copier"><Copy/></button>
-            <button class="secondary" @click="testWebhook(svc)" :disabled="testingWebhook === svc">
-              <RefreshCw v-if="testingWebhook === svc" class="spin" />
-              <span v-else>Tester</span>
-            </button>
-          </div>
-          <div v-if="webhookStatus[svc]" class="webhook-status" :class="{ 'status-ok': webhookStatus[svc].success, 'status-error': !webhookStatus[svc].success }">
-            <span v-if="webhookStatus[svc].success"><Check /> {{ webhookStatus[svc].message || 'Succès' }}</span>
-            <span v-else>Erreur : {{ webhookStatus[svc].message }}</span>
-          </div>
+    <div class="settings-cards span-two">
+      <SettingsCard
+        title="Configuration des Webhooks"
+        subtitle="Les webhooks permettent aux applications tierces de notifier Plex-RSS en temps reel."
+        :icon="Link"
+        :status="form.webhook_secret ? 'active' : 'inactive'"
+        :collapsible="false"
+      >
+        <div v-if="!form.webhook_secret" class="notice warning">
+          <p>Le secret webhook n'est pas configuré. L'authentification des webhooks entrants est désactivée.</p>
+          <button class="primary" @click="generateWebhookSecret">Générer un secret</button>
         </div>
 
-        <div class="actions" style="margin-top: 2rem;">
-          <button class="secondary danger" @click="revokeWebhookSecret">Révoquer le secret</button>
-          <button class="secondary" @click="generateWebhookSecret">Regénérer le secret</button>
+        <div v-else class="webhook-list">
+          <div v-for="svc in ['plex', 'radarr', 'sonarr']" :key="svc" class="webhook-item">
+            <div class="webhook-title">
+              <strong>{{ svc.charAt(0).toUpperCase() + svc.slice(1) }}</strong>
+            </div>
+            <div class="webhook-url">
+              <input type="text" readonly :value="`${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`">
+              <button class="icon-button" @click="copyWebhook(svc)" title="Copier"><Copy/></button>
+              <button class="secondary" @click="testWebhook(svc)" :disabled="testingWebhook === svc">
+                <RefreshCw v-if="testingWebhook === svc" class="spin" />
+                <span v-else>Tester</span>
+              </button>
+            </div>
+            <div v-if="webhookStatus[svc]" class="webhook-status" :class="{ 'status-ok': webhookStatus[svc].success, 'status-error': !webhookStatus[svc].success }">
+              <span v-if="webhookStatus[svc].success"><Check /> {{ webhookStatus[svc].message || 'Succès' }}</span>
+              <span v-else>Erreur : {{ webhookStatus[svc].message }}</span>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top: 2rem;">
+            <button class="secondary danger" @click="revokeWebhookSecret">Révoquer le secret</button>
+            <button class="secondary" @click="generateWebhookSecret">Regénérer le secret</button>
+          </div>
         </div>
-      </div>
-    </section>
+      </SettingsCard>
+    </div>
   </div>
 </template>
 <script setup>
 import { reactive, ref } from 'vue';
-import { Check, Copy, RefreshCw } from '@lucide/vue';
+import { Check, Copy, Link, RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
 import { form, success, fail } from '@/settingsForm';
+import SettingsCard from './SettingsCard.vue';
 
 const baseUrl = window.location.origin;
 const webhookStatus = reactive({ plex: null, radarr: null, sonarr: null });

@@ -1,40 +1,48 @@
 <template>
   <div class="settings-grid">
-    <section class="panel form-section">
-      <h2>Export et sauvegarde</h2>
-      <label class="check"><input v-model="includeSecrets" type="checkbox"> Inclure les identifiants</label>
-      <a class="secondary" :href="includeSecrets?'/api/export?include_secrets=true':'/api/export'"><Download/>Exporter en JSON</a>
-      <a class="secondary" href="/api/backup/db"><HardDriveDownload/>Backup complet</a>
-      <p class="warning-text">Ces fichiers peuvent contenir des secrets.</p>
-    </section>
-    <section class="panel form-section">
-      <h2>Importer un export JSON</h2>
-      <input ref="jsonInput" type="file" accept=".json">
-      <button class="secondary" :disabled="busy" @click="importJson"><Upload/>Fusionner les donnees</button>
-    </section>
-    <section class="panel form-section migration-panel">
-      <h2>Ancienne base SQLite</h2>
-      <input ref="sqliteInput" type="file" accept=".db,.sqlite,.sqlite3" @change="resetInspection">
-      <button class="secondary" :disabled="busy" @click="inspectSqlite"><Search/>Inspecter</button>
-      <div v-if="inspection" class="migration-summary">
-        <strong>{{ inspection.total_rows.toLocaleString() }} lignes</strong>
-        <span>{{ inspection.populated_tables }} tables · integrite {{ inspection.integrity }}</span>
-        <div class="table-badges">
-          <span v-for="(count,name) in populatedTables" :key="name" class="badge">{{ name }} : {{ count.toLocaleString() }}</span>
+    <div class="settings-cards span-two">
+      <SettingsCard title="Export et sauvegarde" :icon="HardDriveDownload" status="neutral" :collapsible="false">
+        <label class="check"><input v-model="includeSecrets" type="checkbox"> Inclure les identifiants</label>
+        <div class="actions">
+          <a class="secondary" :href="includeSecrets?'/api/export?include_secrets=true':'/api/export'"><Download/>Exporter en JSON</a>
+          <a class="secondary" href="/api/backup/db"><HardDriveDownload/>Backup complet</a>
         </div>
-      </div>
-      <template v-if="inspection">
-        <p class="warning-text">Une sauvegarde PostgreSQL sera creee avant le remplacement.</p>
-        <label>Confirmation<input v-model="confirmation" class="mono" placeholder="REMPLACER"></label>
-        <button class="primary danger-button" :disabled="busy||confirmation!=='REMPLACER'" @click="migrateSqlite"><DatabaseZap/>Remplacer</button>
-      </template>
-    </section>
+        <p class="warning-text">Ces fichiers peuvent contenir des secrets.</p>
+      </SettingsCard>
+
+      <SettingsCard title="Importer un export JSON" :icon="Upload" status="neutral" :collapsible="false">
+        <input ref="jsonInput" type="file" accept=".json">
+        <div class="actions">
+          <button class="secondary" :disabled="busy" @click="importJson"><Upload/>Fusionner les donnees</button>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard title="Ancienne base SQLite" :icon="DatabaseZap" status="neutral" :collapsible="false">
+        <input ref="sqliteInput" type="file" accept=".db,.sqlite,.sqlite3" @change="resetInspection">
+        <div class="actions">
+          <button class="secondary" :disabled="busy" @click="inspectSqlite"><Search/>Inspecter</button>
+        </div>
+        <div v-if="inspection" class="migration-summary">
+          <strong>{{ inspection.total_rows.toLocaleString() }} lignes</strong>
+          <span>{{ inspection.populated_tables }} tables · integrite {{ inspection.integrity }}</span>
+          <div class="table-badges">
+            <span v-for="(count,name) in populatedTables" :key="name" class="badge">{{ name }} : {{ count.toLocaleString() }}</span>
+          </div>
+        </div>
+        <template v-if="inspection">
+          <p class="warning-text">Une sauvegarde PostgreSQL sera creee avant le remplacement.</p>
+          <label>Confirmation<input v-model="confirmation" class="mono" placeholder="REMPLACER"></label>
+          <button class="primary danger-button" :disabled="busy||confirmation!=='REMPLACER'" @click="migrateSqlite"><DatabaseZap/>Remplacer</button>
+        </template>
+      </SettingsCard>
+    </div>
   </div>
 </template>
 <script setup>
 import { computed, ref } from 'vue';
 import { DatabaseZap, Download, HardDriveDownload, Search, Upload } from '@lucide/vue';
 import { load, success, fail } from '@/settingsForm';
+import SettingsCard from './SettingsCard.vue';
 
 const busy = ref(false), includeSecrets = ref(false);
 const jsonInput = ref(null), sqliteInput = ref(null), inspection = ref(null), confirmation = ref('');

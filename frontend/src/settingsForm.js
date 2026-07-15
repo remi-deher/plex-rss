@@ -34,6 +34,12 @@ export const saving = ref(false);
 export const error = ref('');
 export const message = ref('');
 
+// `form[secretField]` est toujours vide juste apres load() (voir ci-dessous) : un badge
+// de statut qui se fie a la valeur du champ secret (ex: Plex, sans autre indicateur
+// "actif") le verrait donc toujours comme non configure, meme quand il l'est reellement.
+// Capture presence/absence AVANT le blanking, pour que l'UI puisse s'y fier a la place.
+export const secretsPresent = reactive(Object.fromEntries(secretFields.map(k => [k, false])));
+
 export function success(text) { message.value = text; error.value = ''; }
 export function fail(err) { error.value = err.message || String(err); }
 
@@ -41,7 +47,10 @@ export async function load() {
   try {
     const data = await api('/api/settings');
     for (const key of Object.keys(form)) if (data[key] != null) form[key] = data[key];
-    for (const key of secretFields) form[key] = '';
+    for (const key of secretFields) {
+      secretsPresent[key] = Boolean(form[key]);
+      form[key] = '';
+    }
   } catch (e) {
     fail(e);
   }

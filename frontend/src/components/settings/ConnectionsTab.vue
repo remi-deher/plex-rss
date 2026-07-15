@@ -1,159 +1,140 @@
 <template>
   <div class="settings-grid">
-    <div class="accordion-list span-two">
-      <!-- Plex -->
-      <div class="accordion-item" :class="{ expanded: expandedSections.plex }">
-        <div class="accordion-header" @click="toggleSection('plex')">
-          <div class="accordion-title">
-            <span class="status-indicator active"></span>
-            <h3>Plex</h3>
-          </div>
-          <div class="accordion-actions" @click.stop>
-            <button class="secondary" @click="testSaved('/api/test/plex-api')"><PlugZap/>Tester</button>
-            <span class="chevron"><ChevronDown /></span>
-          </div>
+    <div class="settings-cards span-two">
+      <SettingsCard title="Plex" :icon="Server" :status="plexStatus" default-open>
+        <template #actions>
+          <button class="secondary" @click.stop="testSaved('/api/test/plex-api')"><PlugZap/>Tester</button>
+        </template>
+        <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label>
+        <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label>
+        <label>URL RSS<input v-model="form.plex_rss_url" type="url"></label>
+        <label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label>
+        <div class="actions">
+          <button class="secondary" @click="testSaved('/api/test/plex-rss')"><Rss/>Tester le RSS</button>
+          <button class="secondary" @click="startPlexSso"><LogIn/>Connexion Plex SSO</button>
         </div>
-        <div class="accordion-content">
-          <div class="accordion-content-inner">
-            <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label>
-            <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label>
-            <label>URL RSS<input v-model="form.plex_rss_url" type="url"></label>
-            <label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label>
+      </SettingsCard>
+
+      <SettingsCard title="Seer" subtitle="Overseerr / Jellyseerr" :icon="Radar" :status="form.seer_enabled ? 'active' : 'inactive'">
+        <template #actions>
+          <button class="secondary" :disabled="!form.seer_enabled" @click.stop="testSeer"><PlugZap/>Tester</button>
+        </template>
+        <label class="check"><input v-model="form.seer_enabled" type="checkbox"> Activer Seer</label>
+        <label>URL Seer<input v-model="form.seer_url" type="url" placeholder="http://seer:5055"></label>
+        <label>Cle API Seer<input v-model="form.seer_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
+        <template v-if="form.seer_enabled">
+          <label>Mode
+            <select v-model="form.seer_mode">
+              <option value="observer">Observateur — Seer n'est qu'une source d'information</option>
+              <option value="actor">Acteur — Seer traite aussi les demandes</option>
+            </select>
+          </label>
+          <p class="hint" v-if="form.seer_mode !== 'actor'">
+            Les demandes sont toujours traitées par Sonarr/Radarr/Prowlarr ; Seer n'est consulté qu'en lecture
+            (synchronisation, statut affiché). Une panne de Seer n'a aucun impact.
+          </p>
+          <template v-if="form.seer_mode === 'actor'">
+            <label class="check"><input v-model="form.seer_fallback_arr" type="checkbox"> Repli direct Sonarr/Radarr</label>
+            <label class="check"><input v-model="form.seer_suppress_notifications" type="checkbox"> Laisser Plex-RSS gerer les emails de demande pour les utilisateurs Seer</label>
+          </template>
+        </template>
+      </SettingsCard>
+
+      <SettingsCard title="TMDB" subtitle="Metadonnees et posters" :icon="Clapperboard" :status="form.tmdb_enabled ? 'active' : 'inactive'">
+        <template #actions>
+          <button class="secondary" :disabled="!form.tmdb_enabled" @click.stop="testTmdb"><PlugZap/>Tester</button>
+        </template>
+        <label class="check"><input v-model="form.tmdb_enabled" type="checkbox"> Activer TMDB</label>
+        <label>Cle TMDB<input v-model="form.tmdb_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Instances Sonarr, Radarr et Prowlarr"
+        :subtitle="`${arrInstances.length} instance(s) configuree(s)`"
+        :icon="ServerCog"
+        :status="arrInstances.some(i => i.enabled) ? 'active' : 'inactive'"
+        :collapsible="false"
+      >
+        <template #actions>
+          <button class="icon-button" title="Actualiser" @click.stop="loadArr"><RefreshCw/></button>
+        </template>
+        <div class="connection-list">
+          <article v-for="instance in arrInstances" :key="instance.id" class="inline-row">
+            <div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div>
             <div class="actions">
-              <button class="secondary" @click="testSaved('/api/test/plex-rss')"><Rss/>Tester le RSS</button>
-              <button class="secondary" @click="startPlexSso"><LogIn/>Connexion Plex SSO</button>
+              <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
+              <button class="icon-button" title="Modifier" @click="editArr(instance)"><Pencil/></button>
+              <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
+              <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
             </div>
-          </div>
+          </article>
         </div>
-      </div>
+        <div class="compact-form">
+          <label>Nom<input v-model="arrForm.name"></label>
+          <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
+          <label>URL<input v-model="arrForm.url" type="url"></label>
+          <label>Cle API<input v-model="arrForm.api_key" type="password"></label>
+          <label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label>
+          <label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label>
+          <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
+        </div>
+        <div class="actions">
+          <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
+          <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
+          <button v-if="editingArrId" class="secondary" @click="resetArr">Annuler</button>
+        </div>
+      </SettingsCard>
 
-      <!-- Seer -->
-      <div class="accordion-item" :class="{ expanded: expandedSections.seer }">
-        <div class="accordion-header" @click="toggleSection('seer')">
-          <div class="accordion-title">
-            <span class="status-indicator" :class="{ active: form.seer_enabled }"></span>
-            <h3>Seer</h3>
-          </div>
-          <div class="accordion-actions" @click.stop>
-            <button class="secondary" :disabled="!form.seer_enabled" @click="testSeer"><PlugZap/>Tester</button>
-            <span class="chevron"><ChevronDown /></span>
-          </div>
+      <SettingsCard
+        title="Clients de telechargement direct"
+        :subtitle="`${clients.length} client(s) configure(s)`"
+        :icon="Download"
+        :status="clients.some(c => c.enabled) ? 'active' : 'inactive'"
+        :collapsible="false"
+      >
+        <template #actions>
+          <button class="icon-button" title="Actualiser" @click.stop="loadClients"><RefreshCw/></button>
+        </template>
+        <div class="connection-list">
+          <article v-for="client in clients" :key="client.id" class="inline-row">
+            <div><strong>{{ client.name }}</strong><span>{{ client.client_type }} · {{ client.url }}</span></div>
+            <div class="actions">
+              <button class="icon-button" @click="testClient(client)"><PlugZap/></button>
+              <button class="icon-button" @click="editClient(client)"><Pencil/></button>
+              <button class="icon-button" @click="toggleClient(client)"><Power/></button>
+              <button class="icon-button danger" @click="removeClient(client)"><Trash2/></button>
+            </div>
+          </article>
         </div>
-        <div class="accordion-content">
-          <div class="accordion-content-inner">
-            <label class="check"><input v-model="form.seer_enabled" type="checkbox"> Activer Seer</label>
-            <label>URL Seer<input v-model="form.seer_url" type="url" placeholder="http://seer:5055"></label>
-            <label>Cle API Seer<input v-model="form.seer_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
-            <template v-if="form.seer_enabled">
-              <label>Mode
-                <select v-model="form.seer_mode">
-                  <option value="observer">Observateur — Seer n'est qu'une source d'information</option>
-                  <option value="actor">Acteur — Seer traite aussi les demandes</option>
-                </select>
-              </label>
-              <p class="hint" v-if="form.seer_mode !== 'actor'">
-                Les demandes sont toujours traitées par Sonarr/Radarr/Prowlarr ; Seer n'est consulté qu'en lecture
-                (synchronisation, statut affiché). Une panne de Seer n'a aucun impact.
-              </p>
-              <template v-if="form.seer_mode === 'actor'">
-                <label class="check"><input v-model="form.seer_fallback_arr" type="checkbox"> Repli direct Sonarr/Radarr</label>
-                <label class="check"><input v-model="form.seer_suppress_notifications" type="checkbox"> Laisser Plex-RSS gerer les emails de demande pour les utilisateurs Seer</label>
-              </template>
-            </template>
-          </div>
+        <div class="compact-form">
+          <label>Nom<input v-model="clientForm.name"></label>
+          <label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label>
+          <label>URL<input v-model="clientForm.url" type="url"></label>
+          <label>Utilisateur<input v-model="clientForm.username"></label>
+          <label>Mot de passe<input v-model="clientForm.password" type="password"></label>
+          <label>Categorie<input v-model="clientForm.category"></label>
+          <label>Tags<input v-model="clientForm.tags"></label>
+          <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
         </div>
-      </div>
-
-      <!-- TMDB -->
-      <div class="accordion-item" :class="{ expanded: expandedSections.tmdb }">
-        <div class="accordion-header" @click="toggleSection('tmdb')">
-          <div class="accordion-title">
-            <span class="status-indicator" :class="{ active: form.tmdb_enabled }"></span>
-            <h3>TMDB</h3>
-          </div>
-          <div class="accordion-actions" @click.stop>
-            <button class="secondary" :disabled="!form.tmdb_enabled" @click="testTmdb"><PlugZap/>Tester</button>
-            <span class="chevron"><ChevronDown /></span>
-          </div>
+        <div class="actions">
+          <button class="primary" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
+          <button v-if="editingClientId" class="secondary" @click="resetClient">Annuler</button>
         </div>
-        <div class="accordion-content">
-          <div class="accordion-content-inner">
-            <label class="check"><input v-model="form.tmdb_enabled" type="checkbox"> Activer TMDB</label>
-            <label>Cle TMDB<input v-model="form.tmdb_api_key" type="password" placeholder="Laisser vide pour conserver"></label>
-          </div>
-        </div>
-      </div>
+      </SettingsCard>
     </div>
-
-    <section class="panel form-section span-two">
-      <div class="panel-head"><h2>Instances Sonarr, Radarr et Prowlarr</h2><button class="icon-button" @click="loadArr"><RefreshCw/></button></div>
-      <div class="connection-list">
-        <article v-for="instance in arrInstances" :key="instance.id" class="inline-row">
-          <div><strong>{{ instance.name }}</strong><span>{{ instance.arr_type }} · {{ instance.url }}</span></div>
-          <div class="actions">
-            <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
-            <button class="icon-button" title="Modifier" @click="editArr(instance)"><Pencil/></button>
-            <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
-            <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
-          </div>
-        </article>
-      </div>
-      <div class="compact-form">
-        <label>Nom<input v-model="arrForm.name"></label>
-        <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
-        <label>URL<input v-model="arrForm.url" type="url"></label>
-        <label>Cle API<input v-model="arrForm.api_key" type="password"></label>
-        <label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label>
-        <label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label>
-        <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
-      </div>
-      <div class="actions">
-        <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
-        <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
-        <button v-if="editingArrId" class="secondary" @click="resetArr">Annuler</button>
-      </div>
-    </section>
-
-    <section class="panel form-section span-two">
-      <div class="panel-head"><h2>Clients de telechargement direct</h2><button class="icon-button" @click="loadClients"><RefreshCw/></button></div>
-      <div class="connection-list">
-        <article v-for="client in clients" :key="client.id" class="inline-row">
-          <div><strong>{{ client.name }}</strong><span>{{ client.client_type }} · {{ client.url }}</span></div>
-          <div class="actions">
-            <button class="icon-button" @click="testClient(client)"><PlugZap/></button>
-            <button class="icon-button" @click="editClient(client)"><Pencil/></button>
-            <button class="icon-button" @click="toggleClient(client)"><Power/></button>
-            <button class="icon-button danger" @click="removeClient(client)"><Trash2/></button>
-          </div>
-        </article>
-      </div>
-      <div class="compact-form">
-        <label>Nom<input v-model="clientForm.name"></label>
-        <label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label>
-        <label>URL<input v-model="clientForm.url" type="url"></label>
-        <label>Utilisateur<input v-model="clientForm.username"></label>
-        <label>Mot de passe<input v-model="clientForm.password" type="password"></label>
-        <label>Categorie<input v-model="clientForm.category"></label>
-        <label>Tags<input v-model="clientForm.tags"></label>
-        <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
-      </div>
-      <div class="actions">
-        <button class="primary" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
-        <button v-if="editingClientId" class="secondary" @click="resetClient">Annuler</button>
-      </div>
-    </section>
   </div>
 </template>
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
-import { ChevronDown, ListRestart, LogIn, Pencil, Plug, PlugZap, Power, RefreshCw, Rss, Save, Trash2 } from '@lucide/vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { Clapperboard, Download, ListRestart, LogIn, Pencil, PlugZap, Power, Radar, RefreshCw, Rss, Save, Server, ServerCog, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
-import { form, load, success, fail, testSaved } from '@/settingsForm';
-
-const expandedSections = reactive({ plex: false, seer: false, tmdb: false });
-function toggleSection(sec) { expandedSections[sec] = !expandedSections[sec]; }
+import { form, load, secretsPresent, success, fail, testSaved } from '@/settingsForm';
+import SettingsCard from './SettingsCard.vue';
 
 const busy = ref(false);
+// secretsPresent.plex_token reflete la config reelle (persistee), contrairement a
+// form.plex_token qui est toujours vide juste apres le chargement (voir settingsForm.js).
+const plexStatus = computed(() => (form.plex_url && secretsPresent.plex_token ? 'active' : 'inactive'));
 
 async function testSeer() {
   try {
