@@ -138,6 +138,8 @@
 }
 
 .filter-pills-scroll {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: 10px;

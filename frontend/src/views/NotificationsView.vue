@@ -17,59 +17,54 @@
 
   <div class="toolbar wrap">
     <input v-model="search" class="search" type="search" placeholder="Media, destinataire ou evenement">
-    
-    <!-- Filtres Personnalises (Uniquement Historique) -->
-    <div v-if="tab==='history'" class="filters-wrap">
-      
-      <!-- Filtre Etat -->
-      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'state') activeDropdown = null }">
-        <button class="secondary" @click="activeDropdown = activeDropdown === 'state' ? null : 'state'" :class="{active: state}">
-          Etat <span class="badge" v-if="state">{{ state === 'success' ? 'Envoyees' : 'Erreurs' }}</span> <ChevronDown class="dropdown-icon" />
-        </button>
-        <div class="dropdown-menu" v-if="activeDropdown === 'state'">
-          <label class="dropdown-item">
-            <input type="radio" v-model="state" value=""> Tous les etats
-          </label>
-          <label class="dropdown-item">
-            <input type="radio" v-model="state" value="success"> Envoyees
-          </label>
-          <label class="dropdown-item">
-            <input type="radio" v-model="state" value="error"> Erreurs
-          </label>
-        </div>
-      </div>
-
-      <!-- Filtre Types (Choix Multiple) -->
-      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'types') activeDropdown = null }">
-        <button class="secondary" @click="activeDropdown = activeDropdown === 'types' ? null : 'types'" :class="{active: selectedTypes.length > 0}">
-          Types <span class="badge" v-if="selectedTypes.length">{{ selectedTypes.length }}</span> <ChevronDown class="dropdown-icon" />
-        </button>
-        <div class="dropdown-menu" v-if="activeDropdown === 'types'">
-          <label class="dropdown-item" v-for="typeOpt in typeOptions" :key="typeOpt.value">
-            <input type="checkbox" v-model="selectedTypes" :value="typeOpt.value"> {{ typeOpt.label }}
-          </label>
-        </div>
-      </div>
-
-      <!-- Filtre Utilisateurs (Choix Multiple) -->
-      <div class="custom-dropdown" v-click-outside="() => { if (activeDropdown === 'users') activeDropdown = null }">
-        <button class="secondary" @click="activeDropdown = activeDropdown === 'users' ? null : 'users'" :class="{active: selectedUsers.length > 0}">
-          Utilisateurs <span class="badge" v-if="selectedUsers.length">{{ selectedUsers.length }}</span> <ChevronDown class="dropdown-icon" />
-        </button>
-        <div class="dropdown-menu scrollable" v-if="activeDropdown === 'users'">
-          <label class="dropdown-item" v-for="user in users" :key="user.id">
-            <input type="checkbox" v-model="selectedUsers" :value="user.id"> {{ user.custom_name || user.display_name || user.plex_user_id }}
-          </label>
-          <div v-if="!users.length" class="empty-dropdown">Aucun utilisateur.</div>
-        </div>
-      </div>
-
-    </div>
 
     <!-- Actions "En attente" -->
     <div v-if="tab==='pending'&&rows.length" class="actions">
       <button class="secondary" @click="purge(true)"><CheckCheck/>Purger et marquer traitees</button>
       <button class="secondary danger" @click="purge(false)"><Trash2/>Purger</button>
+    </div>
+  </div>
+
+  <!-- Filtres Personnalises (Uniquement Historique) -->
+  <div v-if="tab==='history'" class="filter-pills-scroll">
+    <span class="filter-label">Etat:</span>
+    <div class="multi-select" :class="{open:activeDropdown==='state'}" v-click-outside="() => { if (activeDropdown === 'state') activeDropdown = null }">
+      <button class="filter-pill dropdown-toggle" @click="activeDropdown = activeDropdown === 'state' ? null : 'state'">
+        {{ state === 'success' ? 'Envoyees' : state === 'error' ? 'Erreurs' : 'Tous les etats' }}
+        <ChevronDown/>
+      </button>
+      <div v-if="activeDropdown === 'state'" class="multi-select-menu" @click.stop>
+        <label class="check"><input type="radio" v-model="state" value=""> Tous les etats</label>
+        <label class="check"><input type="radio" v-model="state" value="success"> Envoyees</label>
+        <label class="check"><input type="radio" v-model="state" value="error"> Erreurs</label>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <span class="filter-label">Types:</span>
+    <div class="multi-select" :class="{open:activeDropdown==='types'}" v-click-outside="() => { if (activeDropdown === 'types') activeDropdown = null }">
+      <button class="filter-pill dropdown-toggle" @click="activeDropdown = activeDropdown === 'types' ? null : 'types'">
+        {{ selectedTypes.length ? selectedTypes.map(v=>typeOptions.find(o=>o.value===v)?.label||v).join(', ') : 'Tous les types' }}
+        <ChevronDown/>
+      </button>
+      <div v-if="activeDropdown === 'types'" class="multi-select-menu" @click.stop>
+        <label class="check" v-for="typeOpt in typeOptions" :key="typeOpt.value"><input type="checkbox" v-model="selectedTypes" :value="typeOpt.value"> {{ typeOpt.label }}</label>
+        <button v-if="selectedTypes.length" class="text-button clear-selection" @click="selectedTypes=[]">Effacer</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <span class="filter-label">Utilisateurs:</span>
+    <div class="multi-select" :class="{open:activeDropdown==='users'}" v-click-outside="() => { if (activeDropdown === 'users') activeDropdown = null }">
+      <button class="filter-pill dropdown-toggle" @click="activeDropdown = activeDropdown === 'users' ? null : 'users'">
+        {{ selectedUsers.length ? `${selectedUsers.length} selectionne(s)` : 'Tous les utilisateurs' }}
+        <ChevronDown/>
+      </button>
+      <div v-if="activeDropdown === 'users'" class="multi-select-menu" @click.stop>
+        <label class="check" v-for="user in users" :key="user.id"><input type="checkbox" v-model="selectedUsers" :value="user.id"> {{ user.custom_name || user.display_name || user.plex_user_id }}</label>
+        <p v-if="!users.length" class="empty">Aucun utilisateur.</p>
+        <button v-if="selectedUsers.length" class="text-button clear-selection" @click="selectedUsers=[]">Effacer</button>
+      </div>
     </div>
   </div>
 
@@ -260,95 +255,3 @@ onMounted(() => {
   load();
 });
 </script>
-
-<style scoped>
-.filters-wrap {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.custom-dropdown {
-  position: relative;
-}
-
-.custom-dropdown button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  background: var(--bg-modifier);
-  border: 1px solid var(--border-color);
-  color: var(--text-color);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.custom-dropdown button:hover,
-.custom-dropdown button.active {
-  background: var(--bg-modifier-hover);
-  border-color: var(--primary-color);
-}
-
-.custom-dropdown button .dropdown-icon {
-  width: 14px;
-  height: 14px;
-  opacity: 0.7;
-}
-
-.custom-dropdown .badge {
-  background: var(--primary-color);
-  color: #fff;
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-
-.dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  background: var(--surface-2, rgba(20, 20, 20, 0.95));
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-  min-width: 200px;
-  z-index: 100;
-  padding: 8px 0;
-}
-
-.dropdown-menu.scrollable {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: background 0.1s;
-}
-
-.dropdown-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.dropdown-item input {
-  margin: 0;
-  cursor: pointer;
-}
-
-.empty-dropdown {
-  padding: 8px 16px;
-  font-size: 13px;
-  color: var(--text-muted);
-  text-align: center;
-}
-</style>
