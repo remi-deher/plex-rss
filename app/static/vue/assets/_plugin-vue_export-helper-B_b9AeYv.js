@@ -1,1 +1,0 @@
-import{c as r}from"./index-BHgHIab9.js";const s=[["path",{d:"m6 9 6 6 6-6",key:"qrunsl"}]],_=r("chevron-down",s),p=(o,c)=>{const t=o.__vccOpts||o;for(const[n,e]of c)t[n]=e;return t};export{_ as C,p as _};

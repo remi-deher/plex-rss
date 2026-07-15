@@ -24,7 +24,7 @@
         </div>
       </div>
 
-      <div class="filter-pills-scroll">
+      <div class="filter-toolbar">
         <span class="filter-label">Statut:</span>
         <div class="multi-select" :class="{open:statusMenuOpen}">
           <button class="filter-pill dropdown-toggle" @click="toggleMenu('status')">
