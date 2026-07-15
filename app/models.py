@@ -52,10 +52,11 @@ class Settings(Base):
     # s'il est défini). Permet un rafraîchissement sous la minute. None → poll_interval_minutes*60.
     poll_interval_seconds: Mapped[Optional[int]] = mapped_column(default=None)
     # Intervalle du cycle de vérification de disponibilité *arr (check_arr_statuses), en
-    # minutes. Existait auparavant comme "arr_poll_interval_hours" côté API/UI sans colonne
-    # réelle derrière (setattr silencieusement perdu au commit) — jamais branché sur le job,
-    # qui tournait toujours toutes les 15 min en dur (voir app/jobs.py:job_arr_statuses).
-    arr_poll_interval_minutes: Mapped[int] = mapped_column(default=15)
+    # secondes — réglable en heures/minutes/secondes depuis l'onglet Taches planifiees.
+    # Existait auparavant comme "arr_poll_interval_hours" côté API/UI sans colonne réelle
+    # derrière (setattr silencieusement perdu au commit) — jamais branché sur le job, qui
+    # tournait toujours toutes les 15 min en dur (voir app/jobs.py:job_arr_statuses).
+    arr_poll_interval_seconds: Mapped[int] = mapped_column(default=900)
 
     # --- Sonarr ---
     sonarr_url: Mapped[Optional[str]]

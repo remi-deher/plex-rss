@@ -122,14 +122,14 @@ async def test_worker_job_skips_history_when_log_history_false():
 
 @pytest.mark.asyncio
 async def test_job_arr_statuses_uses_configured_interval():
-    """job_arr_statuses lit settings.arr_poll_interval_minutes plutot que le defaut fige."""
-    fake_settings = type("S", (), {"arr_poll_interval_minutes": 45})()
+    """job_arr_statuses lit settings.arr_poll_interval_seconds plutot que le defaut fige."""
+    fake_settings = type("S", (), {"arr_poll_interval_seconds": 2700})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "not_due"})) as run_mock,
     ):
         await jobs.job_arr_statuses({"redis": FakeRedis()})
-    assert run_mock.call_args.kwargs["interval_seconds"] == 45 * 60
+    assert run_mock.call_args.kwargs["interval_seconds"] == 2700
 
 
 @pytest.mark.asyncio

@@ -35,8 +35,8 @@
         </div>
 
         <label v-if="task.job === 'arr-statuses'">
-          Intervalle de verification (minutes)
-          <input v-model.number="form.arr_poll_interval_minutes" type="number" min="1">
+          Intervalle de verification
+          <IntervalInput v-model="form.arr_poll_interval_seconds"/>
         </label>
         <p v-else-if="task.settings_field" class="hint">
           Modifiable depuis l'onglet Automatisation.
@@ -64,6 +64,7 @@ import { Clock, History } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
+import IntervalInput from './IntervalInput.vue';
 
 const tasks = ref([]);
 const openHistory = ref(null);

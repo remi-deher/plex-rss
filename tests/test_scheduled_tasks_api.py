@@ -41,21 +41,21 @@ def test_list_scheduled_tasks_without_settings(client, db):
     arr_row = next(row for row in data if row["job"] == "arr-statuses")
     assert arr_row["interval_seconds"] == 900  # default : 15 min
     assert arr_row["configurable"] is True
-    assert arr_row["settings_field"] == "arr_poll_interval_minutes"
+    assert arr_row["settings_field"] == "arr_poll_interval_seconds"
     assert arr_row["state"] is None
 
 
 def test_list_scheduled_tasks_uses_configured_arr_interval(client, db):
-    """L'intervalle configure (arr_poll_interval_minutes) prime sur la valeur par defaut."""
-    db.add(Settings(id=1, arr_poll_interval_minutes=45))
+    """L'intervalle configure (arr_poll_interval_seconds) prime sur la valeur par defaut."""
+    db.add(Settings(id=1, arr_poll_interval_seconds=2700))
     db.commit()
 
     with patch("app.routers.scheduled_tasks_api._job_states", new=AsyncMock(return_value={})):
         resp = client.get("/api/scheduled-tasks")
     assert resp.status_code == 200
     arr_row = next(row for row in resp.json() if row["job"] == "arr-statuses")
-    assert arr_row["interval_seconds"] == 45 * 60
-    assert arr_row["settings_value"] == 45
+    assert arr_row["interval_seconds"] == 2700
+    assert arr_row["settings_value"] == 2700
 
 
 def test_list_scheduled_tasks_merges_live_state(client, db):

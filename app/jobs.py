@@ -197,7 +197,7 @@ async def job_arr_statuses(ctx: dict, force: bool = False, run_id: str | None = 
     from .services.arr_tracker import check_arr_statuses
 
     settings = await _settings()
-    interval = ((settings.arr_poll_interval_minutes if settings else None) or 15) * 60
+    interval = (settings.arr_poll_interval_seconds if settings else None) or 900
     return await _manual_result(
         run_id,
         action,
