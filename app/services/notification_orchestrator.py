@@ -502,6 +502,7 @@ async def _notify(
     db: AsyncSession,
     reason: str = "",
     force: bool = False,
+    triggered_by: str = "auto",
 ) -> None:
     """Version async de la notification générique utilisée par les routes."""
     if not force:
@@ -528,13 +529,24 @@ async def _notify(
     ).scalars().first()
     recipients = _get_recipients(user_obj, settings, event) if email_flag else []
     if event in ("failed", "failure"):
-        await enqueue("failed", req.id, recipients, {"reason": reason})
+        await enqueue("failed", req.id, recipients, {"reason": reason}, triggered_by=triggered_by)
         return
     if event == "request":
-        await enqueue("request", req.id, recipients, None)
+        await enqueue("request", req.id, recipients, None, triggered_by=triggered_by)
         return
     language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
     scope = "movie" if req.media_type == "movie" else "series_complete"
+    if triggered_by != "auto":
+        # Renvoi manuel (fiche détail) : envoi direct et prévisible, sans passer par le
+        # système de jalons (resolve_and_notify_availability) — celui-ci applique des
+        # règles d'éligibilité par langue pensées pour le scan VF automatique et pourrait
+        # silencieusement ne rien envoyer selon les préférences VF de l'utilisateur, ce
+        # qui serait surprenant pour une action explicite déclenchée par un admin.
+        await enqueue(
+            "available", req.id, recipients, {"scope": scope, "language": language, "is_upgrade": False},
+            triggered_by=triggered_by,
+        )
+        return
     await resolve_and_notify_availability(
         settings,
         req,

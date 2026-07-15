@@ -353,6 +353,9 @@ class NotificationLog(Base):
     success: Mapped[bool] = mapped_column(default=True)
     error_msg: Mapped[Optional[str]]
     req_id: Mapped[Optional[int]]
+    # "auto" (défaut, cron/webhook) | "manual" (renvoi déclenché depuis la fiche détail) —
+    # affiché dans l'UI pour distinguer un envoi planifié d'un renvoi admin explicite.
+    triggered_by: Mapped[str] = mapped_column(default="auto")
 
     # --- Contexte structuré du jalon (remplace le texte libre "reason" reparsé par regex
     # côté email_service.py) : scope = "movie"|"episode"|"season_start"|"season_complete"|

@@ -18,6 +18,7 @@ from ..models import (
     LibraryItem,
     MediaIssue,
     MediaRequest,
+    NotificationLog,
     PlexUser,
     RequestStatus,
     Settings,
@@ -317,7 +318,31 @@ async def media_detail(
     users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
     from ..serializers import format_datetime, serialize_media_request
 
+    request_ids_for_mail = [req.id for req in related_requests]
+    last_mail_by_req: dict[int, dict] = {}
+    if request_ids_for_mail:
+        mail_logs = (await db.execute(
+            select(NotificationLog)
+            .filter(
+                NotificationLog.req_id.in_(request_ids_for_mail),
+                NotificationLog.channel == "email",
+                NotificationLog.event.in_(("request", "available")),
+            )
+            .order_by(NotificationLog.sent_at.desc())
+        )).scalars().all()
+        for log in mail_logs:
+            key = (log.req_id, log.event)
+            if key not in last_mail_by_req:
+                last_mail_by_req[key] = {
+                    "sent_at": format_datetime(log.sent_at),
+                    "triggered_by": log.triggered_by,
+                    "success": log.success,
+                }
+
     request_payloads = [serialize_media_request(req, users) for req in related_requests]
+    for payload, req in zip(request_payloads, related_requests):
+        payload["last_request_mail"] = last_mail_by_req.get((req.id, "request"))
+        payload["last_available_mail"] = last_mail_by_req.get((req.id, "available"))
     schedule = await _media_schedule_payload(db, media_obj)
     request_ids = [req.id for req in related_requests]
     issue_q = select(MediaIssue).filter(MediaIssue.status != "closed")

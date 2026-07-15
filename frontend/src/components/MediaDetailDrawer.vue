@@ -44,10 +44,21 @@
               </label>
             </div>
             <article v-for="row in detail.requests || []" :key="row.id" class="detail-row">
-              <div><strong>{{ row.requested_by || row.plex_user || row.plex_user_id }}</strong><span>{{ row.status }} · {{ formatDate(row.requested_at) }}</span></div>
+              <div>
+                <strong>{{ row.requested_by || row.plex_user || row.plex_user_id }}</strong>
+                <span>{{ row.status }} · {{ formatDate(row.requested_at) }}</span>
+                <small v-if="row.last_request_mail" class="mail-history">
+                  Mail demande {{ formatDate(row.last_request_mail.sent_at) }} ({{ row.last_request_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
+                </small>
+                <small v-if="row.last_available_mail" class="mail-history">
+                  Mail dispo {{ formatDate(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
+                </small>
+              </div>
               <div class="actions">
                 <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="router.push(`/releases/${row.id}`)"><Search /></button>
                 <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" @click="requestAction(row.id, 'retry')"><RotateCcw /></button>
+                <button class="icon-button" title="Renvoyer email de demande" :disabled="busy" @click="resendMail(row.id, 'request')"><Mail /></button>
+                <button v-if="row.status === 'available'" class="icon-button" title="Renvoyer email de disponibilite" :disabled="busy" @click="resendMail(row.id, 'available')"><MailCheck /></button>
                 <button v-if="row.status !== 'available'" class="icon-button" title="Marquer traitee (sans notifier)" @click="markProcessed(row.id, false)"><EyeOff /></button>
                 <button v-if="row.status !== 'available'" class="icon-button" title="Marquer traitee (avec email)" @click="markProcessed(row.id, true)"><CheckCheck /></button>
                 <button class="icon-button danger" title="Supprimer" @click="deleteRequest(row.id)"><Trash2 /></button>
@@ -108,7 +119,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { CalendarDays, CheckCheck, EyeOff, LoaderCircle, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, X, MessageSquareWarning } from "@lucide/vue";
+import { CalendarDays, CheckCheck, EyeOff, LoaderCircle, Mail, MailCheck, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, X, MessageSquareWarning } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api";
 import MediaHero from "./media/MediaHero.vue";
@@ -196,6 +207,12 @@ async function requestAction(id,action){
 async function markProcessed(id, notify=true){
   busy.value=true;
   try{await api(`/api/requests/${id}/mark-processed?event=available&notify=${notify}`,{method:'POST'});await load();emit('updated')}
+  catch(e){error.value=e.message}finally{busy.value=false}
+}
+
+async function resendMail(id, event){
+  busy.value=true;
+  try{await api(`/api/requests/${id}/resend-mail?event=${event}`,{method:'POST'});await load();emit('updated')}
   catch(e){error.value=e.message}finally{busy.value=false}
 }
 

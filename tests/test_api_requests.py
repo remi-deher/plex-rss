@@ -263,7 +263,7 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
     assert req.status == RequestStatus.available
     assert req.available_mail_sent is True
     assert req.available_at is not None
-    mock_notify.assert_called_once_with("available", settings, req, db, force=True)
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
 
 
 def test_mark_request_processed_event_request_resends_without_closing(client, db):
@@ -284,7 +284,63 @@ def test_mark_request_processed_event_request_resends_without_closing(client, db
     db.refresh(req)
     assert req.status == RequestStatus.pending  # Pas de clôture
     assert req.request_mail_sent is True
-    mock_notify.assert_called_once_with("request", settings, req, db, force=True)
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True, triggered_by="manual")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/requests/{id}/resend-mail
+# ---------------------------------------------------------------------------
+
+
+def test_resend_mail_available_does_not_change_status(client, db):
+    """resend-mail(event=available) renvoie le mail sans modifier le statut ni les flags."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.sent_to_arr, available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/resend-mail?event=available")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "queued"
+    assert data["event"] == "available"
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
+
+    db.refresh(req)
+    assert req.status == RequestStatus.sent_to_arr  # statut inchangé
+
+
+def test_resend_mail_request_event(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/resend-mail?event=request")
+
+    assert resp.status_code == 200
+    assert resp.json()["event"] == "request"
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True, triggered_by="manual")
+
+
+def test_resend_mail_invalid_event_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.post(f"/api/requests/{req.id}/resend-mail?event=bogus")
+    assert resp.status_code == 400
+
+
+def test_resend_mail_missing_request_404(client, db):
+    resp = client.post("/api/requests/999/resend-mail?event=request")
+    assert resp.status_code == 404
 
 
 def test_bulk_retry_requests(client, db):

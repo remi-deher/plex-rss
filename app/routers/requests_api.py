@@ -618,12 +618,12 @@ async def mark_request_processed(
 
     if event == "request":
         if settings and notify:
-            await _notify("request", settings, req, db, force=True)
+            await _notify("request", settings, req, db, force=True, triggered_by="manual")
         req.request_mail_sent = True
     else:
         event = "available"
         if settings and notify:
-            await _notify("available", settings, req, db, force=True)
+            await _notify("available", settings, req, db, force=True, triggered_by="manual")
         req.status = RequestStatus.available
         req.available_mail_sent = True
         if not req.available_at:
@@ -637,3 +637,26 @@ async def mark_request_processed(
         "notified": notify,
         "event": event,
     }
+
+
+@router.post("/requests/{request_id}/resend-mail")
+async def resend_request_mail(
+    request_id: int,
+    event: str,
+    db: AsyncSession = Depends(get_db_async),
+    _: None = Depends(require_admin),
+):
+    """Renvoie manuellement le mail de demande ou de disponibilité, sans modifier le statut.
+
+    Contrairement à `mark-processed`, ne force jamais le statut à "available" ni ne
+    touche aux flags `*_mail_sent` directement : ceux-ci sont mis à jour par le worker
+    de notification une fois l'envoi réellement confirmé (voir notification_queue._process).
+    """
+    if event not in ("request", "available"):
+        raise HTTPException(400, "event doit être 'request' ou 'available'")
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings:
+        raise HTTPException(400, "Paramètres introuvables")
+    await _notify(event, settings, req, db, force=True, triggered_by="manual")
+    return {"status": "queued", "event": event}

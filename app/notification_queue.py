@@ -102,7 +102,9 @@ def _push_allowed(settings: Settings, channel: str, event: str) -> bool:
     return bool(getattr(settings, f"{channel}_send_{_event_group(event)}", True))
 
 
-async def enqueue(event: str, req_id: int, recipients: list[str], context: dict | str | None = None):
+async def enqueue(
+    event: str, req_id: int, recipients: list[str], context: dict | str | None = None, triggered_by: str = "auto"
+):
     """Empile et persiste une notification dans la queue.
 
     `context` porte les données structurées du jalon (scope/language/is_upgrade/
@@ -111,12 +113,20 @@ async def enqueue(event: str, req_id: int, recipients: list[str], context: dict 
     JSON dans la colonne `reason` (texte) de `PendingNotification`, pour éviter une
     migration sur cette table de queue éphémère.
 
+    `triggered_by` ("auto" par défaut, "manual" pour un renvoi déclenché depuis la
+    fiche détail) est embarqué dans `context` plutôt que d'ajouter une colonne à
+    `PendingNotification` — même raison : éviter une migration sur une table éphémère,
+    et il survit au rechargement après redémarrage (_load_pending) puisque tout le
+    contexte est sérialisé/désérialisé en JSON.
+
     Persiste d'abord la notification en base (`PendingNotification`) pour qu'elle
     survive à un crash/redémarrage entre l'empilement et son traitement par le worker
     (la queue asyncio en mémoire serait sinon vidée silencieusement). La ligne est
     supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
     """
     event, context = _normalize_event_context(event, context)
+    if triggered_by != "auto":
+        context["triggered_by"] = triggered_by
     pending_id = None
     async with AsyncSessionLocal() as db:
         try:
@@ -324,6 +334,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
         pour une reprise ultérieure plutôt que perdue.
     """
     event, context = _normalize_event_context(event, context)
+    triggered_by = context.get("triggered_by") or "auto"
     async with AsyncSessionLocal() as db:
         try:
             settings = (await db.execute(select(Settings))).scalars().first()
@@ -357,6 +368,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                         success=success,
                         error_msg=error_msg,
                         req_id=req.id,
+                        triggered_by=triggered_by,
                         scope=context.get("scope"),
                         language=context.get("language"),
                         is_upgrade=bool(context.get("is_upgrade")),
@@ -419,6 +431,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
                         success=success,
                         error_msg=error_msg,
                         req_id=req.id,
+                        triggered_by=triggered_by,
                         scope=context.get("scope"),
                         language=context.get("language"),
                         is_upgrade=bool(context.get("is_upgrade")),

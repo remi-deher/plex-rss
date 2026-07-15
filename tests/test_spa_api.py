@@ -186,6 +186,47 @@ def test_spa_media_detail_matches_requests_by_title(async_db):
         _cleanup()
 
 
+def test_spa_media_detail_exposes_last_mail_history(async_db):
+    """/api/media/detail expose la dernière notification par événement (demande/dispo),
+    avec l'horodatage et si l'envoi était manuel ou automatique — utilisé par la fiche
+    détail pour proposer un renvoi de mail et afficher l'historique."""
+    from datetime import datetime
+
+    from app.models import NotificationLog
+
+    request = MediaRequest(
+        plex_user_id="alice", title="Dune", media_type="movie", year=2021, status=RequestStatus.available,
+    )
+    async_db.add(request)
+    async_db.flush()
+    async_db.add_all([
+        NotificationLog(
+            sent_at=datetime(2026, 1, 1, 10, 0, 0), event="request", channel="email", recipient="a@b.c",
+            req_id=request.id, success=True, triggered_by="auto",
+        ),
+        NotificationLog(
+            sent_at=datetime(2026, 1, 2, 10, 0, 0), event="available", channel="email", recipient="a@b.c",
+            req_id=request.id, success=True, triggered_by="manual",
+        ),
+        # Log push (non-email) sur le même req_id : ne doit pas polluer l'historique mail.
+        NotificationLog(
+            sent_at=datetime(2026, 1, 3, 10, 0, 0), event="available", channel="discord", recipient="webhook",
+            req_id=request.id, success=True, triggered_by="auto",
+        ),
+    ])
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get(f"/api/media/detail?request_id={request.id}")
+        assert response.status_code == 200
+        payload = response.json()["requests"][0]
+        assert payload["last_request_mail"]["triggered_by"] == "auto"
+        assert payload["last_available_mail"]["triggered_by"] == "manual"
+        assert payload["last_available_mail"]["success"] is True
+    finally:
+        _cleanup()
+
+
 def test_spa_manual_import_links_existing_request(async_db):
     instance = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="secret", enabled=True)
     async_db.add(instance)
