@@ -592,6 +592,11 @@ class MediaRequest(Base):
     vf_available_at: Mapped[Optional[datetime]]
     vf_available_mail_sent: Mapped[bool] = mapped_column(default=False)
     vo_only_mail_sent: Mapped[bool] = mapped_column(default=False)
+    # True = ne plus jamais rescanner cette demande pour une éventuelle VF (posé
+    # explicitement en clôturant une demande VO — voir requests_api.mark_request_processed).
+    # Sans ce flag, une demande VO reste indéfiniment candidate au scan périodique
+    # (check_vf_statuses) tant que has_vf n'est pas True.
+    vf_tracking_disabled: Mapped[bool] = mapped_column(default=False)
 
     # Granularité VF pour les séries (non pertinent pour les films) : distingue une
     # série sans aucun épisode VF d'une série avec quelques épisodes VF épars, ou avec

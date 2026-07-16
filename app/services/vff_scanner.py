@@ -745,7 +745,11 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
                 else (LibraryItem.has_vf.is_(None)) | (LibraryItem.has_vf.is_(False))
             )
         candidates_q = (await db.execute(
-            select(MediaRequest).filter(MediaRequest.status == RequestStatus.available, req_has_vf_filter)
+            select(MediaRequest).filter(
+                MediaRequest.status == RequestStatus.available,
+                req_has_vf_filter,
+                MediaRequest.vf_tracking_disabled.is_(False),
+            )
         )).scalars().all()
         lib_q = (await db.execute(select(LibraryItem).filter(lib_has_vf_filter))).scalars().all()
         if not candidates_q and not lib_q:

@@ -58,14 +58,14 @@
                 <small v-if="row.last_available_mail" class="mail-history">
                   Mail dispo {{ formatDateTime(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
                 </small>
+                <small v-if="row.vf_tracking_disabled" class="mail-history">Suivi VF arrete</small>
               </div>
               <div class="actions">
                 <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="router.push(`/releases/${row.id}`)"><Search /></button>
                 <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" @click="requestAction(row.id, 'retry')"><RotateCcw /></button>
                 <button class="icon-button" title="Renvoyer email de demande" :disabled="busy" @click="resendMail(row.id, 'request')"><Mail /></button>
                 <button v-if="row.status === 'available'" class="icon-button" title="Renvoyer email de disponibilite" :disabled="busy" @click="resendMail(row.id, 'available')"><MailCheck /></button>
-                <button v-if="row.status !== 'available'" class="icon-button" title="Marquer traitee (sans notifier)" @click="markProcessed(row.id, false)"><EyeOff /></button>
-                <button v-if="row.status !== 'available'" class="icon-button" title="Marquer traitee (avec email)" @click="markProcessed(row.id, true)"><CheckCheck /></button>
+                <button v-if="canClose(row)" class="icon-button" title="Cloturer la demande" :disabled="busy" @click="closeRequest(row)"><CheckCheck /></button>
                 <button class="icon-button danger" title="Supprimer" @click="deleteRequest(row.id)"><Trash2 /></button>
               </div>
             </article>
@@ -123,7 +123,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { CalendarDays, CheckCheck, EyeOff, LoaderCircle, Mail, MailCheck, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, MessageSquareWarning } from "@lucide/vue";
+import { CalendarDays, CheckCheck, LoaderCircle, Mail, MailCheck, PlusCircle, RefreshCw, RotateCcw, Search, Trash2, MessageSquareWarning } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import { api } from "@/api";
 import DrawerShell from "./DrawerShell.vue";
@@ -220,10 +220,23 @@ async function requestAction(id,action){
   catch(e){error.value=e.message}finally{busy.value=false}
 }
 
-async function markProcessed(id, notify=true){
+function canClose(row){
+  // Force une demande bloquee (pending/failed/...) vers "disponible", OU cloture le
+  // suivi VF d'une demande deja disponible qui n'a pas encore confirme la VF.
+  return row.status !== 'available' || (row.has_vf !== true && !row.vf_tracking_disabled);
+}
+
+async function closeRequest(row){
+  const notify = confirm('Notifier la disponibilite par email au demandeur ?');
+  let stopVfTracking = false;
+  if(row.has_vf !== true){
+    stopVfTracking = confirm("Arreter aussi la surveillance VO -> VF pour cette demande ? Elle ne sera plus jamais re-verifiee.");
+  }
   busy.value=true;
-  try{await api(`/api/requests/${id}/mark-processed?event=available&notify=${notify}`,{method:'POST'});await load();emit('updated')}
-  catch(e){error.value=e.message}finally{busy.value=false}
+  try{
+    await api(`/api/requests/${row.id}/mark-processed?event=available&notify=${notify}&stop_vf_tracking=${stopVfTracking}`,{method:'POST'});
+    await load();emit('updated');
+  }catch(e){error.value=e.message}finally{busy.value=false}
 }
 
 async function resendMail(id, event){

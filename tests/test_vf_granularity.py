@@ -464,6 +464,47 @@ async def test_movie_first_vf_detection_uses_single_available_vf_event():
 
 
 @pytest.mark.asyncio
+async def test_vf_tracking_disabled_request_excluded_from_scan():
+    """Une demande clôturée avec 'arrêter la surveillance VO->VF' (vf_tracking_disabled)
+    ne doit plus jamais être scannée par check_vf_statuses, même si has_vf est encore
+    False/None — voir requests_api.mark_request_processed(stop_vf_tracking=True)."""
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Vieux Film VO",
+        year=1990,
+        media_type="movie",
+        plex_guid="plex://movie/vieux-film-vo",
+        status=RequestStatus.available,
+        has_vf=False,
+        vf_tracking_disabled=True,
+    )
+    db.add(req)
+    db.commit()
+
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
+    ):
+        await check_vf_statuses()
+
+    mock_scan.assert_not_called()
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_movie_first_vf_scan_notifies_even_if_available_mail_already_sent():
     """Régression "Police Flash 80" : la demande était déjà marquée disponible (mail
     générique déjà envoyé, ex. confirmation *arr) bien avant que le tout premier scan

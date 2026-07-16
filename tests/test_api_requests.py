@@ -266,6 +266,43 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
     mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
 
 
+def test_mark_request_processed_stop_vf_tracking(client, db):
+    """stop_vf_tracking=true pose vf_tracking_disabled — la demande sort du scan VF."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.available, has_vf=False, available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify", new_callable=AsyncMock):
+        resp = client.post(
+            f"/api/requests/{req.id}/mark-processed?event=available&notify=false&stop_vf_tracking=true"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vf_tracking_disabled"] is True
+
+    db.refresh(req)
+    assert req.vf_tracking_disabled is True
+
+
+def test_mark_request_processed_without_stop_vf_tracking_leaves_it_enabled(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify", new_callable=AsyncMock):
+        resp = client.post(f"/api/requests/{req.id}/mark-processed")
+
+    assert resp.status_code == 200
+    assert resp.json()["vf_tracking_disabled"] is False
+    db.refresh(req)
+    assert req.vf_tracking_disabled is False
+
+
 def test_mark_request_processed_event_request_resends_without_closing(client, db):
     """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
     settings = Settings(id=1, smtp_host="smtp.example.com")

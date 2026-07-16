@@ -609,10 +609,17 @@ async def mark_request_processed(
     request_id: int,
     event: str = "available",
     notify: bool = True,
+    stop_vf_tracking: bool = False,
     db: AsyncSession = Depends(get_db_async),
     _: None = Depends(require_admin),
 ):
-    """Envoie manuellement le mail "demande" ou "disponible" pour une requête."""
+    """Envoie manuellement le mail "demande" ou "disponible" pour une requête, et/ou
+    clôture le suivi VF.
+
+    `stop_vf_tracking` pose `vf_tracking_disabled` : la demande sort définitivement des
+    scans VF périodiques (check_vf_statuses) — utile pour une demande VO qu'on sait ne
+    jamais avoir de VF, ou dont on ne veut simplement plus suivre l'évolution.
+    """
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     settings = (await db.execute(select(Settings))).scalars().first()
 
@@ -629,6 +636,9 @@ async def mark_request_processed(
         if not req.available_at:
             req.available_at = now_utc_naive()
 
+    if stop_vf_tracking:
+        req.vf_tracking_disabled = True
+
     await db.commit()
 
     return {
@@ -636,6 +646,7 @@ async def mark_request_processed(
         "message": "Demande marquée comme traitée",
         "notified": notify,
         "event": event,
+        "vf_tracking_disabled": req.vf_tracking_disabled,
     }
 
 

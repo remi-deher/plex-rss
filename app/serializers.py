@@ -51,6 +51,7 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "available_mail_sent": req.available_mail_sent,
         "overview": req.overview,
         "has_vf": req.has_vf,
+        "vf_tracking_disabled": req.vf_tracking_disabled,
         "arr_id": req.arr_id,
         "arr_slug": req.arr_slug,
         "arr_instance_id": req.arr_instance_id,
