@@ -715,6 +715,35 @@ class VfEpisodeStatus(Base):
     checked_at: Mapped[Optional[datetime]]
 
 
+class RequestSeasonStatus(Base):
+    """Disponibilité brute (fichier présent ou non côté Sonarr) par saison d'une demande.
+
+    Distinct de `VfEpisodeStatus` : celui-ci suit la présence d'une piste VF par épisode
+    (scan Plex), celui-là suit simplement si Sonarr a un fichier pour l'épisode, saison
+    par saison — alimenté directement par `seasons[]` dans la réponse Sonarr (déjà
+    récupérée par ailleurs, aucun appel réseau supplémentaire). Permet d'afficher un
+    détail par saison même sans VFF/Plex configuré, et sert de base aux jalons de
+    notification "saison démarrée"/"saison complète" (voir notification_orchestrator).
+
+    Une vraie FK vers MediaRequest est possible ici (contrairement à VfEpisodeStatus) car
+    une saison n'appartient qu'à une seule demande.
+    """
+
+    __tablename__ = "request_season_status"
+    __table_args__ = (
+        UniqueConstraint("request_id", "season_number", name="uq_request_season"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    request_id: Mapped[int] = mapped_column(ForeignKey("media_requests.id", ondelete="CASCADE"), index=True)
+    season_number: Mapped[int]
+    episodes_available_count: Mapped[int] = mapped_column(default=0)
+    episodes_total_count: Mapped[int] = mapped_column(default=0)
+    # "pending" | "partially_available" | "available"
+    status: Mapped[str] = mapped_column(default="pending")
+    updated_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
+
+
 class VfCategory(str, enum.Enum):
     """Type de média du point de vue VFF, pour cibler les notifications.
 

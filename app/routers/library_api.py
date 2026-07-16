@@ -20,6 +20,7 @@ from ..models import (
     MediaRequest,
     NotificationLog,
     PlexUser,
+    RequestSeasonStatus,
     RequestStatus,
     Settings,
     VfEpisodeStatus,
@@ -352,8 +353,25 @@ async def media_detail(
         raw = (u.notification_email if u else None) or ""
         return {addr.strip().lower() for addr in raw.split(",") if addr.strip()}
 
+    show_request_ids = [req.id for req in related_requests if req.media_type == "show"]
+    seasons_by_req: dict[int, list[dict]] = {}
+    if show_request_ids:
+        season_rows = (await db.execute(
+            select(RequestSeasonStatus).filter(RequestSeasonStatus.request_id.in_(show_request_ids))
+        )).scalars().all()
+        for row in season_rows:
+            seasons_by_req.setdefault(row.request_id, []).append({
+                "season_number": row.season_number,
+                "episodes_available_count": row.episodes_available_count,
+                "episodes_total_count": row.episodes_total_count,
+                "status": row.status,
+            })
+        for rows in seasons_by_req.values():
+            rows.sort(key=lambda r: r["season_number"])
+
     request_payloads = [serialize_media_request(req, users) for req in related_requests]
     for payload, req in zip(request_payloads, related_requests):
+        payload["seasons"] = seasons_by_req.get(req.id, [])
         payload["last_request_mail"] = last_mail_by_req.get((req.id, "request"))
         payload["last_available_mail"] = last_mail_by_req.get((req.id, "available"))
         request_recipients = mail_recipients_by_req.get((req.id, "request"), set())

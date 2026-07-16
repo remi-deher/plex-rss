@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestSeasonStatus, RequestStatus, Settings
 from app.scheduler import check_arr_statuses, poll_watchlists, sync_users_from_feed
 from tests.async_support import TestSession
 
@@ -760,6 +760,42 @@ async def test_check_arr_show_becomes_fully_available(db):
     req = db.query(MediaRequest).first()
     assert req.status == RequestStatus.available
     assert req.available_at is not None
+
+
+@pytest.mark.asyncio
+async def test_check_arr_show_upserts_season_status(db):
+    """Le detail par saison Sonarr (seasons[]) doit etre persiste dans
+    request_season_status, avec le bon statut par saison (available/partially_available/
+    pending selon episodes_available_count vs episodes_total_count)."""
+    db.add(_settings())
+    req = _sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    db.add(req)
+    db.commit()
+
+    series_stats = {
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 6,
+        "episode_count": 6,
+        "total_episode_count": 13,
+        "seasons": [
+            {"season_number": 1, "episode_file_count": 6, "episode_count": 6, "total_episode_count": 6},
+            {"season_number": 2, "episode_file_count": 0, "episode_count": 0, "total_episode_count": 7},
+        ],
+    }
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
+        _patch_enqueue(),
+    ):
+        await check_arr_statuses()
+
+    rows = {r.season_number: r for r in db.query(RequestSeasonStatus).all()}
+    assert rows[1].status == "available"
+    assert rows[1].episodes_available_count == 6
+    assert rows[2].status == "pending"
+    assert rows[2].episodes_available_count == 0
+    assert rows[2].episodes_total_count == 7
 
 
 @pytest.mark.asyncio

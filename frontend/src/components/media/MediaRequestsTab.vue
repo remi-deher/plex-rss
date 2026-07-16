@@ -21,6 +21,14 @@
           <span v-for="step in statusSteps" :key="step.key" :class="['step', stepState(row, step.key)]">{{ step.label }}</span>
         </div>
 
+        <details v-if="row.media_type === 'show' && row.seasons?.length" class="mail-history-details">
+          <summary>Detail par saison ({{ seasonsSummary(row.seasons) }})</summary>
+          <div v-for="season in row.seasons" :key="season.season_number" class="inline-row compact" style="justify-content: space-between; margin-bottom: 4px;">
+            <span>Saison {{ season.season_number }}</span>
+            <span class="badge" :class="season.status">{{ season.episodes_available_count }}/{{ season.episodes_total_count }}</span>
+          </div>
+        </details>
+
         <details class="mail-history-details">
           <summary>Historique</summary>
           <small>Demandee le {{ formatDate(row.requested_at) }}</small>
@@ -109,6 +117,10 @@ function requestStatusLabel(value) {
     failed: 'Erreur',
     rejected: 'Refusee',
   })[value] || value;
+}
+function seasonsSummary(seasons) {
+  const available = seasons.filter(s => s.status === 'available').length;
+  return `${available}/${seasons.length} completes`;
 }
 function stepState(row, key) {
   const order = ['requested', 'sent', 'available'];

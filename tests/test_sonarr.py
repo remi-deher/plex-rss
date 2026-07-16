@@ -8,7 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from app.services.sonarr import add_series, check_connection, get_calendar, is_series_available, lookup_series
+from app.services.sonarr import (
+    add_series,
+    check_connection,
+    get_calendar,
+    get_series_episode_stats,
+    is_series_available,
+    lookup_series,
+)
 
 URL = "http://sonarr.local:8989"
 KEY = "testapikey"
@@ -191,6 +198,37 @@ async def test_is_series_available_false():
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=7)
 
     assert available is False
+
+
+@pytest.mark.asyncio
+async def test_get_series_episode_stats_includes_per_season_breakdown():
+    """Le tableau seasons[] deja present dans la reponse Sonarr (statistics par saison)
+    doit etre expose, pas jete comme avant -- saison 0 (specials) exclue."""
+    series_data = {
+        "id": 7,
+        "titleSlug": "breaking-bad",
+        "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 13},
+        "seasons": [
+            {"seasonNumber": 0, "statistics": {"episodeFileCount": 2, "episodeCount": 2, "totalEpisodeCount": 2}},
+            {"seasonNumber": 1, "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 6}},
+            {"seasonNumber": 2, "statistics": {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 7}},
+        ],
+    }
+    resp = _make_response(200, series_data)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        stats = await get_series_episode_stats(URL, KEY, arr_id=7)
+
+    assert stats["episode_file_count"] == 6
+    assert stats["seasons"] == [
+        {"season_number": 1, "episode_file_count": 6, "episode_count": 6, "total_episode_count": 6},
+        {"season_number": 2, "episode_file_count": 0, "episode_count": 0, "total_episode_count": 7},
+    ]
 
 
 @pytest.mark.asyncio

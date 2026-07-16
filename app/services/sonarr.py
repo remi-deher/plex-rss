@@ -285,6 +285,9 @@ async def get_series_episode_stats(
     - episode_file_count : épisodes avec un fichier sur disque
     - episode_count       : épisodes déjà diffusés à ce jour (Sonarr statistics.episodeCount)
     - total_episode_count : total de la série, diffusés + à venir (statistics.totalEpisodeCount)
+    - seasons             : même détail, par saison (mêmes clés statistics.* que Sonarr
+      expose déjà pour la série entière — aucun appel réseau supplémentaire, seulement
+      jeté jusqu'ici). Saison 0 (spéciaux) exclue, comme le reste du suivi de progression.
 
     Retourne None si la série n'est pas trouvée dans Sonarr.
     """
@@ -300,12 +303,25 @@ async def get_series_episode_stats(
     if not data:
         return None
     stats = data.get("statistics", {})
+    seasons = []
+    for season in data.get("seasons", []) or []:
+        season_number = season.get("seasonNumber")
+        if not season_number:  # 0 = spéciaux, exclu
+            continue
+        season_stats = season.get("statistics", {}) or {}
+        seasons.append({
+            "season_number": season_number,
+            "episode_file_count": season_stats.get("episodeFileCount", 0),
+            "episode_count": season_stats.get("episodeCount", 0),
+            "total_episode_count": season_stats.get("totalEpisodeCount", 0),
+        })
     return {
         "arr_id": data.get("id"),
         "title_slug": data.get("titleSlug"),
         "episode_file_count": stats.get("episodeFileCount", 0),
         "episode_count": stats.get("episodeCount", 0),
         "total_episode_count": stats.get("totalEpisodeCount", 0),
+        "seasons": seasons,
     }
 
 

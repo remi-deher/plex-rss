@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, MediaRequest, NotificationMilestone, PlexUser, RequestStatus, Settings
+from app.models import Base, MediaRequest, NotificationMilestone, PlexUser, RequestSeasonStatus, RequestStatus, Settings
 from app.services.notification_orchestrator import (
     AvailabilityCandidate,
+    _handle_show_progress_notification,
     _notify,
     _resolve_requester_users,
     notify_single_user,
@@ -265,5 +266,41 @@ async def test_notify_single_user_unknown_plex_user_returns_false():
 
     assert result is False
     mock_enqueue.assert_not_called()
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_handle_show_progress_notification_fires_season_milestones():
+    """VFF desactive, granularite 'jalons' : un jalon par saison (season_complete pour
+    une saison finie, season_start pour une saison entamee), pas un seul jalon generique
+    "episode" pour la serie entiere -- regression du detail par saison (RequestSeasonStatus)."""
+    engine, db = await _make_db()
+    settings = Settings(
+        id=1, smtp_from="alice@example.com", email_on_available=True,
+        vff_enabled=False, series_notify_granularity="jalons",
+    )
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="Alice", title="Breaking Bad", media_type="show",
+        status=RequestStatus.partially_available, episodes_available_count=6, episodes_total_count=13,
+    )
+    db.add_all([settings, user, req])
+    await db.commit()
+    db.add_all([
+        RequestSeasonStatus(request_id=req.id, season_number=1, episodes_available_count=6, episodes_total_count=6, status="available"),
+        RequestSeasonStatus(request_id=req.id, season_number=2, episodes_available_count=0, episodes_total_count=7, status="pending"),
+    ])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        await _handle_show_progress_notification(settings, req, db)
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[3]["scope"] == "season_complete"
+    assert mock_enqueue.call_args.args[3]["season_number"] == 1
+
+    milestones = (await db.execute(select(NotificationMilestone).filter_by(req_id=req.id))).scalars().all()
+    assert {(m.milestone_type, m.season_number) for m in milestones} == {("season_complete", 1)}
     await db.close()
     await engine.dispose()

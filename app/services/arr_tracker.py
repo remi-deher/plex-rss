@@ -9,7 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
-from ..models import ArrInstance, DownloadClient, MediaRequest, PollHistory, RequestStatus, Settings, VfEpisodeStatus
+from ..models import (
+    ArrInstance,
+    DownloadClient,
+    MediaRequest,
+    PollHistory,
+    RequestSeasonStatus,
+    RequestStatus,
+    Settings,
+    VfEpisodeStatus,
+)
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, watchlist_poller
 from .availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
@@ -36,6 +45,56 @@ async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
     await db.execute(sqlalchemy.delete(VfEpisodeStatus).filter(
         VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
     ))
+
+
+def _season_status_label(available: int, total: int) -> str:
+    if total and available >= total:
+        return "available"
+    if available > 0:
+        return "partially_available"
+    return "pending"
+
+
+async def _upsert_season_status(db: AsyncSession, request_id: int, seasons: list[dict]) -> None:
+    """Met à jour request_season_status à partir du détail par saison Sonarr.
+
+    Une saison absente du tableau `seasons` (série supprimée côté Sonarr entre deux
+    cycles, cas rare) n'est pas purgée ici : elle sera simplement ré-écrite au prochain
+    cycle où la série redevient trouvable, comme le reste du suivi de progression.
+    """
+    if not seasons:
+        return
+    existing = {
+        row.season_number: row
+        for row in (await db.execute(
+            select(RequestSeasonStatus).filter(RequestSeasonStatus.request_id == request_id)
+        )).scalars().all()
+    }
+    now = now_utc_naive()
+    for season in seasons:
+        season_number = season["season_number"]
+        available = season["episode_file_count"]
+        total = season["total_episode_count"]
+        status = _season_status_label(available, total)
+        row = existing.get(season_number)
+        if row is None:
+            db.add(RequestSeasonStatus(
+                request_id=request_id,
+                season_number=season_number,
+                episodes_available_count=available,
+                episodes_total_count=total,
+                status=status,
+                updated_at=now,
+            ))
+        elif (
+            row.episodes_available_count != available
+            or row.episodes_total_count != total
+            or row.status != status
+        ):
+            row.episodes_available_count = available
+            row.episodes_total_count = total
+            row.status = status
+            row.updated_at = now
 
 
 # Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
@@ -300,6 +359,7 @@ async def check_arr_statuses():
                     req.episodes_available_count = series_stats["episode_file_count"]
                     req.episodes_aired_count = series_stats["episode_count"]
                     req.episodes_total_count = series_stats["total_episode_count"]
+                    await _upsert_season_status(db, req.id, series_stats.get("seasons") or [])
 
                 # Reflète la présence (ou non) d'un item actif dans la file de téléchargement
                 # *arr pour ce média. Permet de distinguer, côté UI, une vraie anomalie Plex

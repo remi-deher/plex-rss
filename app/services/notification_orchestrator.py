@@ -690,11 +690,38 @@ async def _handle_show_progress_notification(settings: Settings, req: MediaReque
             await resolve_and_notify_availability(
                 settings, req, db, candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)]
             )
-    else:  # "jalons"/"minimal" : une notif à la 1ère dispo partielle seulement
-        if not req.partial_available_mail_sent:
-            await resolve_and_notify_availability(
-                settings, req, db, candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)]
-            )
+        return
+
+    # "jalons"/"minimal" : un jalon par saison (démarrée / complète) plutôt qu'un seul
+    # jalon générique série entière — s'appuie sur request_season_status (Sonarr brut,
+    # alimenté par check_arr_statuses), dédupliqué par NotificationMilestone comme le
+    # reste du système de jalons (aucun envoi en double d'un cycle à l'autre).
+    from ..models import RequestSeasonStatus
+    season_rows = (await db.execute(
+        select(RequestSeasonStatus).filter(RequestSeasonStatus.request_id == req.id)
+    )).scalars().all()
+    if season_rows:
+        candidates = []
+        for row in sorted(season_rows, key=lambda r: r.season_number):
+            if row.status == "available":
+                candidates.append(AvailabilityCandidate(
+                    scope="season_complete", language=None, is_upgrade=False, season_number=row.season_number,
+                ))
+            elif row.status == "partially_available":
+                candidates.append(AvailabilityCandidate(
+                    scope="season_start", language=None, is_upgrade=False, season_number=row.season_number,
+                ))
+        if candidates:
+            await resolve_and_notify_availability(settings, req, db, candidates=candidates)
+        return
+
+    # Repli si le détail par saison n'est pas encore disponible (première détection,
+    # avant le prochain cycle check_arr_statuses) : ancien comportement, un seul jalon
+    # générique à la première disponibilité partielle.
+    if not req.partial_available_mail_sent:
+        await resolve_and_notify_availability(
+            settings, req, db, candidates=[AvailabilityCandidate(scope="episode", language=None, is_upgrade=False)]
+        )
 
 
 # ---------------------------------------------------------------------------
