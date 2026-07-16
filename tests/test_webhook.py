@@ -496,6 +496,42 @@ def test_configure_webhook_already_correct_skips_update():
     update_mock.assert_not_awaited()
 
 
+def test_configure_webhook_radarr_ignores_unsupported_import_complete_field():
+    """Régression : Radarr n'expose pas "On Import Complete" (contrairement à Sonarr) —
+    son API renvoie systématiquement `onImportComplete: None` quoi qu'on écrive, ce qui
+    faisait boucler l'auto-config sur "corrigé" à chaque clic (None != True en
+    permanence) alors que le connecteur était déjà correctement configuré."""
+    db = _make_db(requests=[_arr_instance("radarr")])
+    existing = {
+        "id": 4,
+        "name": "RSS",
+        "implementation": "Webhook",
+        "onGrab": False,
+        "onDownload": True,
+        "onUpgrade": True,
+        "onImportComplete": None,  # jamais supporté par Radarr, doit être ignoré
+        "onRename": False,
+        "onMovieAdded": False,
+        "onMovieDelete": True,
+        "onMovieFileDelete": True,
+        "onMovieFileDeleteForUpgrade": False,
+        "onHealthIssue": False,
+        "onApplicationUpdate": False,
+        "fields": [{"name": "url", "value": "https://app.local/webhook/radarr?secret=new"}],
+    }
+    with (
+        _configure_db_patch(db),
+        patch("app.services.radarr.get_notifications", new=AsyncMock(return_value=[existing])),
+        patch("app.services.radarr.update_notification", new=AsyncMock()) as update_mock,
+    ):
+        response = client.post("/webhook/configure/radarr", json={"webhook_url": "https://app.local/webhook/radarr?secret=new"})
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["success"] is True
+    assert "correctement configuré" in result["message"]
+    update_mock.assert_not_awaited()
+
+
 def test_configure_webhook_creates_new_connector_when_missing():
     db = _make_db(requests=[_arr_instance("radarr")])
     schema = {"implementation": "Webhook", "fields": [{"name": "url", "value": ""}, {"name": "method", "value": 0}]}

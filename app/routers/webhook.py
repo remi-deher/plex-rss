@@ -771,10 +771,16 @@ _WEBHOOK_EVENT_FLAGS: dict[str, dict[str, bool]] = {
         "onApplicationUpdate": False,
     },
     "radarr": {
+        # Pas de "onImportComplete" ici : contrairement a Sonarr (imports multi-episodes
+        # partiels), Radarr n'expose pas cette notion — verifie en direct sur une instance
+        # reelle, son schema renvoie `supportsOnImportComplete: null` et le champ revient
+        # systematiquement a `null` apres ecriture. L'inclure ici faisait boucler
+        # "Configurer automatiquement" en boucle sur "corrige" a chaque clic, la comparaison
+        # (null != True) semblant toujours en desaccord alors que rien n'est reellement a
+        # corriger.
         "onGrab": False,
         "onDownload": True,
         "onUpgrade": True,
-        "onImportComplete": True,
         "onRename": False,
         "onMovieAdded": False,
         "onMovieDelete": True,
