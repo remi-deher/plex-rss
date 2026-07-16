@@ -105,7 +105,7 @@ async def activity_log(db: AsyncSession = Depends(get_db_async)):
             elif r.status == "sent_to_arr":
                 add_event(r, "sent", r.requested_at, "Transmise", "Detection et envoi vers ARR")
             else:
-                add_event(r, "detected", r.requested_at, "Detectee", "Detection watchlist ou demande")
+                add_event(r, "detected", r.requested_at, "Ajoutee a la watchlist", "Ajout a la watchlist Plex ou creation de la demande")
         if r.available_at and r.available_at >= cutoff:
             add_event(r, "available", r.available_at, "Disponible", "Disponibilite confirmee")
         if r.vf_available_at and r.vf_available_at >= cutoff:

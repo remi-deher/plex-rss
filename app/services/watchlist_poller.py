@@ -24,6 +24,8 @@ from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
 from .seer import request_media as seer_request
 from .seer import resolve_mode as seer_resolve_mode
 from .sonarr import add_series, lookup_series
+from .tmdb import TmdbNotConfigured
+from .tmdb import find_by_external_id as tmdb_find_by_external_id
 from .watchlist import fetch_watchlist
 
 logger = logging.getLogger(__name__)
@@ -372,6 +374,9 @@ async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj, db: AsyncSes
       puis à défaut l'instance Radarr par défaut (`ArrInstance`) — sans ce repli, une
       install configurée uniquement via les instances sautait silencieusement cette
       normalisation, et la dédup RSS↔Seer retombait sur le titre (dépendant de la langue).
+    - Repli TMDB direct (`/find/{imdb_id}`) si Radarr n'a pas pu résoudre — table de
+      correspondance externe indépendante de Radarr, utile quand celui-ci est
+      injoignable ou ne connaît pas encore un titre très récent.
     - Fallback Seer (utilisateurs hybrides) : couvre les rares cas sans IMDB ni TVDB.
 
     Renvoie l'item (éventuellement enrichi d'un tmdb_id) sans le muter sur place.
@@ -392,6 +397,15 @@ async def _ensure_tmdb_id(item: dict, settings: Settings, user_obj, db: AsyncSes
             if resolved:
                 logger.info(f"tmdb_id résolu via Radarr pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
                 return {**item, "tmdb_id": resolved}
+
+        if db is not None:
+            try:
+                resolved = await tmdb_find_by_external_id(db, "imdb_id", item["imdb_id"])
+                if resolved:
+                    logger.info(f"tmdb_id résolu via TMDB pour '{item['title']}' (imdb {item['imdb_id']}): {resolved}")
+                    return {**item, "tmdb_id": str(resolved)}
+            except TmdbNotConfigured:
+                pass
 
     if (
         not item.get("tvdb_id")
