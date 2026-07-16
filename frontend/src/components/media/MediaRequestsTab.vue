@@ -17,7 +17,7 @@
           <span class="badge status-tag" :class="row.status">{{ requestStatusLabel(row.status) }}</span>
         </div>
 
-        <div v-if="!['failed','rejected'].includes(row.status)" class="status-stepper">
+        <div v-if="!['failed','rejected','available'].includes(row.status)" class="status-stepper">
           <span v-for="step in statusSteps" :key="step.key" :class="['step', stepState(row, step.key)]">{{ step.label }}</span>
         </div>
 
