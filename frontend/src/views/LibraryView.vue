@@ -9,7 +9,7 @@
         <RefreshCw :class="{spin:loading}"/>
       </button>
     </header>
-    
+
     <section class="metric-grid compact-metrics">
       <article v-for="entry in metrics" :key="entry.label" class="metric-card">
         <span>{{ entry.label }}</span>
@@ -17,75 +17,31 @@
       </article>
     </section>
 
-    <div class="filters-panel">
-      <div class="filter-row">
-        <input v-model="query" class="search" type="search" placeholder="Rechercher" @input="scheduleLoad">
-        <div class="segmented">
-          <button :class="{active:view==='grid'}" title="Grille" @click="setView('grid')">
-            <Grid2X2/>
-          </button>
-          <button :class="{active:view==='list'}" title="Liste" @click="setView('list')">
-            <List/>
-          </button>
-        </div>
-      </div>
-      
-      <div class="filter-pills-scroll">
-        <span class="filter-label">Type:</span>
-        <button class="filter-pill" :class="{active:type===''}" @click="setType('')">Tout</button>
-        <button class="filter-pill" :class="{active:type==='movie'}" @click="setType('movie')">Films</button>
-        <button class="filter-pill" :class="{active:type==='show'}" @click="setType('show')">Séries</button>
-
-        <div class="divider"></div>
-        <span class="filter-label">Statut:</span>
-        <button class="filter-pill" :class="{active:status===''}" @click="status=''">Tout</button>
-        <button class="filter-pill" :class="{active:status==='library'}" @click="status='library'">Dans Plex</button>
-        <button class="filter-pill" :class="{active:status==='request'}" @click="status='request'">En cours</button>
-
-        <div class="divider"></div>
-        <span class="filter-label">Audio:</span>
-        <button class="filter-pill" :class="{active:vf===''}" @click="vf=''">Toutes</button>
-        <button class="filter-pill" :class="{active:vf==='vf'}" @click="vf='vf'">VF</button>
-        <button class="filter-pill" :class="{active:vf==='vo'}" @click="vf='vo'">VO</button>
-        <button class="filter-pill" :class="{active:vf==='unchecked'}" @click="vf='unchecked'">Non analysée</button>
-
-        <template v-if="users.length > 0">
-          <div class="divider"></div>
-          <span class="filter-label">Utilisateur:</span>
-          <select v-model="userFilter" class="filter-select" title="Filtre pour les demandes en cours">
-            <option value="">Tous</option>
-            <option v-for="u in users" :key="u.id" :value="u.plex_user_id || u.custom_name || u.display_name">{{ u.custom_name || u.display_name || u.plex_user_id }}</option>
-          </select>
-        </template>
-      </div>
-    </div>
+    <LibraryFiltersBar
+      v-model:query="query"
+      v-model:type="type"
+      v-model:vf="vf"
+      v-model:status="status"
+      v-model:user-filter="userFilter"
+      v-model:view="view"
+      :users="users"
+      @search="scheduleLoad"
+      @update:type="load"
+    />
 
     <p v-if="error" class="notice error-text">{{ error }}</p>
-    
+
     <section :class="view==='grid'?'media-grid':'panel media-list'">
-      <div v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="openDetail(item)" @keydown.enter="openDetail(item)">
-        <div class="poster-shell">
-          <img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'">
-          <div v-else class="poster-fallback">
-            <Film/>
-          </div>
-          <span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
-        </div>
-        <div>
-          <strong>{{ item.title }}</strong>
-          <span>{{ item.media_type==='show'?'Serie':'Film'  }}<template v-if="item.year"> · {{ item.year }}</template></span>
-          <span v-if="item.custom_name || item.requested_by || item.plex_user || item.plex_user_id" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">
-            👤 {{ item.custom_name || item.requested_by || item.plex_user || item.plex_user_id }}
-          </span>
-          <small v-if="item._kind==='request'">
-            {{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template>
-            <button class="manage-link" @click.stop="goToRequest(item)">Gerer la demande <ArrowRight/></button>
-          </small>
-          <small v-else-if="item.overview">{{ item.overview }}</small>
-        </div>
-      </div>
+      <LibraryCard
+        v-for="item in filtered"
+        :key="`${item._kind}-${item.id}`"
+        :item="item"
+        :view="view"
+        @open="openDetail"
+        @go-to-request="goToRequest"
+      />
     </section>
-    
+
     <p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p>
 
     <div v-if="hasMoreLibrary" class="load-more-row">
@@ -99,11 +55,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowRight, Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
+import { RefreshCw } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 import { api } from '@/api';
+import LibraryFiltersBar from '@/components/library/LibraryFiltersBar.vue';
+import LibraryCard from '@/components/library/LibraryCard.vue';
 
 const router = useRouter();
 
@@ -145,17 +103,17 @@ const filtered = computed(() => {
     if (vf.value === 'vf' && item.has_vf !== true) return false;
     if (vf.value === 'vo' && item.has_vf !== false) return false;
     if (vf.value === 'unchecked' && item.has_vf != null) return false;
-    
+
     // Status filter
     if (status.value === 'library' && item._kind !== 'library') return false;
     if (status.value === 'request' && item._kind !== 'request') return false;
-    
+
     // User filter (only applies to requests)
     if (userFilter.value) {
       if (item._kind !== 'request') return false;
       if (item.plex_user_id !== userFilter.value && item.requested_by !== userFilter.value) return false;
     }
-    
+
     return true;
   });
 });
@@ -177,28 +135,11 @@ function proxyUrl(url) {
   return url;
 }
 
-function setType(value) {
-  type.value = value;
-  load();
-}
-
-function setView(value) {
-  view.value = value;
-  localStorage.setItem('library.view', value);
-}
+watch(view, value => localStorage.setItem('library.view', value));
 
 function scheduleLoad() {
   clearTimeout(timer);
   timer = setTimeout(load, 250);
-}
-
-function requestLabel(s) {
-  return ({
-    pending_approval: 'A approuver',
-    pending: 'En attente',
-    sent_to_arr: 'Transmise a Sonarr/Radarr',
-    failed: 'Echec'
-  })[s] || s;
 }
 
 function _libraryParams(offset) {
@@ -268,25 +209,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.manage-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-.manage-link:hover {
-  text-decoration: underline;
-}
-.manage-link svg {
-  width: 14px;
-  height: 14px;
-}
 .load-more-row {
   display: flex;
   justify-content: center;
