@@ -150,6 +150,13 @@ async def _get_user_watchlist(
     item précis et renvoie 404 sur /library/sections/watchlist/all) avec
     includeGuids=1 pour obtenir les identifiants TMDB/TVDB/IMDB nécessaires à
     Sonarr/Radarr.
+
+    Sans paramètres de pagination explicites, Plex applique sa taille de page
+    par défaut (20) et un tri non garanti par date d'ajout — un ajout tout
+    récent peut alors ne jamais apparaître dans la réponse si la watchlist
+    dépasse cette taille. On trie par date d'ajout décroissante et on
+    élargit la page très au-delà d'une taille de watchlist réaliste pour
+    garantir que les ajouts récents sont toujours capturés.
     """
     headers = {
         "X-Plex-Token": token,
@@ -161,7 +168,12 @@ async def _get_user_watchlist(
         resp = await client.get(
             f"{DISCOVER_BASE}/library/sections/watchlist/all",
             headers=headers,
-            params={"includeGuids": 1},
+            params={
+                "includeGuids": 1,
+                "sort": "watchlistedAt:desc",
+                "X-Plex-Container-Start": 0,
+                "X-Plex-Container-Size": 300,
+            },
         )
         resp.raise_for_status()
         data = resp.json()

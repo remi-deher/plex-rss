@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.plex_api import _parse_api_item, check_connection, get_friends_watchlist
+from app.services.plex_api import _get_user_watchlist, _parse_api_item, check_connection, get_friends_watchlist
 
 URL = "http://plex.local"
 TOKEN = "testplextoken"
@@ -167,3 +167,24 @@ async def test_get_friends_watchlist_no_auth_token_friend_skipped():
         items = await get_friends_watchlist(URL, TOKEN)
 
     assert items == []
+
+
+@pytest.mark.asyncio
+async def test_get_user_watchlist_requests_sorted_and_unpaginated():
+    """Sans tri ni taille de page explicites, Plex applique sa pagination par défaut
+
+    (20 items, tri non garanti par date d'ajout) et un ajout récent peut ne jamais
+    apparaître dans la réponse si la watchlist dépasse cette taille (incident
+    production : un film ajouté 2h plus tôt n'était jamais repris par le poller).
+    On vérifie donc que la requête demande explicitement un tri par date d'ajout
+    décroissante et une page large.
+    """
+    watchlist_resp = _resp(200, {"MediaContainer": {"Metadata": []}})
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=watchlist_resp)
+
+    await _get_user_watchlist(client, TOKEN, "admin", "admin")
+
+    params = client.get.call_args.kwargs["params"]
+    assert params["sort"] == "watchlistedAt:desc"
+    assert params["X-Plex-Container-Size"] >= 300
