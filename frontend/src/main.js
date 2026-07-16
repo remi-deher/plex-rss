@@ -15,6 +15,7 @@ const ReleaseSearchView = () => import("./views/ReleaseSearchView.vue");
 const ProfileView = () => import("./views/ProfileView.vue");
 const LogsView = () => import("./views/LogsView.vue");
 const IssuesView = () => import("./views/IssuesView.vue");
+const MediaDetailView = () => import("./views/MediaDetailView.vue");
 import "./styles.css";
 
 const routes = [
@@ -34,6 +35,7 @@ const routes = [
   { path: "/maintenance", component: MaintenanceView },
   { path: "/profile", component: ProfileView },
   { path: "/releases/:requestId", component: ReleaseSearchView },
+  { path: "/media/:kind/:id", component: MediaDetailView },
   { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
 ];
 

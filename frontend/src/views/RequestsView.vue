@@ -102,7 +102,7 @@
 
     <section :class="view==='grid'?'media-grid':'media-list'">
       <article v-for="row in filtered" :key="row.id" class="media-card request-card" :class="{list:view==='list'}">
-        <div class="poster-shell" @click="detail=row">
+        <div class="poster-shell" @click="router.push(mediaDetailPath(row,'request'))">
           <img v-if="row.poster_url" :src="proxyUrl(row.poster_url)" alt="" @error="$event.target.style.display='none'">
           <div v-else class="poster-fallback"><Film/></div>
           <span v-if="view==='grid'" class="badge status-tag" :class="row.status">{{ label(row.status) }}</span>
@@ -112,7 +112,7 @@
         </div>
         <div class="request-body">
           <div class="request-title-row">
-            <button class="text-button" @click="detail=row">
+            <button class="text-button" @click="router.push(mediaDetailPath(row,'request'))">
               <strong>{{ row.title }}</strong>
               <span v-if="row.year">{{ row.year }}</span>
             </button>
@@ -138,8 +138,6 @@
       </article>
     </section>
     <p v-if="!loading&&!filtered.length" class="empty">Aucune demande.</p>
-
-    <MediaDetailDrawer v-if="detail" :item="detail" mode="request" @close="detail=null" @updated="load"/>
   </div>
 </template>
 <script setup>
@@ -147,8 +145,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { Ban, Check, CheckCheck, ChevronDown, Film, Grid2X2, List, RefreshCw, RotateCcw, Search, Trash2, X } from '@lucide/vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/api';
+import { mediaDetailPath } from '@/mediaUrl';
 import { useRealtime } from '@/events';
-import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -164,7 +162,6 @@ const sourceMenuOpen = ref(false);
 const requesterFilters = ref([]);
 const requesterMenuOpen = ref(false);
 const selectedIds = ref([]);
-const detail = ref(null);
 const loading = ref(false);
 const busy = ref(false);
 const error = ref('');

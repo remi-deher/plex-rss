@@ -63,7 +63,7 @@
     <p v-if="error" class="notice error-text">{{ error }}</p>
     
     <section :class="view==='grid'?'media-grid':'panel media-list'">
-      <div v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="selected=item" @keydown.enter="selected=item">
+      <div v-for="item in filtered" :key="`${item._kind}-${item.id}`" class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="openDetail(item)" @keydown.enter="openDetail(item)">
         <div class="poster-shell">
           <img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'">
           <div v-else class="poster-fallback">
@@ -95,21 +95,24 @@
       </button>
     </div>
 
-    <MediaDetailDrawer v-if="selected" :item="selected" :mode="selected._kind==='request'?'request':'library'" @close="selected=null" @updated="load"/>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { ArrowRight, Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
 import { useRouter } from 'vue-router';
+import { ArrowRight, Film, Grid2X2, List, RefreshCw } from '@lucide/vue';
+import { mediaDetailPath } from '@/mediaUrl';
 import { api } from '@/api';
-import MediaDetailDrawer from '@/components/MediaDetailDrawer.vue';
 
 const router = useRouter();
 
 function goToRequest(item) {
   router.push({ path: '/requests', query: { query: item.title } });
+}
+
+function openDetail(item) {
+  router.push(mediaDetailPath(item, item._kind));
 }
 
 const PAGE_SIZE = 200;
@@ -131,7 +134,6 @@ const status = ref('');
 const userFilter = ref('');
 const view = ref(localStorage.getItem('library.view') || 'grid');
 
-const selected = ref(null);
 const loading = ref(false);
 const error = ref('');
 

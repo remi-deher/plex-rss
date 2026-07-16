@@ -322,6 +322,7 @@ SPA_ROOTS = {
     "maintenance",
     "profile",
     "releases",
+    "media",
 }
 
 
