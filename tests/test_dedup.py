@@ -193,6 +193,21 @@ async def test_find_global_request_title_fallback_case_insensitive(db):
     assert result is not None
 
 
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_ignores_identified_homonym(db):
+    """Régression production : deux films distincts partagent le même titre anglais
+    "Lullaby" (2014, tmdb 261768, drame FR) et (2022, tmdb 702621, horreur US) — l'ancien
+    est déjà en base avec son propre tmdb_id confirmé. Une nouvelle demande pour l'autre
+    film, elle aussi résolue avec un tmdb_id (mais différent, donc pas de hit direct),
+    ne doit pas être bloquée par le fallback titre : celui-ci ne doit rattraper que les
+    anciennes entrées elles-mêmes sans identifiant, pas n'importe quel homonyme confirmé."""
+    db.add(_req(plex_user_id="alice", tmdb_id="261768", title="Lullaby"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", "702621", "Lullaby")
+    assert result is None
+
+
 # ---------------------------------------------------------------------------
 # _add_co_requester
 # ---------------------------------------------------------------------------

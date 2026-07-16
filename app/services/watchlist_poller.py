@@ -488,9 +488,24 @@ async def _find_global_request(
     if title:
         norm = _norm_title_for_dedup(title)
         if norm:
-            candidates = (await db.execute(
-                select(MediaRequest).filter(MediaRequest.media_type == media_type)
-            )).scalars().all()
+            query = select(MediaRequest).filter(MediaRequest.media_type == media_type)
+            if tmdb_id or tvdb_id:
+                # L'item courant a un identifiant fiable qui n'a matché aucune demande
+                # ci-dessus : il s'agit d'une œuvre différente déjà confirmée, même en cas
+                # d'homonymie ("Lullaby" 2014 tmdb 261768 vs "Lullaby" 2022 tmdb 702621, par
+                # ex. — même titre anglais, films sans rapport). Comparer par titre créerait
+                # un faux positif qui bloquerait indéfiniment la vraie nouvelle demande
+                # derrière l'ancienne. On ne rattrape donc que les anciennes entrées
+                # elles-mêmes sans identifiant (RSS legacy, voir docstring).
+                # Sans identifiant fiable sur l'item courant (résolution tmdb/tvdb en
+                # échec), on garde le fallback titre large : mieux vaut risquer un faux
+                # doublon ponctuel qu'un vrai doublon soumis deux fois à *arr.
+                query = query.filter(
+                    MediaRequest.tmdb_id.is_(None),
+                    MediaRequest.tvdb_id.is_(None),
+                    MediaRequest.imdb_id.is_(None),
+                )
+            candidates = (await db.execute(query)).scalars().all()
             for candidate in candidates:
                 if _norm_title_for_dedup(candidate.title) == norm:
                     return candidate
