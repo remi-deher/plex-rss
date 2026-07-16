@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.models import Base, MediaRequest, NotificationMilestone, PlexUser, RequestStatus, Settings
-from app.services.notification_orchestrator import AvailabilityCandidate, resolve_and_notify_availability
+from app.services.notification_orchestrator import (
+    AvailabilityCandidate,
+    _notify,
+    _resolve_requester_users,
+    notify_single_user,
+    resolve_and_notify_availability,
+)
 
 
 async def _make_db():
@@ -99,5 +105,165 @@ async def test_resolve_and_notify_availability_skips_when_suppressed():
         await db.execute(select(NotificationMilestone).filter_by(req_id=req.id))
     ).scalars().all()
     assert milestones == []
+    await db.close()
+    await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Co-demandeurs (extra_requesters) : résolution + inclusion dans les notifications
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_requester_users_includes_primary_and_extras():
+    engine, db = await _make_db()
+    primary = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    extra = PlexUser(plex_user_id="bob", enabled=True, notification_email="bob@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Dune",
+        media_type="movie",
+        status=RequestStatus.sent_to_arr,
+        extra_requesters='[{"plex_user_id": "bob", "display_name": "Bob"}]',
+    )
+    db.add_all([primary, extra, req])
+    await db.commit()
+
+    users = await _resolve_requester_users(req, db)
+    assert [u.plex_user_id for u in users] == ["alice", "bob"]
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolve_requester_users_dedupes_and_skips_unknown():
+    """Un co-demandeur dupliqué ou dont le PlexUser n'existe plus (compte supprimé) ne
+    doit ni planter, ni apparaître deux fois."""
+    engine, db = await _make_db()
+    primary = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Dune",
+        media_type="movie",
+        status=RequestStatus.sent_to_arr,
+        extra_requesters='[{"plex_user_id": "alice", "display_name": "Alice"}, {"plex_user_id": "ghost", "display_name": "Ghost"}]',
+    )
+    db.add_all([primary, req])
+    await db.commit()
+
+    users = await _resolve_requester_users(req, db)
+    assert [u.plex_user_id for u in users] == ["alice"]
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_notify_availability_notifies_co_requester():
+    """Régression : un co-demandeur ajouté à une demande doit recevoir les futures
+    notifications de disponibilité, pas seulement le demandeur principal."""
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="fallback@example.com", email_on_available=True)
+    primary = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    extra = PlexUser(plex_user_id="bob", enabled=True, notification_email="bob@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Dune",
+        media_type="movie",
+        status=RequestStatus.available,
+        extra_requesters='[{"plex_user_id": "bob", "display_name": "Bob"}]',
+    )
+    db.add_all([settings, primary, extra, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        sent = await resolve_and_notify_availability(
+            settings, req, db, candidates=[AvailabilityCandidate(scope="movie")]
+        )
+
+    assert sent is True
+    recipients = mock_enqueue.call_args.args[2]
+    assert "alice@example.com" in recipients
+    assert "bob@example.com" in recipients
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_notify_request_event_includes_co_requester():
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="fallback@example.com", email_on_request=True)
+    primary = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    extra = PlexUser(plex_user_id="bob", enabled=True, notification_email="bob@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Dune",
+        media_type="movie",
+        status=RequestStatus.pending,
+        extra_requesters='[{"plex_user_id": "bob", "display_name": "Bob"}]',
+    )
+    db.add_all([settings, primary, extra, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        await _notify("request", settings, req, db)
+
+    recipients = mock_enqueue.call_args.args[2]
+    assert "alice@example.com" in recipients
+    assert "bob@example.com" in recipients
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_notify_single_user_targets_only_that_user():
+    """Régression : le renvoi rétroactif à un co-demandeur fraîchement ajouté ne doit
+    contenir QUE son adresse, jamais celle du demandeur principal ni des autres."""
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="fallback@example.com", email_on_request=True, email_on_available=True)
+    primary = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    extra = PlexUser(plex_user_id="bob", enabled=True, notification_email="bob@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Dune",
+        media_type="movie",
+        status=RequestStatus.available,
+        request_mail_sent=True,
+        available_mail_sent=True,
+        extra_requesters='[{"plex_user_id": "bob", "display_name": "Bob"}]',
+    )
+    db.add_all([settings, primary, extra, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        queued_request = await notify_single_user("request", settings, req, db, "bob")
+        queued_available = await notify_single_user("available", settings, req, db, "bob")
+
+    assert queued_request is True
+    assert queued_available is True
+    assert mock_enqueue.call_count == 2
+    for call in mock_enqueue.call_args_list:
+        assert call.args[2] == ["bob@example.com"]
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_notify_single_user_unknown_plex_user_returns_false():
+    engine, db = await _make_db()
+    settings = Settings(id=1, email_on_request=True)
+    req = MediaRequest(plex_user_id="alice", plex_user="Alice", title="Dune", media_type="movie", status=RequestStatus.pending)
+    db.add_all([settings, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        result = await notify_single_user("request", settings, req, db, "ghost")
+
+    assert result is False
+    mock_enqueue.assert_not_called()
     await db.close()
     await engine.dispose()

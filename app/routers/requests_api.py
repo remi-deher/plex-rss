@@ -15,7 +15,7 @@ from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
 from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import check_arr_statuses, poll_watchlists
-from ..services.notification_orchestrator import _notify
+from ..services.notification_orchestrator import _notify, notify_single_user
 from ..services import radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
@@ -166,8 +166,11 @@ class RequestersUpdate(BaseModel):
 @router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_admin)])
 async def update_requesters(request_id: int, body: RequestersUpdate, db: AsyncSession = Depends(get_db_async)):
     """Définit la liste des demandeurs d'une demande (le 1er = demandeur principal,
-    les suivants = demandeurs additionnels). Modification manuelle : **aucun mail de
-    demande** n'est envoyé (le mail « demande reçue » ne part qu'à la création)."""
+    les suivants = demandeurs additionnels). Modification manuelle : **aucun mail** n'est
+    envoyé automatiquement ici (les futures notifications de la demande incluront
+    désormais tous les demandeurs, voir `_get_recipients`/`_resolve_requester_users`) —
+    pour renvoyer rétroactivement un mail déjà parti à un demandeur nouvellement ajouté,
+    voir `POST /requests/{request_id}/notify-user`."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
 
     # Déduplique en conservant l'ordre
@@ -196,6 +199,28 @@ async def update_requesters(request_id: int, body: RequestersUpdate, db: AsyncSe
     )
     await db.commit()
     return {"ok": True, "requester_ids": ordered}
+
+
+class NotifyUserRequest(BaseModel):
+    plex_user_id: str
+    events: list[str]
+
+
+@router.post("/requests/{request_id}/notify-user", dependencies=[Depends(require_admin)])
+async def notify_single_requester(request_id: int, body: NotifyUserRequest, db: AsyncSession = Depends(get_db_async)):
+    """Renvoie rétroactivement le mail "demande" et/ou "disponibilité" à UN SEUL
+    demandeur — utilisé quand un co-demandeur est ajouté après coup à une demande déjà
+    en cours et que l'admin confirme explicitement vouloir le rattraper (voir
+    MediaDetailDrawer.vue::addRequester, jamais déclenché automatiquement)."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings:
+        raise HTTPException(400, "Paramètres introuvables")
+    events = [e for e in body.events if e in ("request", "available")]
+    if not events:
+        raise HTTPException(400, "events doit contenir 'request' et/ou 'available'")
+    queued = [event for event in events if await notify_single_user(event, settings, req, db, body.plex_user_id)]
+    return {"status": "ok", "queued": queued}
 
 
 async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:

@@ -380,6 +380,115 @@ def test_resend_mail_missing_request_404(client, db):
     assert resp.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# PUT /api/requests/{id}/requesters
+# ---------------------------------------------------------------------------
+
+
+def test_update_requesters_sets_primary_and_extras(client, db):
+    req = _req(plex_user_id="alice", plex_user="Alice")
+    bob = PlexUser(plex_user_id="bob", display_name="Bob")
+    db.add_all([req, bob])
+    db.commit()
+    db.refresh(req)
+
+    resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["alice", "bob"]})
+    assert resp.status_code == 200
+    assert resp.json()["requester_ids"] == ["alice", "bob"]
+
+    db.refresh(req)
+    assert req.plex_user_id == "alice"
+    import json as _json
+    assert _json.loads(req.extra_requesters) == [{"plex_user_id": "bob", "display_name": "Bob"}]
+
+
+def test_update_requesters_does_not_send_any_mail(client, db):
+    """Modification silencieuse par design — voir notify-user pour le renvoi ciblé."""
+    req = _req(plex_user_id="alice", plex_user="Alice", request_mail_sent=True)
+    bob = PlexUser(plex_user_id="bob", display_name="Bob")
+    db.add_all([req, bob])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify, patch(
+        "app.routers.requests_api.notify_single_user"
+    ) as mock_notify_single:
+        resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["alice", "bob"]})
+
+    assert resp.status_code == 200
+    mock_notify.assert_not_called()
+    mock_notify_single.assert_not_called()
+
+
+def test_update_requesters_empty_list_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["", "  "]})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /api/requests/{id}/notify-user
+# ---------------------------------------------------------------------------
+
+
+def test_notify_user_queues_requested_events(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(plex_user_id="alice", available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api.notify_single_user", new=AsyncMock(side_effect=[True, True])) as mock_notify:
+        resp = client.post(
+            f"/api/requests/{req.id}/notify-user",
+            json={"plex_user_id": "bob", "events": ["request", "available"]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "queued": ["request", "available"]}
+    assert mock_notify.await_count == 2
+    mock_notify.assert_any_await("request", settings, req, db, "bob")
+    mock_notify.assert_any_await("available", settings, req, db, "bob")
+
+
+def test_notify_user_reports_which_events_actually_queued(client, db):
+    """Si un des deux events echoue (ex: utilisateur introuvable/desactive), seul celui
+    qui a reellement ete mis en queue doit apparaitre dans la reponse."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(plex_user_id="alice")
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api.notify_single_user", new=AsyncMock(side_effect=[True, False])):
+        resp = client.post(
+            f"/api/requests/{req.id}/notify-user",
+            json={"plex_user_id": "bob", "events": ["request", "available"]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["queued"] == ["request"]
+
+
+def test_notify_user_invalid_events_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.post(f"/api/requests/{req.id}/notify-user", json={"plex_user_id": "bob", "events": ["bogus"]})
+    assert resp.status_code == 400
+
+
+def test_notify_user_missing_request_404(client, db):
+    resp = client.post("/api/requests/999/notify-user", json={"plex_user_id": "bob", "events": ["request"]})
+    assert resp.status_code == 404
+
+
 def test_bulk_retry_requests(client, db):
     """POST /api/requests/bulk/retry repasse les demandes failed/pending en pending."""
     r1 = _req(status=RequestStatus.failed)

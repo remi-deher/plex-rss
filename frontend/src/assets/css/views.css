@@ -655,6 +655,27 @@ button:disabled {
   opacity: 0.85;
 }
 
+.requester-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.requester-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.requester-line .actions.compact {
+  gap: 4px;
+}
+
 .tag-row,
 .season-grid {
   display: flex;

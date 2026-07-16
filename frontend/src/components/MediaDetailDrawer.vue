@@ -59,12 +59,22 @@
                   Mail dispo {{ formatDateTime(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
                 </small>
                 <small v-if="row.vf_tracking_disabled" class="mail-history">Suivi VF arrete</small>
+
+                <div v-if="(row.requester_ids || []).length > 1" class="requester-breakdown">
+                  <div v-for="(uid, idx) in row.requester_ids" :key="uid" class="requester-line">
+                    <span>{{ row.requesters?.[idx] || uid }}</span>
+                    <div class="actions compact">
+                      <button class="icon-button" title="Renvoyer le mail de demande a cette personne" :disabled="busy" @click="notifyUser(row.id, uid, ['request'])"><Mail /></button>
+                      <button v-if="row.status === 'available'" class="icon-button" title="Renvoyer le mail de disponibilite a cette personne" :disabled="busy" @click="notifyUser(row.id, uid, ['available'])"><MailCheck /></button>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="actions">
                 <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="router.push(`/releases/${row.id}`)"><Search /></button>
                 <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" @click="requestAction(row.id, 'retry')"><RotateCcw /></button>
-                <button class="icon-button" title="Renvoyer email de demande" :disabled="busy" @click="resendMail(row.id, 'request')"><Mail /></button>
-                <button v-if="row.status === 'available'" class="icon-button" title="Renvoyer email de disponibilite" :disabled="busy" @click="resendMail(row.id, 'available')"><MailCheck /></button>
+                <button class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :disabled="busy" @click="resendMail(row.id, 'request')"><Mail /></button>
+                <button v-if="row.status === 'available'" class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :disabled="busy" @click="resendMail(row.id, 'available')"><MailCheck /></button>
                 <button v-if="canClose(row)" class="icon-button" title="Cloturer la demande" :disabled="busy" @click="closeRequest(row)"><CheckCheck /></button>
                 <button class="icon-button danger" title="Supprimer" @click="deleteRequest(row.id)"><Trash2 /></button>
               </div>
@@ -251,18 +261,38 @@ async function resendMail(id, event){
   catch(e){error.value=e.message}finally{busy.value=false}
 }
 
+async function notifyUser(requestId, plexUserId, events){
+  busy.value=true;error.value='';
+  try{
+    await api(`/api/requests/${requestId}/notify-user`,{method:'POST',body:JSON.stringify({plex_user_id:plexUserId,events})});
+    await load();emit('updated');
+  }catch(e){error.value=e.message}finally{busy.value=false}
+}
+
 async function addRequester(){
   busy.value=true;error.value='';
   try{
     const rows = detail.value.requests || [];
+    const newUserId = newRequesterId.value;
+    // Capture AVANT modification : c'est l'etat "deja en cours" qui determine si on
+    // doit proposer un rattrapage retroactif, pas l'etat apres ajout.
+    const rowsAlreadyInProgress = rows.filter(row => row.request_mail_sent || row.status === 'available');
     for (const row of rows) {
       const ids = [...(row.requester_ids || [row.plex_user_id])];
-      if (!ids.includes(newRequesterId.value)) ids.push(newRequesterId.value);
+      if (!ids.includes(newUserId)) ids.push(newUserId);
       await api(`/api/requests/${row.id}/requesters`,{method:'PUT',body:JSON.stringify({requester_ids:ids})});
     }
     await load();
     newRequesterId.value='';
     emit('updated');
+    if (rowsAlreadyInProgress.length && confirm("Cette demande est deja en cours. Renvoyer retroactivement au nouveau co-demandeur le(s) mail(s) deja envoye(s) (demande/disponibilite) ? Sinon, il ne recevra que les prochaines notifications.")) {
+      for (const row of rowsAlreadyInProgress) {
+        const events = [];
+        if (row.request_mail_sent) events.push('request');
+        if (row.status === 'available') events.push('available');
+        if (events.length) await notifyUser(row.id, newUserId, events);
+      }
+    }
   }catch(e){error.value=e.message}finally{busy.value=false}
 }
 

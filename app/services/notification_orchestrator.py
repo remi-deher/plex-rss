@@ -144,34 +144,70 @@ def _add_co_requester(req: MediaRequest, plex_user_id: str, display_name: str) -
     return True
 
 
+async def _resolve_requester_users(req: MediaRequest, db: AsyncSession) -> list[PlexUser]:
+    """Retourne les PlexUser du demandeur principal + tous les co-demandeurs
+    (`extra_requesters`), dédupliqués et dans l'ordre. Résolution centralisée pour que
+    toute notification de cette demande touche systématiquement tout le monde, pas
+    seulement le demandeur principal (voir `_get_recipients`/`_get_vf_recipients`, qui
+    acceptent cette liste directement)."""
+    try:
+        extras = json.loads(req.extra_requesters or "[]")
+    except Exception:
+        extras = []
+    ids: list[str] = [req.plex_user_id] + [e.get("plex_user_id") for e in extras if e.get("plex_user_id")]
+    seen: set[str] = set()
+    ordered_ids: list[str] = []
+    for uid in ids:
+        if uid and uid not in seen:
+            seen.add(uid)
+            ordered_ids.append(uid)
+    if not ordered_ids:
+        return []
+    rows = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id.in_(ordered_ids)))).scalars().all()
+    by_id = {u.plex_user_id: u for u in rows}
+    return [by_id[uid] for uid in ordered_ids if uid in by_id]
+
+
 def _get_recipients(user_obj, settings: Settings, event: str = "request") -> list[str]:
-    """Résout la liste des destinataires email pour un utilisateur.
+    """Résout la liste des destinataires email pour un ou plusieurs utilisateurs.
+
+    `user_obj` accepte soit un PlexUser unique (comportement historique, ex. demandeur
+    principal seul), soit une liste de PlexUser (demandeur principal + co-demandeurs —
+    voir `_resolve_requester_users`) : chacun est évalué selon ses propres préférences,
+    aucun n'est jamais bloqué par celles d'un autre.
 
     - Canal email désactivé globalement (`email_enabled`) : aucune notification.
-    - Si l'utilisateur est inactif (enabled=False) : aucune notification.
+    - Utilisateur inactif (enabled=False) : ignoré (les autres restent notifiés).
     - Adresse(s) de l'utilisateur (séparées par virgules), ou smtp_from par défaut.
-    - Si notify_admin=True sur l'utilisateur, ajoute admin_notification_email en copie.
+    - Si notify_admin=True sur au moins un utilisateur, ajoute admin_notification_email
+      en copie (une seule fois, même si plusieurs destinataires l'ont activé).
     - Respecte les flags notify_on_request / notify_on_available par utilisateur.
     """
     if not settings.email_enabled:
         return []
-    if user_obj and not user_obj.enabled:
-        return []
+    users = user_obj if isinstance(user_obj, list) else [user_obj] if user_obj else []
+    if not users:
+        return parse_email_list(settings.smtp_from or "")
 
-    if user_obj:
-        if event == "request" and user_obj.notify_on_request is False:
-            return []
-        if event == "available" and user_obj.notify_on_available is False:
-            return []
-
-    raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
-    recipients = parse_email_list(raw)
-
+    recipients: list[str] = []
     admin_email = (settings.admin_notification_email or "").strip()
-    if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
-        for addr in parse_email_list(admin_email):
+    admin_added = False
+    for u in users:
+        if not u.enabled:
+            continue
+        if event == "request" and u.notify_on_request is False:
+            continue
+        if event == "available" and u.notify_on_available is False:
+            continue
+        raw = u.notification_email or settings.smtp_from or ""
+        for addr in parse_email_list(raw):
             if addr not in recipients:
                 recipients.append(addr)
+        if admin_email and not admin_added and getattr(u, "notify_admin", True):
+            for addr in parse_email_list(admin_email):
+                if addr not in recipients:
+                    recipients.append(addr)
+            admin_added = True
 
     return recipients
 
@@ -191,19 +227,30 @@ def _user_wants_vf(user_obj: PlexUser | None, vf_category: str | None) -> bool:
     return user_obj.notify_vf_series is not False
 
 
-def _get_vf_recipients(user_obj: PlexUser | None, settings: Settings, vf_category: str | None) -> list[str]:
-    """Résout les destinataires email d'une notification de disponibilité avec suivi de langue."""
+def _get_vf_recipients(user_obj, settings: Settings, vf_category: str | None) -> list[str]:
+    """Résout les destinataires email d'une notification de disponibilité avec suivi de
+    langue. Accepte un PlexUser unique ou une liste (voir `_get_recipients`) — chaque
+    utilisateur est filtré par `_user_wants_vf` individuellement."""
     if not settings.email_enabled:
         return []
-    if not _user_wants_vf(user_obj, vf_category):
+    users = user_obj if isinstance(user_obj, list) else [user_obj] if user_obj else []
+    if not users:
         return []
-    raw = (user_obj.notification_email if user_obj else None) or settings.smtp_from or ""
-    recipients = parse_email_list(raw)
+    recipients: list[str] = []
     admin_email = (settings.admin_notification_email or "").strip()
-    if admin_email and user_obj and getattr(user_obj, "notify_admin", True):
-        for addr in parse_email_list(admin_email):
+    admin_added = False
+    for u in users:
+        if not _user_wants_vf(u, vf_category):
+            continue
+        raw = u.notification_email or settings.smtp_from or ""
+        for addr in parse_email_list(raw):
             if addr not in recipients:
                 recipients.append(addr)
+        if admin_email and not admin_added and getattr(u, "notify_admin", True):
+            for addr in parse_email_list(admin_email):
+                if addr not in recipients:
+                    recipients.append(addr)
+            admin_added = True
     return recipients
 
 
@@ -421,10 +468,14 @@ async def resolve_and_notify_availability(
 
     winner = max(new_candidates, key=_candidate_priority)
     email_flag = settings.email_on_vf_available if winner.is_upgrade else settings.email_on_available
+    # Eligibilité (langue, granularité) tranchée sur les préférences du demandeur
+    # principal (user_obj) ci-dessus ; les DESTINATAIRES, eux, incluent aussi les
+    # co-demandeurs (chacun filtré par ses propres préférences dans _get_recipients).
+    requester_users = await _resolve_requester_users(req, db) if email_flag else []
     if winner.language is not None:
-        recipients = _get_vf_recipients(user_obj, settings, req.vf_category) if email_flag else []
+        recipients = _get_vf_recipients(requester_users, settings, req.vf_category) if email_flag else []
     else:
-        recipients = _get_recipients(user_obj, settings, "available") if email_flag else []
+        recipients = _get_recipients(requester_users, settings, "available") if email_flag else []
     await enqueue(
         "available",
         req.id,
@@ -537,10 +588,8 @@ async def _notify(
         if event == "request"
         else settings.email_on_available
     )
-    user_obj = (
-        await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))
-    ).scalars().first()
-    recipients = _get_recipients(user_obj, settings, event) if email_flag else []
+    requester_users = await _resolve_requester_users(req, db) if email_flag else []
+    recipients = _get_recipients(requester_users, settings, event) if email_flag else []
     if event in ("failed", "failure"):
         await enqueue("failed", req.id, recipients, {"reason": reason}, triggered_by=triggered_by)
         return
@@ -566,6 +615,40 @@ async def _notify(
         db,
         candidates=[AvailabilityCandidate(scope=scope, language=language, is_upgrade=False)],
     )
+
+
+async def notify_single_user(
+    event: str, settings: Settings, req: MediaRequest, db: AsyncSession, plex_user_id: str
+) -> bool:
+    """Envoie le mail "demande" ou "disponibilité" à UN SEUL utilisateur, indépendamment
+    du reste du groupe — utilisé quand un co-demandeur est ajouté après coup à une
+    demande déjà en cours et que l'admin choisit explicitement de lui renvoyer
+    rétroactivement le(s) mail(s) déjà partis (voir PUT /requests/{id}/requesters puis
+    POST /requests/{id}/notify-user, jamais déclenché automatiquement).
+
+    Ignore volontairement `request_mail_sent`/`available_mail_sent` : ces flags suivent
+    l'état du GROUPE (posé une fois pour la demande), pas d'un individu — un co-demandeur
+    fraîchement ajouté n'a jamais reçu ce mail, peu importe leur valeur actuelle.
+    """
+    if event not in ("request", "available"):
+        return False
+    user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == plex_user_id))).scalars().first()
+    if not user_obj:
+        return False
+    email_flag = settings.email_on_request if event == "request" else settings.email_on_available
+    recipients = _get_recipients([user_obj], settings, event) if email_flag else []
+    if not recipients:
+        return False
+    if event == "request":
+        await enqueue("request", req.id, recipients, None, triggered_by="manual")
+    else:
+        language = "vf" if req.has_vf is True else ("vo" if req.has_vf is False else None)
+        scope = "movie" if req.media_type == "movie" else "series_complete"
+        await enqueue(
+            "available", req.id, recipients, {"scope": scope, "language": language, "is_upgrade": False},
+            triggered_by="manual",
+        )
+    return True
 
 
 async def _handle_show_progress_notification(settings: Settings, req: MediaRequest, db: AsyncSession) -> None:
