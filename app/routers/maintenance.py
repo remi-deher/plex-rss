@@ -124,7 +124,7 @@ ACTIONS_META = {
     },
     "recalculate-dates": {
         "label": "Recalculer les dates",
-        "description": "Corrige requested_at et available_at depuis les données Seer.",
+        "description": "Corrige requested_at depuis Seer et la watchlist Plex (RSS/API) — n'envoie aucune notification.",
         "icon": "bi-calendar-check",
         "color": "secondary",
     },
@@ -401,18 +401,28 @@ async def _run_retry_failed(run: MaintenanceRun):
 
 
 async def _run_recalculate_dates(run: MaintenanceRun):
+    """Corrige requested_at depuis les vraies dates Seer + watchlist Plex (RSS/API), sans
+    jamais notifier : sync_seer_requests/sync_plex_dates ne font que mettre à jour la
+    colonne, aucun _notify()/enqueue() n'est appelé sur ce chemin."""
     emit = _Emit(run, logging.getLogger("app.maintenance"))
+    db = AsyncSessionLocal()
     try:
         emit.info("Resynchronisation des dates depuis Seer…")
         run.progress = 10
         from ..scheduler import sync_seer_requests
+        from ..services.watchlist_poller import sync_plex_dates
 
         await sync_seer_requests()
+        run.progress = 50
+        emit.info("Resynchronisation des dates depuis la watchlist Plex (RSS/API)…")
+        await sync_plex_dates(db)
         run.progress = 100
         emit.ok("Dates recalculées.")
     except Exception as e:
         emit.err(str(e))
         raise
+    finally:
+        await db.close()
 
 
 async def _run_enrich_and_merge(run: MaintenanceRun):

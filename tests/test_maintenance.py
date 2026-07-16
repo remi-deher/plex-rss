@@ -249,9 +249,16 @@ async def test_run_discover_users_calls_poll():
 @pytest.mark.asyncio
 async def test_run_recalculate_dates_calls_sync():
     run = MaintenanceRun(action="recalculate-dates")
-    with patch("app.scheduler.sync_seer_requests", new_callable=AsyncMock):
+    db = make_test_session()
+    with (
+        patch("app.scheduler.sync_seer_requests", new_callable=AsyncMock) as mock_seer,
+        patch("app.services.watchlist_poller.sync_plex_dates", new_callable=AsyncMock) as mock_plex,
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
+    ):
         await _run_recalculate_dates(run)
     assert run.progress == 100
+    mock_seer.assert_awaited_once()
+    mock_plex.assert_awaited_once_with(db)
 
 
 @pytest.mark.asyncio
