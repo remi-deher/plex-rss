@@ -337,8 +337,9 @@ async def test_run_resync_availability_calls_check_arr_statuses_full_resync():
     db.add(req)
     db.commit()
 
-    async def _fake_resync(full_resync=False):
+    async def _fake_resync(full_resync=False, notify=True):
         assert full_resync is True
+        assert notify is False, "le resync manuel ne doit pas notifier (voir demande utilisateur)"
         req.status = RequestStatus.partially_available
         req.episodes_available_count = 6
         req.episodes_total_count = 13

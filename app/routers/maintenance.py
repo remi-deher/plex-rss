@@ -152,7 +152,8 @@ ACTIONS_META = {
             "Revérifie les séries déjà \"Disponible\" dont le détail par saison n'a jamais été "
             "renseigné (ex : passées disponibles avant l'introduction du suivi partiel) — les "
             "repasse en \"Partiellement disponible\" si elles ne sont en réalité pas complètes. "
-            "Peut déclencher des notifications de jalon (saison démarrée/terminée) pour ces séries."
+            "N'envoie aucune notification (rattrapage silencieux) — un vrai nouveau progrès "
+            "sera notifié normalement dès le prochain cycle planifié."
         ),
         "icon": "bi-arrow-repeat",
         "color": "warning",
@@ -266,7 +267,11 @@ async def _run_resync_availability(run: MaintenanceRun):
         run.progress = 10
 
         from ..services.arr_tracker import check_arr_statuses
-        await check_arr_statuses(full_resync=True)
+        # notify=False : corrige les statuts/compteurs historiques sans envoyer de mail --
+        # un rattrapage de plusieurs mois de donnees ne doit pas declencher une rafale de
+        # notifications. Le prochain cycle planifie (notify=True par defaut) notifiera
+        # normalement tout nouveau progres reel a partir de maintenant.
+        await check_arr_statuses(full_resync=True, notify=False)
         run.progress = 90
 
         # check_arr_statuses() commit ses changements via sa propre session (AsyncSessionLocal

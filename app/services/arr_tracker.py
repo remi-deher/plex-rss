@@ -109,7 +109,7 @@ _DISTRIBUTED_ARR_STATUS_LOCK_KEY = "plexarr:lock:check_arr_statuses"
 _DISTRIBUTED_ARR_STATUS_LOCK_TTL = 300
 
 
-async def check_arr_statuses(full_resync: bool = False):
+async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
     """Vérifie si des demandes `sent_to_arr` sont désormais disponibles dans *arr.
 
     `full_resync=True` (déclenché manuellement depuis l'onglet Maintenance) élargit le
@@ -119,6 +119,11 @@ async def check_arr_statuses(full_resync: bool = False):
     cycle normal (qui exige episodes_total_count non NULL pour re-vérifier une série
     déjà "available"). Sans ce paramètre, ces demandes restent bloquées indéfiniment à
     "available" même si elles ne sont en réalité que partiellement téléchargées.
+
+    `notify=False` corrige les statuts/compteurs sans déclencher la moindre notification
+    (mail "disponible"/jalon saison) — utile pour un resync manuel qui rattrape des mois
+    de données historiques sans spammer les utilisateurs. Un vrai nouveau progrès sera
+    de toute façon capté et notifié normalement dès le prochain cycle planifié (notify=True).
 
     Stratégie de lookup (sans webhook) :
     1. Si arr_id connu → GET /api/v3/series/{id} ou /api/v3/movie/{id}
@@ -432,7 +437,14 @@ async def check_arr_statuses(full_resync: bool = False):
                     else:
                         await db.commit()
 
-                    if req.media_type == "show":
+                    if not notify:
+                        # Resync manuel (voir full_resync) : corrige le statut/les compteurs
+                        # sans notifier — un simple rattrapage de donnee historique ne doit
+                        # pas declencher une rafale de mails "saison disponible" pour des
+                        # series suivies depuis des mois. Un vrai nouveau progres sera capte
+                        # et notifie normalement au prochain cycle planifie.
+                        pass
+                    elif req.media_type == "show":
                         # Gère la disponibilité partielle (série en cours de diffusion) :
                         # décide de la notif à envoyer (partielle / complète) selon la
                         # progression et la fréquence choisie. Tourne à chaque cycle tant

@@ -90,6 +90,27 @@ def test_list_requests_ordered_by_date_desc(client, db):
     assert titles[1] == "Old Movie"
 
 
+def test_list_requests_does_not_truncate_old_open_requests(client, db):
+    """Regression production : une demande encore ouverte (sent_to_arr) plus ancienne
+    que les 200 lignes les plus recentes ne doit pas disparaitre silencieusement de la
+    liste -- l'app charge tout cote client et filtre par statut, une limite trop basse
+    cachait des films toujours reellement en cours cote Radarr."""
+    from datetime import datetime, timedelta, timezone
+
+    very_old_open = _req(title="Very Old Still Pending", status="sent_to_arr")
+    very_old_open.requested_at = datetime.now(timezone.utc) - timedelta(days=365)
+    db.add(very_old_open)
+    for i in range(210):
+        recent = _req(title=f"Recent {i}", status="available")
+        recent.requested_at = datetime.now(timezone.utc) - timedelta(minutes=i)
+        db.add(recent)
+    db.commit()
+
+    resp = client.get("/api/requests")
+    titles = {r["title"] for r in resp.json()}
+    assert "Very Old Still Pending" in titles
+
+
 # ---------------------------------------------------------------------------
 # GET /api/requests/{id}
 # ---------------------------------------------------------------------------

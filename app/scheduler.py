@@ -155,11 +155,11 @@ def update_poll_interval(seconds: int):
 # --- Wrappers de déclenchement des jobs planifiés ---
 
 
-async def check_arr_statuses():
+async def check_arr_statuses(**kwargs):
     """Job planifié : vérification de la disponibilité des médias dans Sonarr/Radarr."""
     from .services.arr_tracker import check_arr_statuses as _check
 
-    await _check()
+    await _check(**kwargs)
 
 
 async def check_torrent_statuses():

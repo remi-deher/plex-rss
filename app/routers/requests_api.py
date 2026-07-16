@@ -240,7 +240,14 @@ async def list_requests(query: Optional[str] = None, request: Request = None, db
         )
     if query:
         q = q.filter(MediaRequest.title.ilike(f"%{query}%"))
-    return (await db.execute(q.order_by(MediaRequest.requested_at.desc()).limit(200))).scalars().all()
+    # RequestsView.vue charge la liste entiere puis filtre cote client (statut/type/
+    # source/demandeur) -- une limite trop basse tronquait silencieusement les demandes
+    # les plus anciennes encore ouvertes (regression production : des films "sent_to_arr"
+    # de mars, plus vieux que les 200 lignes les plus recentes toutes tendances confondues,
+    # disparaissaient de la vue alors qu'ils etaient toujours reellement en cours cote
+    # Radarr). Relevee tres au-dela d'un volume realiste plutot que supprimee : garde un
+    # garde-fou contre une croissance non bornee.
+    return (await db.execute(q.order_by(MediaRequest.requested_at.desc()).limit(5000))).scalars().all()
 
 
 @router.get("/plex/library-search")
