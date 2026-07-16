@@ -227,6 +227,67 @@ def test_spa_media_detail_exposes_last_mail_history(async_db):
         _cleanup()
 
 
+def test_spa_media_detail_exposes_per_requester_notification_status(async_db):
+    """Régression : /api/media/detail doit indiquer, PAR PERSONNE (pas juste
+    globalement), si le mail demande/disponibilité a été envoyé avec succès — sert à
+    l'indicateur "déjà notifié" et à "Rattraper tout le monde" dans MediaDetailDrawer."""
+    from datetime import datetime
+
+    from app.models import NotificationLog, PlexUser
+
+    alice = PlexUser(plex_user_id="alice", notification_email="alice@example.com")
+    bob = PlexUser(plex_user_id="bob", notification_email="bob@example.com")
+    request = MediaRequest(
+        plex_user_id="alice",
+        title="Dune",
+        media_type="movie",
+        year=2021,
+        status=RequestStatus.available,
+        extra_requesters='[{"plex_user_id": "bob", "display_name": "Bob"}]',
+    )
+    async_db.add_all([alice, bob, request])
+    async_db.flush()
+    async_db.add_all([
+        NotificationLog(
+            sent_at=datetime(2026, 1, 1, 10, 0, 0), event="request", channel="email", recipient="alice@example.com",
+            req_id=request.id, success=True, triggered_by="auto",
+        ),
+        NotificationLog(
+            sent_at=datetime(2026, 1, 2, 10, 0, 0), event="available", channel="email", recipient="alice@example.com",
+            req_id=request.id, success=True, triggered_by="auto",
+        ),
+        # Envoi echoue pour bob : ne doit pas compter comme "notifie".
+        NotificationLog(
+            sent_at=datetime(2026, 1, 2, 10, 0, 0), event="request", channel="email", recipient="bob@example.com",
+            req_id=request.id, success=False, triggered_by="manual",
+        ),
+    ])
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get(f"/api/media/detail?request_id={request.id}")
+        assert response.status_code == 200
+        notifications = response.json()["requests"][0]["requester_notifications"]
+        assert notifications["alice"] == {"request": True, "available": True}
+        assert notifications["bob"] == {"request": False, "available": False}
+    finally:
+        _cleanup()
+
+
+def test_spa_media_detail_requester_without_email_is_untracked(async_db):
+    request = MediaRequest(plex_user_id="ghost", title="Dune", media_type="movie", status=RequestStatus.pending)
+    async_db.add(request)
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get(f"/api/media/detail?request_id={request.id}")
+        assert response.status_code == 200
+        notifications = response.json()["requests"][0]["requester_notifications"]
+        assert notifications["ghost"] == {"request": None, "available": None}
+    finally:
+        _cleanup()
+
+
 def test_spa_manual_import_links_existing_request(async_db):
     instance = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="secret", enabled=True)
     async_db.add(instance)

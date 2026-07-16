@@ -315,11 +315,17 @@ async def media_detail(
     if selected_request and selected_request.id not in {r.id for r in related_requests}:
         related_requests.insert(0, selected_request)
 
-    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in (await db.execute(select(PlexUser))).scalars().all()}
+    all_users = (await db.execute(select(PlexUser))).scalars().all()
+    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in all_users}
+    user_by_id = {u.plex_user_id: u for u in all_users}
     from ..serializers import format_datetime, serialize_media_request
 
     request_ids_for_mail = [req.id for req in related_requests]
     last_mail_by_req: dict[int, dict] = {}
+    # (req_id, event) -> adresses ayant reçu ce mail avec succès — sert à savoir, PAR
+    # PERSONNE (pas juste globalement), si un demandeur/co-demandeur a déjà été notifié
+    # (voir "Rattraper tout le monde" et l'indicateur par ligne dans MediaDetailDrawer).
+    mail_recipients_by_req: dict[tuple[int, str], set[str]] = {}
     if request_ids_for_mail:
         mail_logs = (await db.execute(
             select(NotificationLog)
@@ -338,11 +344,27 @@ async def media_detail(
                     "triggered_by": log.triggered_by,
                     "success": log.success,
                 }
+            if log.success:
+                mail_recipients_by_req.setdefault(key, set()).add((log.recipient or "").strip().lower())
+
+    def _requester_emails(plex_user_id: str) -> set[str]:
+        u = user_by_id.get(plex_user_id)
+        raw = (u.notification_email if u else None) or ""
+        return {addr.strip().lower() for addr in raw.split(",") if addr.strip()}
 
     request_payloads = [serialize_media_request(req, users) for req in related_requests]
     for payload, req in zip(request_payloads, related_requests):
         payload["last_request_mail"] = last_mail_by_req.get((req.id, "request"))
         payload["last_available_mail"] = last_mail_by_req.get((req.id, "available"))
+        request_recipients = mail_recipients_by_req.get((req.id, "request"), set())
+        available_recipients = mail_recipients_by_req.get((req.id, "available"), set())
+        payload["requester_notifications"] = {
+            uid: {
+                "request": bool(_requester_emails(uid) & request_recipients) if _requester_emails(uid) else None,
+                "available": bool(_requester_emails(uid) & available_recipients) if _requester_emails(uid) else None,
+            }
+            for uid in payload.get("requester_ids", [])
+        }
     schedule = await _media_schedule_payload(db, media_obj)
     request_ids = [req.id for req in related_requests]
     issue_q = select(MediaIssue).filter(MediaIssue.status != "closed")
