@@ -16,7 +16,7 @@ function openDetail(item){
   const kind = item.library_id ? 'library' : item.request_id ? 'request' : 'discover';
   router.push(mediaDetailPath(item, kind));
 }
-function statusLabel(value){return ({pending_approval:'A approuver',pending:'En attente',sent_to_arr:'Transmise',failed:'Echec',available:'Disponible'})[value]||'Demandee'}
+function statusLabel(value){return ({pending_approval:'A approuver',pending:'En attente',sent_to_arr:'Transmise',partially_available:'Partiellement disponible',failed:'Echec',available:'Disponible'})[value]||'Demandee'}
 function setMediaType(value){mediaType.value=value;if(value==='all'&&section.value==='genres')section.value='trending';loadGenres();load()}
 function setSection(value){section.value=value;query.value='';load()}
 async function loadGenres(){if(mediaType.value==='all')return;genres.value=await api(`/api/discover/genres?media_type=${mediaType.value}`).catch(()=>[])}

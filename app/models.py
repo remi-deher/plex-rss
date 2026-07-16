@@ -33,6 +33,10 @@ class RequestStatus(str, enum.Enum):
     pending = "pending"
     sent_to_arr = "sent_to_arr"
     available = "available"
+    # Série en cours de diffusion (Sonarr) : au moins un épisode a un fichier, mais pas
+    # tous — distinct de `available` (série complète) pour ne pas afficher un badge
+    # "Disponible" trompeur tant qu'il manque des épisodes. Jamais utilisé pour les films.
+    partially_available = "partially_available"
     failed = "failed"
 
 

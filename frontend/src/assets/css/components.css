@@ -94,7 +94,8 @@
   color: var(--red);
 }
 
-.badge.pending_approval {
+.badge.pending_approval,
+.badge.partially_available {
   border-color: rgba(229, 160, 13, .6);
   color: var(--accent);
 }

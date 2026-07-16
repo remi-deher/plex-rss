@@ -104,6 +104,7 @@ function requestStatusLabel(value) {
     pending_approval: 'A approuver',
     pending: 'En attente',
     sent_to_arr: 'Transmise',
+    partially_available: 'Partiellement disponible',
     available: 'Disponible',
     failed: 'Erreur',
     rejected: 'Refusee',
@@ -111,7 +112,7 @@ function requestStatusLabel(value) {
 }
 function stepState(row, key) {
   const order = ['requested', 'sent', 'available'];
-  const statusIndex = row.status === 'available' ? 2 : row.status === 'sent_to_arr' ? 1 : 0;
+  const statusIndex = ['available', 'partially_available'].includes(row.status) ? 2 : row.status === 'sent_to_arr' ? 1 : 0;
   const keyIndex = order.indexOf(key);
   if (keyIndex < statusIndex) return 'done';
   if (keyIndex === statusIndex) return 'current';

@@ -1,4 +1,4 @@
-export const STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'available', 'failed', 'rejected'];
+export const STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available', 'available', 'failed', 'rejected'];
 export const TYPES = ['movie', 'show'];
 
 export function statusLabel(value) {
@@ -6,6 +6,7 @@ export function statusLabel(value) {
     pending_approval: 'A approuver',
     pending: 'En attente',
     sent_to_arr: 'Transmise',
+    partially_available: 'Partiellement disponible',
     available: 'Disponible',
     failed: 'Echec',
     rejected: 'Refusee',

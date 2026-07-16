@@ -101,10 +101,14 @@ async def check_arr_statuses():
             select(MediaRequest).filter(
                 or_(
                     MediaRequest.status == RequestStatus.sent_to_arr,
-                    # Séries déjà "available" mais encore partiellement diffusées : on
-                    # continue de rafraîchir leurs compteurs d'épisodes tant qu'elles
-                    # n'ont pas atteint episodes_total_count (nouveaux épisodes chaque
-                    # semaine), pour le badge et les notifs de progression.
+                    # Séries en cours de diffusion (partiellement disponibles par définition,
+                    # voir RequestStatus.partially_available) : on continue de rafraîchir
+                    # leurs compteurs d'épisodes à chaque cycle, pour le badge et les notifs
+                    # de progression, jusqu'à disponibilité complète.
+                    MediaRequest.status == RequestStatus.partially_available,
+                    # Séries déjà "available" mais encore partiellement diffusées (nouveaux
+                    # épisodes chaque semaine) : on continue de rafraîchir leurs compteurs
+                    # tant qu'elles n'ont pas atteint episodes_total_count.
                     and_(
                         MediaRequest.status == RequestStatus.available,
                         MediaRequest.media_type == "show",
@@ -304,6 +308,15 @@ async def check_arr_statuses():
                 effective_arr_id = None if seer_checked else (new_arr_id or arr_lookup_id)
                 req.is_downloading = bool(effective_arr_id and effective_arr_id in queue_ids)
 
+                # Série en cours de diffusion : au moins un épisode a un fichier mais pas
+                # tous — statut distinct de `available` pour ne pas afficher un badge
+                # "Disponible" trompeur tant qu'il manque des épisodes (voir RequestStatus).
+                is_show_partial = (
+                    req.media_type == "show"
+                    and req.episodes_total_count
+                    and (req.episodes_available_count or 0) < req.episodes_total_count
+                )
+
                 was_already_available = req.status == RequestStatus.available
                 if available:
                     if not await has_plex_proof(db, req):
@@ -315,7 +328,15 @@ async def check_arr_statuses():
                         )
                         await db.commit()
                         continue
-                    if not was_already_available:
+                    if is_show_partial:
+                        if req.status != RequestStatus.partially_available:
+                            req.status = RequestStatus.partially_available
+                            logger.info(
+                                "'%s' est partiellement disponible (%s/%s episodes)",
+                                req.title, req.episodes_available_count, req.episodes_total_count,
+                            )
+                        await db.commit()
+                    elif not was_already_available:
                         req.status = RequestStatus.available
                         req.available_at = now_utc_naive()
                         req.next_release_at = None

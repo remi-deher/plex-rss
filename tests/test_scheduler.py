@@ -700,6 +700,69 @@ async def test_check_arr_show_becomes_available(db):
 
 
 @pytest.mark.asyncio
+async def test_check_arr_show_becomes_partially_available(db):
+    """Régression : un seul épisode présent sur 5 ne doit plus afficher "Disponible"
+
+    (statut RequestStatus.available, badge vert) comme si la série était complète —
+    c'est le comportement corrigé (voir arr_tracker.py, is_show_partial). Pas de
+    LibraryItem non-matchant ici : table LibraryItem vide -> has_plex_proof() bypass
+    à True (voir commentaire de _settings), donc le statut peut réellement transiter."""
+    db.add(_settings())
+    db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
+    db.commit()
+
+    series_stats = {
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 1,
+        "episode_count": 1,
+        "total_episode_count": 5,
+    }
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.partially_available
+    assert req.episodes_available_count == 1
+    assert req.episodes_total_count == 5
+    assert req.available_at is None
+    # La notif de disponibilite partielle (pipeline existant, _handle_show_progress_notification)
+    # doit toujours partir normalement -- seul le statut affiche change avec ce correctif.
+    mock_enqueue.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_check_arr_show_becomes_fully_available(db):
+    """Régression : quand tous les épisodes sont présents, le statut doit bien passer
+    à RequestStatus.available (pas rester bloqué à partially_available)."""
+    db.add(_settings())
+    db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
+    db.commit()
+
+    series_stats = {
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 5,
+        "episode_count": 5,
+        "total_episode_count": 5,
+    }
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
+        _patch_enqueue(),
+    ):
+        await check_arr_statuses()
+
+    req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.available
+    assert req.available_at is not None
+
+
+@pytest.mark.asyncio
 async def test_check_arr_no_candidates_returns_early(db):
     """Aucune demande sent_to_arr → aucun check effectué."""
     db.add(_settings())
