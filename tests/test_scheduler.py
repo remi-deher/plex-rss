@@ -194,6 +194,61 @@ async def test_poll_new_item_creates_request_and_notifies(db):
 
 
 @pytest.mark.asyncio
+async def test_poll_old_watchlist_item_suppresses_notification(db):
+    """Item watchlist dont la date reelle d'ajout (pubDate RSS) depasse deja 24h a la
+    detection (resurgit dans le flux RSS limite a 50 entrees, voir plex_rss.py) :
+    la demande est bien creee/transmise a *arr, mais aucune notification n'est enqueuee,
+    et notify_suppressed est pose une fois pour toutes.
+    """
+    from datetime import timedelta
+    from app.utils import now_utc_naive
+
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.commit()
+
+    old_date = now_utc_naive() - timedelta(days=10)
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item(requested_at=old_date)]),
+        _patch_submit(),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req is not None
+    assert req.status == RequestStatus.sent_to_arr
+    assert req.arr_id == 42
+    assert req.notify_suppressed is True
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_poll_recent_watchlist_item_does_not_suppress(db):
+    """Item watchlist ajoute il y a moins de 24h : comportement normal, notifie."""
+    from datetime import timedelta
+    from app.utils import now_utc_naive
+
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.commit()
+
+    recent_date = now_utc_naive() - timedelta(hours=2)
+    with (
+        _patch_session(db),
+        _patch_watchlist([_movie_item(requested_at=recent_date)]),
+        _patch_submit(),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await poll_watchlists()
+
+    req = db.query(MediaRequest).first()
+    assert req.notify_suppressed is False
+    mock_enqueue.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_poll_skipped_when_distributed_lock_held_elsewhere(db):
     """Verrou Redis déjà détenu (autre process/conteneur) → cycle ignoré, aucun traitement.
 

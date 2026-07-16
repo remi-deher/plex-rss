@@ -3,7 +3,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import sqlalchemy
 from sqlalchemy import or_
@@ -626,6 +626,15 @@ async def _process_watchlist_item(
         )
         if item.get("requested_at"):
             req.requested_at = item["requested_at"]
+            # Watchlist-ajout deja vieux de plus de 24h a la detection (RSS resurfacing) :
+            # decide une bonne fois pour toutes, jamais reevalue plus tard (voir modele).
+            if now_utc_naive() - item["requested_at"] > timedelta(hours=24):
+                req.notify_suppressed = True
+                logger.info(
+                    "'%s' : ajout watchlist du %s (> 24h), notifications automatiques desactivees",
+                    item["title"],
+                    item["requested_at"],
+                )
         db.add(req)
         await db.flush()
 

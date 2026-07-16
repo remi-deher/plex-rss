@@ -60,10 +60,15 @@ def _parse_rss_entry(entry) -> dict | None:
 
     import calendar
     from datetime import datetime, timezone
-    
+
+    # <pubDate> est bien la date d'ajout à la watchlist (vérifié empiriquement : les entrées
+    # du flux sont triées par pubDate décroissant, sans corrélation avec l'année de sortie des
+    # films/séries — ex. un film de 2019 en tête et un film de 1975 loin derrière). L'ancien
+    # commentaire ici affirmait l'inverse (date de sortie) sans l'avoir vérifié.
     requested_at = None
-    # On ignore published_parsed car Plex met la date de sortie du film dans l'attribut pubDate du flux RSS,
-    # et non la date d'ajout à la watchlist.
+    published_parsed = entry.get("published_parsed")
+    if published_parsed:
+        requested_at = datetime.fromtimestamp(calendar.timegm(published_parsed), tz=timezone.utc).replace(tzinfo=None)
 
     # <category> = "movie" ou "show" — valeur déjà normalisée par Plex
     categories = [t.get("term", "").lower() for t in entry.get("tags", [])]

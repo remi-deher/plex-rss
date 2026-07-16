@@ -554,6 +554,13 @@ class MediaRequest(Base):
     # watchlist_poller.py (reset au succès).
     failure_mail_sent: Mapped[bool] = mapped_column(default=False)
 
+    # True si `requested_at` (date réelle d'ajout à la watchlist Plex, via <pubDate> RSS ou
+    # l'API) dépassait déjà 24h au moment où l'app a détecté cet item — cas d'un vieil item
+    # qui ressort dans le flux RSS (fenêtre limitée à 50 entrées, voir plex_rss.py) longtemps
+    # après son ajout réel. Décidé une seule fois à la création : évite de couper les mails
+    # "disponible" de téléchargements légitimes qui prennent simplement plus de 24h.
+    notify_suppressed: Mapped[bool] = mapped_column(default=False)
+
     requested_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
     available_at: Mapped[Optional[datetime]]
     poster_url: Mapped[Optional[str]]

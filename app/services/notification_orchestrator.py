@@ -357,6 +357,8 @@ async def resolve_and_notify_availability(
     Les scanners historiques utilisent encore la version synchrone ci-dessus;
     les routes et webhooks, eux, ne doivent jamais retomber sur ``db.query``.
     """
+    if req.notify_suppressed:
+        return False
     user_obj = (
         await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))
     ).scalars().first()
@@ -506,6 +508,11 @@ async def _notify(
 ) -> None:
     """Version async de la notification générique utilisée par les routes."""
     if not force:
+        if req.notify_suppressed:
+            # Vieil item de watchlist ressorti dans le flux RSS (> 24h à la détection) —
+            # décision prise une fois pour toutes à la création (watchlist_poller.py).
+            # Un renvoi manuel (force=True) reste toujours possible.
+            return
         if event == "request" and req.request_mail_sent:
             return
         if event == "available" and req.available_mail_sent:

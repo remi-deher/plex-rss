@@ -63,3 +63,41 @@ async def test_resolve_and_notify_availability_sends_one_and_consumes_all_candid
     assert all(m.language is None and m.is_upgrade is False for m in milestones)
     await db.close()
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_notify_availability_skips_when_suppressed():
+    """notify_suppressed (vieil item watchlist resurgi dans le flux RSS) doit bloquer
+    aussi ce chemin — la majorite des mails "disponible" y transitent, contrairement a
+    _notify() qui n'est qu'un chemin secondaire."""
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True)
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Show",
+        media_type="show",
+        status=RequestStatus.available,
+        notify_suppressed=True,
+    )
+    db.add_all([settings, user, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue:
+        sent = await resolve_and_notify_availability(
+            settings,
+            req,
+            db,
+            candidates=[AvailabilityCandidate(scope="season_complete", season_number=2)],
+        )
+
+    assert sent is False
+    mock_enqueue.assert_not_called()
+
+    milestones = (
+        await db.execute(select(NotificationMilestone).filter_by(req_id=req.id))
+    ).scalars().all()
+    assert milestones == []
+    await db.close()
+    await engine.dispose()
