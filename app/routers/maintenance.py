@@ -124,7 +124,7 @@ ACTIONS_META = {
     },
     "recalculate-dates": {
         "label": "Recalculer les dates",
-        "description": "Corrige requested_at depuis Seer et la watchlist Plex (RSS/API) — n'envoie aucune notification.",
+        "description": "Remplace la date affichée (\"Demandée le\") par la vraie date d'ajout à la watchlist Plex (RSS/API) ou de création côté Seer, au lieu de la date de première détection par l'app — n'envoie aucune notification.",
         "icon": "bi-calendar-check",
         "color": "secondary",
     },
