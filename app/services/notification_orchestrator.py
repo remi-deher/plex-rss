@@ -449,7 +449,13 @@ async def _queue_milestone(
     language: str | None = None,
     season: int | None = None,
     episode: int | None = None,
+    is_upgrade: bool | None = None,
 ) -> bool:
+    # Par défaut, une notification VF est traitée comme une "amélioration" (mail
+    # dédié) — sauf appel explicite indiquant qu'il ne s'agit pas d'une vraie
+    # transition VO→VF (ex: tout premier scan d'une demande qui tombe directement
+    # sur du VF, sans période VO connue avant).
+    resolved_upgrade = (language == "vf") if is_upgrade is None else is_upgrade
     return await resolve_and_notify_availability(
         settings,
         req,
@@ -458,7 +464,7 @@ async def _queue_milestone(
             AvailabilityCandidate(
                 scope=scope,
                 language=language,
-                is_upgrade=language == "vf",
+                is_upgrade=resolved_upgrade,
                 season_number=season,
                 episode_number=episode,
             )

@@ -464,6 +464,57 @@ async def test_movie_first_vf_detection_uses_single_available_vf_event():
 
 
 @pytest.mark.asyncio
+async def test_movie_first_vf_scan_notifies_even_if_available_mail_already_sent():
+    """Régression "Police Flash 80" : la demande était déjà marquée disponible (mail
+    générique déjà envoyé, ex. confirmation *arr) bien avant que le tout premier scan
+    VF n'ait eu l'occasion de tourner (fichier arrivé dans Plex des semaines plus
+    tard). L'ancien code renvoyait alors _notify("available", ...), bloqué net par le
+    garde-fou available_mail_sent déjà à True — aucune notification ne partait jamais.
+    """
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Police Flash 80",
+        year=1978,
+        media_type="movie",
+        plex_guid="plex://movie/police-flash-80",
+        status=RequestStatus.available,
+        has_vf=None,
+        available_mail_sent=True,  # deja notifie "disponible" (generique) bien avant
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3]["is_upgrade"] is False
+
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_available_at is not None
+
+
+@pytest.mark.asyncio
 async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
     db = _make_db()
     settings = Settings(

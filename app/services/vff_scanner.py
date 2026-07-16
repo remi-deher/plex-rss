@@ -413,19 +413,28 @@ async def _queue_availability_progress(
     episode_status: dict | None = None,
     has_vf_full: bool = False,
     season_aired_counts: dict[int, int] | None = None,
+    is_upgrade: bool | None = None,
 ) -> int:
     """Point d'entrée unique pour les notifications de progression VO/VF (films et
     séries) — remplace l'ancien `_queue_language_progress_notifications`. Respecte le
     mode "classic" (movie_notify_language/series_notify_language désactivé) et le suivi
     "sans langue" des séries (délégué à `check_episode_tracking`, jamais les deux à la
-    fois pour éviter un double suivi du même évènement)."""
+    fois pour éviter un double suivi du même évènement).
+
+    `is_upgrade` : laissé à None pour l'inférence par défaut (langue "vf" = amélioration).
+    À forcer à False pour un premier scan qui tombe directement sur du VF (pas de
+    période VO connue avant) — ce n'est pas une vraie transition VO→VF."""
     user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
     if req.media_type != "show":
         if not _resolve_movie_notify_language(settings, user_obj):
             if not req.available_mail_sent:
                 await _notify("available", settings, req, db)
             return 0
-        return int(await _queue_milestone(settings, req, db, scope="movie", language=language))
+        return int(
+            await _queue_milestone(
+                settings, req, db, scope="movie", language=language, is_upgrade=is_upgrade
+            )
+        )
 
     if not _resolve_series_notify_language(settings, user_obj):
         return 0
@@ -474,25 +483,32 @@ async def _apply_vf_result(
     if has_vf:
         req.has_vf = True
         req.vf_granularity = "full"
+        # `vf_available_at` doit être posé ici même en "première analyse" (pas
+        # seulement lors d'une transition) : sinon une demande dont le tout premier
+        # scan VF tombe directement sur du VF (aucune période VO détectée avant, ex.
+        # fichier arrivé longtemps après la confirmation "disponible" générique côté
+        # *arr) garde `vf_available_at` à NULL indéfiniment.
+        req.vf_available_at = req.vf_available_at or now
+        await db.commit()
         if was_tracking:
-            # Transition VO → VF : on prévient
-            req.vf_available_at = now
-            await db.commit()
-            vf_delta = await _queue_availability_progress(
-                settings,
-                req,
-                db,
-                language="vf",
-                episode_status=episode_status,
-                has_vf_full=True,
-                season_aired_counts=season_aired_counts,
-            )
             logger.info(f"VFF : '{req.title}' est désormais disponible en VF")
-        else:
-            # Première analyse, VF présente : envoie l'« available » différé
-            # (une seule notification — pas de doublon avec vo_only).
-            await db.commit()
-            await _notify("available", settings, req, db)
+        # Toujours passer par le système de jalons (respecte les réglages VF/VO de
+        # l'utilisateur et n'est jamais bloqué par `available_mail_sent`), plutôt que
+        # le _notify("available", ...) générique utilisé ici auparavant en "première
+        # analyse" — celui-ci restait silencieusement bloqué dès que le mail
+        # générique était déjà parti (ex: confirmation *arr) avant que le tout
+        # premier scan VF n'ait eu l'occasion de tourner, ce qui pouvait survenir
+        # bien après (le fichier met parfois des semaines à apparaître dans Plex).
+        vf_delta = await _queue_availability_progress(
+            settings,
+            req,
+            db,
+            language="vf",
+            episode_status=episode_status,
+            has_vf_full=True,
+            season_aired_counts=season_aired_counts,
+            is_upgrade=was_tracking,
+        )
     else:
         # VO uniquement
         req.has_vf = False
