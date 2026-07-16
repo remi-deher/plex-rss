@@ -131,7 +131,6 @@ import MediaHero from "./media/MediaHero.vue";
 import MediaAudioSection from "./media/MediaAudioSection.vue";
 import MediaIssueForm from "./media/MediaIssueForm.vue";
 import MediaCorrectionForm from "./media/MediaCorrectionForm.vue";
-import { inject } from 'vue';
 
 const props=defineProps({item:{type:Object,required:true},mode:{type:String,default:'library'}});
 const emit=defineEmits(['close','updated','select']);
@@ -139,7 +138,7 @@ const router=useRouter();
 const detail=ref(null),requesters=ref([]),folders=ref([]),vfDetail=ref(null),loading=ref(false),busy=ref(false),error=ref(''),tab=ref('summary');
 const requestForm=reactive({plex_user_id:'',root_folder:'',seasons:[]});
 const tabs=['summary','requests','calendar'];
-const admin = inject('isAdmin', false);
+const admin = ref(false);
 
 const showIssueForm=ref(false),showCorrectionForm=ref(false);
 const users=ref([]),correctionOptions=ref([]);
@@ -175,6 +174,13 @@ async function loadUsers(){
   }catch(e){}
 }
 
+async function loadSession(){
+  try{
+    const session=await api('/api/session');
+    admin.value=Boolean(session?.is_owner||session?.role==='admin');
+  }catch(e){admin.value=false}
+}
+
 async function load(){
   loading.value=true;error.value='';vfDetail.value=null;
   try{
@@ -190,7 +196,7 @@ async function load(){
   }catch(e){error.value=e.message}finally{loading.value=false}
   
   if (props.mode !== 'discover') {
-    Promise.all([loadVf(), loadUsers()]).catch(()=>{});
+    Promise.all([loadVf(), loadUsers(), loadSession()]).catch(()=>{});
   }
 }
 
