@@ -150,6 +150,52 @@ async def test_mark_available_and_notify_lookup_by_arr_id():
     assert count == 1
 
 
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_arr_detected_vf_sets_has_vf_immediately():
+    """Signal rapide *arr (mediaInfo.audioLanguages) : has_vf doit passer a True des que
+    la demande devient disponible, sans attendre le scan Plex qui suit (toujours execute
+    en plus, il fait foi s'il contredit)."""
+    req = _req()
+    db = _make_db(requests=[req])
+    with (
+        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=True)) as scan_mock,
+        patch("app.routers.webhook.record_completed", new=AsyncMock()),
+        patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()),
+    ):
+        await _mark_available_and_notify("Dune", "movie", 10, db, _settings(), arr_detected_vf=True)
+    assert req.has_vf is True
+    assert req.vf_checked_at is not None
+    scan_mock.assert_awaited_once()  # le scan Plex tourne quand meme, il n'est jamais court-circuite
+
+
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_no_arr_signal_leaves_has_vf_untouched():
+    req = _req()
+    db = _make_db(requests=[req])
+    with (
+        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=False)),
+        patch("app.routers.webhook.record_completed", new=AsyncMock()),
+        patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()),
+    ):
+        await _mark_available_and_notify("Dune", "movie", 10, db, _settings(), arr_detected_vf=False)
+    assert req.has_vf is None
+
+
+@pytest.mark.asyncio
+async def test_mark_available_and_notify_arr_signal_persists_even_without_plex_proof():
+    """Meme si Plex n'a pas encore scanne le fichier (has_plex_proof=False, la demande
+    reste 'Transmise'), le signal VF *arr ne doit pas etre perdu — voir incident 'Orange'
+    (statut reste bloque en attente de Plex, mais on connait deja la VF des l'import)."""
+    req = _req()
+    db = _make_db(requests=[req])
+    with patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=False)):
+        await _mark_available_and_notify("Dune", "movie", 10, db, _settings(), arr_detected_vf=True)
+    assert req.status == RequestStatus.sent_to_arr
+    assert req.has_vf is True
+
+
 def test_sonarr_webhook_ignored_event():
     db = _make_db(settings=_settings())
     with _db_patch(db):
@@ -168,6 +214,41 @@ def test_sonarr_webhook_media_event(event):
         )
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "matched": 0}
+
+
+def test_sonarr_webhook_download_with_french_media_info_sets_has_vf():
+    """Regression : le payload webhook Sonarr d'un Download inclut deja
+    episodeFile.mediaInfo.audioLanguages (ffprobe execute par Sonarr a l'import) — doit
+    etre lu et traduit en has_vf=True immediat, sans appel API supplementaire."""
+    req = _req(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    db = _make_db(settings=_settings(), requests=[req])
+    with _db_patch(db):
+        response = client.post(
+            "/webhook/sonarr",
+            json={
+                "eventType": "Download",
+                "series": {"title": "Breaking Bad", "tvdbId": 81189},
+                "episodeFile": {"mediaInfo": {"audioLanguages": ["French", "English"]}},
+            },
+        )
+    assert response.status_code == 200
+    assert req.has_vf is True
+
+
+def test_sonarr_webhook_download_without_french_media_info_leaves_has_vf_untouched():
+    req = _req(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    db = _make_db(settings=_settings(), requests=[req])
+    with _db_patch(db):
+        response = client.post(
+            "/webhook/sonarr",
+            json={
+                "eventType": "Download",
+                "series": {"title": "Breaking Bad", "tvdbId": 81189},
+                "episodeFile": {"mediaInfo": {"audioLanguages": ["English"]}},
+            },
+        )
+    assert response.status_code == 200
+    assert req.has_vf is None
 
 
 def test_sonarr_webhook_delete_event_removes_requests():
@@ -201,6 +282,22 @@ def test_radarr_webhook_media_event(event):
         )
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_radarr_webhook_download_with_french_media_info_sets_has_vf():
+    req = _req(title="Dune", tmdb_id="438631")
+    db = _make_db(settings=_settings(), requests=[req])
+    with _db_patch(db):
+        response = client.post(
+            "/webhook/radarr",
+            json={
+                "eventType": "Download",
+                "movie": {"title": "Dune", "tmdbId": 438631},
+                "movieFile": {"mediaInfo": {"audioLanguages": "French/English"}},
+            },
+        )
+    assert response.status_code == 200
+    assert req.has_vf is True
 
 
 def test_radarr_webhook_delete_event_removes_requests():

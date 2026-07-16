@@ -75,6 +75,31 @@ def _stream_is_french(stream) -> bool:
     return False
 
 
+def languages_list_has_french(languages) -> bool:
+    """Signal rapide (non autoritaire) : True si une des langues audio rapportées par
+    Sonarr/Radarr (`mediaInfo.audioLanguages`, mesurées par ffprobe sur le fichier
+    physique à l'import — voir webhook.py) est du français.
+
+    N'utilise QUE la correspondance code/nom la plus fiable (mêmes ensembles que le
+    point 1 de `_stream_is_french`) — pas de heuristique de mots-clés sur un titre de
+    piste, cette donnée n'existe pas côté *arr. Ce signal sert uniquement à accélérer
+    une confirmation VF positive dès l'import (avant même que Plex ait scanné) ; il ne
+    doit JAMAIS servir à conclure à une absence de VF (mediaInfo.audioLanguages est
+    fréquemment vide ou mal tagué sur les releases scène/P2P) — Plex reste l'autorité
+    finale pour les négatifs et les rescans périodiques.
+    """
+    if not languages:
+        return False
+    if isinstance(languages, str):
+        languages = [languages]
+    for entry in languages:
+        for part in str(entry or "").replace("/", ",").split(","):
+            val = part.strip().lower()
+            if val and (val in _LANG_CODES or val in _LANG_NAMES):
+                return True
+    return False
+
+
 def get_audio_info(item) -> tuple[bool, list[dict], list[dict]]:
     """Retourne (has_french, liste_de_pistes, liste_de_sous_titres) pour un média Plex.
 

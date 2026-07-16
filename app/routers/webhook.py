@@ -14,6 +14,7 @@ from ..database import AsyncSessionLocal
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
+from ..services.audio_analyzer import languages_list_has_french
 from ..services.availability_service import has_plex_proof, note_arr_processed
 from ..services.download_history import record_completed
 from ..services.notification_orchestrator import (
@@ -124,8 +125,16 @@ async def _mark_available_and_notify(
     instance_id: int | None = None,
     source: str = "arr",
     instance_name: str | None = None,
+    arr_detected_vf: bool = False,
 ):
-    """Trouve les demandes correspondantes, les marque disponibles, empile les notifications."""
+    """Trouve les demandes correspondantes, les marque disponibles, empile les notifications.
+
+    `arr_detected_vf` : signal rapide, non autoritaire (voir `languages_list_has_french`) —
+    une piste française a été détectée par Sonarr/Radarr (ffprobe) sur le fichier qui vient
+    d'être importé. Accélère uniquement la confirmation POSITIVE (has_vf=True) dès cet
+    appel, avant même que Plex ait scanné le fichier ; ne remplace jamais le scan Plex qui
+    suit (toujours exécuté) et n'est jamais utilisé pour conclure à une absence de VF.
+    """
     q = _arr_event_query(
         db,
         media_type,
@@ -145,6 +154,14 @@ async def _mark_available_and_notify(
             # encore confirmée, sinon ce cas ne serait détecté qu'au prochain scan
             # planifié (jusqu'à `vff_recheck_interval_minutes`, 6h par défaut).
             if settings and req.has_vf is not True:
+                if arr_detected_vf:
+                    # Confirmation VF anticipée via *arr (upgrade VO -> VF) : on persiste
+                    # le signal mais on laisse quand même tourner le scan Plex ci-dessous,
+                    # c'est lui qui envoie la notification "VF disponible" — la sauter
+                    # ferait taire cette notification alors que la VF vient d'arriver.
+                    req.has_vf = True
+                    req.vf_checked_at = now_utc_naive()
+                    await db.commit()
                 await scan_and_notify_availability(req, settings, db)
             from ..realtime import publish
 
@@ -152,6 +169,12 @@ async def _mark_available_and_notify(
             continue
         if not await has_plex_proof(db, req):
             note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
+            if arr_detected_vf and req.has_vf is not True:
+                # Media pas encore confirmé disponible côté Plex, mais on sait déjà via
+                # *arr qu'une piste VF existe sur le fichier importé — pas la peine
+                # d'attendre la confirmation Plex pour connaître ça (voir docstring).
+                req.has_vf = True
+                req.vf_checked_at = now_utc_naive()
             await db.commit()
             logger.info(
                 "Webhook %s: '%s' traite cote *arr, attente confirmation Plex avant disponibilite",
@@ -180,6 +203,14 @@ async def _mark_available_and_notify(
             poster_url=req.poster_url,
             request_id=req.id,
         )
+        if arr_detected_vf and req.has_vf is not True:
+            # Confirmation VF anticipée via *arr (voir docstring) : le scan Plex ci-dessous
+            # tourne quand même (et fera foi s'il contredit ce signal), mais si Plex n'a pas
+            # encore indexé le fichier (`found: False`), cette écriture évite de rester bloqué
+            # sur "VO uniquement" ou "non analysé" jusqu'au prochain scan planifié.
+            req.has_vf = True
+            req.vf_checked_at = now_utc_naive()
+            await db.commit()
         # Scan Plex immédiat avant d'envoyer le mail générique : propose directement le
         # bon mail (VF/VO/jalon série) si VFF est actif, sans attendre le prochain scan
         # planifié. Le mail générique ne part QUE si aucun suivi fin ne couvrira jamais ce
@@ -325,6 +356,8 @@ async def sonarr_webhook(request: Request):
         title = series.get("title", "")
         sonarr_id = series.get("id")
         tvdb_id = series.get("tvdbId")
+        episode_file_media_info = (data.get("episodeFile") or {}).get("mediaInfo") or {}
+        arr_detected_vf = languages_list_has_french(episode_file_media_info.get("audioLanguages"))
 
         matched = await _mark_available_and_notify(
             title,
@@ -336,6 +369,7 @@ async def sonarr_webhook(request: Request):
             instance_id=webhook_instance_id,
             source="sonarr",
             instance_name=await _instance_name(db, webhook_instance_id),
+            arr_detected_vf=arr_detected_vf,
         )
         return {"status": "ok", "matched": matched}
     finally:
@@ -392,6 +426,8 @@ async def radarr_webhook(request: Request):
         radarr_id = movie.get("id")
         tmdb_id = movie.get("tmdbId")
         imdb_id = movie.get("imdbId")
+        movie_file_media_info = (data.get("movieFile") or {}).get("mediaInfo") or {}
+        arr_detected_vf = languages_list_has_french(movie_file_media_info.get("audioLanguages"))
 
         matched = await _mark_available_and_notify(
             title,
@@ -402,6 +438,7 @@ async def radarr_webhook(request: Request):
             tmdb_id=tmdb_id,
             imdb_id=imdb_id,
             instance_id=instance_id,
+            arr_detected_vf=arr_detected_vf,
             source="radarr",
             instance_name=await _instance_name(db, instance_id),
         )

@@ -9,6 +9,7 @@ from app.models import ArrInstance, Base, LibraryItem, MediaRequest, Settings
 from app.services.audio_analyzer import (
     compute_vf_granularity,
     get_audio_info,
+    languages_list_has_french,
     show_has_full_french_audio,
 )
 from app.services.plex_finder import sync_plex_library_blocking
@@ -283,3 +284,40 @@ def test_granularity_season_partial_takes_priority_over_episode_partial():
     """Une saison complete en VF + des episodes epars ailleurs -> season_partial prime."""
     episode_status = {1: {1: True, 2: True}, 2: {1: True, 2: False}}
     assert compute_vf_granularity(episode_status) == "season_partial"
+
+
+# ---------------------------------------------------------------------------
+# languages_list_has_french — signal rapide via mediaInfo.audioLanguages (Sonarr/Radarr)
+# ---------------------------------------------------------------------------
+
+
+def test_languages_list_has_french_iso_code():
+    assert languages_list_has_french(["fre"]) is True
+
+
+def test_languages_list_has_french_full_name():
+    assert languages_list_has_french(["French"]) is True
+
+
+def test_languages_list_has_french_string_slash_separated():
+    """Sonarr/Radarr renvoient parfois audioLanguages comme une chaine 'French/English'."""
+    assert languages_list_has_french("French/English") is True
+
+
+def test_languages_list_has_french_no_match():
+    assert languages_list_has_french(["English", "German"]) is False
+
+
+def test_languages_list_has_french_empty():
+    assert languages_list_has_french(None) is False
+    assert languages_list_has_french([]) is False
+    assert languages_list_has_french("") is False
+
+
+def test_languages_list_has_french_does_not_fuzzy_match_keywords():
+    """Contrairement a _stream_is_french (titre de piste Plex), ce signal *arr ne doit PAS
+    faire de correspondance approximative sur des mots-cles type 'vf'/'multi' — seuls les
+    codes ISO et noms de langue exacts comptent (voir docstring : source moins fiable que
+    Plex, pas de fallback fantaisiste possible)."""
+    assert languages_list_has_french(["MULTI"]) is False
+    assert languages_list_has_french(["VF"]) is False
