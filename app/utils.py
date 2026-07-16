@@ -72,6 +72,26 @@ def now_utc_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# Fuseau implicite de toute l'app : aucun réglage de fuseau n'est exposé côté Settings
+# (les heures saisies dans l'UI, ex. "digest_hour", sont toujours une heure murale locale
+# pour un unique utilisateur/foyer) — donc un seul fuseau assumé partout, plutôt qu'une
+# fausse généralité qui comparerait ces heures locales à l'UTC brut sans jamais convertir.
+APP_TIMEZONE = "Europe/Paris"
+
+
+def local_hour() -> int:
+    """Heure murale courante dans APP_TIMEZONE (gère automatiquement CET/CEST).
+
+    À utiliser partout où une heure réglée par l'utilisateur (ex. digest_hour) doit être
+    comparée à "maintenant" — comparer directement à now_utc().hour décale silencieusement
+    l'horaire réel de 1h (CET) ou 2h (CEST) par rapport à ce que l'utilisateur a réglé.
+    """
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(timezone.utc).astimezone(ZoneInfo(APP_TIMEZONE)).hour
+
+
 def wrap_image_proxy(url: str | None) -> str | None:
     """Wraps HTTP and/or local IP image URLs through /api/image-proxy to resolve Mixed Content issues in the browser."""
     if not url:

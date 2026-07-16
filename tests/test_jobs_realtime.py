@@ -140,3 +140,32 @@ async def test_job_arr_statuses_falls_back_to_default_without_settings():
     ):
         await jobs.job_arr_statuses({"redis": FakeRedis()})
     assert run_mock.call_args.kwargs["interval_seconds"] == 900
+
+
+@pytest.mark.asyncio
+async def test_job_digest_compares_against_local_hour_not_utc():
+    """Regression : digest_hour est une heure murale (reglee "8h" dans les reglages) —
+    la comparer a now_utc().hour la decale de 1h/2h selon CET/CEST (incident reel :
+    regle a 8h, mail recu a 10h en ete). Doit comparer via local_hour()."""
+    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=8),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        result = await jobs.job_digest({"redis": FakeRedis()})
+    run_mock.assert_awaited_once()
+    assert result == {"status": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_job_digest_not_due_outside_configured_local_hour():
+    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=10),
+        patch("app.jobs._run", new=AsyncMock()) as run_mock,
+    ):
+        result = await jobs.job_digest({"redis": FakeRedis()})
+    run_mock.assert_not_awaited()
+    assert result == {"status": "not_due"}

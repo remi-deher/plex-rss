@@ -17,7 +17,7 @@ from sqlalchemy.future import select
 from .database import AsyncSessionLocal, init_db
 from .models import JobRunLog, PendingNotification, Settings
 from .realtime import publish
-from .utils import now_utc, now_utc_naive
+from .utils import local_hour, now_utc, now_utc_naive
 
 # Le worker ARQ est un process séparé (commande `arq app.jobs.WorkerSettings`) qui
 # n'importe jamais app.main — sans ce basicConfig, aucun logger.info/warning/error de
@@ -286,7 +286,10 @@ async def job_digest(ctx: dict, force: bool = False):
     from .services.notification_orchestrator import _send_digest
 
     settings = await _settings()
-    if not force and (not settings or not settings.digest_enabled or settings.digest_hour != now_utc().hour):
+    # digest_hour est une heure murale (ex. "8h" saisie dans les réglages) — la comparer à
+    # now_utc().hour la décale silencieusement de 1h/2h selon CET/CEST (incident réel :
+    # réglé à 8h, mail reçu à 10h). local_hour() convertit dans le fuseau de l'app.
+    if not force and (not settings or not settings.digest_enabled or settings.digest_hour != local_hour()):
         return {"status": "not_due"}
     return await _run(
         ctx, "digest", _send_digest, force=force, interval_seconds=3600, event_type="notification.updated"
