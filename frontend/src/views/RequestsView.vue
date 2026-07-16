@@ -15,80 +15,17 @@
       </div>
     </header>
 
-    <div class="filters-panel">
-      <div class="filter-row">
-        <input v-model="query" class="search" type="search" placeholder="Rechercher un titre" @input="scheduleLoad">
-        <div class="segmented">
-          <button :class="{active:view==='grid'}" title="Grille" @click="setView('grid')"><Grid2X2/></button>
-          <button :class="{active:view==='list'}" title="Liste" @click="setView('list')"><List/></button>
-        </div>
-      </div>
-
-      <div class="filter-pills-scroll">
-        <span class="filter-label">Statut:</span>
-        <div class="multi-select" :class="{open:statusMenuOpen}">
-          <button class="filter-pill dropdown-toggle" @click="toggleMenu('status')">
-            {{ statusFilters.length ? statusFilters.map(label).join(', ') : 'Tous les statuts' }}
-            <ChevronDown/>
-          </button>
-          <div v-if="statusMenuOpen" class="multi-select-menu" @click.stop>
-            <label v-for="value in statuses" :key="value" class="check">
-              <input type="checkbox" :value="value" v-model="statusFilters"> {{ label(value) }}
-            </label>
-            <button v-if="statusFilters.length" class="text-button clear-selection" @click="statusFilters=[]">Effacer</button>
-          </div>
-        </div>
-
-        <div class="divider"></div>
-        <span class="filter-label">Type:</span>
-        <div class="multi-select" :class="{open:typeMenuOpen}">
-          <button class="filter-pill dropdown-toggle" @click="toggleMenu('type')">
-            {{ typeFilters.length ? typeFilters.map(typeLabel).join(', ') : 'Tous les types' }}
-            <ChevronDown/>
-          </button>
-          <div v-if="typeMenuOpen" class="multi-select-menu" @click.stop>
-            <label v-for="value in types" :key="value" class="check">
-              <input type="checkbox" :value="value" v-model="typeFilters"> {{ typeLabel(value) }}
-            </label>
-            <button v-if="typeFilters.length" class="text-button clear-selection" @click="typeFilters=[]">Effacer</button>
-          </div>
-        </div>
-
-        <template v-if="sources.length">
-          <div class="divider"></div>
-          <span class="filter-label">Source:</span>
-          <div class="multi-select" :class="{open:sourceMenuOpen}">
-            <button class="filter-pill dropdown-toggle" @click="toggleMenu('source')">
-              {{ sourceFilters.length ? sourceFilters.join(', ') : 'Toutes les sources' }}
-              <ChevronDown/>
-            </button>
-            <div v-if="sourceMenuOpen" class="multi-select-menu" @click.stop>
-              <label v-for="value in sources" :key="value" class="check">
-                <input type="checkbox" :value="value" v-model="sourceFilters"> {{ value }}
-              </label>
-              <button v-if="sourceFilters.length" class="text-button clear-selection" @click="sourceFilters=[]">Effacer</button>
-            </div>
-          </div>
-        </template>
-
-        <template v-if="requesters.length > 1">
-          <div class="divider"></div>
-          <span class="filter-label">Demandeur:</span>
-          <div class="multi-select" :class="{open:requesterMenuOpen}">
-            <button class="filter-pill dropdown-toggle" @click="toggleMenu('requester')">
-              {{ requesterFilters.length ? requesterLabels : 'Tous les demandeurs' }}
-              <ChevronDown/>
-            </button>
-            <div v-if="requesterMenuOpen" class="multi-select-menu" @click.stop>
-              <label v-for="r in requesters" :key="r.id" class="check">
-                <input type="checkbox" :value="r.id" v-model="requesterFilters"> {{ r.label }}
-              </label>
-              <button v-if="requesterFilters.length" class="text-button clear-selection" @click="requesterFilters=[]">Effacer</button>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
+    <RequestFiltersBar
+      v-model:query="query"
+      v-model:view="view"
+      v-model:status-filters="statusFilters"
+      v-model:type-filters="typeFilters"
+      v-model:source-filters="sourceFilters"
+      v-model:requester-filters="requesterFilters"
+      :sources="sources"
+      :requesters="requesters"
+      @search="scheduleLoad"
+    />
 
     <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
       <strong>{{ selectedIds.length }} selectionnee(s)</strong>
@@ -101,66 +38,38 @@
     <p v-if="error" class="notice error-text">{{ error }}</p>
 
     <section :class="view==='grid'?'media-grid':'media-list'">
-      <article v-for="row in filtered" :key="row.id" class="media-card request-card" :class="{list:view==='list'}">
-        <div class="poster-shell" @click="router.push(mediaDetailPath(row,'request'))">
-          <img v-if="row.poster_url" :src="proxyUrl(row.poster_url)" alt="" @error="$event.target.style.display='none'">
-          <div v-else class="poster-fallback"><Film/></div>
-          <span v-if="view==='grid'" class="badge status-tag" :class="row.status">{{ label(row.status) }}</span>
-          <label v-if="isAdmin&&view==='grid'" class="select-tag" @click.stop>
-            <input v-model="selectedIds" type="checkbox" :value="row.id">
-          </label>
-        </div>
-        <div class="request-body">
-          <div class="request-title-row">
-            <button class="text-button" @click="router.push(mediaDetailPath(row,'request'))">
-              <strong>{{ row.title }}</strong>
-              <span v-if="row.year">{{ row.year }}</span>
-            </button>
-            <span v-if="view==='list'" class="badge status-tag" :class="row.status">{{ label(row.status) }}</span>
-            <label v-if="isAdmin&&view==='list'" class="select-tag" @click.stop>
-              <input v-model="selectedIds" type="checkbox" :value="row.id">
-            </label>
-          </div>
-          <small>
-            {{ row.media_type==='show'?'Serie':'Film' }}
-            · {{ row.requested_by||row.plex_user||row.plex_user_id||'?' }}
-            <template v-if="row.source"> · {{ row.source }}</template>
-            · {{ formatDate(row.requested_at) }}
-          </small>
-          <div class="request-actions">
-            <button v-if="row.status==='pending_approval'&&isAdmin" class="icon-button success" title="Approuver" @click="act(row,'approve')"><Check/></button>
-            <button v-if="row.status==='pending_approval'&&isAdmin" class="icon-button danger" title="Refuser" @click="reject(row)"><Ban/></button>
-            <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="router.push(`/releases/${row.id}`)"><Search/></button>
-            <button v-if="row.status==='failed'&&isAdmin" class="icon-button" title="Relancer" @click="act(row,'retry')"><RotateCcw/></button>
-            <button v-if="row.status!=='available'" class="icon-button danger" title="Annuler" @click="act(row,'cancel')"><X/></button>
-          </div>
-        </div>
-      </article>
+      <RequestCard
+        v-for="row in filtered"
+        :key="row.id"
+        :row="row"
+        :view="view"
+        :is-admin="isAdmin"
+        :selected="selectedIds.includes(row.id)"
+        @toggle-select="toggleSelect(row.id)"
+        @act="act"
+        @reject="reject"
+      />
     </section>
     <p v-if="!loading&&!filtered.length" class="empty">Aucune demande.</p>
   </div>
 </template>
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { Ban, Check, CheckCheck, ChevronDown, Film, Grid2X2, List, RefreshCw, RotateCcw, Search, Trash2, X } from '@lucide/vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';
+import { useRoute } from 'vue-router';
 import { api } from '@/api';
-import { mediaDetailPath } from '@/mediaUrl';
 import { useRealtime } from '@/events';
+import RequestFiltersBar from '@/components/requests/RequestFiltersBar.vue';
+import RequestCard from '@/components/requests/RequestCard.vue';
 
 const route = useRoute();
-const router = useRouter();
 
 const rows = ref([]);
 const query = ref(route.query.query || '');
 const statusFilters = ref(route.query.status ? [route.query.status] : []);
-const statusMenuOpen = ref(false);
 const typeFilters = ref(route.query.type ? [route.query.type] : []);
-const typeMenuOpen = ref(false);
 const sourceFilters = ref([]);
-const sourceMenuOpen = ref(false);
 const requesterFilters = ref([]);
-const requesterMenuOpen = ref(false);
 const selectedIds = ref([]);
 const loading = ref(false);
 const busy = ref(false);
@@ -170,8 +79,6 @@ const view = ref(localStorage.getItem('requests.view') || 'grid');
 
 let timer, fallback;
 
-const statuses = ['pending_approval', 'pending', 'sent_to_arr', 'available', 'failed', 'rejected'];
-const types = ['movie', 'show'];
 const sources = computed(() => [...new Set(rows.value.map(x => x.source).filter(Boolean))]);
 const requesters = computed(() => {
   const seen = new Map();
@@ -182,10 +89,6 @@ const requesters = computed(() => {
   }
   return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
-const requesterLabels = computed(() => {
-  const byId = new Map(requesters.value.map(r => [r.id, r.label]));
-  return requesterFilters.value.map(id => byId.get(id) || id).join(', ');
-});
 const filtered = computed(() => rows.value.filter(row =>
   (!statusFilters.value.length || statusFilters.value.includes(row.status)) &&
   (!typeFilters.value.length || typeFilters.value.includes(row.media_type)) &&
@@ -193,44 +96,11 @@ const filtered = computed(() => rows.value.filter(row =>
   (!requesterFilters.value.length || requesterFilters.value.includes(row.plex_user_id))
 ));
 
-const menus = { status: statusMenuOpen, type: typeMenuOpen, source: sourceMenuOpen, requester: requesterMenuOpen };
-function toggleMenu(name) {
-  for (const key in menus) menus[key].value = key === name ? !menus[key].value : false;
-}
-function closeAllMenus() {
-  for (const key in menus) menus[key].value = false;
-}
-function typeLabel(value) {
-  return value === 'show' ? 'Series' : 'Films';
+function toggleSelect(id) {
+  selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(x => x !== id) : [...selectedIds.value, id];
 }
 
-function label(value) {
-  return ({
-    pending_approval: 'A approuver',
-    pending: 'En attente',
-    sent_to_arr: 'Transmise',
-    available: 'Disponible',
-    failed: 'Echec',
-    rejected: 'Refusee'
-  })[value] || value;
-}
-
-function formatDate(value) {
-  return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
-}
-
-function proxyUrl(url) {
-  if (!url) return url;
-  if (url.startsWith('http://') || (url.startsWith('https://') && /\/(192\.168\.|10\.|127\.)/.test(url))) {
-    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-}
-
-function setView(value) {
-  view.value = value;
-  localStorage.setItem('requests.view', value);
-}
+watch(view, value => localStorage.setItem('requests.view', value));
 
 function scheduleLoad() {
   clearTimeout(timer);
@@ -303,22 +173,16 @@ async function runUtility(path) {
   }
 }
 
-function handleOutsideClick(event) {
-  if (!event.target.closest('.multi-select')) closeAllMenus();
-}
-
 useRealtime(['request.updated'], load);
 onMounted(async () => {
   const session = await api('/api/session').catch(() => null);
   isAdmin.value = Boolean(session?.is_owner || session?.role === 'admin');
   await load();
   fallback = setInterval(load, 120000);
-  document.addEventListener('click', handleOutsideClick);
 });
 onUnmounted(() => {
   clearTimeout(timer);
   clearInterval(fallback);
-  document.removeEventListener('click', handleOutsideClick);
 });
 </script>
 

@@ -2,38 +2,87 @@
   <div class="page">
     <header class="page-head"><div><h1>Utilisateurs</h1><p>Comptes Plex, Seer, roles et preferences de notification.</p></div><div class="actions"><button class="secondary" :disabled="busy" @click="syncSeer"><RefreshCw/>Synchroniser Seer</button><button class="primary" @click="openCreate"><UserPlus/>Ajouter</button></div></header>
     <div class="toolbar wrap"><input v-model="query" class="search" type="search" placeholder="Rechercher un utilisateur"><select v-model="status"><option value="">Tous les statuts</option><option value="enabled">Actifs</option><option value="disabled">Desactives</option></select><select v-model="source"><option value="">Toutes les sources</option><option v-for="value in sources" :key="value">{{ value }}</option></select><select v-model="sort"><option value="name">Nom</option><option value="requests">Demandes</option></select></div>
-    <div v-if="selectedIds.length" class="bulk-bar"><strong>{{ selectedIds.length }} selectionne(s)</strong><button class="secondary" @click="bulkStatus(true)"><Power/>Activer</button><button class="secondary" @click="bulkStatus(false)"><PowerOff/>Desactiver</button><select v-model="bulkNotifyField" ><option v-for="f in bulkNotifyFields" :key="f.value" :value="f.value">{{ f.label }}</option></select><button class="secondary" @click="bulkNotify(true)"><Bell/>Activer</button><button class="secondary" @click="bulkNotify(false)"><BellOff/>Desactiver</button><button class="secondary danger" @click="bulkDelete"><Trash2/>Supprimer</button><button class="icon-button" @click="selectedIds=[]"><X/></button></div>
     <p v-if="error" class="notice error-text">{{ error }}</p><p v-if="message" class="notice success-text">{{ message }}</p>
-    <section class="panel table-wrap"><table><thead><tr><th><input type="checkbox" :checked="allSelected" @change="toggleAll"></th><th>Utilisateur</th><th>Email</th><th>Source</th><th>Role</th><th>Demandes</th><th>Connexion</th><th></th></tr></thead><tbody><tr v-for="user in filtered" :key="user.id"><td><input v-model="selectedIds" type="checkbox" :value="user.id"></td><td><button class="text-button" @click="openUser(user.id)"><strong>{{ displayName(user) }}</strong><small>{{ user.plex_user_id }}</small></button></td><td>{{ user.notification_email||user.plex_email||'-' }}</td><td>{{ user.source||'plex' }}</td><td><span class="badge" :class="user.role==='admin'?'available':'pending'">{{ user.role }}</span></td><td>{{ user.stats?.total??user.request_count??'-' }}</td><td>{{ user.can_login?'Autorisee':'Bloquee' }}</td><td><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" @click="toggle(user)"><Power/></button></td></tr></tbody></table><p v-if="!loading&&!filtered.length" class="empty">Aucun utilisateur.</p></section>
 
-    <DrawerShell v-if="editing" wide eyebrow="Administration" :title="creating?'Nouvel utilisateur':displayName(editing)" :error="editorError" @close="closeEditor">
-      <nav class="detail-tabs"><button v-for="entry in editorTabs" :key="entry" :class="{active:editorTab===entry}" @click="editorTab=entry">{{ editorLabel(entry) }}</button></nav>
-      <section v-if="editorTab==='profile'" class="drawer-section form-section"><div class="settings-grid two"><label>ID Plex<input v-model="form.plex_user_id" :disabled="!creating"></label><label>Nom affiche<input v-model="form.display_name"></label><label>Nom d'usage<input v-model="form.custom_name"></label><label>Email Plex<input v-model="form.plex_email" type="email"></label><label>Email de notification<input v-model="form.notification_email"></label><label>Role<select v-model="form.role"><option value="user">Utilisateur</option><option value="admin">Administrateur</option></select></label><label class="check"><input v-model="form.enabled" type="checkbox"> Traiter les demandes</label><label class="check"><input v-model="form.can_login" type="checkbox"> Autoriser la connexion</label><label class="check"><input v-model="form.auto_approve" type="checkbox"> Auto-approuver</label></div><div class="actions"><button class="primary" :disabled="busy" @click="saveUser"><Save/>Enregistrer</button><button v-if="!creating" class="secondary danger" @click="deleteUser"><Trash2/>Supprimer</button></div></section>
-      <section v-else-if="editorTab==='notifications'" class="drawer-section form-section"><div class="settings-grid two"><label class="check"><input v-model="form.notify_admin" type="checkbox"> Copier l'administrateur</label><label class="check"><input v-model="form.notify_on_request" type="checkbox"> Nouvelle demande</label><label class="check"><input v-model="form.notify_on_available" type="checkbox"> Disponibilite</label><label class="check"><input v-model="form.notify_digest" type="checkbox"> Digest</label><label class="check"><input v-model="form.notify_vf_movie" type="checkbox"> VF films</label><label class="check"><input v-model="form.notify_vf_series" type="checkbox"> VF series</label><label class="check"><input v-model="form.notify_vf_anime" type="checkbox"> VF animes</label><label>Granularite series<select v-model="form.series_notify_granularity"><option value="minimal">Finale</option><option value="jalons">Jalons</option><option value="tout">Chaque episode</option></select></label><label>Webhook Discord personnel<input v-model="form.discord_webhook_url"></label><label>Chat Telegram personnel<input v-model="form.telegram_chat_id"></label></div><div class="actions"><button class="primary" @click="saveUser"><Save/>Enregistrer</button><button v-if="!creating" class="secondary" @click="testEmail"><MailCheck/>Tester l'email</button></div></section>
-      <section v-else-if="editorTab==='seer'" class="drawer-section"><div class="panel-head"><h3>Liaison Seer</h3><span class="badge">{{ editing.seer_user_id?`Compte #${editing.seer_user_id}`:'Non lie' }}</span></div><div class="actions"><button class="secondary" @click="userAction('seer-automatch')"><Link/>Association automatique</button><button v-if="editing.seer_user_id" class="secondary" @click="userAction('seer-complete')"><RefreshCw/>Completer les donnees</button><button v-if="editing.seer_user_id" class="secondary danger" @click="unlinkSeer"><Unlink/>Dissocier</button></div><label>Fusionner cet utilisateur dans<select v-model="mergeTarget"><option value="">Selectionner...</option><option v-for="user in users.filter(x=>x.id!==editing.id)" :key="user.id" :value="user.id">{{ displayName(user) }}</option></select></label><button class="secondary danger" :disabled="!mergeTarget" @click="mergeUser"><Merge/>Fusionner</button></section>
-      <section v-else-if="editorTab==='activity'" class="drawer-section"><section class="metric-grid compact-metrics"><article v-for="(value,key) in editing.stats||{}" :key="key" class="metric-card"><span>{{ key }}</span><strong>{{ value??'-' }}</strong></article></section><article v-for="row in editing.activity?.recent||[]" :key="row.id" class="detail-row"><div><strong>{{ row.title }}</strong><span>{{ row.status }} · {{ row.source }} · {{ formatDate(row.requested_at) }}</span></div></article><p v-if="!editing.activity?.recent?.length" class="empty">Aucune activite recente.</p></section>
-      <section v-else class="drawer-section"><article v-for="effect in editing.diagnostic?.effects||[]" :key="effect.key" class="detail-row"><div><strong>{{ effect.label }}</strong><span>{{ effect.detail }}</span></div><span class="badge" :class="effect.ok?'available':'failed'">{{ effect.ok?'OK':'Attention' }}</span></article><p v-if="!editing.diagnostic" class="empty">Aucun diagnostic disponible.</p></section>
-    </DrawerShell>
+    <UsersTable ref="tableRef" :rows="filtered" :loading="loading" @open="openUser" @toggle="toggle" @bulk-status="bulkStatus" @bulk-notify="bulkNotify" @bulk-delete="bulkDelete"/>
+
+    <UserEditorDrawer
+      v-if="editing"
+      ref="drawerRef"
+      :editing="editing"
+      :creating="creating"
+      :form="form"
+      :users="users"
+      :busy="busy"
+      :editor-error="editorError"
+      @close="closeEditor"
+      @save="saveUser"
+      @delete="deleteUser"
+      @test-email="testEmail"
+      @user-action="userAction"
+      @unlink-seer="unlinkSeer"
+      @merge="mergeUser"
+    />
   </div>
 </template>
 <script setup>
-import { computed,onMounted,reactive,ref } from 'vue';import { Bell,BellOff,Link,MailCheck,Merge,Power,PowerOff,RefreshCw,Save,Trash2,Unlink,UserPlus,X } from '@lucide/vue';import { useRoute,useRouter } from 'vue-router';import { api } from '@/api';import DrawerShell from '@/components/DrawerShell.vue';
-const route=useRoute(),router=useRouter();const users=ref([]),editing=ref(null),creating=ref(false),query=ref(''),status=ref(''),source=ref(''),sort=ref('name'),selectedIds=ref([]),mergeTarget=ref(''),editorTab=ref('profile'),loading=ref(false),busy=ref(false),error=ref(''),editorError=ref(''),message=ref(''),bulkNotifyField=ref('notify_on_request');
-const bulkNotifyFields=[{value:'notify_on_request',label:'Notif. demande'},{value:'notify_on_available',label:'Notif. disponibilite'},{value:'notify_digest',label:'Digest'},{value:'notify_admin',label:"Copie a l'administrateur"},{value:'notify_vf_movie',label:'VF films'},{value:'notify_vf_series',label:'VF series'},{value:'notify_vf_anime',label:'VF animes'}];
-const defaults={plex_user_id:'',display_name:'',custom_name:'',plex_email:'',notification_email:'',enabled:true,notify_admin:true,notify_on_request:true,notify_on_available:true,notify_digest:false,notify_vf_movie:true,notify_vf_series:true,notify_vf_anime:false,discord_webhook_url:'',telegram_chat_id:'',seer_active:null,role:'user',can_login:true,auto_approve:false,sonarr_instance_id:null,radarr_instance_id:null,movie_notify_language:null,series_notify_language:null,series_notify_granularity:'jalons'};const form=reactive({...defaults});const editorTabs=['profile','notifications','seer','activity','diagnostic'];
-const sources=computed(()=>[...new Set(users.value.map(x=>x.source).filter(Boolean))]);const filtered=computed(()=>users.value.filter(user=>(!query.value||`${displayName(user)} ${user.plex_user_id} ${user.plex_email||''}`.toLowerCase().includes(query.value.toLowerCase()))&&(!status.value||(status.value==='enabled')===Boolean(user.enabled))&&(!source.value||user.source===source.value)).sort((a,b)=>sort.value==='requests'?(b.stats?.total||0)-(a.stats?.total||0):displayName(a).localeCompare(displayName(b),'fr')));const allSelected=computed(()=>filtered.value.length&&filtered.value.every(x=>selectedIds.value.includes(x.id)));
-function displayName(user){return user?.custom_name||user?.display_name||user?.plex_user_id||''}function editorLabel(value){return ({profile:'Profil',notifications:'Notifications',seer:'Seer',activity:'Activite',diagnostic:'Diagnostic'})[value]}function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)):'-'}function fillForm(user){Object.assign(form,defaults,Object.fromEntries(Object.keys(defaults).map(key=>[key,user?.[key]??defaults[key]])))}function toggleAll(event){selectedIds.value=event.target.checked?filtered.value.map(x=>x.id):[]}
-async function load(){loading.value=true;error.value='';try{users.value=await api('/api/users')}catch(e){error.value=e.message}finally{loading.value=false}}
-async function openUser(id){creating.value=false;editorError.value='';try{editing.value=await api(`/api/users/${id}`);fillForm(editing.value);editorTab.value='profile';router.replace(`/users/${id}`)}catch(e){error.value=e.message}}
-function openCreate(){creating.value=true;editing.value={};fillForm(null);editorTab.value='profile'}function closeEditor(){editing.value=null;creating.value=false;mergeTarget.value='';if(route.params.userId)router.replace('/users')}
-async function saveUser(){busy.value=true;editorError.value='';try{const path=creating.value?'/api/users':`/api/users/${editing.value.id}`;const saved=await api(path,{method:creating.value?'POST':'PUT',body:JSON.stringify(form)});await load();message.value='Utilisateur enregistre.';if(creating.value)await openUser(saved.id);else await openUser(editing.value.id)}catch(e){editorError.value=e.message}finally{busy.value=false}}
-async function toggle(user){try{await api(`/api/users/${user.id}/enabled`,{method:'PUT',body:JSON.stringify({enabled:!user.enabled})});await load()}catch(e){error.value=e.message}}
-async function deleteUser(){if(!confirm(`Supprimer ${displayName(editing.value)} ?`))return;await api(`/api/users/${editing.value.id}`,{method:'DELETE'});closeEditor();await load()}
-async function syncSeer(){busy.value=true;try{await api('/api/seer/sync',{method:'POST'});message.value='Synchronisation Seer terminee.';await load()}catch(e){error.value=e.message}finally{busy.value=false}}
-async function userAction(action){busy.value=true;try{await api(`/api/users/${editing.value.id}/${action}`,{method:'POST'});await openUser(editing.value.id)}catch(e){editorError.value=e.message}finally{busy.value=false}}
-async function unlinkSeer(){await api(`/api/users/${editing.value.id}/seer-link`,{method:'DELETE'});await openUser(editing.value.id)}async function testEmail(){const data=await api(`/api/users/${editing.value.id}/test-email`,{method:'POST'});message.value=`Email envoye a ${data.recipient}`}
-async function mergeUser(){if(!confirm('Cette fusion est irreversible. Continuer ?'))return;await api(`/api/users/${editing.value.id}/merge-into/${mergeTarget.value}`,{method:'POST'});closeEditor();await load()}
-async function bulkStatus(enabled){await api('/api/users/bulk/status',{method:'PUT',body:JSON.stringify({user_ids:selectedIds.value,enabled})});selectedIds.value=[];await load()}async function bulkDelete(){if(!confirm(`Supprimer ${selectedIds.value.length} utilisateurs ?`))return;await api('/api/users/bulk/delete',{method:'POST',body:JSON.stringify({user_ids:selectedIds.value})});selectedIds.value=[];await load()}
-async function bulkNotify(value){try{await api('/api/users/bulk/notifications',{method:'PUT',body:JSON.stringify({user_ids:selectedIds.value,[bulkNotifyField.value]:value})});message.value='Notifications mises a jour.';selectedIds.value=[];await load()}catch(e){error.value=e.message}}
-onMounted(async()=>{await load();if(route.params.userId)await openUser(route.params.userId)});
+import { computed, onMounted, reactive, ref } from 'vue';
+import { RefreshCw, UserPlus } from '@lucide/vue';
+import { useRoute, useRouter } from 'vue-router';
+import { api } from '@/api';
+import UsersTable from '@/components/users/UsersTable.vue';
+import UserEditorDrawer from '@/components/users/UserEditorDrawer.vue';
+
+const route = useRoute(), router = useRouter();
+const users = ref([]), editing = ref(null), creating = ref(false), query = ref(''), status = ref(''), source = ref(''), sort = ref('name');
+const loading = ref(false), busy = ref(false), error = ref(''), editorError = ref(''), message = ref('');
+const tableRef = ref(null), drawerRef = ref(null);
+
+const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, notify_vf_anime: false, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
+const form = reactive({ ...defaults });
+
+const sources = computed(() => [...new Set(users.value.map(x => x.source).filter(Boolean))]);
+const filtered = computed(() => users.value.filter(user =>
+  (!query.value || `${displayName(user)} ${user.plex_user_id} ${user.plex_email || ''}`.toLowerCase().includes(query.value.toLowerCase())) &&
+  (!status.value || (status.value === 'enabled') === Boolean(user.enabled)) &&
+  (!source.value || user.source === source.value)
+).sort((a, b) => sort.value === 'requests' ? (b.stats?.total || 0) - (a.stats?.total || 0) : displayName(a).localeCompare(displayName(b), 'fr')));
+
+function displayName(user) { return user?.custom_name || user?.display_name || user?.plex_user_id || ''; }
+function fillForm(user) { Object.assign(form, defaults, Object.fromEntries(Object.keys(defaults).map(key => [key, user?.[key] ?? defaults[key]]))); }
+
+async function load() { loading.value = true; error.value = ''; try { users.value = await api('/api/users'); } catch (e) { error.value = e.message; } finally { loading.value = false; } }
+async function openUser(id) {
+  creating.value = false; editorError.value = '';
+  try { editing.value = await api(`/api/users/${id}`); fillForm(editing.value); drawerRef.value?.resetTab(); router.replace(`/users/${id}`); }
+  catch (e) { error.value = e.message; }
+}
+function openCreate() { creating.value = true; editing.value = {}; fillForm(null); drawerRef.value?.resetTab(); }
+function closeEditor() { editing.value = null; creating.value = false; if (route.params.userId) router.replace('/users'); }
+async function saveUser() {
+  busy.value = true; editorError.value = '';
+  try {
+    const path = creating.value ? '/api/users' : `/api/users/${editing.value.id}`;
+    const saved = await api(path, { method: creating.value ? 'POST' : 'PUT', body: JSON.stringify(form) });
+    await load(); message.value = 'Utilisateur enregistre.';
+    if (creating.value) await openUser(saved.id); else await openUser(editing.value.id);
+  } catch (e) { editorError.value = e.message; } finally { busy.value = false; }
+}
+async function toggle(user) { try { await api(`/api/users/${user.id}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled: !user.enabled }) }); await load(); } catch (e) { error.value = e.message; } }
+async function deleteUser() { if (!confirm(`Supprimer ${displayName(editing.value)} ?`)) return; await api(`/api/users/${editing.value.id}`, { method: 'DELETE' }); closeEditor(); await load(); }
+async function syncSeer() { busy.value = true; try { await api('/api/seer/sync', { method: 'POST' }); message.value = 'Synchronisation Seer terminee.'; await load(); } catch (e) { error.value = e.message; } finally { busy.value = false; } }
+async function userAction(action) { busy.value = true; try { await api(`/api/users/${editing.value.id}/${action}`, { method: 'POST' }); await openUser(editing.value.id); } catch (e) { editorError.value = e.message; } finally { busy.value = false; } }
+async function unlinkSeer() { await api(`/api/users/${editing.value.id}/seer-link`, { method: 'DELETE' }); await openUser(editing.value.id); }
+async function testEmail() { const data = await api(`/api/users/${editing.value.id}/test-email`, { method: 'POST' }); message.value = `Email envoye a ${data.recipient}`; }
+async function mergeUser(targetId) { if (!confirm('Cette fusion est irreversible. Continuer ?')) return; await api(`/api/users/${editing.value.id}/merge-into/${targetId}`, { method: 'POST' }); closeEditor(); await load(); }
+
+async function bulkStatus(enabled) { const ids = tableRef.value.selectedIds; await api('/api/users/bulk/status', { method: 'PUT', body: JSON.stringify({ user_ids: ids, enabled }) }); tableRef.value.selectedIds = []; await load(); }
+async function bulkDelete() { const ids = tableRef.value.selectedIds; if (!confirm(`Supprimer ${ids.length} utilisateurs ?`)) return; await api('/api/users/bulk/delete', { method: 'POST', body: JSON.stringify({ user_ids: ids }) }); tableRef.value.selectedIds = []; await load(); }
+async function bulkNotify(field, value) {
+  const ids = tableRef.value.selectedIds;
+  try { await api('/api/users/bulk/notifications', { method: 'PUT', body: JSON.stringify({ user_ids: ids, [field]: value }) }); message.value = 'Notifications mises a jour.'; tableRef.value.selectedIds = []; await load(); }
+  catch (e) { error.value = e.message; }
+}
+
+onMounted(async () => { await load(); if (route.params.userId) await openUser(route.params.userId); });
 </script>
