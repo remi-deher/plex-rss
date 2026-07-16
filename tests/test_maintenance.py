@@ -19,6 +19,7 @@ from app.routers.maintenance import (
     _run_check_arr_statuses,
     _run_discover_users,
     _run_recalculate_dates,
+    _run_resync_availability,
     _run_retry_failed,
     _run_seer_sync_requests,
     _run_seer_sync_users,
@@ -316,3 +317,39 @@ async def test_run_check_arr_statuses_no_candidates():
 
     assert run.progress == 100
     assert any("aucune" in log.lower() for log in run.logs)
+
+
+@pytest.mark.asyncio
+async def test_run_resync_availability_calls_check_arr_statuses_full_resync():
+    """Le bouton Maintenance doit appeler check_arr_statuses(full_resync=True) --
+    sans ce flag, une serie 'Disponible' avec episodes_total_count NULL (cree avant
+    le suivi par saison, ex. incident production 'Ink Master') reste bloquee a jamais,
+    exclue du cycle normal (voir arr_tracker.check_arr_statuses)."""
+    from app.models import MediaRequest, RequestStatus
+
+    run = MaintenanceRun(action="resync-availability")
+    db = make_test_session()
+    db.add(Settings())
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="alice", title="Ink Master", media_type="show",
+        status=RequestStatus.available, episodes_available_count=None, episodes_total_count=None,
+    )
+    db.add(req)
+    db.commit()
+
+    async def _fake_resync(full_resync=False):
+        assert full_resync is True
+        req.status = RequestStatus.partially_available
+        req.episodes_available_count = 6
+        req.episodes_total_count = 13
+        db.commit()
+
+    with (
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
+        patch("app.services.arr_tracker.check_arr_statuses", new=AsyncMock(side_effect=_fake_resync)),
+    ):
+        await _run_resync_availability(run)
+
+    assert run.progress == 100
+    assert any("ink master" in log.lower() and "partiellement" in log.lower() for log in run.logs)
+    assert any("1 série(s) corrigée(s)" in log for log in run.logs)

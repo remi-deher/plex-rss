@@ -109,8 +109,16 @@ _DISTRIBUTED_ARR_STATUS_LOCK_KEY = "plexarr:lock:check_arr_statuses"
 _DISTRIBUTED_ARR_STATUS_LOCK_TTL = 300
 
 
-async def check_arr_statuses():
+async def check_arr_statuses(full_resync: bool = False):
     """Vérifie si des demandes `sent_to_arr` sont désormais disponibles dans *arr.
+
+    `full_resync=True` (déclenché manuellement depuis l'onglet Maintenance) élargit le
+    filtre aux séries déjà "available" dont episodes_total_count est NULL — cas des
+    demandes passées "available" avant l'introduction du suivi par saison (ou par un
+    chemin qui ne renseigne pas ces compteurs, ex. Seer/webhook), à jamais exclues du
+    cycle normal (qui exige episodes_total_count non NULL pour re-vérifier une série
+    déjà "available"). Sans ce paramètre, ces demandes restent bloquées indéfiniment à
+    "available" même si elles ne sont en réalité que partiellement téléchargées.
 
     Stratégie de lookup (sans webhook) :
     1. Si arr_id connu → GET /api/v3/series/{id} ou /api/v3/movie/{id}
@@ -156,6 +164,18 @@ async def check_arr_statuses():
 
         await _check_and_seed_instances_from_settings(db, settings)
 
+        availability_condition = (
+            # Resync manuel : toute série "available" est revérifiée, y compris celles
+            # dont episodes_total_count n'a jamais été renseigné (cas Ink Master).
+            and_(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
+            if full_resync
+            else and_(
+                MediaRequest.status == RequestStatus.available,
+                MediaRequest.media_type == "show",
+                MediaRequest.episodes_total_count.isnot(None),
+                MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
+            )
+        )
         candidates = (await db.execute(
             select(MediaRequest).filter(
                 or_(
@@ -168,12 +188,7 @@ async def check_arr_statuses():
                     # Séries déjà "available" mais encore partiellement diffusées (nouveaux
                     # épisodes chaque semaine) : on continue de rafraîchir leurs compteurs
                     # tant qu'elles n'ont pas atteint episodes_total_count.
-                    and_(
-                        MediaRequest.status == RequestStatus.available,
-                        MediaRequest.media_type == "show",
-                        MediaRequest.episodes_total_count.isnot(None),
-                        MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
-                    ),
+                    availability_condition,
                 )
             )
         )).scalars().all()

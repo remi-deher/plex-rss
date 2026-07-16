@@ -146,6 +146,17 @@ ACTIONS_META = {
         "icon": "bi-database-fill-up",
         "color": "danger",
     },
+    "resync-availability": {
+        "label": "Resynchroniser les états de disponibilité",
+        "description": (
+            "Revérifie les séries déjà \"Disponible\" dont le détail par saison n'a jamais été "
+            "renseigné (ex : passées disponibles avant l'introduction du suivi partiel) — les "
+            "repasse en \"Partiellement disponible\" si elles ne sont en réalité pas complètes. "
+            "Peut déclencher des notifications de jalon (saison démarrée/terminée) pour ces séries."
+        ),
+        "icon": "bi-arrow-repeat",
+        "color": "warning",
+    },
 }
 
 
@@ -230,6 +241,47 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
 
         run.progress = 100
         emit.ok(f"Terminé — {newly_available} nouveau(x) disponible(s) sur {len(candidates)} vérifiée(s).")
+    except Exception as e:
+        emit.err(f"Erreur inattendue : {e}")
+        raise
+    finally:
+        await db.close()
+
+
+async def _run_resync_availability(run: MaintenanceRun):
+    emit = _Emit(run, logging.getLogger("app.maintenance"))
+    db = AsyncSessionLocal()
+    try:
+        from ..models import MediaRequest, RequestStatus
+
+        before = {
+            r.id: r.status
+            for r in (await db.execute(
+                select(MediaRequest).filter(
+                    MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show"
+                )
+            )).scalars().all()
+        }
+        emit.info(f"{len(before)} série(s) 'Disponible' à revérifier…")
+        run.progress = 10
+
+        from ..services.arr_tracker import check_arr_statuses
+        await check_arr_statuses(full_resync=True)
+        run.progress = 90
+
+        # check_arr_statuses() commit ses changements via sa propre session (AsyncSessionLocal
+        # distincte) : sans expire_all(), cette session locale renverrait les objets mis en
+        # cache lors de la requete `before` ci-dessus, pas leur etat reellement a jour en base.
+        db.expire_all()
+        after = (await db.execute(
+            select(MediaRequest).filter(MediaRequest.id.in_(list(before.keys())))
+        )).scalars().all()
+        demoted = [r for r in after if r.status == RequestStatus.partially_available]
+        for r in demoted:
+            emit.info(f"'{r.title}' repassée en Partiellement disponible ({r.episodes_available_count}/{r.episodes_total_count})")
+
+        run.progress = 100
+        emit.ok(f"Terminé — {len(demoted)} série(s) corrigée(s) sur {len(before)} revérifiée(s).")
     except Exception as e:
         emit.err(f"Erreur inattendue : {e}")
         raise
@@ -588,6 +640,7 @@ _ACTION_RUNNERS = {
     "merge-duplicates": _run_merge_duplicates,
     "enrich-and-merge": _run_enrich_and_merge,
     "recover-sqlite": _run_recover_sqlite,
+    "resync-availability": _run_resync_availability,
 }
 
 

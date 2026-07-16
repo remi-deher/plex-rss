@@ -10,9 +10,11 @@
 
     <div class="filter-pills-scroll">
       <span class="filter-label">Statut:</span>
+      <button class="filter-pill" :class="{active:isInProgressFilter}" @click="$emit('update:statusFilters',IN_PROGRESS_STATUSES)">En cours</button>
+      <button class="filter-pill" :class="{active:!statusFilters.length}" @click="$emit('update:statusFilters',[])">Toutes</button>
       <div class="multi-select" :class="{open:openMenu==='status'}">
         <button class="filter-pill dropdown-toggle" @click="toggle('status')">
-          {{ statusFilters.length ? statusFilters.map(statusLabel).join(', ') : 'Tous les statuts' }}
+          {{ statusFilters.length && !isInProgressFilter ? statusFilters.map(statusLabel).join(', ') : 'Statuts precis' }}
           <ChevronDown/>
         </button>
         <div v-if="openMenu==='status'" class="multi-select-menu" @click.stop>
@@ -91,6 +93,13 @@ const props = defineProps({
   requesters: { type: Array, default: () => [] },
 });
 const emit = defineEmits(['update:query', 'update:view', 'update:statusFilters', 'update:typeFilters', 'update:sourceFilters', 'update:requesterFilters', 'search']);
+
+const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
+const isInProgressFilter = computed(() => {
+  const current = [...props.statusFilters].sort();
+  return current.length === IN_PROGRESS_STATUSES.length
+    && current.every((v, i) => v === [...IN_PROGRESS_STATUSES].sort()[i]);
+});
 
 const openMenu = ref(null);
 function toggle(name) { openMenu.value = openMenu.value === name ? null : name; }

@@ -64,9 +64,14 @@ import RequestCard from '@/components/requests/RequestCard.vue';
 
 const route = useRoute();
 
+const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
+
 const rows = ref([]);
 const query = ref(route.query.query || '');
-const statusFilters = ref(route.query.status ? [route.query.status] : []);
+// Par defaut, seules les demandes non traitees sont affichees (le gros des demandes
+// deja disponibles/refusees/en echec noierait sinon celles qui ont besoin d'attention) --
+// un lien externe avec ?status=xxx (ex: dashboard) garde son comportement d'origine.
+const statusFilters = ref(route.query.status ? [route.query.status] : [...IN_PROGRESS_STATUSES]);
 const typeFilters = ref(route.query.type ? [route.query.type] : []);
 const sourceFilters = ref([]);
 const requesterFilters = ref([]);
