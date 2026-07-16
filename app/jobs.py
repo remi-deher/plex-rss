@@ -276,9 +276,18 @@ async def job_plex_sync(ctx: dict, force: bool = False):
     )
 
 
+PURGE_LOCAL_HOUR = 3  # heure murale visee, hors heures d'utilisation habituelles
+
+
 async def job_notification_purge(ctx: dict, force: bool = False):
     from .services.notification_orchestrator import _purge_notification_logs
 
+    # Meme decalage que le digest (voir job_digest) : hour=3 fixe sur le cron ARQ est
+    # une heure UTC, pas locale — decale de 1h/2h selon CET/CEST. Le cron tourne donc
+    # desormais toutes les heures (voir cron_notification_purge) et c'est ce garde-fou,
+    # comme pour job_digest, qui decide si c'est vraiment l'heure locale visee.
+    if not force and local_hour() != PURGE_LOCAL_HOUR:
+        return {"status": "not_due"}
     return await _run(ctx, "notification-purge", _purge_notification_logs, force=force, interval_seconds=86400)
 
 
@@ -433,7 +442,7 @@ class WorkerSettings:
         cron(cron_new_vff, minute=None, second=20, unique=True),
         cron(cron_seer_sync, minute=5, unique=True),
         cron(cron_plex_sync, hour=3, minute=15, unique=True, run_at_startup=True),
-        cron(cron_notification_purge, hour=3, minute=0, unique=True),
+        cron(cron_notification_purge, minute=0, unique=True),
         cron(cron_digest, minute=0, unique=True),
     ]
     on_startup = startup

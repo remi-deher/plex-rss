@@ -110,6 +110,7 @@ class SettingsUpdate(BaseModel):
     tmdb_enabled: Optional[bool] = None
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
+    poll_history_retention_days: Optional[int] = None
     arr_poll_interval_seconds: Optional[int] = None
     # --- RSS Output ---
     rss_hash: Optional[str] = None
@@ -191,6 +192,11 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
         "torrent_max_size_gb",
         "torrent_ratio_limit",
         "torrent_seed_time_limit_hours",
+        # Retention "0/vide = conservation indefinie" : sans ces deux entrees, vider le
+        # champ dans l'UI (envoie null) etait silencieusement ignore par la boucle
+        # ci-dessous, laissant l'ancienne valeur numerique en base pour toujours.
+        "notification_log_retention_days",
+        "poll_history_retention_days",
     }
     payload = data.model_dump()
     _validate_notify_settings(payload)
@@ -199,7 +205,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
             continue
         if key == "smtp_password" and val == "••••••••":
             continue
-        if key == "notification_log_retention_days" and val == 0:
+        if key in ("notification_log_retention_days", "poll_history_retention_days") and val == 0:
             val = None
         if key == "seer_mode" and val not in ("observer", "actor"):
             continue

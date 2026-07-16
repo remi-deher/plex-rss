@@ -169,3 +169,39 @@ async def test_job_digest_not_due_outside_configured_local_hour():
         result = await jobs.job_digest({"redis": FakeRedis()})
     run_mock.assert_not_awaited()
     assert result == {"status": "not_due"}
+
+
+@pytest.mark.asyncio
+async def test_job_notification_purge_compares_against_local_hour_not_utc():
+    """Regression : meme bug que le digest sur la purge des logs de notification —
+    hour=3 sur le cron ARQ est une heure UTC, pas locale (3h locale visee). Doit
+    comparer via local_hour() plutot que l'heure UTC du cron."""
+    with (
+        patch("app.jobs.local_hour", return_value=3),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        result = await jobs.job_notification_purge({"redis": FakeRedis()})
+    run_mock.assert_awaited_once()
+    assert result == {"status": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_job_notification_purge_not_due_outside_local_hour():
+    with (
+        patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs._run", new=AsyncMock()) as run_mock,
+    ):
+        result = await jobs.job_notification_purge({"redis": FakeRedis()})
+    run_mock.assert_not_awaited()
+    assert result == {"status": "not_due"}
+
+
+@pytest.mark.asyncio
+async def test_job_notification_purge_force_bypasses_local_hour_gate():
+    with (
+        patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        result = await jobs.job_notification_purge({"redis": FakeRedis()}, force=True)
+    run_mock.assert_awaited_once()
+    assert result == {"status": "complete"}

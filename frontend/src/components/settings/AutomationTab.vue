@@ -36,7 +36,8 @@
       </SettingsCard>
 
       <SettingsCard title="Conservation" :icon="Archive" status="active">
-        <label>Journaux (jours)<input v-model.number="form.notification_log_retention_days" type="number"></label>
+        <label>Journaux de notifications (jours)<input v-model.number="form.notification_log_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
+        <label>Historique de polling (jours)<input v-model.number="form.poll_history_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
         <label class="check"><input v-model="form.digest_enabled" type="checkbox"> Digest actif</label>
         <label>Heure du digest<input v-model.number="form.digest_hour" type="number" min="0" max="23"></label>
       </SettingsCard>

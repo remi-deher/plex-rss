@@ -129,3 +129,47 @@ def test_update_settings_updates_field(async_db):
         assert settings.plex_url == "http://new-plex.local"
     finally:
         _cleanup()
+
+
+def test_update_settings_retention_zero_means_unlimited(async_db):
+    """0 pour les retentions journaux/polling doit se traduire par None (illimite)."""
+    settings = _default_settings()
+    settings.notification_log_retention_days = 30
+    settings.poll_history_retention_days = 30
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
+    try:
+        with patch("app.routers.settings_api.update_poll_interval"):
+            resp = client.put(
+                "/api/settings",
+                json={"notification_log_retention_days": 0, "poll_history_retention_days": 0},
+            )
+        assert resp.status_code == 200
+        assert settings.notification_log_retention_days is None
+        assert settings.poll_history_retention_days is None
+    finally:
+        _cleanup()
+
+
+def test_update_settings_retention_clear_to_empty_means_unlimited(async_db):
+    """Régression : vider le champ dans l'UI (envoie null) doit aussi persister comme
+    illimité — avant l'ajout aux _nullable_fields, un null pour ces deux champs était
+    silencieusement ignoré et l'ancienne valeur numérique restait en base pour toujours."""
+    settings = _default_settings()
+    settings.notification_log_retention_days = 30
+    settings.poll_history_retention_days = 30
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
+    try:
+        with patch("app.routers.settings_api.update_poll_interval"):
+            resp = client.put(
+                "/api/settings",
+                json={"notification_log_retention_days": None, "poll_history_retention_days": None},
+            )
+        assert resp.status_code == 200
+        assert settings.notification_log_retention_days is None
+        assert settings.poll_history_retention_days is None
+    finally:
+        _cleanup()
