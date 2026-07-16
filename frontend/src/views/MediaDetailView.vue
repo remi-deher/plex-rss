@@ -14,13 +14,15 @@
       <div class="media-detail-body">
         <p v-if="error" class="notice error-text">{{ error }}</p>
 
-        <section v-if="canRequest" class="drawer-section form-section">
-          <h3>Demander ce media</h3>
-          <label v-if="requesters.length">Demandeur<select v-model="requestForm.plex_user_id"><option v-for="user in requesters" :key="user.plex_user_id" :value="user.plex_user_id">{{ user.custom_name || user.display_name || user.plex_user_id }}</option></select></label>
-          <label v-if="folders.length">Dossier racine<select v-model="requestForm.root_folder"><option value="">Dossier par defaut</option><option v-for="folder in folders" :key="folder.path || folder" :value="folder.path || folder">{{ folder.path || folder }}</option></select></label>
-          <div v-if="detail.media_type === 'show' && seasonNumbers.length" class="season-grid"><label v-for="season in seasonNumbers" :key="season" class="check"><input v-model="requestForm.seasons" type="checkbox" :value="season"> Saison {{ season }}</label></div>
-          <button class="primary" :disabled="busy || !requestForm.plex_user_id || (detail.media_type === 'show' && !requestForm.seasons.length)" @click="submitRequest"><PlusCircle />{{ busy ? 'Envoi...' : 'Demander' }}</button>
-        </section>
+        <MediaRequestForm
+          v-if="canRequest"
+          :detail="detail"
+          :form="requestForm"
+          :requesters="requesters"
+          :folders="folders"
+          :busy="busy"
+          @submit="submitRequest"
+        />
 
         <template v-if="kind !== 'discover'">
           <nav class="detail-tabs" style="overflow-x: auto; display: flex; gap: 0.5rem; white-space: nowrap; padding-bottom: 0.5rem;">
@@ -68,15 +70,11 @@
           />
         </template>
 
-        <section v-if="kind === 'discover' && recommendations.length" class="drawer-section">
-          <h3>Recommandations</h3>
-          <div class="mini-media-grid">
-            <button v-for="item in recommendations" :key="`${item.media_type}:${item.tmdb_id}`" @click="router.push(mediaDetailPath(item, 'discover'))">
-              <img v-if="item.poster_url" :src="item.poster_url" alt="">
-              <span>{{ item.title }}</span>
-            </button>
-          </div>
-        </section>
+        <MediaRecommendations
+          v-if="kind === 'discover'"
+          :items="recommendations"
+          @open="item => router.push(mediaDetailPath(item, 'discover'))"
+        />
       </div>
     </template>
   </div>
@@ -84,7 +82,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { LoaderCircle, PlusCircle } from "@lucide/vue";
+import { LoaderCircle } from "@lucide/vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "@/api";
 import { mediaDetailPath } from "@/mediaUrl";
@@ -92,6 +90,8 @@ import MediaDetailHero from "@/components/media/MediaDetailHero.vue";
 import MediaSummaryTab from "@/components/media/MediaSummaryTab.vue";
 import MediaRequestsTab from "@/components/media/MediaRequestsTab.vue";
 import MediaCalendarTab from "@/components/media/MediaCalendarTab.vue";
+import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
+import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
 
 const route = useRoute();
 const router = useRouter();
