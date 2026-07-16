@@ -36,6 +36,7 @@ function requestLabel(s) {
     pending_approval: 'A approuver',
     pending: 'En attente',
     sent_to_arr: 'Transmise a Sonarr/Radarr',
+    partially_available: 'Partiellement disponible',
     failed: 'Echec',
   })[s] || s;
 }

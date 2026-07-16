@@ -19,6 +19,7 @@
       <button class="filter-pill" :class="{active:status===''}" @click="$emit('update:status','')">Tout</button>
       <button class="filter-pill" :class="{active:status==='library'}" @click="$emit('update:status','library')">Dans Plex</button>
       <button class="filter-pill" :class="{active:status==='request'}" @click="$emit('update:status','request')">En cours</button>
+      <button class="filter-pill" :class="{active:status==='partial'}" @click="$emit('update:status','partial')">Partiellement disponible</button>
 
       <div class="divider"></div>
       <span class="filter-label">Audio:</span>

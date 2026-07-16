@@ -83,7 +83,18 @@ const libraryOffset = ref(0);
 const hasMoreLibrary = ref(false);
 const loadingMore = ref(false);
 
-const items = computed(() => [...libraryItemsRaw.value, ...pendingRequests.value]);
+// Une demande partiellement disponible garde son library_item_id une fois indexee cote
+// Plex : on exclut le LibraryItem correspondant pour ne pas l'afficher deux fois (une
+// carte "en cours" avec son statut de progression suffit tant que ce n'est pas complet).
+const items = computed(() => {
+  const partialLibraryIds = new Set(
+    pendingRequests.value.filter(x => x.status === 'partially_available' && x.library_item_id).map(x => x.library_item_id)
+  );
+  const libraryItems = partialLibraryIds.size
+    ? libraryItemsRaw.value.filter(x => !partialLibraryIds.has(x.id))
+    : libraryItemsRaw.value;
+  return [...libraryItems, ...pendingRequests.value];
+});
 
 const query = ref('');
 const type = ref('');
@@ -107,6 +118,7 @@ const filtered = computed(() => {
     // Status filter
     if (status.value === 'library' && item._kind !== 'library') return false;
     if (status.value === 'request' && item._kind !== 'request') return false;
+    if (status.value === 'partial' && item.status !== 'partially_available') return false;
 
     // User filter (only applies to requests)
     if (userFilter.value) {
@@ -164,7 +176,12 @@ async function load() {
     ]);
 
     const pending = requests
-      .filter(x => x.status !== 'available' && !x.library_item_id && (!type.value || x.media_type === type.value))
+      // Une demande partiellement disponible reste affichee comme "en cours" meme une
+      // fois synchronisee cote Plex (library_item_id pose des qu'un episode est indexe) :
+      // sinon elle disparaissait silencieusement de la vue une fois le premier episode
+      // present, avant d'etre reellement complete.
+      .filter(x => (x.status !== 'available' && !x.library_item_id) || x.status === 'partially_available')
+      .filter(x => !type.value || x.media_type === type.value)
       .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
 
     libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
