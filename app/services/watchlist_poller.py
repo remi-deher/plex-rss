@@ -449,14 +449,17 @@ async def _find_global_request(
     title: str | None,
     tvdb_id: str | None = None,
     imdb_id: str | None = None,
+    year: int | None = None,
 ):
     """Cherche une demande existante globalement (tous utilisateurs).
 
-    Ordre de priorité : tmdb_id → tvdb_id → imdb_id → titre (normalisé).
+    Ordre de priorité : tmdb_id → tvdb_id → imdb_id → titre (normalisé) + année.
     Le fallback tvdb_id permet de déduper RSS (tvdb) ↔ Seer (tmdb) pour les séries.
     Le fallback titre rattrape les anciennes entrées RSS créées sans identifiant —
     comparaison normalisée (voir _norm_title_for_dedup) plutôt qu'une égalité stricte,
-    fragile aux variantes de ponctuation entre sources.
+    fragile aux variantes de ponctuation entre sources. Quand les deux années sont
+    connues, elles doivent aussi correspondre — un même titre à des années
+    différentes est presque toujours une œuvre différente (homonymie).
     """
     if tmdb_id:
         found = (await db.execute(
@@ -507,8 +510,11 @@ async def _find_global_request(
                 )
             candidates = (await db.execute(query)).scalars().all()
             for candidate in candidates:
-                if _norm_title_for_dedup(candidate.title) == norm:
-                    return candidate
+                if _norm_title_for_dedup(candidate.title) != norm:
+                    continue
+                if year and candidate.year and candidate.year != year:
+                    continue
+                return candidate
     return None
 
 
@@ -608,7 +614,8 @@ async def _process_watchlist_item(
 
     # Dédup global : même média déjà demandé par un autre utilisateur ?
     global_req = await _find_global_request(
-        db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id")
+        db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id"),
+        item.get("year"),
     )
     if global_req and global_req.plex_user_id != uid:
         added = _add_co_requester(global_req, uid, display_name)
@@ -897,7 +904,8 @@ async def sync_plex_dates(db: AsyncSession):
             continue
 
         existing = await _find_global_request(
-            db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id")
+            db, item["media_type"], item.get("tmdb_id"), item["title"], item.get("tvdb_id"), item.get("imdb_id"),
+            item.get("year"),
         )
         if existing and existing.requested_at != req_date:
             existing.requested_at = req_date

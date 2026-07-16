@@ -208,6 +208,38 @@ async def test_find_global_request_title_fallback_ignores_identified_homonym(db)
     assert result is None
 
 
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_requires_matching_year(db):
+    """Le fallback titre (aucun identifiant, ni sur le candidat ni sur l'item courant)
+    ne doit pas matcher deux oeuvres homonymes d'annees differentes."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=2014))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2022)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_matches_same_year(db):
+    """Meme titre, meme annee, toujours sans identifiant : doit matcher normalement."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=2014))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2014)
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_year_missing_still_matches(db):
+    """Annee inconnue d'un cote (donnee RSS legacy incomplete) : on garde le fallback
+    large plutot que de bloquer un vrai doublon faute de donnee."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=None))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2014)
+    assert result is not None
+
+
 # ---------------------------------------------------------------------------
 # _add_co_requester
 # ---------------------------------------------------------------------------
