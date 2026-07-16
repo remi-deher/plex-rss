@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import false, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -707,6 +708,125 @@ async def check_live_webhook(service: str, instance_id: int | None = None):
             entry.update({"configured": True, "success": ok, "message": msg})
             if ok:
                 _last_webhook_test[service] = datetime.now(timezone.utc)
+            results.append(entry)
+
+        return {"results": results}
+    finally:
+        await db.close()
+
+
+_WEBHOOK_EVENT_FLAGS: dict[str, dict[str, bool]] = {
+    # Evenements requis pour que webhook.py traite correctement les notifications (voir
+    # sonarr_webhook/radarr_webhook ci-dessus : eventType in ("Download", "Import") pour la
+    # disponibilite/scan VF, "SeriesDelete"/"EpisodeFileDelete" ou "MovieDelete"/
+    # "MovieFileDelete" pour le nettoyage des demandes supprimees).
+    "sonarr": {
+        "onGrab": False,
+        "onDownload": True,
+        "onUpgrade": True,
+        "onImportComplete": True,
+        "onRename": False,
+        "onSeriesAdd": False,
+        "onSeriesDelete": True,
+        "onEpisodeFileDelete": True,
+        "onEpisodeFileDeleteForUpgrade": False,
+        "onHealthIssue": False,
+        "onApplicationUpdate": False,
+    },
+    "radarr": {
+        "onGrab": False,
+        "onDownload": True,
+        "onUpgrade": True,
+        "onImportComplete": True,
+        "onRename": False,
+        "onMovieAdded": False,
+        "onMovieDelete": True,
+        "onMovieFileDelete": True,
+        "onMovieFileDeleteForUpgrade": False,
+        "onHealthIssue": False,
+        "onApplicationUpdate": False,
+    },
+}
+
+
+class ConfigureWebhookRequest(BaseModel):
+    webhook_url: str
+
+
+@router.post("/configure/{service}", dependencies=[Depends(require_admin)])
+async def configure_webhook(service: str, body: ConfigureWebhookRequest, instance_id: int | None = None):
+    """Crée ou corrige automatiquement le connecteur Webhook Sonarr/Radarr pointant vers cette app.
+
+    Si un connecteur webhook existe déjà (retrouvé via l'URL /webhook/{service}) mais avec des
+    événements manquants (cas réel rencontré : "On Download" désactivé, empêchant toute
+    notification lors d'un import automatique classique), il est corrigé en place. Sinon un
+    nouveau connecteur est créé à partir du schéma Sonarr/Radarr, avec uniquement les
+    événements dont webhook.py a besoin pour fonctionner.
+    """
+    if service not in ("sonarr", "radarr"):
+        raise HTTPException(status_code=400, detail="service doit être 'sonarr' ou 'radarr'")
+
+    client = sonarr if service == "sonarr" else radarr
+    webhook_path = f"/webhook/{service}"
+    desired_flags = _WEBHOOK_EVENT_FLAGS[service]
+
+    db: AsyncSession = AsyncSessionLocal()
+    try:
+        if instance_id is not None:
+            inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == instance_id, ArrInstance.arr_type == service))).scalars().first()
+            if not inst:
+                raise HTTPException(status_code=404, detail="Instance introuvable")
+            instances = [inst]
+        else:
+            instances = (await db.execute(select(ArrInstance).filter(ArrInstance.arr_type == service, ArrInstance.enabled))).scalars().all()
+            if not instances:
+                settings = (await db.execute(select(Settings))).scalars().first()
+                url = getattr(settings, f"{service}_url", None) if settings else None
+                api_key = getattr(settings, f"{service}_api_key", None) if settings else None
+                if url and api_key:
+                    instances = [ArrInstance(name=service.capitalize(), arr_type=service, url=url, api_key=api_key)]
+
+        if not instances:
+            return {"results": [{"instance": None, "success": False, "message": "Aucune instance configurée"}]}
+
+        results = []
+        for inst in instances:
+            entry = {"instance": inst.name, "instance_id": inst.id}
+            try:
+                notifications = await client.get_notifications(inst.url, inst.api_key)
+            except Exception as e:
+                entry.update({"success": False, "message": f"Connexion à {service.capitalize()} impossible : {e}"})
+                results.append(entry)
+                continue
+
+            try:
+                existing = client.find_webhook_notification(notifications, webhook_path)
+                if existing:
+                    changed = False
+                    for key, val in desired_flags.items():
+                        if existing.get(key) != val:
+                            existing[key] = val
+                            changed = True
+                    for field in existing.get("fields", []):
+                        if field.get("name") == "url" and field.get("value") != body.webhook_url:
+                            field["value"] = body.webhook_url
+                            changed = True
+                    if changed:
+                        await client.update_notification(inst.url, inst.api_key, existing)
+                        entry.update({"success": True, "message": "Connecteur existant corrigé (événements manquants activés)."})
+                    else:
+                        entry.update({"success": True, "message": "Déjà correctement configuré."})
+                else:
+                    schema = await client.get_webhook_schema(inst.url, inst.api_key)
+                    if not schema:
+                        entry.update({"success": False, "message": "Schéma du connecteur Webhook introuvable."})
+                        results.append(entry)
+                        continue
+                    payload = client.build_webhook_payload(schema, body.webhook_url, desired_flags)
+                    await client.create_notification(inst.url, inst.api_key, payload)
+                    entry.update({"success": True, "message": "Connecteur webhook créé."})
+            except Exception as e:
+                entry.update({"success": False, "message": str(e)})
             results.append(entry)
 
         return {"results": results}

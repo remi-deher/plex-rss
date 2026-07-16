@@ -633,6 +633,51 @@ async def test_notification(url: str, api_key: str, notification: dict) -> tuple
         return False, str(e)
 
 
+async def get_webhook_schema(url: str, api_key: str) -> dict | None:
+    """Retourne le schéma vierge du connecteur 'Webhook' (pour en créer un nouveau)."""
+    client = ArrClient(url, api_key, timeout=10)
+    resp = await client.get("/api/v3/notification/schema")
+    resp.raise_for_status()
+    for entry in resp.json():
+        if entry.get("implementation") == "Webhook":
+            return entry
+    return None
+
+
+def build_webhook_payload(schema: dict, webhook_url: str, flags: dict[str, bool], name: str = "Plexarr") -> dict:
+    """Construit le payload de création d'un connecteur Webhook à partir du schéma Radarr,
+    en pré-remplissant l'URL et en n'activant que les événements passés dans `flags`."""
+    payload = {k: v for k, v in schema.items() if k != "id"}
+    fields = []
+    for field in schema.get("fields", []):
+        field = dict(field)
+        if field.get("name") == "url":
+            field["value"] = webhook_url
+        elif field.get("name") == "method":
+            field["value"] = 1  # POST
+        fields.append(field)
+    payload["fields"] = fields
+    payload["name"] = name
+    payload.update(flags)
+    return payload
+
+
+async def create_notification(url: str, api_key: str, payload: dict) -> dict:
+    """Crée un nouveau connecteur de notification dans Radarr (Settings → Connect)."""
+    client = ArrClient(url, api_key, timeout=15)
+    resp = await client.post("/api/v3/notification", json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def update_notification(url: str, api_key: str, notification: dict) -> dict:
+    """Met à jour un connecteur de notification existant dans Radarr."""
+    client = ArrClient(url, api_key, timeout=15)
+    resp = await client.put(f"/api/v3/notification/{notification['id']}", json=notification)
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def get_quality_profiles(url: str, api_key: str) -> list[dict]:
     """Retourne les profils de qualité disponibles (pour le formulaire de config)."""
     client = ArrClient(url, api_key, timeout=10)

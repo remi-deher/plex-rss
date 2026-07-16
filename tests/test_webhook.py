@@ -296,3 +296,124 @@ def test_plex_webhook_json_direct_fallback():
     payload = {"event": "library.new", "Metadata": {"type": "movie", "title": "Interstellar", "Guid": []}}
     response = _post_plex(_make_db(settings=_settings()), payload, direct=True)
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# POST /webhook/configure/{service} — auto-configuration du connecteur Sonarr/Radarr
+# ---------------------------------------------------------------------------
+
+from app.dependencies import require_admin
+from app.models import ArrInstance
+
+
+def _arr_instance(arr_type="sonarr"):
+    return ArrInstance(name=arr_type.capitalize(), arr_type=arr_type, url="http://arr.local", api_key="key123")
+
+
+@contextmanager
+def _configure_db_patch(db):
+    db.close = AsyncMock()
+    with ExitStack() as stack:
+        stack.enter_context(patch("app.routers.webhook.AsyncSessionLocal", return_value=db))
+        stack.enter_context(patch.dict(app.dependency_overrides, {require_admin: lambda: None}))
+        yield
+
+
+def test_configure_webhook_invalid_service():
+    with patch.dict(app.dependency_overrides, {require_admin: lambda: None}):
+        response = client.post("/webhook/configure/plex", json={"webhook_url": "https://app.local/webhook/plex"})
+    assert response.status_code == 400
+
+
+def test_configure_webhook_no_instance_configured():
+    db = _make_db()
+    with _configure_db_patch(db):
+        response = client.post("/webhook/configure/sonarr", json={"webhook_url": "https://app.local/webhook/sonarr"})
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["success"] is False
+    assert "Aucune instance" in result["message"]
+
+
+def test_configure_webhook_fixes_existing_connector_missing_events():
+    """Régression : le connecteur webhook réel avait 'On Download' désactivé, ce qui
+    empêchait toute notification lors d'un import automatique classique (voir incident
+    'Orange' — statut resté bloqué sur Transmise pendant 18 minutes). L'auto-config doit
+    détecter ce connecteur existant et corriger les événements manquants en place."""
+    db = _make_db(requests=[_arr_instance("sonarr")])
+    existing = {
+        "id": 6,
+        "name": "RSS",
+        "implementation": "Webhook",
+        "onDownload": False,
+        "onUpgrade": True,
+        "onImportComplete": True,
+        "fields": [{"name": "url", "value": "https://app.local/webhook/sonarr?secret=old"}],
+    }
+    with (
+        _configure_db_patch(db),
+        patch("app.services.sonarr.get_notifications", new=AsyncMock(return_value=[existing])),
+        patch("app.services.sonarr.update_notification", new=AsyncMock(return_value=existing)) as update_mock,
+        patch("app.services.sonarr.create_notification", new=AsyncMock()) as create_mock,
+    ):
+        response = client.post("/webhook/configure/sonarr", json={"webhook_url": "https://app.local/webhook/sonarr?secret=new"})
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["success"] is True
+    assert "corrigé" in result["message"]
+    update_mock.assert_awaited_once()
+    create_mock.assert_not_awaited()
+    updated_payload = update_mock.call_args[0][2]
+    assert updated_payload["onDownload"] is True
+
+
+def test_configure_webhook_already_correct_skips_update():
+    db = _make_db(requests=[_arr_instance("sonarr")])
+    existing = {
+        "id": 6,
+        "name": "RSS",
+        "implementation": "Webhook",
+        "onGrab": False,
+        "onDownload": True,
+        "onUpgrade": True,
+        "onImportComplete": True,
+        "onRename": False,
+        "onSeriesAdd": False,
+        "onSeriesDelete": True,
+        "onEpisodeFileDelete": True,
+        "onEpisodeFileDeleteForUpgrade": False,
+        "onHealthIssue": False,
+        "onApplicationUpdate": False,
+        "fields": [{"name": "url", "value": "https://app.local/webhook/sonarr?secret=new"}],
+    }
+    with (
+        _configure_db_patch(db),
+        patch("app.services.sonarr.get_notifications", new=AsyncMock(return_value=[existing])),
+        patch("app.services.sonarr.update_notification", new=AsyncMock()) as update_mock,
+    ):
+        response = client.post("/webhook/configure/sonarr", json={"webhook_url": "https://app.local/webhook/sonarr?secret=new"})
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["success"] is True
+    assert "correctement configuré" in result["message"]
+    update_mock.assert_not_awaited()
+
+
+def test_configure_webhook_creates_new_connector_when_missing():
+    db = _make_db(requests=[_arr_instance("radarr")])
+    schema = {"implementation": "Webhook", "fields": [{"name": "url", "value": ""}, {"name": "method", "value": 0}]}
+    with (
+        _configure_db_patch(db),
+        patch("app.services.radarr.get_notifications", new=AsyncMock(return_value=[])),
+        patch("app.services.radarr.get_webhook_schema", new=AsyncMock(return_value=schema)),
+        patch("app.services.radarr.create_notification", new=AsyncMock(return_value={"id": 9})) as create_mock,
+    ):
+        response = client.post("/webhook/configure/radarr", json={"webhook_url": "https://app.local/webhook/radarr?secret=new"})
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["success"] is True
+    assert "créé" in result["message"]
+    create_mock.assert_awaited_once()
+    created_payload = create_mock.call_args[0][2]
+    assert created_payload["onDownload"] is True
+    assert any(f["name"] == "url" and f["value"] == "https://app.local/webhook/radarr?secret=new" for f in created_payload["fields"])

@@ -21,10 +21,18 @@
             <div class="webhook-url">
               <input type="text" readonly :value="`${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`">
               <button class="icon-button" @click="copyWebhook(svc)" title="Copier"><Copy/></button>
+              <button v-if="svc === 'sonarr' || svc === 'radarr'" class="secondary" @click="configureWebhook(svc)" :disabled="configuringWebhook === svc">
+                <RefreshCw v-if="configuringWebhook === svc" class="spin" />
+                <span v-else>Configurer automatiquement</span>
+              </button>
               <button class="secondary" @click="testWebhook(svc)" :disabled="testingWebhook === svc">
                 <RefreshCw v-if="testingWebhook === svc" class="spin" />
                 <span v-else>Tester</span>
               </button>
+            </div>
+            <div v-if="configureStatus[svc]" class="webhook-status" :class="{ 'status-ok': configureStatus[svc].success, 'status-error': !configureStatus[svc].success }">
+              <span v-if="configureStatus[svc].success"><Check /> {{ configureStatus[svc].message }}</span>
+              <span v-else>Erreur : {{ configureStatus[svc].message }}</span>
             </div>
             <div v-if="webhookStatus[svc]" class="webhook-status" :class="{ 'status-ok': webhookStatus[svc].success, 'status-error': !webhookStatus[svc].success }">
               <span v-if="webhookStatus[svc].success"><Check /> {{ webhookStatus[svc].message || 'Succès' }}</span>
@@ -50,7 +58,9 @@ import SettingsCard from './SettingsCard.vue';
 
 const baseUrl = window.location.origin;
 const webhookStatus = reactive({ plex: null, radarr: null, sonarr: null });
+const configureStatus = reactive({ plex: null, radarr: null, sonarr: null });
 const testingWebhook = ref(null);
+const configuringWebhook = ref(null);
 
 async function generateWebhookSecret() {
   if (form.webhook_secret && !confirm("Generer un nouveau secret annulera l'ancien et cassera les webhooks configures. Continuer ?")) return;
@@ -72,6 +82,25 @@ async function copyWebhook(svc) {
   const url = `${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`;
   await navigator.clipboard.writeText(url);
   success('URL copiee dans le presse-papier.');
+}
+async function configureWebhook(svc) {
+  configuringWebhook.value = svc;
+  configureStatus[svc] = null;
+  try {
+    const url = `${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`;
+    const res = await api(`/webhook/configure/${svc}`, { method: 'POST', body: JSON.stringify({ webhook_url: url }) });
+    const result = res.results && res.results[0];
+    if (result && result.success) {
+      configureStatus[svc] = { success: true, message: `Webhook ${svc.charAt(0).toUpperCase() + svc.slice(1)} correctement configuré : ${result.message}` };
+      success(`Webhook ${svc} correctement configuré.`);
+    } else {
+      configureStatus[svc] = { success: false, message: result ? result.message : 'Aucun résultat.' };
+    }
+  } catch (e) {
+    configureStatus[svc] = { success: false, message: e.message };
+  } finally {
+    configuringWebhook.value = null;
+  }
 }
 async function testWebhook(svc) {
   testingWebhook.value = svc;
