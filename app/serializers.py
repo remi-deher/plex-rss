@@ -19,15 +19,22 @@ def request_status_value(status: Any) -> str:
 
 
 def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
+    # Deduplique par plex_user_id : quelques lignes historiques ont le demandeur
+    # principal redondant dans extra_requesters (donnee corrompue anterieure a la
+    # garde de _add_co_requester), ce qui produisait des requester_ids en double —
+    # cassant le :key du v-for cote frontend (MediaDetailDrawer.vue) et empechant le
+    # rendu de la fiche detail pour ces demandes.
+    seen_ids: set[str] = {req.plex_user_id}
     requester_ids = [req.plex_user_id]
     extras = []
     try:
-        extras = _json.loads(req.extra_requesters or "[]")
-        for extra in extras:
+        for extra in _json.loads(req.extra_requesters or "[]"):
             uid = extra.get("plex_user_id")
-            if uid:
-                requester_ids.append(uid)
+            if uid and uid not in seen_ids:
+                seen_ids.add(uid)
                 extra["display_name"] = users.get(uid, extra.get("display_name") or uid)
+                extras.append(extra)
+                requester_ids.append(uid)
     except Exception:
         extras = []
     requesters = [users.get(uid, uid) for uid in requester_ids]

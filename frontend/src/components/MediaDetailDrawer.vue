@@ -70,7 +70,7 @@
                 </details>
 
                 <div v-if="(row.requester_ids || []).length > 1" class="requester-breakdown">
-                  <div v-for="(uid, idx) in row.requester_ids" :key="uid" class="requester-line">
+                  <div v-for="(uid, idx) in row.requester_ids" :key="`${uid}-${idx}`" class="requester-line">
                     <span class="requester-name">
                       {{ row.requesters?.[idx] || uid }}
                       <span v-if="idx === 0" class="badge tiny">Principal</span>
