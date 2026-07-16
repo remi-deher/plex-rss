@@ -173,3 +173,28 @@ def test_update_settings_retention_clear_to_empty_means_unlimited(async_db):
         assert settings.poll_history_retention_days is None
     finally:
         _cleanup()
+
+
+def test_update_settings_does_not_wipe_email_templates(async_db):
+    """Régression : email_request_template/subject (et les autres modèles/sujets) sont
+    gérés par /api/email-templates, pas par ce formulaire général — ils sont absents du
+    payload envoyé par settingsForm.js. Pydantic les redéfaut donc à None à chaque
+    sauvegarde d'un AUTRE onglet (ex: Connexions). Avant le fix, ces champs étaient dans
+    _nullable_fields et se retrouvaient donc effacés en base à chaque save non lié."""
+    settings = _default_settings()
+    settings.email_request_template = "<p>Bonjour {nom_utilisateur}</p>"
+    settings.email_request_subject = "Nouvelle demande : {titre}"
+    settings.email_templates_backup = '{"email_request_template": "old"}'
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
+    try:
+        with patch("app.routers.settings_api.update_poll_interval"):
+            resp = client.put("/api/settings", json={"plex_url": "http://new-plex.local"})
+        assert resp.status_code == 200
+        assert settings.plex_url == "http://new-plex.local"
+        assert settings.email_request_template == "<p>Bonjour {nom_utilisateur}</p>"
+        assert settings.email_request_subject == "Nouvelle demande : {titre}"
+        assert settings.email_templates_backup == '{"email_request_template": "old"}'
+    finally:
+        _cleanup()

@@ -178,14 +178,14 @@ def get_settings(s: Settings = Depends(get_settings_or_404)):
 async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
     """Met à jour la configuration. Ignore la valeur masquée du mot de passe SMTP."""
     # Champs qui peuvent être explicitement effacés avec null (template custom → retour au défaut)
+    # NB: les champs email_*_template / email_*_subject / email_templates_backup ne sont PAS
+    # ici : ils sont geres exclusivement par /api/email-templates (EmailTemplatesPanel), pas par
+    # ce formulaire general (settingsForm.js). Comme ils sont absents du payload de ce dernier,
+    # Pydantic les redefault a None a chaque enregistrement d'un AUTRE onglet (Connexions,
+    # Notifications, etc.) — les inclure ici les effacerait silencieusement en base a chaque
+    # sauvegarde non liee aux templates. Regression reelle : templates/sujets d'email
+    # "se sauvegardent mal" car ecrases des l'enregistrement d'un autre onglet.
     _nullable_fields = {
-        "email_request_template",
-        "email_available_template",
-        "email_upgrade_template",
-        "email_request_subject",
-        "email_available_subject",
-        "email_upgrade_subject",
-        "email_templates_backup",
         "torrent_required_keywords",
         "torrent_forbidden_keywords",
         "torrent_min_size_gb",

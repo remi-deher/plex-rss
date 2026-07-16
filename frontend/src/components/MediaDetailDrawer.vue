@@ -28,7 +28,7 @@
           
           <!-- Tab Demandes -->
           <section v-if="tab === 'requests'" class="drawer-section">
-            <div class="panel form-section" style="margin-bottom: 1rem;">
+            <div v-if="admin" class="panel form-section" style="margin-bottom: 1rem;">
               <label>Ajouter un co-demandeur
                 <div class="inline-row compact">
                   <select v-model="newRequesterId">
@@ -248,7 +248,12 @@ async function resendMail(id, event){
 async function addRequester(){
   busy.value=true;error.value='';
   try{
-    await api('/api/media/add',{method:'POST',body:JSON.stringify({title:detail.value.title,year:detail.value.year,media_type:detail.value.media_type,tmdb_id:detail.value.tmdb_id,tvdb_id:detail.value.tvdb_id,imdb_id:detail.value.imdb_id,poster_url:detail.value.poster_url,overview:detail.value.overview,plex_user_id:newRequesterId.value,root_folder:null,seasons:null,auto_search:false})});
+    const rows = detail.value.requests || [];
+    for (const row of rows) {
+      const ids = [...(row.requester_ids || [row.plex_user_id])];
+      if (!ids.includes(newRequesterId.value)) ids.push(newRequesterId.value);
+      await api(`/api/requests/${row.id}/requesters`,{method:'PUT',body:JSON.stringify({requester_ids:ids})});
+    }
     await load();
     newRequesterId.value='';
     emit('updated');
