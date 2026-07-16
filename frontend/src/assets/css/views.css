@@ -347,6 +347,12 @@ td {
   border-radius: 6px;
 }
 
+.inline-row.compact {
+  min-height: 34px;
+  padding: 0 8px;
+  gap: 6px;
+}
+
 .mono,
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;

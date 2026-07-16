@@ -3,7 +3,12 @@
     <div class="panel-head" style="margin-bottom: 0.5rem;">
       <h3 style="margin-bottom: 0;">Contenu audio & Disponibilité</h3>
       <div class="actions">
-        <button class="secondary" :disabled="busy" @click="$emit('scan')"><RefreshCw />Actualiser</button>
+        <button
+          class="secondary"
+          :disabled="busy || !available"
+          :title="available ? '' : 'Pas encore disponible dans Plex — reessayer une fois le media indexe'"
+          @click="$emit('scan')"
+        ><RefreshCw />Actualiser</button>
       </div>
     </div>
     
@@ -76,7 +81,8 @@ import { RefreshCw, MessageSquareWarning, ChevronDown } from "@lucide/vue";
 
 defineProps({
   vfDetail: { type: Object, default: null },
-  busy: { type: Boolean, default: false }
+  busy: { type: Boolean, default: false },
+  available: { type: Boolean, default: true }
 });
 
 defineEmits(['scan', 'correction']);

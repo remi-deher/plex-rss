@@ -28,16 +28,15 @@
           
           <!-- Tab Demandes -->
           <section v-if="tab === 'requests'" class="drawer-section">
-            <div v-if="admin" class="panel form-section" style="margin-bottom: 1rem;">
-              <label>Ajouter un co-demandeur
-                <div class="inline-row compact">
-                  <select v-model="newRequesterId">
-                    <option value="">Sélectionnez un utilisateur</option>
-                    <option v-for="u in users" :key="u.plex_user_id" :value="u.plex_user_id">{{ u.custom_name || u.display_name || u.plex_user_id }}</option>
-                  </select>
-                  <button class="primary" :disabled="busy || !newRequesterId" @click="addRequester"><PlusCircle/> Ajouter</button>
-                </div>
-              </label>
+            <div v-if="admin" class="add-requester-row">
+              <span class="add-requester-label">Co-demandeur</span>
+              <div class="inline-row compact">
+                <select v-model="newRequesterId" :disabled="!addableUsers.length">
+                  <option value="">{{ addableUsers.length ? 'Sélectionnez un utilisateur' : 'Tous les utilisateurs sont déjà demandeurs' }}</option>
+                  <option v-for="u in addableUsers" :key="u.plex_user_id" :value="u.plex_user_id">{{ u.custom_name || u.display_name || u.plex_user_id }}</option>
+                </select>
+                <button class="primary" :disabled="busy || !newRequesterId" @click="addRequester"><PlusCircle/> Ajouter</button>
+              </div>
             </div>
             <article v-for="row in detail.requests || []" :key="row.id" class="detail-row request-detail-row">
               <div>
@@ -139,6 +138,7 @@
             <MediaAudioSection
               :vf-detail="vfDetail"
               :busy="busy"
+              :available="Boolean(detail?.in_library)"
               @scan="scanVff"
               @correction="openCorrection"
             />
@@ -187,6 +187,10 @@ const statusClass=computed(()=>detail.value?.available||detail.value?.in_library
 const canRequest=computed(()=>props.mode==='discover'&&!detail.value?.available&&!detail.value?.in_library&&!detail.value?.requested);
 const seasonNumbers=computed(()=>Array.from({length:Number(detail.value?.number_of_seasons||0)},(_,i)=>i+1));
 const recommendations=computed(()=>[...(detail.value?.recommendations||[]),...(detail.value?.similar||[])].slice(0,6));
+const addableUsers=computed(()=>{
+  const already=new Set((detail.value?.requests||[]).flatMap(row=>row.requester_ids||[row.plex_user_id]));
+  return users.value.filter(u=>!already.has(u.plex_user_id));
+});
 
 function tabLabel(value){return ({summary:'Resume',requests:'Demandes',calendar:'Calendrier'})[value]}
 function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)):'-'}
@@ -440,6 +444,27 @@ onBeforeUnmount(()=>document.removeEventListener('click',handleOutsideClick));
 </script>
 
 <style scoped>
+.add-requester-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.add-requester-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.add-requester-row .inline-row {
+  flex: 1;
+}
+.add-requester-row select {
+  flex: 1;
+  min-width: 0;
+}
+
 .request-detail-top {
   display: flex;
   align-items: center;
