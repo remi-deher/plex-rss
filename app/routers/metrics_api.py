@@ -378,18 +378,18 @@ _ORPHAN_ARR_CACHE_TTL = 120
 
 def _is_show_genuinely_incomplete(file_count: int, aired_count: int, total_count: int) -> bool:
     """Une série est "non complète" si des épisodes déjà diffusés manquent au
-    téléchargement (`file_count < aired_count`), ou si elle est annoncée/surveillée
-    mais n'a encore rien diffusé (`aired_count == 0`) — dans ce dernier cas on compare
-    au total attendu puisque rien n'a encore pu être téléchargé.
+    téléchargement (`file_count < aired_count`).
+
+    Une série "à venir" (`aired_count == 0`, rien diffusé pour l'instant) n'est PAS
+    en retard au sens strict — elle est exclue ici par choix (catégorie distincte
+    "à venir" côté page Demandes, pas dans ce compteur "en cours").
 
     Ne PAS comparer systématiquement à `total_count` (diffusés + à venir) : une série
     en cours de diffusion mais à jour sur tout ce qui est déjà sorti aurait alors
     presque toujours un total supérieur au nombre de fichiers, la faisant compter à
     tort comme "non complète" tant qu'elle continue simplement d'être diffusée.
     """
-    if aired_count:
-        return file_count < aired_count
-    return bool(total_count) and file_count < total_count
+    return bool(aired_count) and file_count < aired_count
 
 
 async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
@@ -500,10 +500,10 @@ async def _count_incomplete_show_requests(db: AsyncSession) -> int:
     — voir `arr_tracker.is_show_partial`), pour ne jamais afficher un badge
     "Disponible" trompeur. La plupart des séries encore en diffusion sont donc déjà à
     jour sur tout ce qui est réellement sorti ; ne les compter que si des épisodes
-    déjà diffusés (`episodes_aired_count`) manquent encore au téléchargement (ou, pour
-    une série annoncée dont rien n'a encore été diffusé, si le total attendu n'est pas
-    téléchargé — voir `_is_show_genuinely_incomplete`) évite de gonfler ce compteur
-    avec des séries qui ne sont, en pratique, pas "en retard".
+    déjà diffusés (`episodes_aired_count`) manquent encore au téléchargement (voir
+    `_is_show_genuinely_incomplete`) évite de gonfler ce compteur avec des séries qui
+    ne sont, en pratique, pas "en retard". Une série "à venir" (rien diffusé pour
+    l'instant) n'est volontairement pas comptée ici — catégorie distincte "à venir".
     """
     from sqlalchemy import and_, func, or_
 
@@ -514,18 +514,9 @@ async def _count_incomplete_show_requests(db: AsyncSession) -> int:
                 MediaRequest.status == RequestStatus.sent_to_arr,
                 and_(
                     MediaRequest.status == RequestStatus.partially_available,
-                    or_(
-                        and_(
-                            MediaRequest.episodes_aired_count.isnot(None),
-                            MediaRequest.episodes_aired_count > 0,
-                            MediaRequest.episodes_available_count < MediaRequest.episodes_aired_count,
-                        ),
-                        and_(
-                            or_(MediaRequest.episodes_aired_count.is_(None), MediaRequest.episodes_aired_count == 0),
-                            MediaRequest.episodes_total_count.isnot(None),
-                            MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
-                        ),
-                    ),
+                    MediaRequest.episodes_aired_count.isnot(None),
+                    MediaRequest.episodes_aired_count > 0,
+                    MediaRequest.episodes_available_count < MediaRequest.episodes_aired_count,
                 ),
             ),
         )
