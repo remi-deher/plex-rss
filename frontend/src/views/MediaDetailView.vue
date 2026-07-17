@@ -59,7 +59,7 @@
             :users="users"
             :correction-options="correctionOptions"
             :correction-form="correctionForm"
-            :vf-detail="vfDetail"
+            :vf-detail="mergedVfDetail"
             @recheck-plex="recheckPlex"
             @open-correction="openCorrection"
             @report-issue="reportIssue"
@@ -100,6 +100,12 @@ const route = useRoute();
 const router = useRouter();
 
 const detail = ref(null), requesters = ref([]), folders = ref([]), vfDetail = ref(null);
+// Chargement progressif de l'accordeon saisons/episodes (facon Seerr) : l'enveloppe
+// (titres/numeros, TMDB) s'affiche des qu'elle arrive, disponibilite (Sonarr) et
+// statut VF/VO (BDD) se completent ensuite en parallele sans bloquer l'affichage.
+// Les films restent sur l'ancien flux vfDetail (scan Plex des pistes audio, deja
+// hors-chemin critique du reste de la page).
+const episodesEnvelope = ref(null), availability = ref(null), vfStatus = ref(null);
 const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const tabs = ['summary', 'requests', 'calendar'];
@@ -122,6 +128,29 @@ const recommendations = computed(() => [...(detail.value?.recommendations || [])
 const addableUsers = computed(() => {
   const already = new Set((detail.value?.requests || []).flatMap(row => row.requester_ids || [row.plex_user_id]));
   return users.value.filter(u => !already.has(u.plex_user_id));
+});
+
+// Fusionne les 3 sources independantes (enveloppe TMDB, disponibilite Sonarr,
+// statut VF/VO en BDD) des qu'elles arrivent -- reactif : chaque champ se met a
+// jour a mesure que son fetch resout, sans attendre les deux autres.
+const mergedVfDetail = computed(() => {
+  if (detail.value?.media_type !== 'show') return vfDetail.value;
+  if (!episodesEnvelope.value) return null;
+  const availBySeason = Object.fromEntries((availability.value?.seasons || []).map(s => [s.season_number, s.episodes]));
+  const vfBySeason = Object.fromEntries((vfStatus.value?.seasons || []).map(s => [s.season_number, s.episodes]));
+  const seasons = episodesEnvelope.value.seasons.map(season => {
+    const availEps = availBySeason[season.season_number] || {};
+    const vfEps = vfBySeason[season.season_number] || {};
+    const counts = { vf: 0, vf_secondary: 0, vo: 0, present: 0, absent: 0, unknown: 0 };
+    const episodes = season.episodes.map(ep => {
+      const hasFile = availEps[ep.episode_number];
+      const status = vfEps[ep.episode_number] || (hasFile === undefined ? 'unknown' : hasFile ? 'present' : 'absent');
+      counts[status] = (counts[status] || 0) + 1;
+      return { episode: ep.episode_number, title: ep.title, air_date: ep.air_date, status, has_file: hasFile };
+    });
+    return { season_number: season.season_number, name: season.name, counts, episodes };
+  });
+  return { enabled: true, media_type: 'show', vf_available: true, seasons };
 });
 
 function tabLabel(value) { return ({ summary: 'Resume', requests: 'Demandes', calendar: 'Calendrier' })[value]; }
@@ -153,7 +182,9 @@ async function loadSession() {
 }
 
 async function load() {
-  loading.value = true; error.value = ''; vfDetail.value = null; tab.value = 'summary';
+  loading.value = true; error.value = ''; vfDetail.value = null;
+  episodesEnvelope.value = null; availability.value = null; vfStatus.value = null;
+  tab.value = 'summary';
   try {
     const payload = await api(mediaPath());
     detail.value = kind.value === 'discover' ? payload : { ...payload.media, ...payload };
@@ -167,7 +198,10 @@ async function load() {
   } catch (e) { error.value = e.message; } finally { loading.value = false; }
 
   if (kind.value !== 'discover') {
-    Promise.all([loadVf(), loadUsers(), loadSession()]).catch(() => {});
+    // Chaque appel se resout independamment -- l'enveloppe (rapide, TMDB) affiche
+    // l'accordeon des qu'elle arrive, sans attendre disponibilite/VF (Sonarr/BDD),
+    // qui completent ensuite les badges au fil de l'eau (voir mergedVfDetail).
+    Promise.all([loadEpisodesEnvelope(), loadAvailability(), loadVfStatus(), loadUsers(), loadSession()]).catch(() => {});
   } else {
     loadSession().catch(() => {});
   }
@@ -294,17 +328,45 @@ async function deleteRequest(id) {
   catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
-function sourcePath() { return kind.value === 'request' ? 'requests' : 'library'; }
+// vf_source_id peut pointer vers un LibraryItem meme si la page a ete ouverte via une
+// MediaRequest (des qu'un media est aussi present dans la bibliotheque Plex) -- le
+// prefixe doit suivre le type reel de cette source (vf_source_type), pas kind.value,
+// sinon 404 silencieux sur tout le chargement VF (Promise.all avale l'erreur).
+function sourcePath() {
+  const vfType = detail.value?.media?.vf_source_type;
+  if (vfType) return vfType === 'library' ? 'library' : 'requests';
+  return kind.value === 'request' ? 'requests' : 'library';
+}
 function sourceId() { return detail.value?.media?.vf_source_id || route.params.id; }
 
 async function loadVf() {
+  // Films uniquement (scan Plex des pistes audio, deja hors du chemin critique) --
+  // les series passent par loadEpisodesEnvelope/loadAvailability/loadVfStatus.
   vfDetail.value = await api(`/api/${sourcePath()}/${sourceId()}/vf-detail`);
+}
+
+async function loadEpisodesEnvelope() {
+  if (detail.value?.media_type !== 'show') return;
+  episodesEnvelope.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes`);
+}
+
+async function loadAvailability() {
+  if (detail.value?.media_type !== 'show') return;
+  availability.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-availability`);
+}
+
+async function loadVfStatus() {
+  if (detail.value?.media_type !== 'show') return;
+  vfStatus.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-vf-status`);
 }
 
 async function scanVff() {
   busy.value = true;
-  try { await api(`/api/${sourcePath()}/${sourceId()}/vff-scan`, { method: 'POST' }); await loadVf(); }
-  catch (e) { error.value = e.message; } finally { busy.value = false; }
+  try {
+    await api(`/api/${sourcePath()}/${sourceId()}/vff-scan`, { method: 'POST' });
+    if (detail.value?.media_type === 'show') await Promise.all([loadAvailability(), loadVfStatus()]);
+    else await loadVf();
+  } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
 async function recheckPlex() {

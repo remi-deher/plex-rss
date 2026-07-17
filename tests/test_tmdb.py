@@ -287,3 +287,51 @@ async def test_search_returns_normalized_list(db):
     with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
         result = await tmdb.search(db, "query")
     assert result[0]["title"] == "Show"
+
+
+# ---------------------------------------------------------------------------
+# get_tv_seasons_overview / get_tv_season_episodes (enveloppe saisons/episodes,
+# independante de Sonarr/Radarr/Plex -- voir vff_api._episodes_envelope_payload)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_tv_seasons_overview_excludes_season_zero(db):
+    """La saison 0 (specials) n'est jamais suivie cote VF/disponibilite -- exclue
+    de l'enveloppe des sa source."""
+    db.add(Settings(tmdb_api_key="abc"))
+    db.commit()
+    payload = {
+        "seasons": [
+            {"season_number": 0, "name": "Specials", "episode_count": 5},
+            {"season_number": 1, "name": "Season 1", "episode_count": 10},
+            {"season_number": 2, "name": "Season 2", "episode_count": 8},
+        ]
+    }
+    client = _mock_client(get_return=_mock_response(payload))
+    with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
+        result = await tmdb.get_tv_seasons_overview(db, 123)
+    assert [s["season_number"] for s in result] == [1, 2]
+    assert result[0]["name"] == "Season 1"
+    assert result[0]["episode_count"] == 10
+
+
+@pytest.mark.asyncio
+async def test_get_tv_season_episodes_maps_fields(db):
+    db.add(Settings(tmdb_api_key="abc"))
+    db.commit()
+    payload = {
+        "episodes": [
+            {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "Intro", "still_path": "/x.jpg"},
+        ]
+    }
+    client = _mock_client(get_return=_mock_response(payload))
+    with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
+        result = await tmdb.get_tv_season_episodes(db, 123, 1)
+    assert result == [{
+        "episode_number": 1,
+        "title": "Pilot",
+        "air_date": "2020-01-01",
+        "overview": "Intro",
+        "still_url": "https://image.tmdb.org/t/p/w300/x.jpg",
+    }]

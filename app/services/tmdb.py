@@ -230,6 +230,41 @@ async def external_ids(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     return {"tvdb_id": data.get("tvdb_id"), "imdb_id": data.get("imdb_id")}
 
 
+async def get_tv_seasons_overview(db: AsyncSession, tmdb_id: int) -> list[dict]:
+    """Liste des saisons (numéro, nom, nombre d'épisodes) — l'enveloppe légère
+    affichée avant même de savoir quoi que ce soit sur la disponibilité ou le VF/VO
+    (façon Seerr : `Media.getMedia`, une lecture rapide, jamais un appel Sonarr/Plex).
+    Saison 0 (spéciaux) exclue : jamais suivie côté VF/disponibilité dans cette app.
+    """
+    data = await _get(db, f"/tv/{tmdb_id}")
+    return [
+        {
+            "season_number": s.get("season_number"),
+            "name": s.get("name"),
+            "episode_count": s.get("episode_count"),
+        }
+        for s in data.get("seasons", [])
+        if s.get("season_number") and s.get("season_number") > 0
+    ]
+
+
+async def get_tv_season_episodes(db: AsyncSession, tmdb_id: int, season_number: int) -> list[dict]:
+    """Épisodes d'une saison (numéro, titre, date de diffusion) — même principe que
+    `/tv/:id/season/:seasonNumber` chez Seerr : pure métadonnée, aucune notion de
+    disponibilité ou de VF/VO ici."""
+    data = await _get(db, f"/tv/{tmdb_id}/season/{season_number}")
+    return [
+        {
+            "episode_number": e.get("episode_number"),
+            "title": e.get("name"),
+            "air_date": e.get("air_date"),
+            "overview": e.get("overview") or "",
+            "still_url": _backdrop(e.get("still_path"), "w300"),
+        }
+        for e in data.get("episodes", [])
+    ]
+
+
 async def find_by_external_id(db: AsyncSession, source: str, external_id: int | str) -> Optional[int]:
     """Trouve l'ID TMDB a partir d'un identifiant externe (ex : tvdb_id)."""
     try:

@@ -1,7 +1,6 @@
 <template>
   <div class="vf-summary" style="margin-top: 1.5rem;">
-    <div class="panel-head" style="margin-bottom: 0.5rem;">
-      <h3 style="margin-bottom: 0;">Contenu audio & Disponibilité</h3>
+    <div v-if="!vfDetail || vfDetail.media_type !== 'show'" class="panel-head" style="margin-bottom: 0.5rem;">
       <div class="actions">
         <button
           class="secondary"
@@ -11,12 +10,20 @@
         ><RefreshCw />Actualiser</button>
       </div>
     </div>
-    
+
     <div v-if="vfDetail" style="margin-top: 0.5rem;">
       <div v-if="vfDetail.media_type === 'show'">
+        <div class="actions" style="justify-content: flex-end; margin-bottom: 0.5rem;">
+          <button
+            class="icon-button"
+            :disabled="busy || !available"
+            :title="available ? 'Actualiser' : 'Pas encore disponible dans Plex — reessayer une fois le media indexe'"
+            @click="$emit('scan')"
+          ><RefreshCw/></button>
+        </div>
         <details v-for="season in vfDetail.seasons || []" :key="season.season_number" class="detail-row" style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 6px;">
           <summary style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
-            <strong>Saison {{ season.season_number }}</strong>
+            <strong>Saison {{ season.season_number }}{{ season.name && !/^(saison|season)\s*\d+$/i.test(season.name) ? ` — ${season.name}` : '' }}</strong>
             <div class="inline-row compact" style="gap: 4px;">
               <span class="badge available" v-if="season.counts.vf">VF: {{ season.counts.vf }}</span>
               <span class="badge" v-if="season.counts.vo">VO: {{ season.counts.vo }}</span>
@@ -29,8 +36,14 @@
             <div v-for="ep in season.episodes" :key="ep.episode" class="inline-row compact" style="margin-bottom: 6px; align-items: center;">
               <span style="min-width: 30px; font-weight: 500;">{{ ep.episode }}.</span>
               <span style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.title || `Episode ${ep.episode}` }}</span>
-              <button class="badge" :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent'}" @click="$emit('correction', 'episode', season.season_number, ep.episode)" style="cursor: pointer;" title="Signaler une correction">
-                {{ ep.status.toUpperCase() }}
+              <button
+                class="badge"
+                :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent', 'pending': ep.status === 'unknown'}"
+                @click="ep.status !== 'unknown' && $emit('correction', 'episode', season.season_number, ep.episode)"
+                style="cursor: pointer;"
+                :title="ep.status === 'unknown' ? 'Chargement...' : 'Signaler une correction'"
+              >
+                {{ ep.status === 'unknown' ? '…' : ep.status.toUpperCase() }}
               </button>
             </div>
           </div>

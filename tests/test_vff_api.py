@@ -1,6 +1,6 @@
 """Tests unitaires pour app/routers/vff_api.py."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -169,3 +169,104 @@ def test_vff_scan_single_request_400_when_vff_disabled(db, client):
     resp = client.post(f"/api/requests/{req.id}/vff-scan")
     assert resp.status_code == 400
     assert "disabled" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GET /requests/{id}/episodes, /episodes-availability, /episodes-vf-status
+# (chargement progressif de l'accordeon saisons/episodes, voir arr_orphans-style
+# refactor: enveloppe TMDB / disponibilite Sonarr / statut VF sont 3 sources
+# independantes, chacune testee separement)
+# ---------------------------------------------------------------------------
+
+
+def _show_request(db, **kwargs):
+    from app.models import MediaRequest, RequestStatus
+
+    defaults = dict(
+        plex_user_id="alice", plex_user="Alice", title="Show", media_type="show",
+        status=RequestStatus.sent_to_arr, tmdb_id="123", tvdb_id="456", arr_id=42, arr_instance_id=1,
+    )
+    defaults.update(kwargs)
+    req = MediaRequest(**defaults)
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+def test_episodes_envelope_uses_tmdb_only(db, client):
+    """L'enveloppe vient uniquement de TMDB -- aucun appel Sonarr/Radarr necessaire,
+    c'est ce qui la rend rapide."""
+    req = _show_request(db)
+    overview = [{"season_number": 1, "name": "Season 1", "episode_count": 2}]
+    episodes = [
+        {"episode_number": 1, "title": "Pilot", "air_date": "2020-01-01", "overview": "", "still_url": None},
+        {"episode_number": 2, "title": "Ep 2", "air_date": "2020-01-08", "overview": "", "still_url": None},
+    ]
+    with (
+        patch("app.routers.vff_api.tmdb.get_tv_seasons_overview", new=AsyncMock(return_value=overview)),
+        patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(return_value=episodes)),
+        patch("app.routers.vff_api.lookup_series") as mock_sonarr,
+    ):
+        resp = client.get(f"/api/requests/{req.id}/episodes")
+        mock_sonarr.assert_not_called()
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["media_type"] == "show"
+    assert data["seasons"] == [{"season_number": 1, "name": "Season 1", "episodes": episodes}]
+
+
+def test_episodes_envelope_movie_returns_empty_seasons(db, client):
+    from app.models import MediaRequest, RequestStatus
+
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="Alice", title="Movie", media_type="movie", status=RequestStatus.sent_to_arr,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.get(f"/api/requests/{req.id}/episodes")
+    assert resp.status_code == 200
+    assert resp.json() == {"media_type": "movie", "seasons": []}
+
+
+def test_episodes_availability_uses_sonarr_hasfile(db, client):
+    from app.cache import cache
+
+    req = _show_request(db)
+    cache._memory.clear()
+    sonarr_series = {"id": 42, "seasons": []}
+    sonarr_episodes = [
+        {"seasonNumber": 1, "episodeNumber": 1, "monitored": True, "hasFile": True},
+        {"seasonNumber": 1, "episodeNumber": 2, "monitored": True, "hasFile": False},
+        {"seasonNumber": 0, "episodeNumber": 1, "monitored": True, "hasFile": True},  # saison 0 exclue
+    ]
+    with (
+        patch("app.routers.vff_api._resolve_arr_instance", new=AsyncMock(return_value=type("I", (), {"url": "http://sonarr", "api_key": "x"})())),
+        patch("app.routers.vff_api.lookup_series", new=AsyncMock(return_value=sonarr_series)),
+        patch("app.routers.vff_api.get_episodes", new=AsyncMock(return_value=sonarr_episodes)),
+    ):
+        resp = client.get(f"/api/requests/{req.id}/episodes-availability")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["seasons"] == [{"season_number": 1, "episodes": {"1": True, "2": False}}]
+
+
+def test_episodes_vf_status_is_pure_db_read(db, client):
+    """Aucun appel reseau : uniquement la lecture de VfEpisodeStatus, deja alimentee
+    par le poller en tache de fond."""
+    from app.models import VfEpisodeStatus
+
+    req = _show_request(db)
+    db.add(VfEpisodeStatus(source_type="request", source_id=req.id, season_number=1, episode_number=1, has_vf=True, fr_is_default=True))
+    db.add(VfEpisodeStatus(source_type="request", source_id=req.id, season_number=1, episode_number=2, has_vf=False))
+    db.commit()
+
+    with patch("app.routers.vff_api.lookup_series") as mock_sonarr:
+        resp = client.get(f"/api/requests/{req.id}/episodes-vf-status")
+        mock_sonarr.assert_not_called()
+    assert resp.status_code == 200
+    data = resp.json()
+    seasons = {s["season_number"]: s["episodes"] for s in data["seasons"]}
+    assert seasons[1] == {"1": "vf", "2": "vo"}

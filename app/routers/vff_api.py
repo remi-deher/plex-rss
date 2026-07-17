@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import sqlalchemy
 
+from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
 from ..models import LibraryItem, MediaRequest, RequestStatus, Settings, VfEpisodeStatus
@@ -23,7 +24,7 @@ from ..scheduler import (
 from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
 from ..services import plex_finder as vff_svc
-from ..services import audio_analyzer
+from ..services import audio_analyzer, tmdb
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
@@ -227,6 +228,105 @@ async def _vf_detail_payload(db: AsyncSession, req):
     }
 
 
+# --- Chargement progressif (façon Seerr) -------------------------------------
+#
+# `_vf_detail_payload` ci-dessus reste utilisé par la modale de détail VF (film :
+# scan Plex des pistes audio, inévitablement live). Pour l'accordéon saisons/
+# épisodes de la page de détail, on découpe désormais en trois appels indépendants
+# et parallélisables, chacun rendu dès qu'il répond, au lieu d'attendre que Sonarr
+# ET la BDD VF aient tous les deux répondu avant de pouvoir afficher quoi que ce
+# soit (voir Seerr : GET /tv/:id/season/:n ne renvoie que du TMDB pur, la
+# disponibilité vient d'une lecture DB locale séparée) :
+#   1. _episodes_envelope_payload : uniquement TMDB (titres/numéros), aucun appel
+#      Sonarr/Radarr/Plex — l'enveloppe s'affiche donc quasi instantanément.
+#   2. _availability_payload : uniquement Sonarr (episodeFileCount par épisode),
+#      mis en cache court pour éviter de re-taper Sonarr à chaque rechargement.
+#   3. _vf_status_payload : uniquement la lecture DB VfEpisodeStatus déjà
+#      alimentée par le poller en tâche de fond — aucun appel réseau du tout.
+
+
+async def _episodes_envelope_payload(db: AsyncSession, req) -> dict:
+    """Enveloppe saisons/épisodes (titres, numéros, dates de diffusion) depuis TMDB
+    uniquement — indépendante de la disponibilité et du statut VF/VO."""
+    if req.media_type != "show":
+        return {"media_type": "movie", "seasons": []}
+    if not req.tmdb_id:
+        return {"media_type": "show", "seasons": []}
+    try:
+        overview = await tmdb.get_tv_seasons_overview(db, int(req.tmdb_id))
+        seasons = await asyncio.gather(*[
+            tmdb.get_tv_season_episodes(db, int(req.tmdb_id), s["season_number"]) for s in overview
+        ])
+    except Exception as e:
+        logger.warning(f"episodes-envelope: TMDB indisponible pour '{req.title}': {e}")
+        return {"media_type": "show", "seasons": []}
+    return {
+        "media_type": "show",
+        "seasons": [
+            {"season_number": s["season_number"], "name": s["name"], "episodes": eps}
+            for s, eps in zip(overview, seasons)
+        ],
+    }
+
+
+_AVAILABILITY_CACHE_TTL = 90
+
+
+async def _availability_payload(db: AsyncSession, req) -> dict:
+    """Disponibilité par épisode (fichier présent côté Sonarr) — seul appel réseau
+    de ce trio, mis en cache court pour ne pas re-taper Sonarr a chaque affichage."""
+    if req.media_type != "show":
+        return {"seasons": []}
+    cache_key = f"plexarr:episodes-availability:{req.arr_instance_id}:{req.arr_id or req.tvdb_id}"
+    cached = await cache.get_json(cache_key)
+    if cached is not None:
+        return cached
+
+    seasons: dict[int, dict[int, bool]] = {}
+    try:
+        inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
+        series_id = req.arr_id if getattr(req, "source", None) != "seer" else None
+        data = None
+        if req.tvdb_id:
+            data = await lookup_series(inst.url, inst.api_key, tvdb_id=req.tvdb_id)
+            series_id = data.get("id") if data else series_id
+        if not series_id:
+            data = await lookup_series(inst.url, inst.api_key, arr_id=req.arr_id)
+            series_id = data.get("id") if data else None
+        if series_id:
+            for ep in await get_episodes(inst.url, inst.api_key, series_id):
+                if not ep.get("monitored", True):
+                    continue
+                sn, en = ep.get("seasonNumber"), ep.get("episodeNumber")
+                if sn is None or en is None or sn == 0:
+                    continue
+                seasons.setdefault(sn, {})[en] = bool(ep.get("hasFile"))
+    except Exception as e:
+        logger.warning(f"episodes-availability: Sonarr indisponible pour '{req.title}': {e}")
+
+    payload = {"seasons": [{"season_number": sn, "episodes": eps} for sn, eps in seasons.items()]}
+    await cache.set_json(cache_key, payload, ttl_seconds=_AVAILABILITY_CACHE_TTL)
+    return payload
+
+
+async def _vf_status_payload(db: AsyncSession, req) -> dict:
+    """Statut VF/VO par épisode — lecture DB pure (VfEpisodeStatus, déjà alimentée
+    par le poller en tâche de fond), jamais d'appel réseau ici."""
+    if req.media_type != "show":
+        return {"seasons": []}
+    source_type = "request" if isinstance(req, MediaRequest) else "library_item"
+    rows = (await db.execute(
+        select(VfEpisodeStatus).filter(
+            VfEpisodeStatus.source_type == source_type, VfEpisodeStatus.source_id == req.id
+        )
+    )).scalars().all()
+    seasons: dict[int, dict[int, dict]] = {}
+    for r in rows:
+        status = "vf_secondary" if r.has_vf and r.fr_is_default is False else ("vf" if r.has_vf else "vo")
+        seasons.setdefault(r.season_number, {})[r.episode_number] = status
+    return {"seasons": [{"season_number": sn, "episodes": eps} for sn, eps in seasons.items()]}
+
+
 @router.get("/vff/counts")
 async def vff_counts(db: AsyncSession = Depends(get_db_async)):
     """Compteurs VFF sur la bibliothèque."""
@@ -415,6 +515,48 @@ async def library_vf_detail(item_id: int, db: AsyncSession = Depends(get_db_asyn
     """Détail VF d'un élément de bibliothèque."""
     item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
     return await _vf_detail_payload(db, item)
+
+
+@router.get("/requests/{request_id}/episodes")
+async def request_episodes(request_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Enveloppe saisons/épisodes (TMDB, sans dispo ni VF/VO) d'une demande."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    return await _episodes_envelope_payload(db, req)
+
+
+@router.get("/library/{item_id}/episodes")
+async def library_episodes(item_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Enveloppe saisons/épisodes (TMDB, sans dispo ni VF/VO) d'un élément de bibliothèque."""
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return await _episodes_envelope_payload(db, item)
+
+
+@router.get("/requests/{request_id}/episodes-availability")
+async def request_episodes_availability(request_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Disponibilité par épisode (Sonarr) d'une demande."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    return await _availability_payload(db, req)
+
+
+@router.get("/library/{item_id}/episodes-availability")
+async def library_episodes_availability(item_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Disponibilité par épisode (Sonarr) d'un élément de bibliothèque."""
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return await _availability_payload(db, item)
+
+
+@router.get("/requests/{request_id}/episodes-vf-status")
+async def request_episodes_vf_status(request_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Statut VF/VO par épisode (BDD uniquement) d'une demande."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    return await _vf_status_payload(db, req)
+
+
+@router.get("/library/{item_id}/episodes-vf-status")
+async def library_episodes_vf_status(item_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Statut VF/VO par épisode (BDD uniquement) d'un élément de bibliothèque."""
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return await _vf_status_payload(db, item)
 
 
 @router.post("/library/{item_id}/vff-scan", dependencies=[Depends(require_admin)])
