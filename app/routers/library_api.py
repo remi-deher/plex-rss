@@ -28,6 +28,7 @@ from ..models import (
 from ..services import radarr, sonarr, tmdb
 from ..services import seer as seer_service
 from ..services.email_service import build_correction_email, send_correction_notification
+from ..services.diagnostics import record_event, update_request_context
 from ..services.notification_orchestrator import _notify
 from ..utils import async_get_or_404, identity_keys, now_utc_naive, wrap_image_proxy
 from .arr_api import _resolve_arr_instance
@@ -960,6 +961,16 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
             overview=body.overview,
         )
         db.add(req)
+        await db.commit()
+        update_request_context(req, request_source=source_val)
+        await record_event(
+            db,
+            category="request",
+            action="created",
+            request=req,
+            message="Demande créée.",
+            details={"source": source_val, "tmdb_id": tmdb_str, "tvdb_id": tvdb_str, "imdb_id": body.imdb_id},
+        )
         await db.commit()
         if s:
             await _notify("request", s, req, db)

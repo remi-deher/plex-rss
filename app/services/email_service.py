@@ -10,6 +10,7 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from ..models import LibraryItem, MediaRequest, Settings
 from . import audio_analyzer, plex_finder
+from .diagnostics import request_context
 
 logger = logging.getLogger(__name__)
 
@@ -323,6 +324,7 @@ def _build_tags(
     correction_note: str = "",
 ) -> dict:
     is_show = request.media_type == "show"
+    diagnostic = request_context(request) if hasattr(request, "diagnostic_context") else {}
 
     type_media = "Le film"
     if is_show:
@@ -363,11 +365,17 @@ def _build_tags(
         "{corrections}": _format_corrections(corrections) or "- Correction effectuée",
         "{note_correction}": correction_note.strip() if correction_note else "",
         "{media_type_et_titre}": f"{type_media} {request.title or ''}".strip(),
+        "{source_disponibilite}": diagnostic.get("availability_source", ""),
+        "{evenement_arr}": diagnostic.get("arr_event", ""),
+        "{statut_plex}": diagnostic.get("plex_match_status", ""),
+        "{methode_correspondance_plex}": diagnostic.get("plex_match_method", ""),
+        "{titre_trouve_plex}": diagnostic.get("plex_match_title", ""),
     }
 
 
 def _build_jinja_ctx(request: MediaRequest | LibraryItem, display_name: str | None = None) -> dict:
     is_show = request.media_type == "show"
+    diagnostic = request_context(request) if hasattr(request, "diagnostic_context") else {}
     return {
         "_title": request.title or "",
         "_year": request.year,
@@ -380,6 +388,13 @@ def _build_jinja_ctx(request: MediaRequest | LibraryItem, display_name: str | No
         "_media_type_label": "Série" if is_show else "Film",
         "_overview": request.overview or "",
         "_genres": getattr(request, "genres", "") or "",
+        "availability_source": diagnostic.get("availability_source", ""),
+        "arr_event": diagnostic.get("arr_event", ""),
+        "plex_match_status": diagnostic.get("plex_match_status", ""),
+        "plex_match_method": diagnostic.get("plex_match_method", ""),
+        "plex_match_title": diagnostic.get("plex_match_title", ""),
+        "plex_guid": diagnostic.get("plex_guid", ""),
+        "diagnostic_resume": diagnostic.get("diagnostic_resume", ""),
     }
 
 

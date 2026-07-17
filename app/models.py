@@ -434,6 +434,29 @@ class AdminActionLog(Base):
     details: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
 
+class DiagnosticEvent(Base):
+    """Événement persistant du parcours Demande → Arr → Plex → Notification."""
+
+    __tablename__ = "diagnostic_events"
+    __table_args__ = (
+        Index("ix_diagnostic_events_request_created", "request_id", "created_at"),
+        Index("ix_diagnostic_events_category_created", "category", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive, index=True)
+    request_id: Mapped[Optional[int]] = mapped_column(index=True)
+    correlation_id: Mapped[Optional[str]] = mapped_column(index=True)
+    category: Mapped[str] = mapped_column(index=True)
+    action: Mapped[str]
+    status: Mapped[str] = mapped_column(default="success")
+    title: Mapped[Optional[str]]
+    media_type: Mapped[Optional[str]]
+    source: Mapped[Optional[str]]
+    message: Mapped[str] = mapped_column(Text, default="")
+    details: Mapped[Optional[str]] = mapped_column(Text, default=None)
+
+
 class LoginAttempt(Base):
     __tablename__ = "login_attempts"
 
@@ -538,6 +561,7 @@ class MediaRequest(Base):
     tvdb_id: Mapped[Optional[str]] = mapped_column(index=True)
     imdb_id: Mapped[Optional[str]]
     plex_guid: Mapped[Optional[str]]
+    diagnostic_context: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
     status: Mapped[str] = mapped_column(default=RequestStatus.pending, index=True)
     source: Mapped[Optional[str]]

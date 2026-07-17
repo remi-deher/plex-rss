@@ -6,6 +6,7 @@ import pytest
 
 from app.models import MediaRequest, Settings
 from app.services.email_service import (
+    _build_tags,
     build_correction_email,
     build_tmdb_url,
     get_event_visuals,
@@ -130,6 +131,20 @@ def test_build_tmdb_url_show():
 
 def test_build_tmdb_url_none_without_tmdb_id():
     assert build_tmdb_url(_req(tmdb_id=None)) is None
+
+
+def test_build_tags_exposes_diagnostic_context():
+    request = _req(
+        title="Berceuse Mortelle",
+        diagnostic_context='{"availability_source":"Radarr","arr_event":"Import",'
+        '"plex_match_status":"confirmed","plex_match_method":"tmdb",'
+        '"plex_match_title":"Berceuse Mortelle"}',
+    )
+    tags = _build_tags(request)
+    assert tags["{source_disponibilite}"] == "Radarr"
+    assert tags["{evenement_arr}"] == "Import"
+    assert tags["{statut_plex}"] == "confirmed"
+    assert tags["{methode_correspondance_plex}"] == "tmdb"
 
 
 # ---------------------------------------------------------------------------

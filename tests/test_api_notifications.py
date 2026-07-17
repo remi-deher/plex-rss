@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import MediaRequest, NotificationLog, PlexUser, Settings
+from app.models import DiagnosticEvent, MediaRequest, NotificationLog, PlexUser, Settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,6 +87,30 @@ def _make_settings():
 
 def _make_req(req_id=42, title="Inception", media_type="movie"):
     return MediaRequest(id=req_id, plex_user_id="alice", title=title, media_type=media_type, status="pending")
+
+
+def test_diagnostic_logs_are_filterable(async_db):
+    async_db.add(DiagnosticEvent(
+        request_id=42,
+        correlation_id="request:42",
+        category="plex",
+        action="matched",
+        status="success",
+        title="Berceuse Mortelle",
+        media_type="movie",
+        source="manual_search",
+        message="Média Plex trouvé par tmdb.",
+        details='{"plex_guid":"plex://movie/test"}',
+    ))
+    async_db.commit()
+    client = _client_with_db(async_db)
+    try:
+        response = client.get("/api/diagnostic-logs?category=plex&search=Berceuse")
+        assert response.status_code == 200
+        assert response.json()["items"][0]["action"] == "matched"
+        assert response.json()["items"][0]["details"]["plex_guid"] == "plex://movie/test"
+    finally:
+        _cleanup()
 
 
 # ---------------------------------------------------------------------------

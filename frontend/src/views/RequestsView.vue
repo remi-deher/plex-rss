@@ -51,6 +51,7 @@
       />
     </section>
     <p v-if="!loading&&!filtered.length" class="empty">Aucune demande.</p>
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 <script setup>
@@ -61,8 +62,11 @@ import { api } from '@/api';
 import { useRealtime } from '@/events';
 import RequestFiltersBar from '@/components/requests/RequestFiltersBar.vue';
 import RequestCard from '@/components/requests/RequestCard.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const route = useRoute();
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
 
@@ -153,7 +157,7 @@ async function reject(row) {
 }
 
 async function bulk(action) {
-  if (action === 'delete' && !confirm(`Supprimer ${selectedIds.value.length} demandes ?`)) return;
+  if (action === 'delete' && !await askConfirm({ title: 'Supprimer les demandes sélectionnées ?', message: `${selectedIds.value.length} demande(s) seront supprimée(s) définitivement.`, confirmLabel: 'Supprimer', danger: true })) return;
   busy.value = true;
   try {
     await api(`/api/requests/bulk/${action}`, { method: 'POST', body: JSON.stringify({ ids: selectedIds.value, delete_from_arr: false, delete_files: false }) });

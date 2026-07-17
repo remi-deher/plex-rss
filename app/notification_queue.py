@@ -24,6 +24,7 @@ from .database import AsyncSessionLocal
 from .job_queue import availability_notification_is_historical, notification_hold_enabled
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
+from .services.diagnostics import record_event
 from .services.notification_catalog import event_mail_flags
 from .services.notifications import ChannelNotConfigured
 from .services.notifications import (
@@ -428,6 +429,15 @@ async def _process(
 
             # Mise à jour des flags uniquement si tous les emails ont été envoyés avec succès
             app_metrics.record_notification(all_ok)
+            await record_event(
+                db,
+                category="notification",
+                action="sent" if all_ok else "failed",
+                status="success" if all_ok else "error",
+                request=req,
+                message=f"Notification {event} traitée.",
+                details={"event": event, "channel": "email", "recipients": recipients, "success": all_ok},
+            )
             if all_ok:
                 for attr in event_mail_flags(event):
                     setattr(req, attr, True)

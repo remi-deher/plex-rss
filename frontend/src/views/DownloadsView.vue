@@ -95,6 +95,7 @@
       @close="manualRow=null"
       @submitted="onManualSubmitted"
     />
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 
@@ -105,9 +106,12 @@ import { api } from '@/api';
 import { useRealtime } from '@/events';
 import UnmatchedImportsBanner from '@/components/downloads/UnmatchedImportsBanner.vue';
 import ManualImportModal from '@/components/downloads/ManualImportModal.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const queue=ref([]),history=ref([]),tab=ref('queue'),query=ref(''),instance=ref(''),status=ref(''),statusFilter=ref(''),manualRow=ref(null),loading=ref(false),error=ref('');
 const hiddenItems=ref(new Set());
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 let fallback;
 
 function rowKey(row){return `${row.instance_id||row.instance||'direct'}:${row.queue_id||row.download_id||row.title}`}
@@ -137,7 +141,7 @@ const filteredHistory=computed(()=>history.value.filter(row=>!query.value||row.t
 const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'En erreur',value:errorItems.value.length},{label:'Termines recents',value:history.value.length}]);
 
 async function loadAll(){loading.value=true;error.value='';try{const [arr,direct,done]=await Promise.all([api('/api/arr/queue').catch(()=>[]),api('/api/downloads/direct').catch(()=>[]),api('/api/downloads/history?limit=100').catch(()=>[])]);queue.value=[...arr,...direct].filter(x=>!hiddenItems.value.has(rowKey(x))).sort((a,b)=>(a.progress||0)-(b.progress||0));history.value=done}catch(e){error.value=e.message}finally{loading.value=false}}
-async function queueAction(row,blocklist,search){if(!confirm(blocklist?'Blocklister et relancer une recherche ?':'Retirer cet element de la file ?'))return;try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}}
+async function queueAction(row,blocklist,search){if(!await askConfirm({title:blocklist?'Blocklister ce téléchargement ?':'Retirer ce téléchargement ?',message:blocklist?'Le fichier sera blocklisté et une nouvelle recherche sera lancée.':'Le téléchargement sera retiré de la file.',confirmLabel:blocklist?'Blocklister et rechercher':'Retirer',danger:true}))return;try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}}
 function openManual(row){manualRow.value=row}
 async function onManualSubmitted(){hiddenItems.value.add(rowKey(manualRow.value));manualRow.value=null;await loadAll()}
 

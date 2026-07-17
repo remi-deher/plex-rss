@@ -48,6 +48,7 @@
       </SettingsCard>
     </div>
   </div>
+  <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 <script setup>
 import { reactive, ref } from 'vue';
@@ -55,15 +56,18 @@ import { Check, Copy, Link, RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
 import { form, success, fail } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
+import ConfirmModal from '../ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const baseUrl = window.location.origin;
 const webhookStatus = reactive({ plex: null, radarr: null, sonarr: null });
 const configureStatus = reactive({ plex: null, radarr: null, sonarr: null });
 const testingWebhook = ref(null);
 const configuringWebhook = ref(null);
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 async function generateWebhookSecret() {
-  if (form.webhook_secret && !confirm("Generer un nouveau secret annulera l'ancien et cassera les webhooks configures. Continuer ?")) return;
+  if (form.webhook_secret && !await askConfirm({ title: 'Régénérer le secret webhook ?', message: "L’ancien secret sera invalidé et les webhooks actuellement configurés ne fonctionneront plus.", confirmLabel: 'Régénérer', danger: true })) return;
   try {
     const res = await api('/api/settings/webhook-secret', { method: 'POST' });
     form.webhook_secret = res.webhook_secret;
@@ -71,7 +75,7 @@ async function generateWebhookSecret() {
   } catch (e) { fail(e); }
 }
 async function revokeWebhookSecret() {
-  if (!confirm("Voulez-vous vraiment desactiver l'authentification des webhooks entrants ?")) return;
+  if (!await askConfirm({ title: 'Désactiver les webhooks ?', message: "Les webhooks entrants ne seront plus authentifiés tant qu’un nouveau secret ne sera pas configuré.", confirmLabel: 'Désactiver', danger: true })) return;
   try {
     await api('/api/settings/webhook-secret', { method: 'DELETE' });
     form.webhook_secret = '';

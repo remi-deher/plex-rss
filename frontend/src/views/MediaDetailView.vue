@@ -78,6 +78,7 @@
       </div>
     </template>
   </div>
+  <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
@@ -92,6 +93,8 @@ import MediaRequestsTab from "@/components/media/MediaRequestsTab.vue";
 import MediaCalendarTab from "@/components/media/MediaCalendarTab.vue";
 import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
+import ConfirmModal from "@/components/ConfirmModal.vue";
+import { useConfirm } from "@/composables/useConfirm";
 
 const route = useRoute();
 const router = useRouter();
@@ -101,6 +104,7 @@ const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summa
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const tabs = ['summary', 'requests', 'calendar'];
 const admin = ref(false);
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const showIssueForm = ref(false), showCorrectionForm = ref(false);
 const users = ref([]), correctionOptions = ref([]);
@@ -200,10 +204,10 @@ async function requestAction(id, action) {
 }
 
 async function closeRequest(row) {
-  const notify = confirm('Notifier la disponibilite par email au demandeur ?');
+  const notify = await askConfirm({ title: 'Notifier la disponibilité ?', message: 'Un email de disponibilité sera envoyé au demandeur.', confirmLabel: 'Notifier' });
   let stopVfTracking = false;
   if (row.has_vf !== true) {
-    stopVfTracking = confirm("Arreter aussi la surveillance VO -> VF pour cette demande ? Elle ne sera plus jamais re-verifiee.");
+    stopVfTracking = await askConfirm({ title: 'Arrêter la surveillance VO → VF ?', message: 'La demande ne sera plus vérifiée pour une amélioration en VF.', confirmLabel: 'Arrêter la surveillance', danger: true });
   }
   busy.value = true;
   try {
@@ -239,7 +243,7 @@ async function addRequester() {
     }
     await load();
     newRequesterId.value = '';
-    if (rowsAlreadyInProgress.length && confirm("Cette demande est deja en cours. Renvoyer retroactivement au nouveau co-demandeur le(s) mail(s) deja envoye(s) (demande/disponibilite) ? Sinon, il ne recevra que les prochaines notifications.")) {
+    if (rowsAlreadyInProgress.length && await askConfirm({ title: 'Renvoyer les notifications précédentes ?', message: 'Le nouveau co-demandeur recevra également les emails déjà envoyés pour cette demande.', confirmLabel: 'Renvoyer les notifications' })) {
       for (const row of rowsAlreadyInProgress) {
         const events = [];
         if (row.request_mail_sent) events.push('request');
@@ -274,7 +278,7 @@ async function promoteRequester(row, uid) {
 }
 
 async function removeRequester(row, uid) {
-  if (!confirm('Retirer ce demandeur de la liste ?')) return;
+  if (!await askConfirm({ title: 'Retirer ce demandeur ?', message: 'Il ne recevra plus les notifications de cette demande.', confirmLabel: 'Retirer', danger: true })) return;
   busy.value = true; error.value = '';
   try {
     const ids = (row.requester_ids || []).filter(id => id !== uid);
@@ -284,7 +288,7 @@ async function removeRequester(row, uid) {
 }
 
 async function deleteRequest(id) {
-  if (!confirm('Supprimer cette demande ?')) return;
+  if (!await askConfirm({ title: 'Supprimer cette demande ?', message: 'La demande sera supprimée définitivement.', confirmLabel: 'Supprimer', danger: true })) return;
   busy.value = true;
   try { await api(`/api/requests/${id}`, { method: 'DELETE' }); router.push('/requests'); }
   catch (e) { error.value = e.message; } finally { busy.value = false; }

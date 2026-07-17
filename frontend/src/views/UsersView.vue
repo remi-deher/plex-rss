@@ -23,6 +23,7 @@
       @unlink-seer="unlinkSeer"
       @merge="mergeUser"
     />
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 <script setup>
@@ -32,11 +33,14 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/api';
 import UsersTable from '@/components/users/UsersTable.vue';
 import UserEditorDrawer from '@/components/users/UserEditorDrawer.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const route = useRoute(), router = useRouter();
 const users = ref([]), editing = ref(null), creating = ref(false), query = ref(''), status = ref(''), source = ref(''), sort = ref('name');
 const loading = ref(false), busy = ref(false), error = ref(''), editorError = ref(''), message = ref('');
 const tableRef = ref(null), drawerRef = ref(null);
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, notify_vf_anime: false, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
 const form = reactive({ ...defaults });
@@ -69,15 +73,15 @@ async function saveUser() {
   } catch (e) { editorError.value = e.message; } finally { busy.value = false; }
 }
 async function toggle(user) { try { await api(`/api/users/${user.id}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled: !user.enabled }) }); await load(); } catch (e) { error.value = e.message; } }
-async function deleteUser() { if (!confirm(`Supprimer ${displayName(editing.value)} ?`)) return; await api(`/api/users/${editing.value.id}`, { method: 'DELETE' }); closeEditor(); await load(); }
+async function deleteUser() { if (!await askConfirm({ title: 'Supprimer cet utilisateur ?', message: `${displayName(editing.value)} sera supprimé définitivement.`, confirmLabel: 'Supprimer', danger: true })) return; await api(`/api/users/${editing.value.id}`, { method: 'DELETE' }); closeEditor(); await load(); }
 async function syncSeer() { busy.value = true; try { await api('/api/seer/sync', { method: 'POST' }); message.value = 'Synchronisation Seer terminee.'; await load(); } catch (e) { error.value = e.message; } finally { busy.value = false; } }
 async function userAction(action) { busy.value = true; try { await api(`/api/users/${editing.value.id}/${action}`, { method: 'POST' }); await openUser(editing.value.id); } catch (e) { editorError.value = e.message; } finally { busy.value = false; } }
 async function unlinkSeer() { await api(`/api/users/${editing.value.id}/seer-link`, { method: 'DELETE' }); await openUser(editing.value.id); }
 async function testEmail() { const data = await api(`/api/users/${editing.value.id}/test-email`, { method: 'POST' }); message.value = `Email envoye a ${data.recipient}`; }
-async function mergeUser(targetId) { if (!confirm('Cette fusion est irreversible. Continuer ?')) return; await api(`/api/users/${editing.value.id}/merge-into/${targetId}`, { method: 'POST' }); closeEditor(); await load(); }
+async function mergeUser(targetId) { if (!await askConfirm({ title: 'Fusionner les utilisateurs ?', message: 'Cette fusion est irréversible. Les demandes et préférences seront rattachées à l’utilisateur cible.', confirmLabel: 'Fusionner', danger: true })) return; await api(`/api/users/${editing.value.id}/merge-into/${targetId}`, { method: 'POST' }); closeEditor(); await load(); }
 
 async function bulkStatus(enabled) { const ids = tableRef.value.selectedIds; await api('/api/users/bulk/status', { method: 'PUT', body: JSON.stringify({ user_ids: ids, enabled }) }); tableRef.value.selectedIds = []; await load(); }
-async function bulkDelete() { const ids = tableRef.value.selectedIds; if (!confirm(`Supprimer ${ids.length} utilisateurs ?`)) return; await api('/api/users/bulk/delete', { method: 'POST', body: JSON.stringify({ user_ids: ids }) }); tableRef.value.selectedIds = []; await load(); }
+async function bulkDelete() { const ids = tableRef.value.selectedIds; if (!await askConfirm({ title: 'Supprimer les utilisateurs sélectionnés ?', message: `${ids.length} utilisateur(s) seront supprimé(s) définitivement.`, confirmLabel: 'Supprimer', danger: true })) return; await api('/api/users/bulk/delete', { method: 'POST', body: JSON.stringify({ user_ids: ids }) }); tableRef.value.selectedIds = []; await load(); }
 async function bulkNotify(field, value) {
   const ids = tableRef.value.selectedIds;
   try { await api('/api/users/bulk/notifications', { method: 'PUT', body: JSON.stringify({ user_ids: ids, [field]: value }) }); message.value = 'Notifications mises a jour.'; tableRef.value.selectedIds = []; await load(); }

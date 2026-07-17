@@ -16,6 +16,7 @@ from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, PollHi
 from ..utils import now_utc, now_utc_naive
 from . import notification_orchestrator, prowlarr
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
+from .diagnostics import record_event, update_request_context
 from .download_clients import add_torrent_to_client
 from .notification_orchestrator import _add_co_requester
 from .radarr import add_movie, lookup_movie, resolve_tmdb_id
@@ -673,6 +674,15 @@ async def _process_watchlist_item(
                 )
         db.add(req)
         await db.flush()
+        update_request_context(req, request_source=item.get("source"), request_origin="watchlist")
+        await record_event(
+            db,
+            category="request",
+            action="created",
+            request=req,
+            message="Demande créée depuis la watchlist.",
+            details={"source": item.get("source"), "origin": "watchlist"},
+        )
 
     needs_approval = bool(
         settings.require_approval and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))

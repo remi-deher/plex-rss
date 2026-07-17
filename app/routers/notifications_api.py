@@ -13,7 +13,7 @@ import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_admin
-from ..models import AdminActionLog, MediaRequest, NotificationLog, PlexUser, Settings
+from ..models import AdminActionLog, DiagnosticEvent, MediaRequest, NotificationLog, PlexUser, Settings
 from ..notification_queue import enqueue as enqueue_notification
 from ..notification_queue import cancel_all_pending, cancel_pending
 from ..notification_queue import process_pending_id
@@ -171,6 +171,57 @@ def get_logs(_: None = Depends(require_admin)):
     from ..log_buffer import get_logs as _get_logs
 
     return _get_logs()
+
+
+@router.get("/diagnostic-logs")
+async def list_diagnostic_logs(
+    limit: int = 200,
+    offset: int = 0,
+    category: str | None = None,
+    request_id: int | None = None,
+    search: str | None = None,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Retourne le parcours persistant Demande → Arr → Plex → Notification."""
+    effective_limit = min(max(limit, 1), 500)
+    q = select(DiagnosticEvent)
+    if category:
+        q = q.filter(DiagnosticEvent.category == category)
+    if request_id:
+        q = q.filter(DiagnosticEvent.request_id == request_id)
+    if search:
+        pattern = f"%{search}%"
+        q = q.filter(sqlalchemy.or_(
+            DiagnosticEvent.title.ilike(pattern),
+            DiagnosticEvent.message.ilike(pattern),
+            DiagnosticEvent.action.ilike(pattern),
+            DiagnosticEvent.correlation_id.ilike(pattern),
+        ))
+    q = q.order_by(DiagnosticEvent.created_at.desc())
+    total = (await db.execute(sqlalchemy.select(sqlalchemy.func.count()).select_from(q.subquery()))).scalar()
+    events = (await db.execute(q.offset(offset).limit(effective_limit))).scalars().all()
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": effective_limit,
+        "items": [
+            {
+                "id": event.id,
+                "created_at": format_datetime(event.created_at),
+                "request_id": event.request_id,
+                "correlation_id": event.correlation_id,
+                "category": event.category,
+                "action": event.action,
+                "status": event.status,
+                "title": event.title,
+                "media_type": event.media_type,
+                "source": event.source,
+                "message": event.message,
+                "details": _json.loads(event.details or "{}"),
+            }
+            for event in events
+        ],
+    }
 
 
 @router.get("/email/preview")
@@ -389,13 +440,15 @@ async def list_admin_action_logs(
 
 
 @router.get("/notifications/hold")
-async def get_notification_hold():
-    return {"enabled": await notification_hold_enabled()}
+async def get_notification_hold(db: AsyncSession = Depends(get_db_async)):
+    pending_count = await db.scalar(text("SELECT COUNT(*) FROM pending_notifications"))
+    return {"enabled": await notification_hold_enabled(), "pending_count": int(pending_count or 0)}
 
 
 @router.put("/notifications/hold")
 async def update_notification_hold(body: NotificationHoldPayload, request: Request, db: AsyncSession = Depends(get_db_async)):
     await set_notification_hold(body.enabled)
+    pending_count = await db.scalar(text("SELECT COUNT(*) FROM pending_notifications"))
     await _log_admin_action(
         db,
         request,
@@ -405,7 +458,16 @@ async def update_notification_hold(body: NotificationHoldPayload, request: Reque
         details={"enabled": body.enabled},
     )
     await db.commit()
-    return {"enabled": body.enabled}
+    return {
+        "enabled": body.enabled,
+        "pending_count": int(pending_count or 0),
+        "message": (
+            "Les notifications sont maintenant mises en attente. "
+            "Les nouvelles notifications resteront dans la file jusqu'à un envoi manuel."
+            if body.enabled
+            else "Les notifications automatiques sont réactivées. Les notifications déjà en file restent en attente."
+        ),
+    }
 
 
 @router.get("/notifications/pending")

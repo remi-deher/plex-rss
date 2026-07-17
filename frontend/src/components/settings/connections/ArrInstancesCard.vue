@@ -54,6 +54,7 @@
       </div>
     </aside>
   </div>
+  <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
@@ -62,12 +63,15 @@ import { ListRestart, Pencil, Plus, PlugZap, Power, Save, ServerCog, Trash2, X }
 import { api } from '@/api';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
+import ConfirmModal from '../../ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const busy = ref(false);
 const arrInstances = ref([]), arrProfiles = ref([]), arrFolders = ref([]), editingArrId = ref(null);
 const showArrModal = ref(false);
 const arrDefaults = { name: '', arr_type: 'sonarr', url: '', api_key: '', quality_profile_id: null, root_folder: '', minimum_availability: 'released', is_default: false, enabled: true, indexer_ids: null };
 const arrForm = reactive({ ...arrDefaults });
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 async function loadArr() { arrInstances.value = await api('/api/arr-instances'); }
 function resetArr() { editingArrId.value = null; Object.assign(arrForm, arrDefaults); arrProfiles.value = []; arrFolders.value = []; }
@@ -102,7 +106,7 @@ async function testArr(instance = arrForm) {
   } catch (e) { fail(e); }
 }
 async function toggleArr(instance) { await api(`/api/arr-instances/${instance.id}/toggle`, { method: 'PATCH' }); await loadArr(); }
-async function removeArr(instance) { if (!confirm(`Supprimer ${instance.name} ?`)) return; await api(`/api/arr-instances/${instance.id}`, { method: 'DELETE' }); await loadArr(); }
+async function removeArr(instance) { if (!await askConfirm({ title: 'Supprimer cette instance ?', message: `${instance.name} sera supprimée définitivement.`, confirmLabel: 'Supprimer', danger: true })) return; await api(`/api/arr-instances/${instance.id}`, { method: 'DELETE' }); await loadArr(); }
 
 onMounted(loadArr);
 </script>

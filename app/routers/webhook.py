@@ -17,6 +17,7 @@ from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Setting
 from ..services import radarr, sonarr
 from ..services.audio_analyzer import languages_list_has_french
 from ..services.availability_service import has_plex_proof, note_arr_processed
+from ..services.diagnostics import record_event, update_request_context
 from ..services.download_history import record_completed
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
@@ -148,6 +149,21 @@ async def _mark_available_and_notify(
     )
     requests = (await db.execute(q)).scalars().all()
     for req in requests:
+        update_request_context(
+            req,
+            availability_source=source,
+            arr_event="availability_detected",
+            arr_id=arr_id,
+            arr_instance=instance_name,
+        )
+        await record_event(
+            db,
+            category="arr",
+            action="availability_detected",
+            request=req,
+            message=f"Disponibilité détectée par {source}.",
+            details={"arr_id": arr_id, "instance": instance_name, "arr_detected_vf": arr_detected_vf},
+        )
         if req.status == RequestStatus.available:
             # Webhook répété sur une demande déjà disponible (ex. upgrade Sonarr/Radarr
             # remplaçant un fichier VO par une release VF) : on ne refait pas le
@@ -168,6 +184,7 @@ async def _mark_available_and_notify(
             from ..realtime import publish
 
             await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
+            await db.commit()
             continue
         if not await has_plex_proof(db, req):
             note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
@@ -538,6 +555,9 @@ async def plex_webhook(request: Request):
             return q.filter(MediaRequest.imdb_id == imdb_id)
         return q.filter(MediaRequest.title.ilike(f"%{title}%"))
 
+    plex_guid = metadata.get("guid")
+    plex_match_method = "tmdb" if tmdb_id else "tvdb" if tvdb_id else "imdb" if imdb_id else "title"
+
     # Recherche et mise à jour des demandes correspondantes
     db: AsyncSession = AsyncSessionLocal()
     try:
@@ -551,6 +571,21 @@ async def plex_webhook(request: Request):
 
         requests = (await db.execute(q)).scalars().all()
         for req in requests:
+            update_request_context(
+                req,
+                plex_match_status="confirmed",
+                plex_match_method=plex_match_method,
+                plex_match_title=title,
+                plex_guid=plex_guid,
+            )
+            await record_event(
+                db,
+                category="plex",
+                action="matched",
+                request=req,
+                message=f"Média Plex trouvé par {plex_match_method}.",
+                details={"event": event, "plex_title": title, "plex_guid": plex_guid},
+            )
             req.status = RequestStatus.available
             req.available_at = now_utc_naive()
             req.is_downloading = False
@@ -591,6 +626,16 @@ async def plex_webhook(request: Request):
         # "disponibles" côté *arr mais encore non confirmées VF (has_vf IS NULL, jamais
         # analysé, ou False, VO suivi en attente d'upgrade) : c'est quasi garanti de
         # réussir puisque Plex vient de confirmer la présence du fichier.
+        if not requests:
+            await record_event(
+                db,
+                category="plex",
+                action="not_matched",
+                status="warning",
+                message="Webhook Plex reçu sans demande correspondante.",
+                details={"event": event, "title": title, "plex_guid": plex_guid},
+            )
+
         rescanned = 0
         if event == "library.new" and settings:
             pending_vf_q = _identity_filter(
@@ -604,6 +649,7 @@ async def plex_webhook(request: Request):
                 if await scan_and_notify_availability(req, settings, db):
                     rescanned += 1
 
+        await db.commit()
         return {"status": "ok", "event": event, "matched": len(requests), "rescanned": rescanned, "title": title}
     finally:
         await db.close()

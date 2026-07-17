@@ -6,15 +6,40 @@
       <p>Historique des envois et file de distribution.</p>
     </div>
     <div class="actions">
-      <label class="notification-hold-toggle">
-        <input v-model="holdEnabled" type="checkbox" @change="toggleHold">
-        <span>{{ holdEnabled ? 'Notifications en attente' : 'Notifications actives' }}</span>
-      </label>
+      <div class="notification-control" :class="{paused: holdEnabled}">
+        <div class="notification-control-icon"><PauseCircle v-if="holdEnabled"/><PlayCircle v-else/></div>
+        <div class="notification-control-copy">
+          <strong>{{ holdEnabled ? 'Envoi suspendu' : 'Envoi actif' }}</strong>
+          <span>{{ holdEnabled ? 'Les nouvelles notifications restent dans la file.' : 'Les notifications sont envoyées automatiquement.' }}</span>
+        </div>
+        <div class="notification-control-action">
+          <span class="notification-control-count" v-if="pendingTotal">{{ pendingTotal }} en attente</span>
+          <label class="hold-switch" :title="holdEnabled ? 'Réactiver les notifications automatiques' : 'Mettre les notifications en attente'">
+            <input
+              type="checkbox"
+              role="switch"
+              :checked="holdEnabled"
+              :disabled="holdSaving"
+              :aria-checked="holdEnabled"
+              @change="toggleHold($event.target.checked)"
+            >
+            <span class="hold-switch-track"><span class="hold-switch-thumb"></span></span>
+          </label>
+        </div>
+      </div>
     <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
       <RefreshCw :class="{spin:loading}"/>
     </button>
     </div>
   </header>
+
+  <Transition name="notification-feedback">
+    <p v-if="feedback.text" class="notification-feedback" :class="feedback.type">
+      <CheckCheck v-if="feedback.type === 'success'"/><span>{{ feedback.text }}</span>
+    </p>
+  </Transition>
+
+  <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 
   <nav class="detail-tabs">
     <button :class="{active:tab==='history'}" @click="tab='history';offset=0;load()">Historique</button>
@@ -56,11 +81,13 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { CheckCheck, ChevronLeft, ChevronRight, RefreshCw, Send, Trash2 } from '@lucide/vue';
+import { CheckCheck, ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RefreshCw, Send, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import NotificationsFiltersBar from '@/components/notifications/NotificationsFiltersBar.vue';
 import NotificationsTable from '@/components/notifications/NotificationsTable.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const rows = ref([]);
 const users = ref([]);
@@ -86,6 +113,10 @@ const pendingTotal = ref(0);
 const offset = ref(0);
 const limit = 50;
 const holdEnabled = ref(false);
+const holdSaving = ref(false);
+const feedback = ref({ type: '', text: '' });
+let feedbackTimeout;
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const selectedIds = computed(() => tableRef.value?.selected || []);
 
@@ -99,16 +130,33 @@ async function loadUsers() {
 }
 
 async function loadHold() {
-  try { holdEnabled.value = (await api('/api/notifications/hold')).enabled; } catch(e) { error.value = e.message; }
+  try {
+    const data = await api('/api/notifications/hold');
+    holdEnabled.value = data.enabled;
+    pendingTotal.value = data.pending_count ?? pendingTotal.value;
+  } catch(e) { error.value = e.message; }
 }
 
-async function toggleHold() {
+function showFeedback(type, text) {
+  clearTimeout(feedbackTimeout);
+  feedback.value = { type, text };
+  feedbackTimeout = setTimeout(() => { feedback.value = { type: '', text: '' }; }, 6000);
+}
+
+async function toggleHold(enabled) {
+  const previous = holdEnabled.value;
+  holdSaving.value = true;
+  holdEnabled.value = enabled;
   try {
-    const data = await api('/api/notifications/hold', { method: 'PUT', body: JSON.stringify({ enabled: holdEnabled.value }) });
+    const data = await api('/api/notifications/hold', { method: 'PUT', body: JSON.stringify({ enabled }) });
     holdEnabled.value = data.enabled;
+    pendingTotal.value = data.pending_count ?? pendingTotal.value;
+    showFeedback('success', data.message || (enabled ? 'Notifications mises en attente.' : 'Notifications automatiques réactivées.'));
   } catch(e) {
-    holdEnabled.value = !holdEnabled.value;
-    error.value = e.message;
+    holdEnabled.value = previous;
+    showFeedback('error', `Le changement n'a pas été enregistré : ${e.message}`);
+  } finally {
+    holdSaving.value = false;
   }
 }
 
@@ -148,7 +196,12 @@ async function resend(row) {
 
 async function purge(markHandled) {
   const ids = tableRef.value?.selected || [];
-  if (!confirm(`Purger ${ids.length ? ids.length : 'toute la file'} notification(s) ?`)) return;
+  if (!await askConfirm({
+    title: markHandled ? 'Marquer les notifications comme traitées ?' : 'Supprimer les notifications ?',
+    message: `${ids.length ? ids.length : 'Toute la file'} notification(s) seront ${markHandled ? 'marquée(s) comme traitée(s)' : 'supprimée(s) définitivement'}.`,
+    confirmLabel: markHandled ? 'Marquer comme traitées' : 'Supprimer',
+    danger: !markHandled,
+  })) return;
   await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids, mark_handled: markHandled }) });
   if (tableRef.value) tableRef.value.selected = [];
   await load();
@@ -164,7 +217,13 @@ async function sendSelected() {
 
 async function deleteSelected() {
   const ids = [...selectedIds.value];
-  if (!ids.length || !confirm(`Supprimer ${ids.length} notification(s) ?`)) return;
+  if (!ids.length) return;
+  if (!await askConfirm({
+    title: 'Supprimer la sélection ?',
+    message: `${ids.length} notification(s) seront supprimée(s) définitivement.`,
+    confirmLabel: 'Supprimer',
+    danger: true,
+  })) return;
   await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids, mark_handled: false }) });
   if (tableRef.value) tableRef.value.selected = [];
   await load();
@@ -190,7 +249,7 @@ watch(search, () => {
   }, 300);
 });
 
-useRealtime(['notification.updated'], load);
+useRealtime(['notification.updated'], () => { loadHold(); load(); });
 
 onMounted(() => {
   loadUsers();
@@ -198,3 +257,42 @@ onMounted(() => {
   load();
 });
 </script>
+
+<style scoped>
+.notification-control {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  min-width: min(540px, 55vw);
+  padding: .55rem .7rem;
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 14px;
+  background: var(--surface, #fff);
+  box-shadow: 0 3px 12px rgba(20, 34, 55, .06);
+}
+.notification-control.paused { border-color: #e9c46a; background: #fffaf0; }
+.notification-control-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: #2471a3; background: #eaf4fb; }
+.notification-control.paused .notification-control-icon { color: #a66a00; background: #fff0c9; }
+.notification-control-copy { display: grid; gap: .12rem; min-width: 0; flex: 1; }
+.notification-control-copy strong { font-size: .86rem; }
+.notification-control-copy span { overflow: hidden; color: var(--muted, #667085); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.notification-control-action { display: flex; align-items: center; gap: .6rem; }
+.notification-control-count { color: #9a6500; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.hold-switch { position: relative; display: inline-flex; cursor: pointer; }
+.hold-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.hold-switch-track { display: flex; align-items: center; width: 42px; height: 24px; padding: 3px; border-radius: 999px; background: #b8c0cc; transition: background .2s ease; }
+.hold-switch-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .2s ease; }
+.hold-switch input:checked + .hold-switch-track { background: #d89a16; }
+.hold-switch input:checked + .hold-switch-track .hold-switch-thumb { transform: translateX(18px); }
+.hold-switch input:focus-visible + .hold-switch-track { outline: 3px solid rgba(36, 113, 163, .28); outline-offset: 2px; }
+.hold-switch input:disabled + .hold-switch-track { cursor: wait; opacity: .6; }
+.notification-feedback { display: flex; align-items: center; gap: .45rem; margin: .9rem 0 0; padding: .7rem .85rem; border-radius: 10px; font-size: .84rem; }
+.notification-feedback.success { color: #176b42; background: #eaf8f0; }
+.notification-feedback.error { color: #a33a2b; background: #fff0ee; }
+.notification-feedback-enter-active, .notification-feedback-leave-active { transition: opacity .2s ease, transform .2s ease; }
+.notification-feedback-enter-from, .notification-feedback-leave-to { opacity: 0; transform: translateY(-4px); }
+@media (max-width: 900px) {
+  .notification-control { min-width: 0; max-width: calc(100vw - 3rem); }
+  .notification-control-copy span { display: none; }
+}
+</style>

@@ -54,17 +54,21 @@
       </div>
     </aside>
   </div>
+  <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
 import { Download, Pencil, Plus, PlugZap, Power, Save, Trash2, X } from '@lucide/vue';
 import { api } from '@/api';
+import ConfirmModal from '../../ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
 
 const clients = ref([]), editingClientId = ref(null);
 const showClientModal = ref(false);
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 const clientDefaults = { name: '', client_type: 'qbittorrent', url: '', username: '', password: '', category: '', tags: '', is_default: false, enabled: true };
 const clientForm = reactive({ ...clientDefaults });
 
@@ -92,7 +96,7 @@ async function testClient(client = clientForm) {
   } catch (e) { fail(e); }
 }
 async function toggleClient(client) { await api(`/api/download-clients/${client.id}/toggle`, { method: 'PATCH' }); await loadClients(); }
-async function removeClient(client) { if (!confirm(`Supprimer ${client.name} ?`)) return; await api(`/api/download-clients/${client.id}`, { method: 'DELETE' }); await loadClients(); }
+async function removeClient(client) { if (!await askConfirm({ title: 'Supprimer ce client ?', message: `${client.name} sera supprimé définitivement.`, confirmLabel: 'Supprimer', danger: true })) return; await api(`/api/download-clients/${client.id}`, { method: 'DELETE' }); await loadClients(); }
 
 onMounted(loadClients);
 </script>
