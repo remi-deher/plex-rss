@@ -103,6 +103,18 @@ async def test_process_no_request_does_nothing():
     db.commit.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_availability_enqueue_is_blocked_during_resync():
+    """Le verrou global empêche toute nouvelle notification de disponibilité."""
+    with (
+        patch("app.notification_queue.availability_notifications_suppressed", new=AsyncMock(return_value=True)),
+        patch("app.notification_queue.AsyncSessionLocal") as session_factory,
+    ):
+        await enqueue("available", 42, ["alice@example.com"], {"scope": "series_complete"})
+
+    session_factory.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Cas : envoi réussi → flag posé + commit
 # ---------------------------------------------------------------------------

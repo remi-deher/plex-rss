@@ -267,11 +267,22 @@ async def _run_resync_availability(run: MaintenanceRun):
         run.progress = 10
 
         from ..services.arr_tracker import check_arr_statuses
-        # notify=False : corrige les statuts/compteurs historiques sans envoyer de mail --
-        # un rattrapage de plusieurs mois de donnees ne doit pas declencher une rafale de
-        # notifications. Le prochain cycle planifie (notify=True par defaut) notifiera
-        # normalement tout nouveau progres reel a partir de maintenant.
-        await check_arr_statuses(full_resync=True, notify=False)
+        from ..job_queue import (
+            acquire_availability_notification_suppression,
+            release_availability_notification_suppression,
+        )
+
+        # Le resync tourne dans l'API, tandis que les cron, webhooks et livraisons
+        # tournent potentiellement dans d'autres processus/conteneurs. notify=False
+        # seul ne suffit donc pas : le verrou Redis coupe toute la chaîne disponibilité
+        # (création de jalon VO/VF, mise en file et livraison) pendant toute l'opération.
+        suppression_token = await acquire_availability_notification_suppression()
+        if suppression_token is None:
+            raise RuntimeError("Un resync de disponibilité est déjà en cours")
+        try:
+            await check_arr_statuses(full_resync=True, notify=False)
+        finally:
+            await release_availability_notification_suppression(suppression_token)
         run.progress = 90
 
         # check_arr_statuses() commit ses changements via sa propre session (AsyncSessionLocal

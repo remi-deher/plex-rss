@@ -21,6 +21,7 @@ from sqlalchemy.future import select
 
 from . import metrics as app_metrics
 from .database import AsyncSessionLocal
+from .job_queue import availability_notifications_suppressed
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
@@ -125,6 +126,9 @@ async def enqueue(
     supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
     """
     event, context = _normalize_event_context(event, context)
+    if event == "available" and await availability_notifications_suppressed():
+        logger.info("Notification de disponibilité ignorée pendant le resync (req#%s)", req_id)
+        return
     if triggered_by != "auto":
         context["triggered_by"] = triggered_by
     pending_id = None
@@ -334,6 +338,8 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
         pour une reprise ultérieure plutôt que perdue.
     """
     event, context = _normalize_event_context(event, context)
+    if event == "available" and await availability_notifications_suppressed():
+        return False
     triggered_by = context.get("triggered_by") or "auto"
     async with AsyncSessionLocal() as db:
         try:
@@ -476,6 +482,10 @@ async def process_pending_id(pending_id: int) -> str | int | None:
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == int(req_id)))).scalars().first()
         user_id = req.plex_user_id if req else None
 
+    if event == "available" and await availability_notifications_suppressed():
+        raise NotificationDeliveryError(
+            f"Notification #{pending_id} suspendue pendant le resync de disponibilité"
+        )
     ok = await _process(event, int(req_id), recipients, context)
     if not ok:
         raise NotificationDeliveryError(f"Notification #{pending_id} [{event}] non livrée à tous les destinataires")
@@ -493,6 +503,12 @@ async def _worker():
                 _cancelled_pending_ids.discard(pending_id)
                 await _delete_pending(pending_id)
             else:
+                if event == "available" and await availability_notifications_suppressed():
+                    # Ne pas supprimer la notification : elle sera reprise après le
+                    # resync, mais ne peut pas partir pendant la fenêtre protégée.
+                    await asyncio.sleep(5)
+                    _queue.put_nowait((pending_id, event, req_id, recipients, context))
+                    continue
                 ok = await _process(event, req_id, recipients, context)
                 if ok:
                     await _delete_pending(pending_id)
