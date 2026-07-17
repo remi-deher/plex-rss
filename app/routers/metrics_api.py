@@ -410,8 +410,13 @@ async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
                     continue
                 stats = series.get("statistics") or {}
                 file_count = stats.get("episodeFileCount", 0) or 0
-                total_count = stats.get("totalEpisodeCount", 0) or 0
-                if total_count and file_count < total_count:
+                # episodeCount = épisodes déjà diffusés à ce jour (par opposition à
+                # totalEpisodeCount qui inclut aussi les épisodes à venir) : une série en
+                # cours de diffusion aura toujours totalEpisodeCount > episodeFileCount,
+                # ce qui la ferait compter à tort comme "non complète" tant qu'elle est en
+                # cours (quasi toutes les séries actives de la bibliothèque).
+                aired_count = stats.get("episodeCount", 0) or 0
+                if aired_count and file_count < aired_count:
                     count += 1
 
     await cache.set_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_SONARR_PROGRESS_CACHE_TTL)
@@ -431,6 +436,12 @@ async def stats_counts(db: AsyncSession = Depends(get_db_async)):
     by_type = {"movie": _empty(), "show": _empty()}
     globals_ = _empty()
     for media_type, status, n in rows:
+        # "partially_available" (série en cours de diffusion, épisodes manquants) est une
+        # variante "non complète" de sent_to_arr, jamais utilisée pour les films — sans ce
+        # regroupement ces demandes n'étaient comptées dans aucun statut (seulement dans
+        # "total"), sous-évaluant "Chez Sonarr"/"Demandes en cours" pour les séries en
+        # diffusion.
+        status = "sent_to_arr" if status == "partially_available" else status
         bucket = by_type.setdefault(media_type, _empty())
         if status in bucket:
             bucket[status] += n
