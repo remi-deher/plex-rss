@@ -372,7 +372,24 @@ async def stats_by_user(db: AsyncSession = Depends(get_db_async)):
 
 
 _ORPHAN_SONARR_PROGRESS_CACHE_KEY = "plexarr:stats:orphan_sonarr_progress"
-_ORPHAN_SONARR_PROGRESS_CACHE_TTL = 120
+_ORPHAN_RADARR_MISSING_CACHE_KEY = "plexarr:stats:orphan_radarr_missing"
+_ORPHAN_ARR_CACHE_TTL = 120
+
+
+def _is_show_genuinely_incomplete(file_count: int, aired_count: int, total_count: int) -> bool:
+    """Une série est "non complète" si des épisodes déjà diffusés manquent au
+    téléchargement (`file_count < aired_count`), ou si elle est annoncée/surveillée
+    mais n'a encore rien diffusé (`aired_count == 0`) — dans ce dernier cas on compare
+    au total attendu puisque rien n'a encore pu être téléchargé.
+
+    Ne PAS comparer systématiquement à `total_count` (diffusés + à venir) : une série
+    en cours de diffusion mais à jour sur tout ce qui est déjà sorti aurait alors
+    presque toujours un total supérieur au nombre de fichiers, la faisant compter à
+    tort comme "non complète" tant qu'elle continue simplement d'être diffusée.
+    """
+    if aired_count:
+        return file_count < aired_count
+    return bool(total_count) and file_count < total_count
 
 
 async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
@@ -395,32 +412,124 @@ async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
 
     count = 0
     if instances:
-        known_arr_ids = set(
-            (await db.execute(
-                select(MediaRequest.arr_id).filter(MediaRequest.media_type == "show", MediaRequest.arr_id.isnot(None))
-            )).scalars().all()
-        )
+        # `arr_id` peut être périmé (check_arr_statuses ne le corrige que s'il est NULL,
+        # jamais s'il pointe vers un ID Sonarr qui n'existe plus après une réorganisation
+        # côté Sonarr) — tvdb_id est l'identifiant stable, à privilégier pour ne pas
+        # recompter en "orpheline" une série déjà suivie par une demande.
+        known_rows = (await db.execute(
+            select(MediaRequest.arr_id, MediaRequest.tvdb_id).filter(MediaRequest.media_type == "show")
+        )).all()
+        known_arr_ids = {r.arr_id for r in known_rows if r.arr_id is not None}
+        known_tvdb_ids = {str(r.tvdb_id) for r in known_rows if r.tvdb_id}
         for inst in instances:
             try:
                 series_list = await sonarr.get_all_series(inst.url, inst.api_key)
             except Exception:
                 continue
             for series in series_list:
-                if series.get("id") in known_arr_ids or not series.get("monitored", True):
+                if (
+                    series.get("id") in known_arr_ids
+                    or str(series.get("tvdbId")) in known_tvdb_ids
+                    or not series.get("monitored", True)
+                ):
                     continue
-                stats = series.get("statistics") or {}
-                file_count = stats.get("episodeFileCount", 0) or 0
-                # episodeCount = épisodes déjà diffusés à ce jour (par opposition à
-                # totalEpisodeCount qui inclut aussi les épisodes à venir) : une série en
-                # cours de diffusion aura toujours totalEpisodeCount > episodeFileCount,
-                # ce qui la ferait compter à tort comme "non complète" tant qu'elle est en
-                # cours (quasi toutes les séries actives de la bibliothèque).
-                aired_count = stats.get("episodeCount", 0) or 0
-                if aired_count and file_count < aired_count:
+                # Agrégation sur les seules saisons surveillées (exclut les spéciaux non
+                # surveillés) — utiliser les statistiques brutes de haut niveau les inclurait
+                # à tort (ex: une saison 0 de spéciaux non surveillée gonfle le total).
+                stats = sonarr.aggregate_monitored_episode_stats(series)
+                if _is_show_genuinely_incomplete(
+                    stats["episode_file_count"], stats["episode_count"], stats["total_episode_count"]
+                ):
                     count += 1
 
-    await cache.set_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_SONARR_PROGRESS_CACHE_TTL)
+    await cache.set_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_ARR_CACHE_TTL)
     return count
+
+
+async def _count_orphan_radarr_missing(db: AsyncSession) -> int:
+    """Films surveillés par Radarr mais jamais passés par une demande Plexarr
+    (ajoutés directement dans Radarr) et sans fichier.
+
+    Pendant Sonarr, pas de notion de disponibilité partielle ici : un film a un
+    fichier ou n'en a pas.
+    """
+    cached = await cache.get_json(_ORPHAN_RADARR_MISSING_CACHE_KEY)
+    if cached is not None:
+        return cached.get("count", 0)
+
+    instances = (await db.execute(
+        select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "radarr")
+    )).scalars().all()
+
+    count = 0
+    if instances:
+        # Même précaution que pour Sonarr (voir _count_orphan_sonarr_progress) : arr_id
+        # peut être périmé, tmdb_id/imdb_id sont les identifiants stables.
+        known_rows = (await db.execute(
+            select(MediaRequest.arr_id, MediaRequest.tmdb_id, MediaRequest.imdb_id).filter(MediaRequest.media_type == "movie")
+        )).all()
+        known_arr_ids = {r.arr_id for r in known_rows if r.arr_id is not None}
+        known_tmdb_ids = {str(r.tmdb_id) for r in known_rows if r.tmdb_id}
+        known_imdb_ids = {r.imdb_id for r in known_rows if r.imdb_id}
+        for inst in instances:
+            try:
+                movies_list = await radarr.get_all_movies(inst.url, inst.api_key)
+            except Exception:
+                continue
+            for movie in movies_list:
+                if (
+                    movie.get("id") in known_arr_ids
+                    or str(movie.get("tmdbId")) in known_tmdb_ids
+                    or movie.get("imdbId") in known_imdb_ids
+                    or not movie.get("monitored", True)
+                ):
+                    continue
+                if not movie.get("hasFile", False):
+                    count += 1
+
+    await cache.set_json(_ORPHAN_RADARR_MISSING_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_ARR_CACHE_TTL)
+    return count
+
+
+async def _count_incomplete_show_requests(db: AsyncSession) -> int:
+    """Demandes séries "non complètes" : jamais envoyées à Sonarr (`sent_to_arr`), ou
+    partiellement disponibles avec un vrai manque d'épisodes déjà diffusés.
+
+    `partially_available` seul ne suffit pas : ce statut reste posé tant que la série
+    n'a pas fini de diffuser (comparaison à `episodes_total_count`, diffusés + à venir
+    — voir `arr_tracker.is_show_partial`), pour ne jamais afficher un badge
+    "Disponible" trompeur. La plupart des séries encore en diffusion sont donc déjà à
+    jour sur tout ce qui est réellement sorti ; ne les compter que si des épisodes
+    déjà diffusés (`episodes_aired_count`) manquent encore au téléchargement (ou, pour
+    une série annoncée dont rien n'a encore été diffusé, si le total attendu n'est pas
+    téléchargé — voir `_is_show_genuinely_incomplete`) évite de gonfler ce compteur
+    avec des séries qui ne sont, en pratique, pas "en retard".
+    """
+    from sqlalchemy import and_, func, or_
+
+    return (await db.execute(
+        select(func.count()).select_from(MediaRequest).filter(
+            MediaRequest.media_type == "show",
+            or_(
+                MediaRequest.status == RequestStatus.sent_to_arr,
+                and_(
+                    MediaRequest.status == RequestStatus.partially_available,
+                    or_(
+                        and_(
+                            MediaRequest.episodes_aired_count.isnot(None),
+                            MediaRequest.episodes_aired_count > 0,
+                            MediaRequest.episodes_available_count < MediaRequest.episodes_aired_count,
+                        ),
+                        and_(
+                            or_(MediaRequest.episodes_aired_count.is_(None), MediaRequest.episodes_aired_count == 0),
+                            MediaRequest.episodes_total_count.isnot(None),
+                            MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )).scalar() or 0
 
 
 @router.get("/stats/counts")
@@ -436,12 +545,10 @@ async def stats_counts(db: AsyncSession = Depends(get_db_async)):
     by_type = {"movie": _empty(), "show": _empty()}
     globals_ = _empty()
     for media_type, status, n in rows:
-        # "partially_available" (série en cours de diffusion, épisodes manquants) est une
-        # variante "non complète" de sent_to_arr, jamais utilisée pour les films — sans ce
-        # regroupement ces demandes n'étaient comptées dans aucun statut (seulement dans
-        # "total"), sous-évaluant "Chez Sonarr"/"Demandes en cours" pour les séries en
-        # diffusion.
-        status = "sent_to_arr" if status == "partially_available" else status
+        # "partially_available" est recompté ci-dessous via _count_incomplete_show_requests
+        # (seul un vrai manque d'épisodes déjà diffusés compte comme "non complet") — on
+        # l'exclut ici du bucket "sent_to_arr" pour ne pas le compter deux fois, mais il
+        # reste dans "total".
         bucket = by_type.setdefault(media_type, _empty())
         if status in bucket:
             bucket[status] += n
@@ -450,12 +557,16 @@ async def stats_counts(db: AsyncSession = Depends(get_db_async)):
             globals_[status] += n
         globals_["total"] += n
 
+    show_in_progress = await _count_incomplete_show_requests(db)
     orphan_shows = await _count_orphan_sonarr_progress(db)
-    if orphan_shows:
-        by_type["show"]["sent_to_arr"] += orphan_shows
-        by_type["show"]["total"] += orphan_shows
-        globals_["sent_to_arr"] += orphan_shows
-        globals_["total"] += orphan_shows
+    orphan_movies = await _count_orphan_radarr_missing(db)
+
+    by_type["show"]["sent_to_arr"] = show_in_progress + orphan_shows
+    by_type["show"]["total"] += orphan_shows
+    by_type["movie"]["sent_to_arr"] += orphan_movies
+    by_type["movie"]["total"] += orphan_movies
+    globals_["sent_to_arr"] = by_type["movie"]["sent_to_arr"] + by_type["show"]["sent_to_arr"]
+    globals_["total"] += orphan_shows + orphan_movies
 
     return {**globals_, "by_type": by_type}
 

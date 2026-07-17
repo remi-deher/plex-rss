@@ -340,6 +340,22 @@ async def get_series_episode_stats(
     )
     if not data:
         return None
+    return {"arr_id": data.get("id"), "title_slug": data.get("titleSlug"), **aggregate_monitored_episode_stats(data)}
+
+
+def aggregate_monitored_episode_stats(data: dict) -> dict:
+    """Agrège les statistiques d'épisodes d'une série Sonarr sur ses seules saisons
+    surveillées (exclut les spéciaux/saisons désactivées côté Sonarr).
+
+    Fonctionne aussi bien sur le dict brut d'un `GET /api/v3/series/{id}` que sur un
+    élément de la liste `GET /api/v3/series` (les deux exposent le même détail par
+    saison) — aucun appel réseau supplémentaire n'est nécessaire pour l'utiliser sur
+    des séries déjà chargées en liste (voir `get_all_series`).
+
+    - episode_file_count : épisodes avec un fichier sur disque
+    - episode_count       : épisodes déjà diffusés à ce jour (Sonarr statistics.episodeCount)
+    - total_episode_count : total de la série, diffusés + à venir (statistics.totalEpisodeCount)
+    """
     stats = data.get("statistics", {}) or {}
     season_details = data.get("seasons", []) or []
     seasons = []
@@ -360,8 +376,6 @@ async def get_series_episode_stats(
         })
     aggregate = monitored_totals if season_details else stats
     return {
-        "arr_id": data.get("id"),
-        "title_slug": data.get("titleSlug"),
         "episode_file_count": aggregate.get("episodeFileCount", 0),
         "episode_count": aggregate.get("episodeCount", 0),
         "total_episode_count": aggregate.get("totalEpisodeCount", 0),
