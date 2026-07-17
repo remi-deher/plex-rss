@@ -248,6 +248,117 @@ input[type="checkbox"]:focus-visible {
   overflow-x: auto;
 }
 
+/* ===== Tables -> cartes empilees sur mobile ===== */
+@media (max-width: 640px) {
+  .table-cards table,
+  .table-cards thead,
+  .table-cards tbody,
+  .table-cards tr,
+  .table-cards td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-cards thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .table-cards tr {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .table-cards td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border: 0;
+    text-align: right;
+    min-height: 0;
+  }
+
+  /* Libellé de colonne repris depuis data-label */
+  .table-cards td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    text-align: left;
+  }
+
+  /* Cellules vides (colonnes de checkbox / actions sans contenu) masquées */
+  .table-cards td:empty {
+    display: none;
+  }
+
+  /* Variante « riche » (Utilisateurs / Notifications) : 1re cellule = entête de carte */
+  .table-cards.rich td.card-title {
+    justify-content: flex-start;
+    text-align: left;
+    padding-top: 0;
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-cards.rich td.card-title::before {
+    display: none;
+  }
+
+  .table-cards.rich td.card-title strong {
+    font-size: 15px;
+  }
+
+  /* Cellule d'actions : boutons alignés à droite, sans label */
+  .table-cards td.actions,
+  .table-cards td.card-actions {
+    justify-content: flex-end;
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+
+  .table-cards td.actions::before,
+  .table-cards td.card-actions::before {
+    display: none;
+  }
+
+  /* La case à cocher de sélection reste en haut à gauche */
+  .table-cards td.card-select {
+    justify-content: flex-start;
+  }
+
+  .table-cards td.card-select::before {
+    display: none;
+  }
+
+  .table-cards .table-detail {
+    max-width: 100%;
+    text-align: right;
+  }
+
+  .table-cards td.url-cell {
+    max-width: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+}
+
 .url-cell {
   color: var(--muted);
   font-size: 13px;
@@ -519,7 +630,7 @@ button:disabled {
 .page:has(.calendar-day) .toolbar.wrap,
 .downloads-page .toolbar.wrap {
   position: sticky;
-  top: 12px;
+  top: calc(12px + var(--safe-top));
   z-index: 20;
   padding: 10px 12px;
   background: var(--surface);
@@ -558,7 +669,7 @@ button:disabled {
 
 .bulk-bar {
   position: sticky;
-  top: 12px;
+  top: calc(12px + var(--safe-top));
   z-index: 5;
   justify-content: flex-start;
   padding: 10px 12px;

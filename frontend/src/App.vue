@@ -8,28 +8,28 @@
       
       <div class="menu-section">
         <span class="menu-label">Principal</span>
-        <RouterLink to="/dashboard"><Gauge />Dashboard</RouterLink>
-        <RouterLink to="/discover"><Compass />Decouvrir</RouterLink>
-        <RouterLink to="/requests"><ListChecks />Demandes</RouterLink>
-        <RouterLink to="/library"><Library />Bibliotheque</RouterLink>
-        <RouterLink to="/calendar"><CalendarDays />Calendrier</RouterLink>
-        <RouterLink to="/downloads"><Download />Telechargements</RouterLink>
+        <RouterLink to="/dashboard" title="Dashboard"><Gauge />Dashboard</RouterLink>
+        <RouterLink to="/discover" title="Decouvrir"><Compass />Decouvrir</RouterLink>
+        <RouterLink to="/requests" title="Demandes"><ListChecks />Demandes</RouterLink>
+        <RouterLink to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
+        <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
+        <RouterLink to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
       </div>
 
       <div v-if="isAdmin" class="menu-section">
         <span class="menu-label">Administration</span>
-        <RouterLink to="/users"><Users />Utilisateurs</RouterLink>
-        <RouterLink to="/notifications"><Bell />Notifications</RouterLink>
-        <RouterLink to="/issues"><Flag />Problemes</RouterLink>
-        <RouterLink to="/logs"><ScrollText />Journaux</RouterLink>
-        <RouterLink to="/maintenance"><Wrench />Maintenance</RouterLink>
-        <RouterLink to="/settings"><Settings />Parametres</RouterLink>
+        <RouterLink to="/users" title="Utilisateurs"><Users />Utilisateurs</RouterLink>
+        <RouterLink to="/notifications" title="Notifications"><Bell />Notifications</RouterLink>
+        <RouterLink to="/issues" title="Problemes"><Flag />Problemes</RouterLink>
+        <RouterLink to="/logs" title="Journaux"><ScrollText />Journaux</RouterLink>
+        <RouterLink to="/maintenance" title="Maintenance"><Wrench />Maintenance</RouterLink>
+        <RouterLink to="/settings" title="Parametres"><Settings />Parametres</RouterLink>
       </div>
 
       <div class="menu-section mt-auto">
         <span class="menu-label">Compte</span>
-        <RouterLink to="/profile"><UserRound />Profil</RouterLink>
-        <a href="/logout"><LogOut />Deconnexion</a>
+        <RouterLink to="/profile" title="Profil"><UserRound />Profil</RouterLink>
+        <a href="/logout" title="Deconnexion"><LogOut />Deconnexion</a>
       </div>
     </aside>
 

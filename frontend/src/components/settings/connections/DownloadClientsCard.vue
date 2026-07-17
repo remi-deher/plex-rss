@@ -8,18 +8,18 @@
     <template #actions>
       <button class="secondary" @click.stop="openClientModal()"><Plus/>Ajouter</button>
     </template>
-    <div v-if="clients.length" class="table-wrap">
+    <div v-if="clients.length" class="table-wrap table-cards rich">
       <table>
         <thead>
           <tr><th>Nom</th><th>Type</th><th>Adresse</th><th>Statut</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="client in clients" :key="client.id">
-            <td><strong>{{ client.name }}</strong><small v-if="client.is_default">Par defaut</small></td>
-            <td><span class="badge">{{ client.client_type }}</span></td>
-            <td class="url-cell">{{ client.url }}</td>
-            <td><span class="badge" :class="client.enabled?'available':'failed'">{{ client.enabled?'Actif':'Inactif' }}</span></td>
-            <td class="actions">
+            <td class="card-title"><strong>{{ client.name }}</strong><small v-if="client.is_default">Par defaut</small></td>
+            <td data-label="Type"><span class="badge">{{ client.client_type }}</span></td>
+            <td class="url-cell" data-label="Adresse">{{ client.url }}</td>
+            <td data-label="Statut"><span class="badge" :class="client.enabled?'available':'failed'">{{ client.enabled?'Actif':'Inactif' }}</span></td>
+            <td class="actions card-actions">
               <button class="icon-button" title="Tester" @click="testClient(client)"><PlugZap/></button>
               <button class="icon-button" title="Modifier" @click="openClientModal(client)"><Pencil/></button>
               <button class="icon-button" :title="client.enabled?'Desactiver':'Activer'" @click="toggleClient(client)"><Power/></button>

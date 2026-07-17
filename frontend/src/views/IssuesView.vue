@@ -23,7 +23,7 @@
       </select>
     </div>
 
-    <section class="panel table-wrap">
+    <section class="panel table-wrap table-cards rich">
       <table>
         <thead>
           <tr>
@@ -36,15 +36,15 @@
         </thead>
         <tbody>
           <tr v-for="issue in issues" :key="issue.id">
-            <td>
+            <td class="card-title">
               <strong>{{ issue.media_title || issue.issue_type }}</strong>
             </td>
-            <td>{{ issue.message || 'Sans commentaire' }}</td>
-            <td>
+            <td data-label="Message">{{ issue.message || 'Sans commentaire' }}</td>
+            <td data-label="Statut">
               <span class="badge" :class="issue.status">{{ issue.status }}</span>
             </td>
-            <td>{{ formatDate(issue.created_at) }}</td>
-            <td class="actions">
+            <td data-label="Date">{{ formatDate(issue.created_at) }}</td>
+            <td class="actions card-actions">
               <button class="icon-button" title="Prendre en charge" v-if="issue.status !== 'investigating' && issue.status !== 'closed'" @click="updateIssue(issue, 'investigating')"><ScanSearch /></button>
               <button class="icon-button" title="Relancer" v-if="issue.status !== 'closed'" @click="retryIssue(issue)"><RotateCcw /></button>
               <button class="icon-button success" title="Clore" v-if="issue.status !== 'closed'" @click="updateIssue(issue, 'closed')"><Check /></button>

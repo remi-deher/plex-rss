@@ -121,7 +121,7 @@
 /* --- Toolbar de filtres (Demandes, Bibliotheque...) --- */
 .filters-panel {
   position: sticky;
-  top: 12px;
+  top: calc(12px + var(--safe-top));
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -334,11 +334,12 @@
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-radius: var(--panel-radius, 16px);
-  inset: 5vh auto auto 50%;
+  inset: calc(5vh + var(--safe-top)) auto auto 50%;
   width: min(680px, calc(100% - 24px));
-  max-height: 90vh;
+  max-height: calc(90dvh - var(--safe-top) - var(--safe-bottom));
   padding: var(--drawer-pad);
   transform: translateX(-50%);
+  overscroll-behavior: contain;
 }
 
 .modal-bg {
@@ -420,4 +421,45 @@
 .unmatched-header > .panel-link {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+/* ===== Ergonomie tactile ===== */
+/* Cibles d'au moins 44px sur les appareils tactiles (recommandation iOS/Android) */
+@media (pointer: coarse) {
+  .primary,
+  .secondary,
+  .icon-button,
+  .filter-pill,
+  .filter-select,
+  .panel-link,
+  .close-sheet-btn,
+  .segmented button {
+    min-height: 44px;
+  }
+
+  .icon-button {
+    width: 44px;
+  }
+
+  .close-sheet-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Empêche le zoom automatique iOS au focus (police < 16px) */
+  .filter-select,
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* Retour visuel au toucher (pas de :hover sur mobile) */
+.primary:active:not(:disabled),
+.secondary:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.filter-pill:active,
+.panel-link:active {
+  transform: scale(0.97);
 }

@@ -29,7 +29,7 @@
     </div>
     <p v-if="error" class="notice error-text">{{ error }}</p>
 
-    <section v-if="tab==='queue'" class="panel table-wrap">
+    <section v-if="tab==='queue'" class="panel table-wrap table-cards rich">
       <table>
         <thead>
           <tr>
@@ -43,7 +43,7 @@
         </thead>
         <tbody>
           <tr v-for="row in filteredQueue" :key="rowKey(row)" :class="{'row-unmatched': isUnmatched(row)}">
-            <td>
+            <td class="card-title">
               <div class="inline-row gap-10">
                 <span v-if="isUnmatched(row)" class="unmatched-dot" title="Non associé"></span>
                 <div>
@@ -53,14 +53,14 @@
                 </div>
               </div>
             </td>
-            <td>{{ row.instance||row.download_client||'-' }}</td>
-            <td>
+            <td data-label="Instance">{{ row.instance||row.download_client||'-' }}</td>
+            <td data-label="Progression">
               <progress :value="row.progress||0" max="100"></progress>
               <small>{{ Math.round(row.progress||0) }}%</small>
             </td>
-            <td>{{ row.timeleft||'-' }}</td>
-            <td><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
-            <td class="actions">
+            <td data-label="Restant">{{ row.timeleft||'-' }}</td>
+            <td data-label="Etat"><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
+            <td class="actions card-actions">
               <button v-if="isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
               <button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button>
               <button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button>
@@ -71,18 +71,18 @@
       <p v-if="!loading&&!filteredQueue.length" class="empty">Aucun telechargement actif.</p>
     </section>
 
-    <section v-else class="panel table-wrap">
+    <section v-else class="panel table-wrap table-cards rich">
       <table>
         <thead>
           <tr><th>Titre</th><th>Type</th><th>Source</th><th>Instance</th><th>Termine</th></tr>
         </thead>
         <tbody>
           <tr v-for="row in filteredHistory" :key="row.id">
-            <td><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td>
-            <td>{{ row.media_type==='show'?'Serie':'Film' }}</td>
-            <td><span class="badge">{{ row.source }}</span></td>
-            <td>{{ row.instance_name||'-' }}</td>
-            <td>{{ formatDate(row.completed_at) }}</td>
+            <td class="card-title"><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td>
+            <td data-label="Type">{{ row.media_type==='show'?'Serie':'Film' }}</td>
+            <td data-label="Source"><span class="badge">{{ row.source }}</span></td>
+            <td data-label="Instance">{{ row.instance_name||'-' }}</td>
+            <td data-label="Termine">{{ formatDate(row.completed_at) }}</td>
           </tr>
         </tbody>
       </table>

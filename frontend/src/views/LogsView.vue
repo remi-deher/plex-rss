@@ -17,9 +17,9 @@
       <button v-if="tab === 'pending' && rows.length" class="secondary danger" @click="purge"><Trash2 />Purger la file</button>
     </div>
     <p v-if="error" class="notice error-text">{{ error }}</p>
-    <section class="panel table-wrap">
+    <section class="panel table-wrap table-cards rich">
       <table><thead><tr><th>Date</th><th>Section</th><th>Description</th><th>Résultat</th></tr></thead>
-        <tbody><tr v-for="row in filtered" :key="keyOf(row)"><td>{{ dateOf(row) }}</td><td><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td>{{ resultOf(row) }}</td></tr></tbody>
+        <tbody><tr v-for="row in filtered" :key="keyOf(row)"><td data-label="Date">{{ dateOf(row) }}</td><td data-label="Section"><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td class="card-title"><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td data-label="Résultat">{{ resultOf(row) }}</td></tr></tbody>
       </table><p v-if="!loading && !filtered.length" class="empty">Aucune entrée pour ce filtre.</p>
     </section>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />

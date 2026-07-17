@@ -1,5 +1,5 @@
 <template>
-  <section class="panel table-wrap">
+  <section class="panel table-wrap table-cards rich">
     <table>
       <thead>
         <tr>
@@ -14,21 +14,21 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="row.id">
-          <td><input v-if="tab==='pending'" v-model="selected" type="checkbox" :value="row.id"></td>
-          <td>{{ formatDate(row.sent_at||row.created_at) }}</td>
-          <td>
+          <td class="card-select"><input v-if="tab==='pending'" v-model="selected" type="checkbox" :value="row.id"></td>
+          <td data-label="Date">{{ formatDate(row.sent_at||row.created_at) }}</td>
+          <td class="card-title">
             <strong>{{ row.event_label||row.event }}</strong>
             <small class="table-detail">{{ context(row) }}</small>
           </td>
-          <td>{{ row.media_title||'-' }}</td>
-          <td>{{ row.recipient||(row.recipients||[]).join(', ')||'-' }}</td>
-          <td>
+          <td data-label="Media">{{ row.media_title||'-' }}</td>
+          <td data-label="Destinataires">{{ row.recipient||(row.recipients||[]).join(', ')||'-' }}</td>
+          <td data-label="Etat">
             <span class="badge" :class="row.success===false||row.valid===false?'failed':tab==='pending'?'pending':'available'">
               {{ row.success===false?'Erreur':row.valid===false?'Invalide':tab==='pending'?'En attente':'Envoyee' }}
             </span>
             <small v-if="row.error_msg" class="table-detail error-text">{{ row.error_msg }}</small>
           </td>
-          <td>
+          <td class="card-actions">
             <button v-if="tab==='history'&&!row.success" class="icon-button" title="Renvoyer" @click="$emit('resend',row)"><Send/></button>
           </td>
         </tr>

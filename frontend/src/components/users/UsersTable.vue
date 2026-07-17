@@ -10,21 +10,21 @@
     <button class="icon-button" @click="selectedIds=[]"><X/></button>
   </div>
 
-  <section class="panel table-wrap">
+  <section class="panel table-wrap table-cards rich">
     <table>
       <thead>
         <tr><th><input type="checkbox" :checked="allSelected" @change="toggleAll"></th><th>Utilisateur</th><th>Email</th><th>Source</th><th>Role</th><th>Demandes</th><th>Connexion</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="user in rows" :key="user.id">
-          <td><input v-model="selectedIds" type="checkbox" :value="user.id"></td>
-          <td><button class="text-button" @click="$emit('open',user.id)"><strong>{{ displayName(user) }}</strong><small>{{ user.plex_user_id }}</small></button></td>
-          <td>{{ user.notification_email||user.plex_email||'-' }}</td>
-          <td>{{ user.source||'plex' }}</td>
-          <td><span class="badge" :class="user.role==='admin'?'available':'pending'">{{ user.role }}</span></td>
-          <td>{{ user.stats?.total??user.request_count??'-' }}</td>
-          <td>{{ user.can_login?'Autorisee':'Bloquee' }}</td>
-          <td><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" @click="$emit('toggle',user)"><Power/></button></td>
+          <td class="card-select"><input v-model="selectedIds" type="checkbox" :value="user.id"></td>
+          <td class="card-title"><button class="text-button" @click="$emit('open',user.id)"><strong>{{ displayName(user) }}</strong><small>{{ user.plex_user_id }}</small></button></td>
+          <td data-label="Email">{{ user.notification_email||user.plex_email||'-' }}</td>
+          <td data-label="Source">{{ user.source||'plex' }}</td>
+          <td data-label="Role"><span class="badge" :class="user.role==='admin'?'available':'pending'">{{ user.role }}</span></td>
+          <td data-label="Demandes">{{ user.stats?.total??user.request_count??'-' }}</td>
+          <td data-label="Connexion">{{ user.can_login?'Autorisee':'Bloquee' }}</td>
+          <td class="card-actions"><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" @click="$emit('toggle',user)"><Power/></button></td>
         </tr>
       </tbody>
     </table>
