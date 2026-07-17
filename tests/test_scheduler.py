@@ -765,6 +765,33 @@ async def test_check_arr_notify_false_corrects_status_without_notifying(db):
 
 
 @pytest.mark.asyncio
+async def test_check_arr_resync_available_series_stays_silent(db):
+    """Le resync silencieux ne doit pas notifier une série déjà disponible."""
+    db.add(_settings())
+    req = _sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    req.status = RequestStatus.available
+    db.add(req)
+    db.commit()
+
+    series_stats = {
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 5,
+        "episode_count": 5,
+        "total_episode_count": 5,
+    }
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)),
+        _patch_enqueue() as mock_enqueue,
+    ):
+        await check_arr_statuses(full_resync=True, notify=False)
+
+    assert db.query(MediaRequest).first().status == RequestStatus.available
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_check_arr_show_becomes_fully_available(db):
     """Régression : quand tous les épisodes sont présents, le statut doit bien passer
     à RequestStatus.available (pas rester bloqué à partially_available)."""

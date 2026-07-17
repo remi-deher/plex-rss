@@ -302,25 +302,32 @@ async def get_series_episode_stats(
     )
     if not data:
         return None
-    stats = data.get("statistics", {})
+    stats = data.get("statistics", {}) or {}
+    season_details = data.get("seasons", []) or []
     seasons = []
-    for season in data.get("seasons", []) or []:
+    monitored_totals = {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 0}
+    for season in season_details:
         season_number = season.get("seasonNumber")
         if not season_number:  # 0 = spéciaux, exclu
             continue
+        if season.get("monitored") is False:
+            continue
         season_stats = season.get("statistics", {}) or {}
+        for key in monitored_totals:
+            monitored_totals[key] += season_stats.get(key, 0) or 0
         seasons.append({
             "season_number": season_number,
             "episode_file_count": season_stats.get("episodeFileCount", 0),
             "episode_count": season_stats.get("episodeCount", 0),
             "total_episode_count": season_stats.get("totalEpisodeCount", 0),
         })
+    aggregate = monitored_totals if season_details else stats
     return {
         "arr_id": data.get("id"),
         "title_slug": data.get("titleSlug"),
-        "episode_file_count": stats.get("episodeFileCount", 0),
-        "episode_count": stats.get("episodeCount", 0),
-        "total_episode_count": stats.get("totalEpisodeCount", 0),
+        "episode_file_count": aggregate.get("episodeFileCount", 0),
+        "episode_count": aggregate.get("episodeCount", 0),
+        "total_episode_count": aggregate.get("totalEpisodeCount", 0),
         "seasons": seasons,
     }
 
