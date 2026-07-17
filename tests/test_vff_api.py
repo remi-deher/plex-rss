@@ -216,6 +216,38 @@ def test_episodes_envelope_uses_tmdb_only(db, client):
     assert data["seasons"] == [{"season_number": 1, "name": "Season 1", "episodes": episodes}]
 
 
+def test_episodes_envelope_handles_multiple_seasons_sequentially(db, client):
+    """Plusieurs saisons ne doivent pas etre recuperees en parallele (asyncio.gather) --
+    elles partagent la meme AsyncSession (cache TMDB en DB), ce qui declenche
+    'concurrent operations are not permitted' des que 2+ saisons existent."""
+    req = _show_request(db)
+    overview = [
+        {"season_number": 1, "name": "Season 1", "episode_count": 1},
+        {"season_number": 2, "name": "Season 2", "episode_count": 1},
+        {"season_number": 3, "name": "Season 3", "episode_count": 1},
+    ]
+
+    async def fake_get_episodes(db_arg, tmdb_id, season_number):
+        return [{"episode_number": 1, "title": f"S{season_number}E1", "air_date": None, "overview": "", "still_url": None}]
+
+    with patch("app.routers.vff_api.tmdb.get_tv_seasons_overview", new=AsyncMock(return_value=overview)):
+        with patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(side_effect=fake_get_episodes)) as mock_ep:
+            resp = client.get(f"/api/requests/{req.id}/episodes")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [s["season_number"] for s in data["seasons"]] == [1, 2, 3]
+    assert mock_ep.await_count == 3
+
+
+def test_episodes_envelope_tmdb_failure_returns_502_not_empty(db, client):
+    """Une panne TMDB (ou l'erreur de concurrence SQLAlchemy) doit remonter comme une
+    vraie erreur -- pas un 200 avec seasons=[] qui ressemble a tort a 'aucune saison'."""
+    req = _show_request(db)
+    with patch("app.routers.vff_api.tmdb.get_tv_seasons_overview", new=AsyncMock(side_effect=Exception("boom"))):
+        resp = client.get(f"/api/requests/{req.id}/episodes")
+    assert resp.status_code == 502
+
+
 def test_episodes_envelope_movie_returns_empty_seasons(db, client):
     from app.models import MediaRequest, RequestStatus
 

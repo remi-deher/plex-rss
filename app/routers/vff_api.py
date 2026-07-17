@@ -254,12 +254,16 @@ async def _episodes_envelope_payload(db: AsyncSession, req) -> dict:
         return {"media_type": "show", "seasons": []}
     try:
         overview = await tmdb.get_tv_seasons_overview(db, int(req.tmdb_id))
-        seasons = await asyncio.gather(*[
-            tmdb.get_tv_season_episodes(db, int(req.tmdb_id), s["season_number"]) for s in overview
-        ])
+        # Sequentiel, pas asyncio.gather : ces appels partagent la meme AsyncSession
+        # (cache TMDB en DB) et une session SQLAlchemy async ne supporte pas les
+        # operations concurrentes sur une meme instance ("This session is provisioning
+        # a new connection; concurrent operations are not permitted") -- une fois cette
+        # erreur levee, elle etait avalee silencieusement et renvoyait "aucune saison"
+        # au lieu de l'erreur reelle, pour a peu pres toute serie multi-saisons.
+        seasons = [await tmdb.get_tv_season_episodes(db, int(req.tmdb_id), s["season_number"]) for s in overview]
     except Exception as e:
         logger.warning(f"episodes-envelope: TMDB indisponible pour '{req.title}': {e}")
-        return {"media_type": "show", "seasons": []}
+        raise HTTPException(502, "TMDB indisponible pour les saisons/episodes") from e
     return {
         "media_type": "show",
         "seasons": [
