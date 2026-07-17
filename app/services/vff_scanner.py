@@ -747,7 +747,13 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
         candidates_q = (await db.execute(
             select(MediaRequest).filter(
                 MediaRequest.status == RequestStatus.available,
-                req_has_vf_filter,
+                # Une demande sans library_item_id reste candidate au rattachement meme si
+                # son has_vf est deja connu (VF confirmee) : sans ce filtre supplementaire,
+                # une demande dont le lien a echoue/n'a jamais eu lieu (ex: titre localise
+                # different entre *arr et Plex) ne repasse plus jamais dans cette boucle une
+                # fois has_vf resolu -- son nom de demandeur reste alors introuvable sur la
+                # fiche Bibliotheque (jointure via library_item_id), a jamais.
+                req_has_vf_filter | MediaRequest.library_item_id.is_(None),
                 MediaRequest.vf_tracking_disabled.is_(False),
             )
         )).scalars().all()

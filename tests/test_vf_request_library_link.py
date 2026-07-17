@@ -194,6 +194,56 @@ async def test_check_vf_statuses_propagates_linked_library_item_without_rescanni
 
 
 @pytest.mark.asyncio
+async def test_check_vf_statuses_relinks_available_request_with_resolved_vf():
+    """Régression production ("Rebels"/"Rebelles") : une demande déjà "available" avec
+    has_vf déjà résolu (True) mais jamais liée à son LibraryItem (échec ponctuel du
+    rapprochement, ou lien perdu) doit quand même être reliée lors d'un scan normal
+    (non forcé) — sinon elle sort à jamais du filtre req_has_vf_filter (qui n'inclut que
+    has_vf IS NULL/FALSE) et son nom de demandeur reste introuvable indéfiniment sur la
+    fiche Bibliothèque (jointure via library_item_id, voir /api/library)."""
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+    )
+    db.add(settings)
+
+    li = LibraryItem(title="Rebelles", year=2023, media_type="movie", tmdb_id="569814", has_vf=True)
+    db.add(li)
+    db.add(PlexUser(plex_user_id="u1", enabled=True))
+    db.commit()
+    li_id = li.id
+
+    req = MediaRequest(
+        plex_user_id="u1",
+        title="Rebels",
+        year=2023,
+        media_type="movie",
+        tmdb_id="569814",
+        status=RequestStatus.available,
+        has_vf=True,  # deja resolu -> exclu de req_has_vf_filter seul
+        library_item_id=None,  # jamais lie (le bug)
+    )
+    db.add(req)
+    db.commit()
+
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
+        patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
+    ):
+        await check_vf_statuses()
+
+    assert req.library_item_id == li_id
+    # Ni scan ni notification pour cette demande : has_vf deja resolu et identique cote
+    # LibraryItem, seul le lien manquant est corrige.
+    mock_scan.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     """Une demande bloquée en sent_to_arr (arr ne détecte jamais le fichier) doit être
     promue 'available' dès qu'un LibraryItem correspondant existe dans Plex, et suivre
