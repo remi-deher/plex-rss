@@ -35,18 +35,51 @@
           <button class="primary danger-button" :disabled="busy||confirmation!=='REMPLACER'" @click="migrateSqlite"><DatabaseZap/>Remplacer</button>
         </template>
       </SettingsCard>
+
+      <SettingsCard title="Medias supprimes" :icon="Trash2" status="neutral" :collapsible="false">
+        <p>
+          Ces medias ont ete deliberement supprimes par un admin. Toute nouvelle demande
+          pour l'un d'eux (watchlist, requete manuelle) sera forcee en attente
+          d'approbation, meme si l'auto-approbation est activee.
+        </p>
+        <p v-if="!deletedLog.length">Aucun media dans ce journal.</p>
+        <div v-for="entry in deletedLog" :key="entry.id" class="detail-row">
+          <div>
+            <strong>{{ entry.title }}</strong><br>
+            <small>{{ entry.media_type==='show'?'Serie':'Film' }} · supprime le {{ formatDate(entry.deleted_at) }}{{ entry.deleted_by ? ` par ${entry.deleted_by}` : '' }}</small>
+          </div>
+          <button class="secondary" :disabled="busy" @click="forgetEntry(entry.id)">Oublier</button>
+        </div>
+      </SettingsCard>
     </div>
   </div>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
-import { DatabaseZap, Download, HardDriveDownload, Search, Upload } from '@lucide/vue';
+import { computed, onMounted, ref } from 'vue';
+import { DatabaseZap, Download, HardDriveDownload, Search, Trash2, Upload } from '@lucide/vue';
+import { api } from '@/api';
 import { load, success, fail } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
 
 const busy = ref(false), includeSecrets = ref(false);
 const jsonInput = ref(null), sqliteInput = ref(null), inspection = ref(null), confirmation = ref('');
 const populatedTables = computed(() => Object.fromEntries(Object.entries(inspection.value?.tables || {}).filter(([, count]) => count > 0)));
+
+const deletedLog = ref([]);
+function formatDate(value) {
+  return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
+}
+async function loadDeletedLog() {
+  deletedLog.value = await api('/api/requests/deleted-log').catch(() => []);
+}
+async function forgetEntry(id) {
+  busy.value = true;
+  try {
+    await api(`/api/requests/deleted-log/${id}`, { method: 'DELETE' });
+    await loadDeletedLog();
+  } catch (e) { fail(e); } finally { busy.value = false; }
+}
+onMounted(loadDeletedLog);
 
 async function upload(path, file, extra = {}) {
   const body = new FormData();

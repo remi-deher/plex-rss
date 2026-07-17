@@ -434,6 +434,33 @@ class AdminActionLog(Base):
     details: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
 
+class DeletedMediaLog(Base):
+    """Trace d'une suppression volontaire par un admin (demande ou orpheline arr).
+
+    Sert de garde-fou contre le retour silencieux d'un média qu'un admin a
+    délibérément retiré : tant qu'une entrée existe ici pour un tmdb_id/tvdb_id/
+    imdb_id donné, toute nouvelle demande pour ce média (watchlist, requête
+    manuelle) est forcée en `pending_approval`, même si l'auto-approbation est
+    activée — voir `requests_api.was_deleted_by_admin` et ses appelants.
+
+    Volontairement absent de `MediaRequest` (suppression physique, pas de soft
+    delete) : convertir toute la table en soft-delete aurait exigé de retoucher
+    toutes les requêtes existantes qui supposent une ligne active (liste,
+    compteurs, arr_tracker...) pour un gain limité au seul cas visé ici.
+    """
+
+    __tablename__ = "deleted_media_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    media_type: Mapped[str]
+    tmdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    imdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    title: Mapped[str]
+    deleted_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    deleted_by: Mapped[Optional[str]] = mapped_column(default=None)
+
+
 class DiagnosticEvent(Base):
     """Événement persistant du parcours Demande → Arr → Plex → Notification."""
 

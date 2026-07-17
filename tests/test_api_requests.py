@@ -172,19 +172,31 @@ def test_list_orphan_requests_excludes_known_show(client, db):
 
 def test_delete_orphan_calls_sonarr_delete_series(client, db):
     """La suppression d'une serie orpheline appelle bien sonarr.delete_series avec
-    l'arr_id et l'instance corrects -- c'est ce qui retire reellement l'entree de Sonarr."""
+    l'arr_id et l'instance corrects -- c'est ce qui retire reellement l'entree de Sonarr.
+    Elle laisse aussi une trace dans le journal des suppressions (tombstone)."""
     inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
     db.add(inst)
     db.commit()
     db.refresh(inst)
 
-    with patch(
-        "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))
-    ) as mock_delete:
+    with (
+        patch(
+            "app.routers.requests_api.sonarr.lookup_series",
+            new=AsyncMock(return_value={"title": "Orphan Show", "tvdbId": 999}),
+        ),
+        patch(
+            "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))
+        ) as mock_delete,
+    ):
         resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
     mock_delete.assert_awaited_once_with("http://sonarr", "x", 501, delete_files=False)
+
+    from app.models import DeletedMediaLog
+    log = db.query(DeletedMediaLog).filter(DeletedMediaLog.tvdb_id == "999").first()
+    assert log is not None
+    assert log.title == "Orphan Show"
 
 
 def test_delete_orphan_calls_radarr_delete_movie_with_files(client, db):
@@ -194,9 +206,15 @@ def test_delete_orphan_calls_radarr_delete_movie_with_files(client, db):
     db.commit()
     db.refresh(inst)
 
-    with patch(
-        "app.routers.requests_api.radarr.delete_movie", new=AsyncMock(return_value=(True, "Supprime de Radarr"))
-    ) as mock_delete:
+    with (
+        patch(
+            "app.routers.requests_api.radarr.lookup_movie",
+            new=AsyncMock(return_value={"title": "Orphan Movie", "tmdbId": 777}),
+        ),
+        patch(
+            "app.routers.requests_api.radarr.delete_movie", new=AsyncMock(return_value=(True, "Supprime de Radarr"))
+        ) as mock_delete,
+    ):
         resp = client.delete(f"/api/requests/orphans/radarr/{inst.id}/601?delete_files=true")
     assert resp.status_code == 200
     mock_delete.assert_awaited_once_with("http://radarr", "x", 601, delete_files=True)
@@ -210,8 +228,11 @@ def test_delete_orphan_propagates_arr_failure(client, db):
     db.commit()
     db.refresh(inst)
 
-    with patch(
-        "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(False, "Sonarr indisponible"))
+    with (
+        patch("app.routers.requests_api.sonarr.lookup_series", new=AsyncMock(return_value=None)),
+        patch(
+            "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(False, "Sonarr indisponible"))
+        ),
     ):
         resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
     assert resp.status_code == 502
@@ -224,6 +245,43 @@ def test_delete_orphan_invalid_arr_type_rejected(client, db):
 
 def test_delete_orphan_unknown_instance_404(client, db):
     resp = client.delete("/api/requests/orphans/sonarr/999/501")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/requests/deleted-log, DELETE /api/requests/deleted-log/{id}
+# ---------------------------------------------------------------------------
+
+
+def test_list_deleted_media_log(client, db):
+    from app.models import DeletedMediaLog
+
+    db.add(DeletedMediaLog(media_type="movie", title="Removed Movie", tmdb_id="55"))
+    db.commit()
+
+    resp = client.get("/api/requests/deleted-log")
+    assert resp.status_code == 200
+    titles = {row["title"] for row in resp.json()}
+    assert "Removed Movie" in titles
+
+
+def test_forget_deleted_media_log_entry(client, db):
+    """Oublier une entree permet a une future demande pour ce media de ne plus etre
+    forcee en attente d'approbation."""
+    from app.models import DeletedMediaLog
+
+    entry = DeletedMediaLog(media_type="movie", title="Removed Movie", tmdb_id="55")
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    resp = client.delete(f"/api/requests/deleted-log/{entry.id}")
+    assert resp.status_code == 200
+    assert db.query(DeletedMediaLog).filter(DeletedMediaLog.id == entry.id).first() is None
+
+
+def test_forget_deleted_media_log_not_found(client, db):
+    resp = client.delete("/api/requests/deleted-log/9999")
     assert resp.status_code == 404
 
 
@@ -344,6 +402,38 @@ def test_delete_request_not_found(client, db):
     """DELETE sur id inexistant → 404."""
     resp = client.delete("/api/requests/9999")
     assert resp.status_code == 404
+
+
+def test_delete_request_records_tombstone(client, db):
+    """Une suppression admin (pas une annulation par l'utilisateur) laisse une trace
+    dans le journal des suppressions -- garde-fou contre le retour silencieux via
+    watchlist/redemande."""
+    req = _req(title="Inception", tmdb_id="27205")
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.delete(f"/api/requests/{req.id}")
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    log = db.query(DeletedMediaLog).filter(DeletedMediaLog.tmdb_id == "27205").first()
+    assert log is not None
+    assert log.title == "Inception"
+
+
+def test_delete_request_without_stable_id_skips_tombstone(client, db):
+    """Sans tmdb/tvdb/imdb_id, pas de trace ecrite (rien pour la retrouver plus tard)."""
+    req = _req(title="No Stable Id")
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.delete(f"/api/requests/{req.id}")
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    assert db.query(DeletedMediaLog).count() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -712,3 +802,21 @@ def test_bulk_delete_requests(client, db):
 
     assert db.query(MediaRequest).filter(MediaRequest.id == r1.id).first() is None
     assert db.query(MediaRequest).filter(MediaRequest.id == r2.id).first() is None
+
+
+def test_bulk_delete_records_tombstones(client, db):
+    """La suppression groupee laisse une trace pour chaque demande ayant un
+    identifiant stable, meme comportement que la suppression individuelle."""
+    r1 = _req(title="Movie A", tmdb_id="111")
+    r2 = _req(title="Movie B", tmdb_id="222")
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/delete", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    tmdb_ids = {row.tmdb_id for row in db.query(DeletedMediaLog).all()}
+    assert tmdb_ids == {"111", "222"}

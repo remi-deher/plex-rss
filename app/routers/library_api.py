@@ -25,7 +25,7 @@ from ..models import (
     Settings,
     VfEpisodeStatus,
 )
-from ..services import radarr, sonarr, tmdb
+from ..services import deleted_media, radarr, sonarr, tmdb
 from ..services import seer as seer_service
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..services.diagnostics import record_event, update_request_context
@@ -744,15 +744,24 @@ async def media_lookup(query: str, type: str = "movie", db: AsyncSession = Depen
 
 
 async def _needs_approval(
-    db: AsyncSession, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str]
+    db: AsyncSession, settings: Optional[Settings], caller: Optional[dict], plex_user_id: Optional[str],
+    body: Optional["MediaAddRequest"] = None,
 ) -> bool:
     """Détermine si une demande doit passer par la file de validation admin.
 
-    Jamais pour un admin/owner (ni un appel token API). Sinon uniquement si
-    l'approbation est activée globalement ET que l'utilisateur n'est pas auto-approuvé.
+    Jamais pour un admin/owner (ni un appel token API) : si un admin redemande
+    lui-même un média qu'il a supprimé, c'est déjà la décision consciente qui
+    lève le blocage — pas la peine d'en exiger une seconde. Sinon, en attente si
+    l'approbation est activée globalement et l'utilisateur pas auto-approuvé, OU
+    si ce média a été supprimé par un admin (voir app.services.deleted_media) —
+    peu importe alors le réglage d'auto-approbation, un humain doit revalider.
     """
     if not caller or caller.get("is_owner") or caller.get("role") == "admin":
         return False
+    if body and await deleted_media.is_tombstoned(
+        db, body.media_type, tmdb_id=body.tmdb_id, tvdb_id=body.tvdb_id, imdb_id=body.imdb_id
+    ):
+        return True
     if not (settings and settings.require_approval):
         return False
     if plex_user_id:
@@ -829,7 +838,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
         body.plex_user_id = caller["plex_user_id"]
         item["plex_user_id"] = caller["plex_user_id"]
 
-    pending = await _needs_approval(db, s, caller, body.plex_user_id)
+    pending = await _needs_approval(db, s, caller, body.plex_user_id, body)
     if pending:
         return await _create_pending_request(db, body)
 

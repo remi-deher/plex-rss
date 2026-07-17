@@ -14,7 +14,7 @@ from .. import metrics as app_metrics
 from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
-from . import notification_orchestrator, prowlarr
+from . import deleted_media, notification_orchestrator, prowlarr
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .diagnostics import record_event, update_request_context
 from .download_clients import add_torrent_to_client
@@ -687,6 +687,13 @@ async def _process_watchlist_item(
     needs_approval = bool(
         settings.require_approval and not (user_obj and ((user_obj.role or "user") == "admin" or user_obj.auto_approve))
     )
+    # Un media qu'un admin a deliberement supprime revient parfois via la watchlist
+    # (l'API Plex ne permet pas de retirer une entree d'une watchlist) -- on force une
+    # nouvelle approbation humaine plutot que de le re-soumettre silencieusement.
+    if not needs_approval and await deleted_media.is_tombstoned(
+        db, item["media_type"], tmdb_id=item.get("tmdb_id"), tvdb_id=item.get("tvdb_id"), imdb_id=item.get("imdb_id")
+    ):
+        needs_approval = True
     if needs_approval:
         req.status = RequestStatus.pending_approval
         await db.commit()

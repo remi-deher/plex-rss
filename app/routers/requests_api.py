@@ -13,10 +13,10 @@ import asyncio
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
-from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import AdminActionLog, ArrInstance, DeletedMediaLog, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import check_arr_statuses, poll_watchlists
 from ..services.notification_orchestrator import _notify, notify_single_user
-from ..services import arr_orphans, radarr, sonarr
+from ..services import arr_orphans, deleted_media, radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
@@ -277,20 +277,59 @@ async def list_orphan_requests(db: AsyncSession = Depends(get_db_async)):
 
 @router.delete("/requests/orphans/{arr_type}/{instance_id}/{arr_id}", dependencies=[Depends(require_admin)])
 async def delete_orphan_request(
-    arr_type: str, instance_id: int, arr_id: int, delete_files: bool = False, db: AsyncSession = Depends(get_db_async)
+    arr_type: str, instance_id: int, arr_id: int, request: Request,
+    delete_files: bool = False, db: AsyncSession = Depends(get_db_async),
 ):
     """Supprime une série/film orpheline directement dans Sonarr/Radarr (pas de
     MediaRequest à supprimer côté Plexarr, il n'y en a jamais eu)."""
     if arr_type not in ("sonarr", "radarr"):
         raise HTTPException(400, "arr_type doit etre 'sonarr' ou 'radarr'")
     inst = await async_get_or_404(db, ArrInstance, instance_id, "Arr instance not found")
+    # Récupéré avant suppression : une fois le média retiré de Sonarr/Radarr, il n'y a
+    # plus aucun moyen de retrouver son tvdb_id/tmdb_id pour la trace de suppression.
+    if arr_type == "sonarr":
+        item = await sonarr.lookup_series(inst.url, inst.api_key, arr_id=arr_id)
+        title, tvdb_id, tmdb_id, imdb_id = (item or {}).get("title", "?"), (item or {}).get("tvdbId"), None, None
+    else:
+        item = await radarr.lookup_movie(inst.url, inst.api_key, arr_id=arr_id)
+        title, tvdb_id, tmdb_id, imdb_id = (item or {}).get("title", "?"), None, (item or {}).get("tmdbId"), (item or {}).get("imdbId")
+
     if arr_type == "sonarr":
         ok, message = await sonarr.delete_series(inst.url, inst.api_key, arr_id, delete_files=delete_files)
     else:
         ok, message = await radarr.delete_movie(inst.url, inst.api_key, arr_id, delete_files=delete_files)
     if not ok:
         raise HTTPException(502, message)
+
+    actor = current_user(request, db) or {}
+    await deleted_media.record_deletion(
+        db, "show" if arr_type == "sonarr" else "movie", title,
+        tmdb_id=tmdb_id, tvdb_id=tvdb_id, imdb_id=imdb_id,
+        deleted_by=actor.get("username") or actor.get("plex_user_id") or "api",
+    )
+    await db.commit()
     return {"status": "ok", "message": message}
+
+
+@router.get("/requests/deleted-log", dependencies=[Depends(require_admin)])
+async def list_deleted_media_log(db: AsyncSession = Depends(get_db_async)):
+    """Médias volontairement supprimés par un admin (demande ou orpheline arr) —
+    toute nouvelle demande pour l'un de ces titres est forcée en attente
+    d'approbation tant qu'il figure ici. Voir app.services.deleted_media."""
+    rows = (await db.execute(
+        select(DeletedMediaLog).order_by(DeletedMediaLog.deleted_at.desc())
+    )).scalars().all()
+    return rows
+
+
+@router.delete("/requests/deleted-log/{log_id}", dependencies=[Depends(require_admin)])
+async def forget_deleted_media_log(log_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Oublie une suppression : une nouvelle demande pour ce média ne sera plus
+    forcée en attente d'approbation."""
+    row = await async_get_or_404(db, DeletedMediaLog, log_id, "Log entry not found")
+    await db.delete(row)
+    await db.commit()
+    return {"status": "ok"}
 
 
 @router.get("/plex/library-search")
@@ -450,7 +489,7 @@ async def bulk_mark_requests_processed(body: BulkAction, request: Request, db: A
 
 
 @router.post("/requests/bulk/delete", dependencies=[Depends(require_admin)])
-async def bulk_delete_requests(body: BulkAction, db: AsyncSession = Depends(get_db_async)):
+async def bulk_delete_requests(body: BulkAction, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Supprime plusieurs demandes définitivement.
 
     Si `delete_from_arr=True`, tente aussi la suppression côté Sonarr/Radarr avant
@@ -459,6 +498,8 @@ async def bulk_delete_requests(body: BulkAction, db: AsyncSession = Depends(get_
     deux côtés — les autres demandes de la sélection sont traitées normalement.
     """
     reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
+    actor = current_user(request, db) or {}
+    deleted_by = actor.get("username") or actor.get("plex_user_id") or "api"
     count = 0
     skipped = []
     for req in reqs:
@@ -467,6 +508,10 @@ async def bulk_delete_requests(body: BulkAction, db: AsyncSession = Depends(get_
             if not ok:
                 skipped.append({"id": req.id, "title": req.title, "reason": msg})
                 continue
+        await deleted_media.record_deletion(
+            db, req.media_type, req.title,
+            tmdb_id=req.tmdb_id, tvdb_id=req.tvdb_id, imdb_id=req.imdb_id, deleted_by=deleted_by,
+        )
         await _delete_vf_episode_cache(db, req.id)
         await db.delete(req)
         count += 1
@@ -595,6 +640,7 @@ async def trigger_poll():
 @router.delete("/requests/{request_id}")
 async def delete_request(
     request_id: int,
+    request: Request,
     delete_from_arr: bool = False,
     delete_files: bool = False,
     db: AsyncSession = Depends(get_db_async),
@@ -609,6 +655,12 @@ async def delete_request(
         ok, msg = await _delete_media_from_arr(db, req, delete_files)
         if not ok:
             raise HTTPException(502, f"Suppression *arr impossible ({msg}) — rien n'a été supprimé.")
+    actor = current_user(request, db) or {}
+    await deleted_media.record_deletion(
+        db, req.media_type, req.title,
+        tmdb_id=req.tmdb_id, tvdb_id=req.tvdb_id, imdb_id=req.imdb_id,
+        deleted_by=actor.get("username") or actor.get("plex_user_id") or "api",
+    )
     await _delete_vf_episode_cache(db, req.id)
     await db.delete(req)
     await db.commit()
