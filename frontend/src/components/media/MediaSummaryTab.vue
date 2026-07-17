@@ -26,6 +26,9 @@
       :vf-detail="vfDetail"
       :busy="busy"
       :available="Boolean(detail?.in_library)"
+      :envelope-error="envelopeError"
+      :availability-error="availabilityError"
+      :vf-status-error="vfStatusError"
       @scan="$emit('scan-vff')"
       @correction="(...args) => $emit('open-correction', ...args)"
     />
@@ -52,6 +55,9 @@ defineProps({
   correctionOptions: { type: Array, default: () => [] },
   correctionForm: { type: Object, required: true },
   vfDetail: { type: Object, default: null },
+  envelopeError: { type: Boolean, default: false },
+  availabilityError: { type: Boolean, default: false },
+  vfStatusError: { type: Boolean, default: false },
 });
 defineEmits([
   'recheck-plex', 'open-correction', 'report-issue', 'cancel-issue',

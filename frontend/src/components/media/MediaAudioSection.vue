@@ -49,6 +49,8 @@
           </div>
         </details>
         <p v-if="!vfDetail.seasons?.length" class="empty">Aucun detail de saison disponible.</p>
+        <p v-if="availabilityError" class="notice error-text">Disponibilite (Sonarr) indisponible pour l'instant.</p>
+        <p v-if="vfStatusError" class="notice error-text">Statut VF/VO indisponible pour l'instant.</p>
       </div>
       <div v-else>
         <details class="season-details" style="margin-bottom: 0.5rem;" v-if="vfDetail.tracks?.length">
@@ -85,6 +87,7 @@
         </details>
       </div>
     </div>
+    <p v-else-if="envelopeError" class="notice error-text">Échec du chargement des saisons/épisodes.</p>
     <p v-else class="empty">Chargement de l'analyse VF...</p>
   </div>
 </template>
@@ -95,7 +98,10 @@ import { RefreshCw, MessageSquareWarning, ChevronDown } from "@lucide/vue";
 defineProps({
   vfDetail: { type: Object, default: null },
   busy: { type: Boolean, default: false },
-  available: { type: Boolean, default: true }
+  available: { type: Boolean, default: true },
+  envelopeError: { type: Boolean, default: false },
+  availabilityError: { type: Boolean, default: false },
+  vfStatusError: { type: Boolean, default: false },
 });
 
 defineEmits(['scan', 'correction']);

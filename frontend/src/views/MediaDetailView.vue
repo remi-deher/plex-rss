@@ -60,6 +60,9 @@
             :correction-options="correctionOptions"
             :correction-form="correctionForm"
             :vf-detail="mergedVfDetail"
+            :envelope-error="envelopeError"
+            :availability-error="availabilityError"
+            :vf-status-error="vfStatusError"
             @recheck-plex="recheckPlex"
             @open-correction="openCorrection"
             @report-issue="reportIssue"
@@ -106,6 +109,7 @@ const detail = ref(null), requesters = ref([]), folders = ref([]), vfDetail = re
 // Les films restent sur l'ancien flux vfDetail (scan Plex des pistes audio, deja
 // hors-chemin critique du reste de la page).
 const episodesEnvelope = ref(null), availability = ref(null), vfStatus = ref(null);
+const envelopeError = ref(false);
 const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const tabs = ['summary', 'requests', 'calendar'];
@@ -184,6 +188,7 @@ async function loadSession() {
 async function load() {
   loading.value = true; error.value = ''; vfDetail.value = null;
   episodesEnvelope.value = null; availability.value = null; vfStatus.value = null;
+  envelopeError.value = false; availabilityError.value = false; vfStatusError.value = false;
   tab.value = 'summary';
   try {
     const payload = await api(mediaPath());
@@ -330,14 +335,12 @@ async function deleteRequest(id) {
 
 // vf_source_id peut pointer vers un LibraryItem meme si la page a ete ouverte via une
 // MediaRequest (des qu'un media est aussi present dans la bibliotheque Plex) -- le
-// prefixe doit suivre le type reel de cette source (vf_source_type), pas kind.value,
-// sinon 404 silencieux sur tout le chargement VF (Promise.all avale l'erreur).
-function sourcePath() {
-  const vfType = detail.value?.media?.vf_source_type;
-  if (vfType) return vfType === 'library' ? 'library' : 'requests';
-  return kind.value === 'request' ? 'requests' : 'library';
-}
-function sourceId() { return detail.value?.media?.vf_source_id || route.params.id; }
+// backend renvoie toujours vf_source_type/vf_source_id ensemble (une seule source de
+// verite, jamais de repli sur kind.value/route.params.id qui pourraient diverger).
+function sourcePath() { return detail.value?.media?.vf_source_type === 'library' ? 'library' : 'requests'; }
+function sourceId() { return detail.value?.media?.vf_source_id; }
+
+const availabilityError = ref(false), vfStatusError = ref(false);
 
 async function loadVf() {
   // Films uniquement (scan Plex des pistes audio, deja hors du chemin critique) --
@@ -347,17 +350,26 @@ async function loadVf() {
 
 async function loadEpisodesEnvelope() {
   if (detail.value?.media_type !== 'show') return;
-  episodesEnvelope.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes`);
+  envelopeError.value = false;
+  try { episodesEnvelope.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes`); }
+  catch (e) { envelopeError.value = true; }
 }
 
 async function loadAvailability() {
   if (detail.value?.media_type !== 'show') return;
-  availability.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-availability`);
+  availabilityError.value = false;
+  // Erreur geree ici (pas de propagation) : une panne Sonarr ne doit jamais empecher
+  // l'enveloppe (TMDB) ou le statut VF (BDD) de s'afficher -- chaque source est
+  // independante, une panne reste localisee et visible plutot que de tout bloquer.
+  try { availability.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-availability`); }
+  catch (e) { availabilityError.value = true; }
 }
 
 async function loadVfStatus() {
   if (detail.value?.media_type !== 'show') return;
-  vfStatus.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-vf-status`);
+  vfStatusError.value = false;
+  try { vfStatus.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-vf-status`); }
+  catch (e) { vfStatusError.value = true; }
 }
 
 async function scanVff() {
