@@ -100,8 +100,20 @@ const requesters = computed(() => {
   }
   return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
+// Une serie "partially_available" reste dans ce statut tant qu'elle n'a pas fini de
+// diffuser (voir arr_tracker.is_show_partial cote backend), meme quand elle est deja a
+// jour sur tout ce qui est reellement sorti (ex: South Park, Yuru Camp) -- sans ce
+// filtre, la liste "En cours" affiche des series qui n'ont en realite rien de manquant
+// cote Sonarr. Meme logique que _is_show_genuinely_incomplete (app/routers/metrics_api.py).
+function matchesStatusFilter(row) {
+  if (!statusFilters.value.length) return true;
+  if (!statusFilters.value.includes(row.status)) return false;
+  if (row.status !== 'partially_available') return true;
+  return Boolean(row.episodes_aired_count) && row.episodes_available_count < row.episodes_aired_count;
+}
+
 const filtered = computed(() => rows.value.filter(row =>
-  (!statusFilters.value.length || statusFilters.value.includes(row.status)) &&
+  matchesStatusFilter(row) &&
   (!typeFilters.value.length || typeFilters.value.includes(row.media_type)) &&
   (!sourceFilters.value.length || sourceFilters.value.includes(row.source)) &&
   (!requesterFilters.value.length || requesterFilters.value.includes(row.plex_user_id))

@@ -78,6 +78,16 @@ async def _bulk_request_ids_for_filters(db: AsyncSession, filters: BulkResolveFi
         )
     if filters.status:
         q = q.filter(MediaRequest.status == filters.status)
+        if filters.status == RequestStatus.partially_available:
+            # Meme raffinement que la vue "En cours" cote frontend (RequestsView.vue) et
+            # le compteur dashboard (_is_show_genuinely_incomplete, metrics_api.py) : une
+            # serie encore en diffusion mais a jour sur tout ce qui est deja sorti n'a rien
+            # de "non complet" a proprement parler.
+            q = q.filter(
+                MediaRequest.episodes_aired_count.isnot(None),
+                MediaRequest.episodes_aired_count > 0,
+                MediaRequest.episodes_available_count < MediaRequest.episodes_aired_count,
+            )
     if filters.source:
         q = q.filter(MediaRequest.source == filters.source)
 
