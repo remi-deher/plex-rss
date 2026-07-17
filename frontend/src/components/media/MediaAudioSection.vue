@@ -33,18 +33,29 @@
             </div>
           </summary>
           <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
-            <div v-for="ep in season.episodes" :key="ep.episode" class="inline-row compact" style="margin-bottom: 6px; align-items: center;">
-              <span style="min-width: 30px; font-weight: 500;">{{ ep.episode }}.</span>
-              <span style="flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.title || `Episode ${ep.episode}` }}</span>
-              <button
-                class="badge"
-                :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent', 'pending': ep.status === 'unknown'}"
-                @click="ep.status !== 'unknown' && $emit('correction', 'episode', season.season_number, ep.episode)"
-                style="cursor: pointer;"
-                :title="ep.status === 'unknown' ? 'Chargement...' : 'Signaler une correction'"
+            <div v-for="ep in season.episodes" :key="ep.episode" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start;">
+              <img
+                v-if="ep.still_url"
+                :src="ep.still_url"
+                alt=""
+                style="width: 120px; height: 68px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface-hover);"
               >
-                {{ ep.status === 'unknown' ? '…' : ep.status.toUpperCase() }}
-              </button>
+              <div v-else style="width: 120px; height: 68px; border-radius: 4px; flex-shrink: 0; background: var(--surface-hover);"></div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                  <strong style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.episode }}. {{ ep.title || `Episode ${ep.episode}` }}</strong>
+                  <button
+                    class="badge"
+                    :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent', 'pending': ep.status === 'unknown'}"
+                    @click="ep.status !== 'unknown' && $emit('correction', 'episode', season.season_number, ep.episode)"
+                    style="cursor: pointer; flex-shrink: 0;"
+                    :title="ep.status === 'unknown' ? 'Chargement...' : 'Signaler une correction'"
+                  >
+                    {{ ep.status === 'unknown' ? '…' : ep.status.toUpperCase() }}
+                  </button>
+                </div>
+                <p v-if="ep.overview" style="margin: 4px 0 0; font-size: 0.85em; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ ep.overview }}</p>
+              </div>
             </div>
           </div>
         </details>

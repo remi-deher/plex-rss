@@ -150,7 +150,10 @@ const mergedVfDetail = computed(() => {
       const hasFile = availEps[ep.episode_number];
       const status = vfEps[ep.episode_number] || (hasFile === undefined ? 'unknown' : hasFile ? 'present' : 'absent');
       counts[status] = (counts[status] || 0) + 1;
-      return { episode: ep.episode_number, title: ep.title, air_date: ep.air_date, status, has_file: hasFile };
+      return {
+        episode: ep.episode_number, title: ep.title, air_date: ep.air_date, status, has_file: hasFile,
+        overview: ep.overview, still_url: ep.still_url,
+      };
     });
     return { season_number: season.season_number, name: season.name, counts, episodes };
   });
