@@ -95,6 +95,8 @@ async def add_series(
         resp = await client.post(f"/api/v3/series", json=payload)
         resp.raise_for_status()
         data = resp.json()
+        if not selected_seasons:
+            data = await _disable_specials_by_default(client, data)
         return data.get("id"), False, data.get("titleSlug")
     except httpx.HTTPStatusError as e:
         body = e.response.text if hasattr(e, 'response') else ''
@@ -107,6 +109,41 @@ async def add_series(
     except httpx.HTTPError as e:
         logger.error(f"Sonarr error adding '{item['title']}': {e}")
         raise
+
+
+async def _disable_specials_by_default(client: ArrClient, series: dict) -> dict:
+    """Désactive la saison 0 pour un ajout sans sélection explicite."""
+    if not isinstance(series, dict) or not series.get("id"):
+        return series
+    original = series
+
+    seasons = series.get("seasons")
+    if not isinstance(seasons, list):
+        try:
+            resp = await client.get(f"/api/v3/series/{series['id']}")
+            resp.raise_for_status()
+            series = resp.json()
+            if not isinstance(series, dict):
+                return original
+            seasons = series.get("seasons")
+        except (httpx.HTTPError, StopAsyncIteration):
+            logger.warning("Unable to read seasons after adding series id=%s", series.get("id"))
+            return original
+
+    if not isinstance(seasons, list):
+        return series
+
+    changed = False
+    for season in seasons:
+        if season.get("seasonNumber") == 0 and season.get("monitored") is not False:
+            season["monitored"] = False
+            changed = True
+    if not changed:
+        return series
+
+    update = await client.put(f"/api/v3/series/{series['id']}", json=series)
+    update.raise_for_status()
+    return update.json()
 
 
 def _norm_external_id(value) -> str | None:
@@ -287,7 +324,8 @@ async def get_series_episode_stats(
     - total_episode_count : total de la série, diffusés + à venir (statistics.totalEpisodeCount)
     - seasons             : même détail, par saison (mêmes clés statistics.* que Sonarr
       expose déjà pour la série entière — aucun appel réseau supplémentaire, seulement
-      jeté jusqu'ici). Saison 0 (spéciaux) exclue, comme le reste du suivi de progression.
+      jeté jusqu'ici). Seules les saisons surveillées par Sonarr sont retenues, y compris
+      la saison 0 lorsqu'elle est surveillée.
 
     Retourne None si la série n'est pas trouvée dans Sonarr.
     """
@@ -308,11 +346,7 @@ async def get_series_episode_stats(
     monitored_totals = {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 0}
     for season in season_details:
         season_number = season.get("seasonNumber")
-        if not season_number:  # 0 = spéciaux, exclu
-            continue
-        # Le resync doit suivre uniquement les saisons explicitement surveillées
-        # par Sonarr. Les saisons absentes, les spéciaux (0) et les saisons
-        # décochées ne doivent jamais gonfler le total attendu.
+        # La saison 0 est valide si elle est explicitement surveillée.
         if season.get("monitored") is not True:
             continue
         season_stats = season.get("statistics", {}) or {}

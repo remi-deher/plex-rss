@@ -78,14 +78,45 @@ async def test_add_series_selected_seasons_payload():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    item = {**ITEM, "seasons": [1, 3]}
+    item = {**ITEM, "seasons": [0, 3]}
     with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         await add_series(URL, KEY, 1, "/tv", item)
 
     payload = client_mock.post.call_args.kwargs["json"]
     assert payload["seasons"] == [
-        {"seasonNumber": 1, "monitored": True},
+        {"seasonNumber": 0, "monitored": True},
         {"seasonNumber": 3, "monitored": True},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_add_series_without_selection_disables_specials():
+    """Un ajout par défaut surveille les saisons normales, pas les spéciaux."""
+    existing_resp = _make_response(200, [])
+    add_resp = _make_response(201, {
+        "id": 42,
+        "titleSlug": "breaking-bad",
+        "seasons": [
+            {"seasonNumber": 0, "monitored": True},
+            {"seasonNumber": 1, "monitored": True},
+        ],
+    })
+    update_resp = _make_response(200, add_resp.json.return_value)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=existing_resp)
+    client_mock.post = AsyncMock(return_value=add_resp)
+    client_mock.put = AsyncMock(return_value=update_resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        await add_series(URL, KEY, 1, "/tv", ITEM)
+
+    update_payload = client_mock.put.call_args.kwargs["json"]
+    assert update_payload["seasons"] == [
+        {"seasonNumber": 0, "monitored": False},
+        {"seasonNumber": 1, "monitored": True},
     ]
 
 
@@ -203,15 +234,15 @@ async def test_is_series_available_false():
 @pytest.mark.asyncio
 async def test_get_series_episode_stats_includes_per_season_breakdown():
     """Le tableau seasons[] deja present dans la reponse Sonarr (statistics par saison)
-    doit etre expose, pas jete comme avant -- saison 0 (specials) exclue."""
+    doit etre expose, pas jete comme avant -- saison 0 incluse si surveillee."""
     series_data = {
         "id": 7,
         "titleSlug": "breaking-bad",
         # Sonarr's global counters include the two downloaded specials. The
-        # availability counters must be based on monitored regular seasons only.
+        # Availability counters must be based on monitored seasons only.
         "statistics": {"episodeFileCount": 8, "episodeCount": 8, "totalEpisodeCount": 15},
         "seasons": [
-            {"seasonNumber": 0, "monitored": False, "statistics": {"episodeFileCount": 2, "episodeCount": 2, "totalEpisodeCount": 2}},
+            {"seasonNumber": 0, "monitored": True, "statistics": {"episodeFileCount": 2, "episodeCount": 2, "totalEpisodeCount": 2}},
             {"seasonNumber": 1, "monitored": True, "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 6}},
             {"seasonNumber": 2, "monitored": True, "statistics": {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 7}},
             {"seasonNumber": 3, "monitored": False, "statistics": {"episodeFileCount": 4, "episodeCount": 4, "totalEpisodeCount": 4}},
@@ -228,8 +259,9 @@ async def test_get_series_episode_stats_includes_per_season_breakdown():
     with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         stats = await get_series_episode_stats(URL, KEY, arr_id=7)
 
-    assert stats["episode_file_count"] == 6
+    assert stats["episode_file_count"] == 8
     assert stats["seasons"] == [
+        {"season_number": 0, "episode_file_count": 2, "episode_count": 2, "total_episode_count": 2},
         {"season_number": 1, "episode_file_count": 6, "episode_count": 6, "total_episode_count": 6},
         {"season_number": 2, "episode_file_count": 0, "episode_count": 0, "total_episode_count": 7},
     ]

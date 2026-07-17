@@ -13,7 +13,7 @@
       </select>
     </label>
     <div v-if="detail.media_type === 'show' && seasonNumbers.length" class="season-grid">
-      <label v-for="season in seasonNumbers" :key="season" class="check"><input v-model="form.seasons" type="checkbox" :value="season"> Saison {{ season }}</label>
+      <label v-for="season in seasonNumbers" :key="season" class="check"><input v-model="form.seasons" type="checkbox" :value="season"> {{ season === 0 ? 'Spéciaux (saison 0)' : `Saison ${season}` }}</label>
     </div>
     <button class="primary" :disabled="busy || !form.plex_user_id || (detail.media_type === 'show' && !form.seasons.length)" @click="$emit('submit')"><PlusCircle/>{{ busy ? 'Envoi...' : 'Demander' }}</button>
   </section>

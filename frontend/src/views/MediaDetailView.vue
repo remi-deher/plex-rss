@@ -113,7 +113,7 @@ const typeLabel = computed(() => detail.value?.media_type === 'show' ? 'Serie' :
 const statusLabel = computed(() => detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || '');
 const statusClass = computed(() => detail.value?.available || detail.value?.in_library ? 'available' : 'pending');
 const canRequest = computed(() => kind.value === 'discover' && !detail.value?.available && !detail.value?.in_library && !detail.value?.requested);
-const seasonNumbers = computed(() => Array.from({ length: Number(detail.value?.number_of_seasons || 0) }, (_, i) => i + 1));
+const seasonNumbers = computed(() => Array.from({ length: Number(detail.value?.number_of_seasons || 0) + 1 }, (_, i) => i));
 const recommendations = computed(() => [...(detail.value?.recommendations || []), ...(detail.value?.similar || [])].slice(0, 6));
 const addableUsers = computed(() => {
   const already = new Set((detail.value?.requests || []).flatMap(row => row.requester_ids || [row.plex_user_id]));
@@ -156,7 +156,7 @@ async function load() {
     if (kind.value === 'discover') {
       requesters.value = await api('/api/discover/requesters');
       requestForm.plex_user_id = requesters.value[0]?.plex_user_id || '';
-      requestForm.seasons = [...seasonNumbers.value];
+      requestForm.seasons = seasonNumbers.value.filter(season => season !== 0);
       const service = detail.value.media_type === 'show' ? 'sonarr' : 'radarr';
       folders.value = await api(`/api/${service}/folders`).catch(() => []);
     }
