@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 RESYNC_NOTIFICATION_BASELINE_PREFIX = "plexarr:resync:availability-baseline:"
 RESYNC_EXTERNAL_EVENT_PREFIX = "plexarr:resync:external-event:"
+NOTIFICATION_HOLD_KEY = "plexarr:notifications:hold"
 _local_resync_notification_baselines: dict[int, dict[str, Any]] = {}
+_local_notification_hold = False
 
 
 def availability_notification_signature(request: Any) -> dict[str, Any]:
@@ -59,6 +61,40 @@ async def get_json(key: str) -> dict[str, Any] | None:
     try:
         raw = await redis.get(key)
         return json.loads(raw) if raw else None
+    finally:
+        await redis.aclose()
+
+
+async def set_notification_hold(enabled: bool) -> None:
+    """Active/désactive la conservation manuelle de toutes les notifications."""
+    global _local_notification_hold
+    _local_notification_hold = bool(enabled)
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    try:
+        if enabled:
+            await redis.set(NOTIFICATION_HOLD_KEY, "1")
+        else:
+            await redis.delete(NOTIFICATION_HOLD_KEY)
+    finally:
+        await redis.aclose()
+
+
+async def notification_hold_enabled() -> bool:
+    if _local_notification_hold:
+        return True
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return False
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    try:
+        return bool(await redis.exists(NOTIFICATION_HOLD_KEY))
     finally:
         await redis.aclose()
 

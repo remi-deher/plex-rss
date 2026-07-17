@@ -21,7 +21,7 @@ from sqlalchemy.future import select
 
 from . import metrics as app_metrics
 from .database import AsyncSessionLocal
-from .job_queue import availability_notification_is_historical
+from .job_queue import availability_notification_is_historical, notification_hold_enabled
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
@@ -361,7 +361,9 @@ class NotificationDeliveryError(Exception):
     """
 
 
-async def _process(event: str, req_id: int, recipients: list[str], context: dict) -> bool:
+async def _process(
+    event: str, req_id: int, recipients: list[str], context: dict, *, force: bool = False
+) -> bool:
     """Traite une notification en attente.
 
     Returns:
@@ -386,6 +388,8 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
             ):
                 logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
                 return True
+            if not force and await notification_hold_enabled():
+                return False
 
             # Résolution des emails admin pour marquer is_admin dans les logs
             admin_emails = set(parse_email_list(settings.admin_notification_email))
@@ -493,7 +497,7 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
             return False
 
 
-async def process_pending_id(pending_id: int) -> str | int | None:
+async def process_pending_id(pending_id: int, force: bool = False) -> str | int | None:
     """Process one persisted notification from ARQ and return its target user id.
 
     Ne supprime la PendingNotification que si la livraison a réussi. En cas
@@ -521,7 +525,9 @@ async def process_pending_id(pending_id: int) -> str | int | None:
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == int(req_id)))).scalars().first()
         user_id = req.plex_user_id if req else None
 
-    ok = await _process(event, int(req_id), recipients, context)
+    if not force and await notification_hold_enabled():
+        return user_id
+    ok = await _process(event, int(req_id), recipients, context, force=force)
     if not ok:
         raise NotificationDeliveryError(f"Notification #{pending_id} [{event}] non livrée à tous les destinataires")
     await _delete_pending(pending_id)

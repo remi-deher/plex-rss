@@ -1,4 +1,5 @@
 import json as _json
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -15,6 +16,8 @@ from ..dependencies import current_user, require_admin
 from ..models import AdminActionLog, MediaRequest, NotificationLog, PlexUser, Settings
 from ..notification_queue import enqueue as enqueue_notification
 from ..notification_queue import cancel_all_pending, cancel_pending
+from ..notification_queue import process_pending_id
+from ..job_queue import arq_enabled, enqueue_job, notification_hold_enabled, set_notification_hold
 from ..serializers import format_datetime
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,
@@ -34,6 +37,14 @@ router = APIRouter(prefix="/api", tags=["notifications"], dependencies=[Depends(
 class PendingNotificationPurge(BaseModel):
     ids: list[int] | None = None
     mark_handled: bool = False
+
+
+class PendingNotificationAction(BaseModel):
+    ids: list[int]
+
+
+class NotificationHoldPayload(BaseModel):
+    enabled: bool
 
 
 async def _log_admin_action(
@@ -377,6 +388,26 @@ async def list_admin_action_logs(
     }
 
 
+@router.get("/notifications/hold")
+async def get_notification_hold():
+    return {"enabled": await notification_hold_enabled()}
+
+
+@router.put("/notifications/hold")
+async def update_notification_hold(body: NotificationHoldPayload, request: Request, db: AsyncSession = Depends(get_db_async)):
+    await set_notification_hold(body.enabled)
+    await _log_admin_action(
+        db,
+        request,
+        action="notification_hold_enabled" if body.enabled else "notification_hold_disabled",
+        summary="Notifications mises en attente" if body.enabled else "Notifications automatiques réactivées",
+        target_count=0,
+        details={"enabled": body.enabled},
+    )
+    await db.commit()
+    return {"enabled": body.enabled}
+
+
 @router.get("/notifications/pending")
 async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
     rows = (
@@ -523,6 +554,45 @@ async def purge_pending_notifications(
     await _log_admin_action(db, request, action=action, summary=summary, target_count=deleted, details=details)
     await db.commit()
     return {"status": "success", "deleted": deleted, "handled_requests": handled}
+
+
+@router.post("/notifications/pending/process")
+async def process_pending_notifications(
+    body: PendingNotificationAction,
+    request: Request,
+    db: AsyncSession = Depends(get_db_async),
+):
+    ids = sorted({int(value) for value in body.ids})
+    if not ids:
+        return {"status": "success", "queued": 0}
+
+    rows = await _pending_rows_for_purge(db, ids)
+    existing_ids = {int(row.id) for row in rows}
+    queued = 0
+    for pending_id in ids:
+        if pending_id not in existing_ids:
+            continue
+        if arq_enabled():
+            await enqueue_job(
+                "job_send_notification",
+                pending_id,
+                True,
+                job_id=f"manual-notification:{pending_id}:{time.time_ns()}",
+            )
+        else:
+            await process_pending_id(pending_id, force=True)
+        queued += 1
+
+    await _log_admin_action(
+        db,
+        request,
+        action="notification_queue_process",
+        summary=f"{queued} notification(s) envoyée(s) manuellement",
+        target_count=queued,
+        details={"ids": sorted(existing_ids.intersection(ids))},
+    )
+    await db.commit()
+    return {"status": "success", "queued": queued}
 
 
 @router.post("/notifications/{log_id}/resend")

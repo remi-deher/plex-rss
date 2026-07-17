@@ -305,11 +305,11 @@ async def job_digest(ctx: dict, force: bool = False):
     )
 
 
-async def job_send_notification(ctx: dict, pending_id: int):
+async def job_send_notification(ctx: dict, pending_id: int, force: bool = False):
     from .notification_queue import process_pending_id
 
     async def send():
-        return await process_pending_id(pending_id)
+        return await process_pending_id(pending_id, force=force)
 
     result = await _run(ctx, f"notification-{pending_id}", send, log_history=False)
     user_id = result.get("result")

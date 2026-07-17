@@ -5,9 +5,15 @@
       <h1>Notifications</h1>
       <p>Historique des envois et file de distribution.</p>
     </div>
+    <div class="actions">
+      <label class="notification-hold-toggle">
+        <input v-model="holdEnabled" type="checkbox" @change="toggleHold">
+        <span>{{ holdEnabled ? 'Notifications en attente' : 'Notifications actives' }}</span>
+      </label>
     <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
       <RefreshCw :class="{spin:loading}"/>
     </button>
+    </div>
   </header>
 
   <nav class="detail-tabs">
@@ -20,6 +26,8 @@
 
     <!-- Actions "En attente" -->
     <div v-if="tab==='pending'&&rows.length" class="actions">
+      <button class="secondary" :disabled="!selectedIds.length" @click="sendSelected"><Send/>Envoyer la sélection</button>
+      <button class="secondary danger" :disabled="!selectedIds.length" @click="deleteSelected"><Trash2/>Supprimer la sélection</button>
       <button class="secondary" @click="purge(true)"><CheckCheck/>Purger et marquer traitees</button>
       <button class="secondary danger" @click="purge(false)"><Trash2/>Purger</button>
     </div>
@@ -47,8 +55,8 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
-import { CheckCheck, ChevronLeft, ChevronRight, RefreshCw, Trash2 } from '@lucide/vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { CheckCheck, ChevronLeft, ChevronRight, RefreshCw, Send, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import NotificationsFiltersBar from '@/components/notifications/NotificationsFiltersBar.vue';
@@ -77,6 +85,9 @@ const total = ref(0);
 const pendingTotal = ref(0);
 const offset = ref(0);
 const limit = 50;
+const holdEnabled = ref(false);
+
+const selectedIds = computed(() => tableRef.value?.selected || []);
 
 async function loadUsers() {
   try {
@@ -84,6 +95,20 @@ async function loadUsers() {
     users.value = data || [];
   } catch(e) {
     console.error("Erreur chargement utilisateurs", e);
+  }
+}
+
+async function loadHold() {
+  try { holdEnabled.value = (await api('/api/notifications/hold')).enabled; } catch(e) { error.value = e.message; }
+}
+
+async function toggleHold() {
+  try {
+    const data = await api('/api/notifications/hold', { method: 'PUT', body: JSON.stringify({ enabled: holdEnabled.value }) });
+    holdEnabled.value = data.enabled;
+  } catch(e) {
+    holdEnabled.value = !holdEnabled.value;
+    error.value = e.message;
   }
 }
 
@@ -129,6 +154,22 @@ async function purge(markHandled) {
   await load();
 }
 
+async function sendSelected() {
+  const ids = [...selectedIds.value];
+  if (!ids.length) return;
+  await api('/api/notifications/pending/process', { method: 'POST', body: JSON.stringify({ ids }) });
+  if (tableRef.value) tableRef.value.selected = [];
+  await load();
+}
+
+async function deleteSelected() {
+  const ids = [...selectedIds.value];
+  if (!ids.length || !confirm(`Supprimer ${ids.length} notification(s) ?`)) return;
+  await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids, mark_handled: false }) });
+  if (tableRef.value) tableRef.value.selected = [];
+  await load();
+}
+
 function page(delta) {
   offset.value = Math.max(0, offset.value + delta * limit);
   load();
@@ -153,6 +194,7 @@ useRealtime(['notification.updated'], load);
 
 onMounted(() => {
   loadUsers();
+  loadHold();
   load();
 });
 </script>
