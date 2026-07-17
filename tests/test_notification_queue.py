@@ -6,6 +6,11 @@ import pytest
 from sqlalchemy import text
 
 from app.notification_queue import NotificationDeliveryError, _process, enqueue
+from app.job_queue import (
+    availability_notification_is_historical,
+    clear_resync_notification_baselines,
+    set_resync_notification_baselines,
+)
 from app.models import MediaRequest, PlexUser, Settings
 from tests.async_support import TestSession
 
@@ -105,14 +110,38 @@ async def test_process_no_request_does_nothing():
 
 @pytest.mark.asyncio
 async def test_availability_enqueue_is_blocked_during_resync():
-    """Le verrou global empêche toute nouvelle notification de disponibilité."""
+    """Un état historique est ignoré au dernier moment, avant l'envoi."""
+    db = _make_db(_make_settings(), _make_req(media_type="show"), _make_user())
     with (
-        patch("app.notification_queue.availability_notifications_suppressed", new=AsyncMock(return_value=True)),
-        patch("app.notification_queue.AsyncSessionLocal") as session_factory,
+        patch("app.notification_queue.availability_notification_is_historical", new=AsyncMock(return_value=True)),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_available_notification", new_callable=AsyncMock) as mock_send,
     ):
-        await enqueue("available", 42, ["alice@example.com"], {"scope": "series_complete"})
+        await _process("available", 42, ["alice@example.com"], {"scope": "series_complete"})
 
-    session_factory.assert_not_called()
+    mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_suppresses_only_old_state_and_allows_real_progress(monkeypatch):
+    """Une série qui progresse pendant le resync redevient immédiatement notifiable."""
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    baseline = {
+        "status": "available",
+        "episodes_available_count": 10,
+        "episodes_aired_count": 10,
+        "episodes_total_count": 10,
+        "has_vf": False,
+    }
+    await set_resync_notification_baselines({7: baseline})
+    try:
+        assert await availability_notification_is_historical(7, baseline)
+        assert not await availability_notification_is_historical(
+            7, {**baseline, "has_vf": True}
+        )
+        assert not await availability_notification_is_historical(999, baseline)
+    finally:
+        await clear_resync_notification_baselines([7])
 
 
 # ---------------------------------------------------------------------------

@@ -256,7 +256,13 @@ async def _run_resync_availability(run: MaintenanceRun):
         from ..models import MediaRequest, RequestStatus
 
         before = {
-            r.id: r.status
+            r.id: {
+                "status": r.status.value if hasattr(r.status, "value") else str(r.status),
+                "episodes_available_count": r.episodes_available_count,
+                "episodes_aired_count": r.episodes_aired_count,
+                "episodes_total_count": r.episodes_total_count,
+                "has_vf": r.has_vf,
+            }
             for r in (await db.execute(
                 select(MediaRequest).filter(
                     MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show"
@@ -268,27 +274,24 @@ async def _run_resync_availability(run: MaintenanceRun):
 
         from ..services.arr_tracker import check_arr_statuses
         from ..job_queue import (
-            acquire_availability_notification_suppression,
-            release_availability_notification_suppression,
+            clear_resync_notification_baselines,
+            set_resync_notification_baselines,
         )
         from ..notification_queue import cancel_pending_availability_notifications
 
         # Le resync tourne dans l'API, tandis que les cron, webhooks et livraisons
-        # tournent potentiellement dans d'autres processus/conteneurs. notify=False
-        # seul ne suffit donc pas : le verrou Redis coupe toute la chaîne disponibilité
-        # (création de jalon VO/VF, mise en file et livraison) pendant toute l'opération.
-        suppression_token = await acquire_availability_notification_suppression()
-        if suppression_token is None:
-            raise RuntimeError("Un resync de disponibilité est déjà en cours")
+        # tournent potentiellement dans d'autres processus/conteneurs. On partage
+        # donc uniquement l'état historique des séries ciblées, pas un mute global.
+        await set_resync_notification_baselines(before)
         try:
-            cancelled_notifications = await cancel_pending_availability_notifications()
+            cancelled_notifications = await cancel_pending_availability_notifications(list(before))
             if cancelled_notifications:
                 emit.info(
                     f"{cancelled_notifications} notification(s) de disponibilité en attente supprimée(s)"
                 )
             await check_arr_statuses(full_resync=True, notify=False)
         finally:
-            await release_availability_notification_suppression(suppression_token)
+            await clear_resync_notification_baselines(list(before))
         run.progress = 90
 
         # check_arr_statuses() commit ses changements via sa propre session (AsyncSessionLocal

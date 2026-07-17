@@ -3,13 +3,24 @@
 import json
 import logging
 import os
-import uuid
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-AVAILABILITY_NOTIFICATION_SUPPRESSION_KEY = "plexarr:lock:suppress-availability-notifications"
-_local_availability_notifications_suppressed = False
+RESYNC_NOTIFICATION_BASELINE_PREFIX = "plexarr:resync:availability-baseline:"
+_local_resync_notification_baselines: dict[int, dict[str, Any]] = {}
+
+
+def availability_notification_signature(request: Any) -> dict[str, Any]:
+    """État minimal permettant de distinguer un ancien état d'un vrai progrès."""
+    status = getattr(request, "status", None)
+    return {
+        "status": status.value if hasattr(status, "value") else str(status),
+        "episodes_available_count": getattr(request, "episodes_available_count", None),
+        "episodes_aired_count": getattr(request, "episodes_aired_count", None),
+        "episodes_total_count": getattr(request, "episodes_total_count", None),
+        "has_vf": getattr(request, "has_vf", None),
+    }
 
 
 def arq_enabled() -> bool:
@@ -51,69 +62,70 @@ async def get_json(key: str) -> dict[str, Any] | None:
         await redis.aclose()
 
 
-async def acquire_availability_notification_suppression(ttl: int = 7200) -> str | None:
-    """Suspend les notifications de disponibilité dans tous les processus.
-
-    Le verrou est Redis-backed car le resync est lancé dans l'API alors que les
-    cron/jobs et la livraison des mails tournent dans le worker. Sans Redis, le
-    repli local garde les tests et les installations mono-process cohérents.
-    """
-    global _local_availability_notifications_suppressed
+async def set_resync_notification_baselines(
+    baselines: dict[int, dict[str, Any]], ttl: int = 7200
+) -> None:
+    """Enregistre les états historiques ciblés par un resync, partagés via Redis."""
+    global _local_resync_notification_baselines
+    _local_resync_notification_baselines = dict(baselines)
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
-        _local_availability_notifications_suppressed = True
-        return "no-redis"
-
+        return
     from redis.asyncio import Redis
 
-    token = uuid.uuid4().hex
     redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
     try:
-        acquired = await redis.set(
-            AVAILABILITY_NOTIFICATION_SUPPRESSION_KEY, token, nx=True, ex=ttl
-        )
-        return token if acquired else None
+        for request_id, baseline in baselines.items():
+            await redis.set(
+                f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{request_id}",
+                json.dumps(baseline, ensure_ascii=True),
+                ex=ttl,
+            )
     finally:
         await redis.aclose()
 
 
-async def release_availability_notification_suppression(token: str | None) -> None:
-    """Libère le verrou uniquement si ce processus en est toujours propriétaire."""
-    global _local_availability_notifications_suppressed
-    if token == "no-redis":
-        _local_availability_notifications_suppressed = False
+async def clear_resync_notification_baselines(request_ids: list[int]) -> None:
+    """Supprime les références du resync ; les nouveaux états sont alors libres."""
+    for request_id in request_ids:
+        _local_resync_notification_baselines.pop(int(request_id), None)
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url or not request_ids:
         return
-    if not token or not os.getenv("REDIS_URL"):
-        return
-
     from redis.asyncio import Redis
 
-    redis = Redis.from_url(os.environ["REDIS_URL"], encoding="utf-8", decode_responses=True)
+    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
     try:
-        script = (
-            "if redis.call('get', KEYS[1]) == ARGV[1] "
-            "then return redis.call('del', KEYS[1]) else return 0 end"
-        )
-        await redis.eval(script, 1, AVAILABILITY_NOTIFICATION_SUPPRESSION_KEY, token)
+        await redis.delete(*[
+            f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{int(request_id)}"
+            for request_id in request_ids
+        ])
     finally:
         await redis.aclose()
 
 
-async def availability_notifications_suppressed() -> bool:
-    """Retourne l'état global de suspension, en échouant fermé si Redis est indisponible."""
-    if _local_availability_notifications_suppressed:
-        return True
+async def availability_notification_is_historical(
+    request_id: int, current_signature: dict[str, Any] | None = None
+) -> bool:
+    """Indique si une notification concerne encore l'état capturé par le resync."""
+    request_id = int(request_id)
+    baseline = _local_resync_notification_baselines.get(request_id)
     redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
+    if redis_url:
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        try:
+            raw = await redis.get(f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{request_id}")
+            baseline = json.loads(raw) if raw else None
+        except Exception as exc:
+            logger.error("Impossible de vérifier l'état du resync pour req#%s: %s", request_id, exc)
+            return True
+        finally:
+            await redis.aclose()
+    if baseline is None:
         return False
-
-    from redis.asyncio import Redis
-
-    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
-    try:
-        return bool(await redis.exists(AVAILABILITY_NOTIFICATION_SUPPRESSION_KEY))
-    except Exception as exc:
-        logger.error("Impossible de vérifier la suspension des notifications: %s", exc)
-        return True
-    finally:
-        await redis.aclose()
+    if current_signature is not None and baseline != current_signature:
+        await clear_resync_notification_baselines([request_id])
+        return False
+    return True

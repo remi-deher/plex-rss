@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
-from ..job_queue import availability_notifications_suppressed
+from ..job_queue import availability_notification_is_historical, availability_notification_signature
 from ..models import MediaRequest, NotificationLog, NotificationMilestone, PlexUser, PollHistory, Settings
 from ..notification_queue import enqueue
 from ..utils import now_utc, now_utc_naive, parse_email_list
@@ -405,8 +405,8 @@ async def resolve_and_notify_availability(
     Les scanners historiques utilisent encore la version synchrone ci-dessus;
     les routes et webhooks, eux, ne doivent jamais retomber sur ``db.query``.
     """
-    if await availability_notifications_suppressed():
-        logger.info("Notification de disponibilité suspendue pendant le resync pour '%s'", req.title)
+    if await availability_notification_is_historical(req.id, availability_notification_signature(req)):
+        logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
         return False
     if req.notify_suppressed:
         return False
@@ -568,8 +568,10 @@ async def _notify(
     triggered_by: str = "auto",
 ) -> None:
     """Version async de la notification générique utilisée par les routes."""
-    if event == "available" and await availability_notifications_suppressed():
-        logger.info("Notification de disponibilité suspendue pendant le resync pour '%s'", req.title)
+    if event == "available" and await availability_notification_is_historical(
+        req.id, availability_notification_signature(req)
+    ):
+        logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
         return
     if not force:
         if req.notify_suppressed:

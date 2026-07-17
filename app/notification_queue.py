@@ -21,7 +21,7 @@ from sqlalchemy.future import select
 
 from . import metrics as app_metrics
 from .database import AsyncSessionLocal
-from .job_queue import availability_notifications_suppressed
+from .job_queue import availability_notification_is_historical, availability_notification_signature
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
@@ -126,9 +126,6 @@ async def enqueue(
     supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
     """
     event, context = _normalize_event_context(event, context)
-    if event == "available" and await availability_notifications_suppressed():
-        logger.info("Notification de disponibilité ignorée pendant le resync (req#%s)", req_id)
-        return
     if triggered_by != "auto":
         context["triggered_by"] = triggered_by
     pending_id = None
@@ -218,19 +215,35 @@ async def cancel_all_pending() -> int:
             return 0
 
 
-async def cancel_pending_availability_notifications() -> int:
+async def cancel_pending_availability_notifications(request_ids: list[int] | None = None) -> int:
     """Supprime les disponibilités déjà en attente avant un resync silencieux."""
     async with AsyncSessionLocal() as db:
         try:
-            ids = [row[0] for row in (await db.execute(
-                text("SELECT id FROM pending_notifications WHERE event = 'available'")
-            )).fetchall()]
+            if request_ids:
+                ids = [row[0] for row in (await db.execute(
+                    text(
+                        "SELECT id FROM pending_notifications "
+                        "WHERE event = 'available' AND req_id IN :request_ids"
+                    ).bindparams(bindparam("request_ids", expanding=True)),
+                    {"request_ids": [int(i) for i in request_ids]},
+                )).fetchall()]
+            else:
+                ids = [row[0] for row in (await db.execute(
+                    text("SELECT id FROM pending_notifications WHERE event = 'available'")
+                )).fetchall()]
             _cancelled_pending_ids.update(int(i) for i in ids)
             if not ids:
                 return 0
-            result = await db.execute(
-                text("DELETE FROM pending_notifications WHERE event = 'available'")
-            )
+            if request_ids:
+                result = await db.execute(
+                    text(
+                        "DELETE FROM pending_notifications "
+                        "WHERE event = 'available' AND req_id IN :request_ids"
+                    ).bindparams(bindparam("request_ids", expanding=True)),
+                    {"request_ids": [int(i) for i in request_ids]},
+                )
+            else:
+                result = await db.execute(text("DELETE FROM pending_notifications WHERE event = 'available'"))
             await db.commit()
             return int(result.rowcount or 0)
         except Exception as e:
@@ -359,14 +372,17 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
         pour une reprise ultérieure plutôt que perdue.
     """
     event, context = _normalize_event_context(event, context)
-    if event == "available" and await availability_notifications_suppressed():
-        return False
     triggered_by = context.get("triggered_by") or "auto"
     async with AsyncSessionLocal() as db:
         try:
             settings = (await db.execute(select(Settings))).scalars().first()
             req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == req_id))).scalars().first()
             if not settings or not req:
+                return True
+            if event == "available" and await availability_notification_is_historical(
+                req.id, availability_notification_signature(req)
+            ):
+                logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
                 return True
 
             # Résolution des emails admin pour marquer is_admin dans les logs
@@ -503,10 +519,6 @@ async def process_pending_id(pending_id: int) -> str | int | None:
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == int(req_id)))).scalars().first()
         user_id = req.plex_user_id if req else None
 
-    if event == "available" and await availability_notifications_suppressed():
-        raise NotificationDeliveryError(
-            f"Notification #{pending_id} suspendue pendant le resync de disponibilité"
-        )
     ok = await _process(event, int(req_id), recipients, context)
     if not ok:
         raise NotificationDeliveryError(f"Notification #{pending_id} [{event}] non livrée à tous les destinataires")
@@ -524,11 +536,6 @@ async def _worker():
                 _cancelled_pending_ids.discard(pending_id)
                 await _delete_pending(pending_id)
             else:
-                if event == "available" and await availability_notifications_suppressed():
-                    # Cette notification précède le resync et ne doit pas être
-                    # reportée après lui : elle est abandonnée silencieusement.
-                    await _delete_pending(pending_id)
-                    continue
                 ok = await _process(event, req_id, recipients, context)
                 if ok:
                     await _delete_pending(pending_id)
