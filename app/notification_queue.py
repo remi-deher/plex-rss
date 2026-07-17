@@ -218,6 +218,27 @@ async def cancel_all_pending() -> int:
             return 0
 
 
+async def cancel_pending_availability_notifications() -> int:
+    """Supprime les disponibilités déjà en attente avant un resync silencieux."""
+    async with AsyncSessionLocal() as db:
+        try:
+            ids = [row[0] for row in (await db.execute(
+                text("SELECT id FROM pending_notifications WHERE event = 'available'")
+            )).fetchall()]
+            _cancelled_pending_ids.update(int(i) for i in ids)
+            if not ids:
+                return 0
+            result = await db.execute(
+                text("DELETE FROM pending_notifications WHERE event = 'available'")
+            )
+            await db.commit()
+            return int(result.rowcount or 0)
+        except Exception as e:
+            logger.error("Impossible de purger les disponibilités en attente: %s", e)
+            await db.rollback()
+            return 0
+
+
 async def _load_pending():
     """Recharge dans la queue asyncio les notifications persistées non traitées
     (typiquement après un redémarrage/crash survenu entre `enqueue()` et leur envoi).
@@ -504,10 +525,9 @@ async def _worker():
                 await _delete_pending(pending_id)
             else:
                 if event == "available" and await availability_notifications_suppressed():
-                    # Ne pas supprimer la notification : elle sera reprise après le
-                    # resync, mais ne peut pas partir pendant la fenêtre protégée.
-                    await asyncio.sleep(5)
-                    _queue.put_nowait((pending_id, event, req_id, recipients, context))
+                    # Cette notification précède le resync et ne doit pas être
+                    # reportée après lui : elle est abandonnée silencieusement.
+                    await _delete_pending(pending_id)
                     continue
                 ok = await _process(event, req_id, recipients, context)
                 if ok:

@@ -271,6 +271,7 @@ async def _run_resync_availability(run: MaintenanceRun):
             acquire_availability_notification_suppression,
             release_availability_notification_suppression,
         )
+        from ..notification_queue import cancel_pending_availability_notifications
 
         # Le resync tourne dans l'API, tandis que les cron, webhooks et livraisons
         # tournent potentiellement dans d'autres processus/conteneurs. notify=False
@@ -280,6 +281,11 @@ async def _run_resync_availability(run: MaintenanceRun):
         if suppression_token is None:
             raise RuntimeError("Un resync de disponibilité est déjà en cours")
         try:
+            cancelled_notifications = await cancel_pending_availability_notifications()
+            if cancelled_notifications:
+                emit.info(
+                    f"{cancelled_notifications} notification(s) de disponibilité en attente supprimée(s)"
+                )
             await check_arr_statuses(full_resync=True, notify=False)
         finally:
             await release_availability_notification_suppression(suppression_token)
