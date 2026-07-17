@@ -50,6 +50,7 @@
         @toggle-select="toggleSelect(row.id)"
         @act="act"
         @reject="reject"
+        @delete-orphan="deleteOrphan"
       />
     </section>
     <p v-if="!loading&&!filtered.length" class="empty">Aucune demande.</p>
@@ -134,12 +135,36 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    rows.value = await api(`/api/requests${query.value.trim() ? `?query=${encodeURIComponent(query.value.trim())}` : ''}`);
+    const q = query.value.trim();
+    const [requests, orphans] = await Promise.all([
+      api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`),
+      api('/api/requests/orphans').catch(() => []),
+    ]);
+    const matchingOrphans = q ? orphans.filter(o => o.title?.toLowerCase().includes(q.toLowerCase())) : orphans;
+    rows.value = [...requests, ...matchingOrphans];
     selectedIds.value = selectedIds.value.filter(id => rows.value.some(x => x.id === id));
   } catch (e) {
     error.value = e.message;
   } finally {
     loading.value = false;
+  }
+}
+
+async function deleteOrphan(row) {
+  if (!await askConfirm({
+    title: 'Supprimer directement de ' + (row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr') + ' ?',
+    message: `"${row.title}" sera supprime(e) de ${row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr'}. Cette action est irreversible.`,
+    confirmLabel: 'Supprimer',
+    danger: true,
+  })) return;
+  busy.value = true;
+  try {
+    await api(`/api/requests/orphans/${row.orphan_source}/${row.arr_instance_id}/${row.arr_id}`, { method: 'DELETE' });
+    await load();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busy.value = false;
   }
 }
 

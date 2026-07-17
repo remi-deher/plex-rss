@@ -16,7 +16,7 @@ from ..dependencies import current_user, require_admin, require_auth
 from ..models import AdminActionLog, ArrInstance, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import check_arr_statuses, poll_watchlists
 from ..services.notification_orchestrator import _notify, notify_single_user
-from ..services import radarr, sonarr
+from ..services import arr_orphans, radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
@@ -258,6 +258,39 @@ async def list_requests(query: Optional[str] = None, request: Request = None, db
     # Radarr). Relevee tres au-dela d'un volume realiste plutot que supprimee : garde un
     # garde-fou contre une croissance non bornee.
     return (await db.execute(q.order_by(MediaRequest.requested_at.desc()).limit(5000))).scalars().all()
+
+
+@router.get("/requests/orphans")
+async def list_orphan_requests(db: AsyncSession = Depends(get_db_async)):
+    """Séries/films surveillés par Sonarr/Radarr mais jamais passés par une demande
+    Plexarr (ajoutés directement dans l'un des deux) et pas encore complets.
+
+    Affichées à part sur la page Demandes (badge "Suivi Sonarr/Radarr", pas de
+    demandeur ni d'actions de workflow — seule la suppression via `DELETE
+    /requests/orphans/{arr_type}/{instance_id}/{arr_id}` s'applique, en agissant
+    directement sur Sonarr/Radarr).
+    """
+    shows = await arr_orphans.find_orphan_shows(db)
+    movies = await arr_orphans.find_orphan_movies(db)
+    return shows + movies
+
+
+@router.delete("/requests/orphans/{arr_type}/{instance_id}/{arr_id}", dependencies=[Depends(require_admin)])
+async def delete_orphan_request(
+    arr_type: str, instance_id: int, arr_id: int, delete_files: bool = False, db: AsyncSession = Depends(get_db_async)
+):
+    """Supprime une série/film orpheline directement dans Sonarr/Radarr (pas de
+    MediaRequest à supprimer côté Plexarr, il n'y en a jamais eu)."""
+    if arr_type not in ("sonarr", "radarr"):
+        raise HTTPException(400, "arr_type doit etre 'sonarr' ou 'radarr'")
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Arr instance not found")
+    if arr_type == "sonarr":
+        ok, message = await sonarr.delete_series(inst.url, inst.api_key, arr_id, delete_files=delete_files)
+    else:
+        ok, message = await radarr.delete_movie(inst.url, inst.api_key, arr_id, delete_files=delete_files)
+    if not ok:
+        raise HTTPException(502, message)
+    return {"status": "ok", "message": message}
 
 
 @router.get("/plex/library-search")

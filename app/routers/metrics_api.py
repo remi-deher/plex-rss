@@ -16,7 +16,7 @@ from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
-from ..services import prowlarr, radarr, sonarr
+from ..services import arr_orphans, prowlarr, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
 from ..services.seer import check_connection as seer_test
 from ..utils import now_utc, now_utc_naive
@@ -376,22 +376,6 @@ _ORPHAN_RADARR_MISSING_CACHE_KEY = "plexarr:stats:orphan_radarr_missing"
 _ORPHAN_ARR_CACHE_TTL = 120
 
 
-def _is_show_genuinely_incomplete(file_count: int, aired_count: int, total_count: int) -> bool:
-    """Une série est "non complète" si des épisodes déjà diffusés manquent au
-    téléchargement (`file_count < aired_count`).
-
-    Une série "à venir" (`aired_count == 0`, rien diffusé pour l'instant) n'est PAS
-    en retard au sens strict — elle est exclue ici par choix (catégorie distincte
-    "à venir" côté page Demandes, pas dans ce compteur "en cours").
-
-    Ne PAS comparer systématiquement à `total_count` (diffusés + à venir) : une série
-    en cours de diffusion mais à jour sur tout ce qui est déjà sorti aurait alors
-    presque toujours un total supérieur au nombre de fichiers, la faisant compter à
-    tort comme "non complète" tant qu'elle continue simplement d'être diffusée.
-    """
-    return bool(aired_count) and file_count < aired_count
-
-
 async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
     """Séries surveillées par Sonarr mais jamais passées par une demande Plexarr
     (ajoutées directement dans Sonarr) et pas encore complètes.
@@ -400,92 +384,27 @@ async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
     ci-dessus alors qu'elles sont bien "en cours" côté Sonarr — d'où un compteur
     "Chez Sonarr" sous-évalué sur le dashboard. Résultat mis en cache (appel réseau
     vers Sonarr) : une fraîcheur à la minute près suffit pour un compteur de tableau
-    de bord.
+    de bord. Logique de matching/complétude partagée avec la liste affichée sur la
+    page Demandes — voir `app.services.arr_orphans`.
     """
     cached = await cache.get_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY)
     if cached is not None:
         return cached.get("count", 0)
 
-    instances = (await db.execute(
-        select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "sonarr")
-    )).scalars().all()
-
-    count = 0
-    if instances:
-        # `arr_id` peut être périmé (check_arr_statuses ne le corrige que s'il est NULL,
-        # jamais s'il pointe vers un ID Sonarr qui n'existe plus après une réorganisation
-        # côté Sonarr) — tvdb_id est l'identifiant stable, à privilégier pour ne pas
-        # recompter en "orpheline" une série déjà suivie par une demande.
-        known_rows = (await db.execute(
-            select(MediaRequest.arr_id, MediaRequest.tvdb_id).filter(MediaRequest.media_type == "show")
-        )).all()
-        known_arr_ids = {r.arr_id for r in known_rows if r.arr_id is not None}
-        known_tvdb_ids = {str(r.tvdb_id) for r in known_rows if r.tvdb_id}
-        for inst in instances:
-            try:
-                series_list = await sonarr.get_all_series(inst.url, inst.api_key)
-            except Exception:
-                continue
-            for series in series_list:
-                if (
-                    series.get("id") in known_arr_ids
-                    or str(series.get("tvdbId")) in known_tvdb_ids
-                    or not series.get("monitored", True)
-                ):
-                    continue
-                # Agrégation sur les seules saisons surveillées (exclut les spéciaux non
-                # surveillés) — utiliser les statistiques brutes de haut niveau les inclurait
-                # à tort (ex: une saison 0 de spéciaux non surveillée gonfle le total).
-                stats = sonarr.aggregate_monitored_episode_stats(series)
-                if _is_show_genuinely_incomplete(
-                    stats["episode_file_count"], stats["episode_count"], stats["total_episode_count"]
-                ):
-                    count += 1
-
+    count = len(await arr_orphans.find_orphan_shows(db))
     await cache.set_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_ARR_CACHE_TTL)
     return count
 
 
 async def _count_orphan_radarr_missing(db: AsyncSession) -> int:
     """Films surveillés par Radarr mais jamais passés par une demande Plexarr
-    (ajoutés directement dans Radarr) et sans fichier.
-
-    Pendant Sonarr, pas de notion de disponibilité partielle ici : un film a un
-    fichier ou n'en a pas.
+    (ajoutés directement dans Radarr) et sans fichier. Voir `_count_orphan_sonarr_progress`.
     """
     cached = await cache.get_json(_ORPHAN_RADARR_MISSING_CACHE_KEY)
     if cached is not None:
         return cached.get("count", 0)
 
-    instances = (await db.execute(
-        select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "radarr")
-    )).scalars().all()
-
-    count = 0
-    if instances:
-        # Même précaution que pour Sonarr (voir _count_orphan_sonarr_progress) : arr_id
-        # peut être périmé, tmdb_id/imdb_id sont les identifiants stables.
-        known_rows = (await db.execute(
-            select(MediaRequest.arr_id, MediaRequest.tmdb_id, MediaRequest.imdb_id).filter(MediaRequest.media_type == "movie")
-        )).all()
-        known_arr_ids = {r.arr_id for r in known_rows if r.arr_id is not None}
-        known_tmdb_ids = {str(r.tmdb_id) for r in known_rows if r.tmdb_id}
-        known_imdb_ids = {r.imdb_id for r in known_rows if r.imdb_id}
-        for inst in instances:
-            try:
-                movies_list = await radarr.get_all_movies(inst.url, inst.api_key)
-            except Exception:
-                continue
-            for movie in movies_list:
-                if (
-                    movie.get("id") in known_arr_ids
-                    or str(movie.get("tmdbId")) in known_tmdb_ids
-                    or movie.get("imdbId") in known_imdb_ids
-                    or not movie.get("monitored", True)
-                ):
-                    continue
-                if not movie.get("hasFile", False):
-                    count += 1
+    count = len(await arr_orphans.find_orphan_movies(db))
 
     await cache.set_json(_ORPHAN_RADARR_MISSING_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_ARR_CACHE_TTL)
     return count
