@@ -12,6 +12,7 @@ import sqlalchemy
 
 from ..database import AsyncSessionLocal
 from ..dependencies import require_admin
+from ..job_queue import mark_external_availability_event
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
 from ..services.audio_analyzer import languages_list_has_french
@@ -162,6 +163,7 @@ async def _mark_available_and_notify(
                     req.has_vf = True
                     req.vf_checked_at = now_utc_naive()
                     await db.commit()
+                await mark_external_availability_event(req.id)
                 await scan_and_notify_availability(req, settings, db)
             from ..realtime import publish
 
@@ -216,6 +218,7 @@ async def _mark_available_and_notify(
         # planifié. Le mail générique ne part QUE si aucun suivi fin ne couvrira jamais ce
         # média (_has_fallback_mechanism) — sinon on laisse le prochain scan planifié
         # envoyer le bon jalon, pour ne jamais faire doublon.
+        await mark_external_availability_event(req.id)
         handled = await scan_and_notify_availability(req, settings, db) if settings else False
         user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
         if (
@@ -562,6 +565,7 @@ async def plex_webhook(request: Request):
                 poster_url=req.poster_url,
                 request_id=req.id,
             )
+            await mark_external_availability_event(req.id)
             handled = await scan_and_notify_availability(req, settings, db) if settings else False
             user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
             if (

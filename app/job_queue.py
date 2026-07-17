@@ -8,6 +8,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 RESYNC_NOTIFICATION_BASELINE_PREFIX = "plexarr:resync:availability-baseline:"
+RESYNC_EXTERNAL_EVENT_PREFIX = "plexarr:resync:external-event:"
 _local_resync_notification_baselines: dict[int, dict[str, Any]] = {}
 
 
@@ -107,7 +108,7 @@ async def clear_resync_notification_baselines(request_ids: list[int]) -> None:
 async def availability_notification_is_historical(
     request_id: int, current_signature: dict[str, Any] | None = None
 ) -> bool:
-    """Indique si une notification concerne encore l'état capturé par le resync."""
+    """Indique si la série est ciblée par un resync silencieux en cours."""
     request_id = int(request_id)
     baseline = _local_resync_notification_baselines.get(request_id)
     redis_url = os.getenv("REDIS_URL")
@@ -116,6 +117,8 @@ async def availability_notification_is_historical(
 
         redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
         try:
+            if await redis.exists(f"{RESYNC_EXTERNAL_EVENT_PREFIX}{request_id}"):
+                return False
             raw = await redis.get(f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{request_id}")
             baseline = json.loads(raw) if raw else None
         except Exception as exc:
@@ -125,7 +128,18 @@ async def availability_notification_is_historical(
             await redis.aclose()
     if baseline is None:
         return False
-    if current_signature is not None and baseline != current_signature:
-        await clear_resync_notification_baselines([request_id])
-        return False
     return True
+
+
+async def mark_external_availability_event(request_id: int, ttl: int = 300) -> None:
+    """Marque un vrai événement externe (webhook) comme prioritaire sur le resync."""
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    try:
+        await redis.set(f"{RESYNC_EXTERNAL_EVENT_PREFIX}{int(request_id)}", "1", ex=ttl)
+    finally:
+        await redis.aclose()

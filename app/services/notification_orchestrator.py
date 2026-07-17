@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
-from ..job_queue import availability_notification_is_historical, availability_notification_signature
+from ..job_queue import availability_notification_is_historical
 from ..models import MediaRequest, NotificationLog, NotificationMilestone, PlexUser, PollHistory, Settings
 from ..notification_queue import enqueue
 from ..utils import now_utc, now_utc_naive, parse_email_list
@@ -399,13 +399,14 @@ async def resolve_and_notify_availability(
     db: AsyncSession,
     *,
     candidates: list[AvailabilityCandidate],
+    allow_during_resync: bool = False,
 ) -> bool:
     """Version AsyncSession du flux de jalons de disponibilité.
 
     Les scanners historiques utilisent encore la version synchrone ci-dessus;
     les routes et webhooks, eux, ne doivent jamais retomber sur ``db.query``.
     """
-    if await availability_notification_is_historical(req.id, availability_notification_signature(req)):
+    if not allow_during_resync and await availability_notification_is_historical(req.id):
         logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
         return False
     if req.notify_suppressed:
@@ -480,17 +481,20 @@ async def resolve_and_notify_availability(
         recipients = _get_vf_recipients(requester_users, settings, req.vf_category) if email_flag else []
     else:
         recipients = _get_recipients(requester_users, settings, "available") if email_flag else []
+    notification_context = {
+        "scope": winner.scope,
+        "language": winner.language,
+        "is_upgrade": bool(winner.is_upgrade),
+        "season_number": winner.season_number,
+        "episode_number": winner.episode_number,
+    }
+    if allow_during_resync:
+        notification_context["allow_during_resync"] = True
     await enqueue(
         "available",
         req.id,
         recipients,
-        {
-            "scope": winner.scope,
-            "language": winner.language,
-            "is_upgrade": bool(winner.is_upgrade),
-            "season_number": winner.season_number,
-            "episode_number": winner.episode_number,
-        },
+        notification_context,
     )
     return True
 
@@ -566,11 +570,10 @@ async def _notify(
     reason: str = "",
     force: bool = False,
     triggered_by: str = "auto",
+    allow_during_resync: bool = False,
 ) -> None:
     """Version async de la notification générique utilisée par les routes."""
-    if event == "available" and await availability_notification_is_historical(
-        req.id, availability_notification_signature(req)
-    ):
+    if event == "available" and not allow_during_resync and await availability_notification_is_historical(req.id):
         logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
         return
     if not force:

@@ -21,7 +21,7 @@ from sqlalchemy.future import select
 
 from . import metrics as app_metrics
 from .database import AsyncSessionLocal
-from .job_queue import availability_notification_is_historical, availability_notification_signature
+from .job_queue import availability_notification_is_historical
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
 from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
 from .services.notification_catalog import event_mail_flags
@@ -379,8 +379,10 @@ async def _process(event: str, req_id: int, recipients: list[str], context: dict
             req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == req_id))).scalars().first()
             if not settings or not req:
                 return True
-            if event == "available" and await availability_notification_is_historical(
-                req.id, availability_notification_signature(req)
+            if (
+                event == "available"
+                and not context.get("allow_during_resync")
+                and await availability_notification_is_historical(req.id)
             ):
                 logger.info("Notification historique ignorée pendant le resync pour '%s'", req.title)
                 return True

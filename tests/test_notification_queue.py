@@ -124,7 +124,7 @@ async def test_availability_enqueue_is_blocked_during_resync():
 
 @pytest.mark.asyncio
 async def test_resync_suppresses_only_old_state_and_allows_real_progress(monkeypatch):
-    """Une série qui progresse pendant le resync redevient immédiatement notifiable."""
+    """Un changement d'état seul ne transforme pas une correction de resync en notification."""
     monkeypatch.delenv("REDIS_URL", raising=False)
     baseline = {
         "status": "available",
@@ -136,7 +136,7 @@ async def test_resync_suppresses_only_old_state_and_allows_real_progress(monkeyp
     await set_resync_notification_baselines({7: baseline})
     try:
         assert await availability_notification_is_historical(7, baseline)
-        assert not await availability_notification_is_historical(
+        assert await availability_notification_is_historical(
             7, {**baseline, "has_vf": True}
         )
         assert not await availability_notification_is_historical(999, baseline)
