@@ -212,9 +212,10 @@ async def test_get_series_episode_stats_includes_per_season_breakdown():
         "statistics": {"episodeFileCount": 8, "episodeCount": 8, "totalEpisodeCount": 15},
         "seasons": [
             {"seasonNumber": 0, "monitored": False, "statistics": {"episodeFileCount": 2, "episodeCount": 2, "totalEpisodeCount": 2}},
-            {"seasonNumber": 1, "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 6}},
-            {"seasonNumber": 2, "statistics": {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 7}},
+            {"seasonNumber": 1, "monitored": True, "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 6}},
+            {"seasonNumber": 2, "monitored": True, "statistics": {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 7}},
             {"seasonNumber": 3, "monitored": False, "statistics": {"episodeFileCount": 4, "episodeCount": 4, "totalEpisodeCount": 4}},
+            {"seasonNumber": 4, "statistics": {"episodeFileCount": 99, "episodeCount": 99, "totalEpisodeCount": 99}},
         ],
     }
     resp = _make_response(200, series_data)

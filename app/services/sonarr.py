@@ -310,7 +310,10 @@ async def get_series_episode_stats(
         season_number = season.get("seasonNumber")
         if not season_number:  # 0 = spéciaux, exclu
             continue
-        if season.get("monitored") is False:
+        # Le resync doit suivre uniquement les saisons explicitement surveillées
+        # par Sonarr. Les saisons absentes, les spéciaux (0) et les saisons
+        # décochées ne doivent jamais gonfler le total attendu.
+        if season.get("monitored") is not True:
             continue
         season_stats = season.get("statistics", {}) or {}
         for key in monitored_totals:
