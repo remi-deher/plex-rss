@@ -371,6 +371,53 @@ async def stats_by_user(db: AsyncSession = Depends(get_db_async)):
     ]
 
 
+_ORPHAN_SONARR_PROGRESS_CACHE_KEY = "plexarr:stats:orphan_sonarr_progress"
+_ORPHAN_SONARR_PROGRESS_CACHE_TTL = 120
+
+
+async def _count_orphan_sonarr_progress(db: AsyncSession) -> int:
+    """Séries surveillées par Sonarr mais jamais passées par une demande Plexarr
+    (ajoutées directement dans Sonarr) et pas encore complètes.
+
+    Sans `MediaRequest` les rattachant, ces séries sont invisibles du décompte
+    ci-dessus alors qu'elles sont bien "en cours" côté Sonarr — d'où un compteur
+    "Chez Sonarr" sous-évalué sur le dashboard. Résultat mis en cache (appel réseau
+    vers Sonarr) : une fraîcheur à la minute près suffit pour un compteur de tableau
+    de bord.
+    """
+    cached = await cache.get_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY)
+    if cached is not None:
+        return cached.get("count", 0)
+
+    instances = (await db.execute(
+        select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "sonarr")
+    )).scalars().all()
+
+    count = 0
+    if instances:
+        known_arr_ids = set(
+            (await db.execute(
+                select(MediaRequest.arr_id).filter(MediaRequest.media_type == "show", MediaRequest.arr_id.isnot(None))
+            )).scalars().all()
+        )
+        for inst in instances:
+            try:
+                series_list = await sonarr.get_all_series(inst.url, inst.api_key)
+            except Exception:
+                continue
+            for series in series_list:
+                if series.get("id") in known_arr_ids or not series.get("monitored", True):
+                    continue
+                stats = series.get("statistics") or {}
+                file_count = stats.get("episodeFileCount", 0) or 0
+                total_count = stats.get("totalEpisodeCount", 0) or 0
+                if total_count and file_count < total_count:
+                    count += 1
+
+    await cache.set_json(_ORPHAN_SONARR_PROGRESS_CACHE_KEY, {"count": count}, ttl_seconds=_ORPHAN_SONARR_PROGRESS_CACHE_TTL)
+    return count
+
+
 @router.get("/stats/counts")
 async def stats_counts(db: AsyncSession = Depends(get_db_async)):
     """Retourne les compteurs par statut, globaux et ventilés par type de média."""
@@ -391,6 +438,13 @@ async def stats_counts(db: AsyncSession = Depends(get_db_async)):
         if status in globals_:
             globals_[status] += n
         globals_["total"] += n
+
+    orphan_shows = await _count_orphan_sonarr_progress(db)
+    if orphan_shows:
+        by_type["show"]["sent_to_arr"] += orphan_shows
+        by_type["show"]["total"] += orphan_shows
+        globals_["sent_to_arr"] += orphan_shows
+        globals_["total"] += orphan_shows
 
     return {**globals_, "by_type": by_type}
 

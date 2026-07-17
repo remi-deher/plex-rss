@@ -15,24 +15,26 @@
       </div>
     </header>
 
-    <RequestFiltersBar
-      v-model:query="query"
-      v-model:view="view"
-      v-model:status-filters="statusFilters"
-      v-model:type-filters="typeFilters"
-      v-model:source-filters="sourceFilters"
-      v-model:requester-filters="requesterFilters"
-      :sources="sources"
-      :requesters="requesters"
-      @search="scheduleLoad"
-    />
+    <div class="sticky-stack">
+      <RequestFiltersBar
+        v-model:query="query"
+        v-model:view="view"
+        v-model:status-filters="statusFilters"
+        v-model:type-filters="typeFilters"
+        v-model:source-filters="sourceFilters"
+        v-model:requester-filters="requesterFilters"
+        :sources="sources"
+        :requesters="requesters"
+        @search="scheduleLoad"
+      />
 
-    <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
-      <strong>{{ selectedIds.length }} selectionnee(s)</strong>
-      <button class="secondary" @click="bulk('retry')"><RotateCcw/>Relancer</button>
-      <button class="secondary" @click="bulk('mark-processed')"><CheckCheck/>Traiter</button>
-      <button class="secondary danger" @click="bulk('delete')"><Trash2/>Supprimer</button>
-      <button class="icon-button" title="Annuler" @click="selectedIds=[]"><X/></button>
+      <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
+        <strong>{{ selectedIds.length }} selectionnee(s)</strong>
+        <button class="secondary" @click="bulk('retry')"><RotateCcw/>Relancer</button>
+        <button class="secondary" @click="bulk('mark-processed')"><CheckCheck/>Traiter</button>
+        <button class="secondary danger" @click="bulk('delete')"><Trash2/>Supprimer</button>
+        <button class="icon-button" title="Annuler" @click="selectedIds=[]"><X/></button>
+      </div>
     </div>
 
     <p v-if="error" class="notice error-text">{{ error }}</p>

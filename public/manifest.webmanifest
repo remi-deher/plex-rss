@@ -1,0 +1,14 @@
+{
+  "name": "Plexarr",
+  "short_name": "Plexarr",
+  "description": "Suivi VF, demandes et sante des services Plex/Sonarr/Radarr.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "lang": "fr",
+  "icons": [
+    { "src": "/vue/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
