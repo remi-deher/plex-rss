@@ -93,11 +93,17 @@ function dismissOnboarding() {
   showOnboarding.value = false;
 }
 
+// "En cours" = sent_to_arr + partially_available (affine cote page Demandes pour
+// exclure les series a jour sur tout ce qui est deja diffuse -- voir matchesStatusFilter
+// dans RequestsView.vue). Ne passer que "sent_to_arr" ici excluait a tort les series
+// comme Face Off/New York police judiciaire (statut partially_available, vrai manque).
+const IN_PROGRESS_STATUSES = ['sent_to_arr', 'partially_available'];
+
 const statCards = computed(() => [
-  { label: 'Demandes en cours', value: counts.value.sent_to_arr || '-', route: { path: '/requests', query: { status: 'sent_to_arr' } } },
+  { label: 'Demandes en cours', value: counts.value.sent_to_arr || '-', route: { path: '/requests', query: { status: IN_PROGRESS_STATUSES } } },
   { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length, route: { path: '/requests', query: { status: 'pending_approval' } } },
-  { label: 'Chez Sonarr', value: counts.value.by_type?.show?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'show' } } },
-  { label: 'Chez Radarr', value: counts.value.by_type?.movie?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: 'sent_to_arr', type: 'movie' } } },
+  { label: 'Chez Sonarr', value: counts.value.by_type?.show?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: IN_PROGRESS_STATUSES, type: 'show' } } },
+  { label: 'Chez Radarr', value: counts.value.by_type?.movie?.sent_to_arr ?? '-', route: { path: '/requests', query: { status: IN_PROGRESS_STATUSES, type: 'movie' } } },
 ]);
 
 const countdown = computed(() => seconds.value == null ? '-' : seconds.value < 60 ? `${seconds.value}s` : `${Math.floor(seconds.value / 60)} min`);

@@ -78,7 +78,14 @@ const query = ref(route.query.query || '');
 // Par defaut, seules les demandes non traitees sont affichees (le gros des demandes
 // deja disponibles/refusees/en echec noierait sinon celles qui ont besoin d'attention) --
 // un lien externe avec ?status=xxx (ex: dashboard) garde son comportement d'origine.
-const statusFilters = ref(route.query.status ? [route.query.status] : [...IN_PROGRESS_STATUSES]);
+// vue-router expose plusieurs ?status= repetes comme un tableau (voir DashboardView.vue,
+// qui passe desormais [sent_to_arr, partially_available] pour "En cours"), un seul comme
+// une chaine -- il faut gerer les deux formes.
+const statusFilters = ref(
+  route.query.status
+    ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status])
+    : [...IN_PROGRESS_STATUSES]
+);
 const typeFilters = ref(route.query.type ? [route.query.type] : []);
 const sourceFilters = ref([]);
 const requesterFilters = ref([]);
