@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import ArrInstance, Base, MediaRequest, PlexUser, RequestStatus, Settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -109,6 +109,122 @@ def test_list_requests_does_not_truncate_old_open_requests(client, db):
     resp = client.get("/api/requests")
     titles = {r["title"] for r in resp.json()}
     assert "Very Old Still Pending" in titles
+
+
+# ---------------------------------------------------------------------------
+# GET /api/requests/orphans, DELETE /api/requests/orphans/{arr_type}/{instance_id}/{arr_id}
+# ---------------------------------------------------------------------------
+
+
+def _sonarr_series(**kwargs) -> dict:
+    defaults = dict(
+        id=501, title="Orphan Show", year=2020, tvdbId=999, monitored=True,
+        images=[{"coverType": "poster", "remoteUrl": "https://example/poster.jpg"}],
+        seasons=[{"seasonNumber": 1, "monitored": True, "statistics": {
+            "episodeFileCount": 5, "episodeCount": 10, "totalEpisodeCount": 12,
+        }}],
+    )
+    defaults.update(kwargs)
+    return defaults
+
+
+def _radarr_movie(**kwargs) -> dict:
+    defaults = dict(
+        id=601, title="Orphan Movie", year=2021, tmdbId=777, imdbId=None, monitored=True, hasFile=False,
+        images=[{"coverType": "poster", "remoteUrl": "https://example/movie.jpg"}],
+    )
+    defaults.update(kwargs)
+    return defaults
+
+
+def test_list_orphan_requests_returns_sonarr_and_radarr(client, db):
+    """Les series/films surveilles sans MediaRequest associee remontent bien, avec
+    leur badge de source et leur progression."""
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True))
+    db.commit()
+
+    with (
+        patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])),
+        patch("app.services.arr_orphans.radarr.get_all_movies", new=AsyncMock(return_value=[_radarr_movie()])),
+    ):
+        resp = client.get("/api/requests/orphans")
+    assert resp.status_code == 200
+    data = resp.json()
+    by_title = {r["title"]: r for r in data}
+    assert by_title["Orphan Show"]["orphan"] is True
+    assert by_title["Orphan Show"]["orphan_source"] == "sonarr"
+    assert by_title["Orphan Show"]["episodes_available_count"] == 5
+    assert by_title["Orphan Movie"]["orphan_source"] == "radarr"
+
+
+def test_list_orphan_requests_excludes_known_show(client, db):
+    """Une serie deja liee a une demande (par tvdb_id) n'apparait pas comme orpheline."""
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(_req(title="Already Requested", media_type="show", tvdb_id="999", arr_id=None))
+    db.commit()
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series(tvdbId=999)])):
+        resp = client.get("/api/requests/orphans")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_delete_orphan_calls_sonarr_delete_series(client, db):
+    """La suppression d'une serie orpheline appelle bien sonarr.delete_series avec
+    l'arr_id et l'instance corrects -- c'est ce qui retire reellement l'entree de Sonarr."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch(
+        "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))
+    ) as mock_delete:
+        resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    mock_delete.assert_awaited_once_with("http://sonarr", "x", 501, delete_files=False)
+
+
+def test_delete_orphan_calls_radarr_delete_movie_with_files(client, db):
+    """delete_files=true est bien transmis a radarr.delete_movie."""
+    inst = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch(
+        "app.routers.requests_api.radarr.delete_movie", new=AsyncMock(return_value=(True, "Supprime de Radarr"))
+    ) as mock_delete:
+        resp = client.delete(f"/api/requests/orphans/radarr/{inst.id}/601?delete_files=true")
+    assert resp.status_code == 200
+    mock_delete.assert_awaited_once_with("http://radarr", "x", 601, delete_files=True)
+
+
+def test_delete_orphan_propagates_arr_failure(client, db):
+    """Si Sonarr/Radarr refuse la suppression, l'endpoint remonte une erreur -- il ne
+    doit jamais faire croire a un succes si le media est toujours present cote *arr."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch(
+        "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(False, "Sonarr indisponible"))
+    ):
+        resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert resp.status_code == 502
+
+
+def test_delete_orphan_invalid_arr_type_rejected(client, db):
+    resp = client.delete("/api/requests/orphans/plex/1/501")
+    assert resp.status_code == 400
+
+
+def test_delete_orphan_unknown_instance_404(client, db):
+    resp = client.delete("/api/requests/orphans/sonarr/999/501")
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -151,15 +151,22 @@ async function load() {
 }
 
 async function deleteOrphan(row) {
+  const source = row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr';
   if (!await askConfirm({
-    title: 'Supprimer directement de ' + (row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr') + ' ?',
-    message: `"${row.title}" sera supprime(e) de ${row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr'}. Cette action est irreversible.`,
+    title: `Supprimer directement de ${source} ?`,
+    message: `"${row.title}" ne sera plus suivi(e) par ${source}. Cette action est irreversible.`,
     confirmLabel: 'Supprimer',
     danger: true,
   })) return;
+  // Les fichiers deja telecharges (le cas echeant) restent sur le disque -- et donc
+  // visibles dans Plex jusqu'a son prochain scan -- sauf choix explicite ici.
+  const deleteFiles = confirm(
+    `Supprimer aussi les fichiers deja telecharges pour "${row.title}" ?\n\n` +
+    `Sans cela, ${source} arrete le suivi mais laisse les fichiers en place (toujours visibles dans Plex).`
+  );
   busy.value = true;
   try {
-    await api(`/api/requests/orphans/${row.orphan_source}/${row.arr_instance_id}/${row.arr_id}`, { method: 'DELETE' });
+    await api(`/api/requests/orphans/${row.orphan_source}/${row.arr_instance_id}/${row.arr_id}?delete_files=${deleteFiles}`, { method: 'DELETE' });
     await load();
   } catch (e) {
     error.value = e.message;
