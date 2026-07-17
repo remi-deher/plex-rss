@@ -516,6 +516,28 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.page:has(.calendar-day) .toolbar.wrap,
+.downloads-page .toolbar.wrap {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+@media (max-width: 600px) {
+  .page:has(.calendar-day) .toolbar.wrap,
+  .downloads-page .toolbar.wrap,
+  .filters-panel {
+    top: 8px;
+  }
+}
+
 .text-button {
   padding: 0;
   border: 0;

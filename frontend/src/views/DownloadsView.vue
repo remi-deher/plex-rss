@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page downloads-page">
     <header class="page-head">
       <div><h1>Telechargements</h1><p>Files Sonarr/Radarr, clients directs et historique.</p></div>
       <button class="icon-button" :disabled="loading" title="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
