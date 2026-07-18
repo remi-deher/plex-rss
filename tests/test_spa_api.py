@@ -366,3 +366,38 @@ def test_sonarr_episode_targets_are_available_without_download_id(async_db):
         candidates.assert_not_awaited()
     finally:
         _cleanup()
+
+
+def test_media_detail_schedule_is_cached_between_calls(async_db):
+    """Deuxieme appel : ne doit pas retaper Sonarr -- c'est le seul appel *arr en
+    direct de la fiche detaillee, il ne doit plus bloquer la page a chaque ouverture
+    (voir cache.get_or_refresh dans library_api._media_schedule_payload)."""
+    from app.cache import cache
+    cache._memory.clear()
+
+    instance = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="secret", enabled=True)
+    async_db.add(instance)
+    async_db.commit()
+    async_db.refresh(instance)
+    item = LibraryItem(title="Breaking Bad", media_type="show", tvdb_id="81189", arr_instance_id=instance.id, arr_id=42)
+    async_db.add(item)
+    async_db.commit()
+    async_db.refresh(item)
+
+    with patch(
+        "app.routers.library_api.sonarr.lookup_series",
+        new=AsyncMock(return_value={"id": 42, "firstAired": "2008-01-20T00:00:00Z", "status": "ended"}),
+    ) as mock_lookup, patch(
+        "app.routers.library_api.sonarr.get_episodes", new=AsyncMock(return_value=[]),
+    ):
+        client = _client(async_db)
+        try:
+            first = client.get(f"/api/media/detail?library_id={item.id}")
+            second = client.get(f"/api/media/detail?library_id={item.id}")
+        finally:
+            _cleanup()
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["timeline"] == second.json()["timeline"]
+    assert first.json()["timeline"]["first_aired"] == "2008-01-20T00:00:00Z"
+    mock_lookup.assert_awaited_once()

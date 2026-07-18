@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..database import get_db_async
+from ..cache import cache
+from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import current_user, require_admin, require_auth
 from ..models import (
     ArrInstance,
@@ -106,18 +107,52 @@ async def _media_identity_filter(db: AsyncSession, item) -> list[MediaRequest]:
 
 
 
+_SCHEDULE_SOFT_TTL = 60
+_SCHEDULE_HARD_TTL = 900
+
+_EMPTY_SCHEDULE_TIMELINE = {
+    "first_aired": None,
+    "next_episode_at": None,
+    "last_aired_at": None,
+    "ended_at": None,
+    "series_status": None,
+    "in_cinemas": None,
+    "digital_release": None,
+    "physical_release": None,
+    "release_date": None,
+}
+
+
+def _schedule_cache_key(item) -> str:
+    return f"plexarr:media-schedule:{item.media_type}:{item.arr_instance_id}:{item.arr_id}:{item.tvdb_id}:{item.tmdb_id}"
+
+
 async def _media_schedule_payload(db: AsyncSession, item) -> dict:
-    timeline = {
-        "first_aired": None,
-        "next_episode_at": None,
-        "last_aired_at": None,
-        "ended_at": None,
-        "series_status": None,
-        "in_cinemas": None,
-        "digital_release": None,
-        "physical_release": None,
-        "release_date": None,
-    }
+    """Calendrier Sonarr/Radarr (dates de sortie/diffusion) d'un media.
+
+    Mis en cache (stale-while-revalidate, voir cache.py) : c'est le seul appel *arr en
+    direct de la fiche detaillee (GET /media/detail), et il bloquait toute la page a
+    chaque ouverture. Le reste du payload (demandes, mails, saisons, issues) reste une
+    lecture DB pure, deja rapide.
+    """
+    key = _schedule_cache_key(item)
+    item_id, item_cls = item.id, type(item)
+
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            fresh_item = await fresh_db.get(item_cls, item_id)
+            if fresh_item is None:
+                return {"timeline": _EMPTY_SCHEDULE_TIMELINE, "events": []}
+            return await _compute_media_schedule(fresh_db, fresh_item)
+
+    return await cache.get_or_refresh(
+        key, _SCHEDULE_SOFT_TTL, _SCHEDULE_HARD_TTL,
+        compute_sync=lambda: _compute_media_schedule(db, item), compute_background=_background,
+    )
+
+
+async def _compute_media_schedule(db: AsyncSession, item) -> dict:
+    timeline = dict(_EMPTY_SCHEDULE_TIMELINE)
     events: list[dict] = []
 
     if item.media_type == "show":
