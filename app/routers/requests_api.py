@@ -275,6 +275,19 @@ async def list_orphan_requests(db: AsyncSession = Depends(get_db_async)):
     return shows + movies
 
 
+@router.post("/requests/orphans/{arr_type}/{instance_id}/{arr_id}/open")
+async def open_orphan_detail(arr_type: str, instance_id: int, arr_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Ouvre la fiche detaillee d'un item "Suivi Sonarr/Radarr" : materialise (ou
+    retrouve) le LibraryItem correspondant, pour que le frontend puisse naviguer vers
+    /media/library/{id} comme pour n'importe quel autre media de la bibliotheque."""
+    if arr_type not in ("sonarr", "radarr"):
+        raise HTTPException(400, "arr_type doit etre 'sonarr' ou 'radarr'")
+    inst = await async_get_or_404(db, ArrInstance, instance_id, "Arr instance not found")
+    li = await arr_orphans.materialize_orphan_library_item(db, inst, arr_type, arr_id)
+    await db.commit()
+    return {"library_item_id": li.id}
+
+
 @router.delete("/requests/orphans/{arr_type}/{instance_id}/{arr_id}", dependencies=[Depends(require_admin)])
 async def delete_orphan_request(
     arr_type: str, instance_id: int, arr_id: int, request: Request,

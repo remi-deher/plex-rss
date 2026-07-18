@@ -7,11 +7,14 @@ dupliquer la définition de "non complet" ni le matching par identifiant stable
 (tvdb_id/tmdb_id/imdb_id, voir _find_orphan_shows/_find_orphan_movies) entre les deux.
 """
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..models import ArrInstance, MediaRequest
+from ..models import ArrInstance, LibraryItem, MediaRequest
+from ..utils import now_utc_naive
 from . import radarr, sonarr
+from .plex_sync import _find_library_item_by_ids
 
 
 def is_show_genuinely_incomplete(file_count: int, aired_count: int, total_count: int) -> bool:
@@ -127,3 +130,54 @@ async def find_orphan_movies(db: AsyncSession) -> list[dict]:
                 "arr_id": movie.get("id"),
             })
     return results
+
+
+async def materialize_orphan_library_item(
+    db: AsyncSession, inst: ArrInstance, arr_type: str, arr_id: int
+) -> LibraryItem:
+    """Cree ou retrouve le LibraryItem d'un item "Suivi Sonarr/Radarr" (jamais passe
+    par une demande Plexarr), pour lui ouvrir une fiche detaillee -- reutilise telle
+    quelle l'infrastructure existante (page de detail, suivi VF, saisons/episodes)
+    prevue pour les LibraryItem issus de la synchronisation Plex.
+
+    plex_guid reste vide tant que Plex n'a pas confirme le media : la prochaine
+    synchronisation Plex complete la meme ligne par identite (voir
+    `_find_library_item_by_ids`), exactement comme pour une MediaRequest pas encore liee.
+    """
+    if arr_type == "sonarr":
+        item = await sonarr.lookup_series(inst.url, inst.api_key, arr_id=arr_id)
+        media_type = "show"
+        tvdb_id, tmdb_id, imdb_id = (item or {}).get("tvdbId"), (item or {}).get("tmdbId"), (item or {}).get("imdbId")
+    else:
+        item = await radarr.lookup_movie(inst.url, inst.api_key, arr_id=arr_id)
+        media_type = "movie"
+        tvdb_id, tmdb_id, imdb_id = None, (item or {}).get("tmdbId"), (item or {}).get("imdbId")
+    if not item:
+        raise HTTPException(404, "Media introuvable cote Sonarr/Radarr")
+
+    title, year = item.get("title") or "?", item.get("year")
+    tmdb_id = str(tmdb_id) if tmdb_id else None
+    tvdb_id = str(tvdb_id) if tvdb_id else None
+    slug = item.get("titleSlug") or item.get("folderName")
+
+    li = await _find_library_item_by_ids(db, None, tmdb_id, tvdb_id, imdb_id, title, year, media_type)
+    if li:
+        if not li.arr_instance_id:
+            li.arr_instance_id, li.arr_id, li.arr_slug = inst.id, arr_id, slug
+        if not li.poster_url:
+            li.poster_url = _poster_url(item.get("images"))
+        if not li.overview:
+            li.overview = item.get("overview")
+        return li
+
+    now = now_utc_naive()
+    li = LibraryItem(
+        title=title, year=year, media_type=media_type,
+        tmdb_id=tmdb_id, tvdb_id=tvdb_id, imdb_id=imdb_id, plex_guid=None,
+        poster_url=_poster_url(item.get("images")), overview=item.get("overview"),
+        arr_instance_id=inst.id, arr_id=arr_id, arr_slug=slug,
+        has_vf=None, created_at=now, updated_at=now,
+    )
+    db.add(li)
+    await db.flush()
+    return li

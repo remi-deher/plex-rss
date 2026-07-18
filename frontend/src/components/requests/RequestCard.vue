@@ -1,6 +1,6 @@
 <template>
   <article class="media-card request-card" :class="{list:view==='list'}">
-    <div class="poster-shell" @click="!row.orphan && router.push(mediaDetailPath(row,'request'))">
+    <div class="poster-shell" @click="row.orphan ? openOrphan(row) : router.push(mediaDetailPath(row,'request'))">
       <img v-if="row.poster_url" :src="proxyUrl(row.poster_url)" alt="" @error="$event.target.style.display='none'">
       <div v-else class="poster-fallback"><Film/></div>
       <span v-if="view==='grid'" class="badge status-tag" :class="row.status">{{ statusLabel(row.status) }}</span>
@@ -14,10 +14,10 @@
           <strong>{{ row.title }}</strong>
           <span v-if="row.year">{{ row.year }}</span>
         </button>
-        <span v-else class="text-button">
+        <button v-else class="text-button" :disabled="opening" @click="openOrphan(row)">
           <strong>{{ row.title }}</strong>
           <span v-if="row.year">{{ row.year }}</span>
-        </span>
+        </button>
         <span v-if="view==='list'" class="badge status-tag" :class="row.status">{{ statusLabel(row.status) }}</span>
         <label v-if="isAdmin&&view==='list'&&!row.orphan" class="select-tag" @click.stop>
           <input :checked="selected" type="checkbox" @change="$emit('toggle-select')">
@@ -49,8 +49,10 @@
 </template>
 
 <script setup>
+import { ref } from 'vue';
 import { Ban, Check, Film, RotateCcw, Search, Trash2, X } from '@lucide/vue';
 import { useRouter } from 'vue-router';
+import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
 import { statusLabel, formatDate, proxyUrl } from './requestHelpers';
 
@@ -63,4 +65,24 @@ defineProps({
 defineEmits(['toggle-select', 'act', 'reject', 'delete-orphan']);
 
 const router = useRouter();
+const opening = ref(false);
+
+// Un item "Suivi Sonarr/Radarr" n'a pas de LibraryItem tant que personne n'a ouvert
+// sa fiche -- on le materialise a la demande (voir POST .../orphans/.../open) plutot
+// que d'en creer un pour chaque orphelin liste, jamais consulte.
+async function openOrphan(row) {
+  if (opening.value) return;
+  opening.value = true;
+  try {
+    const { library_item_id } = await api(
+      `/api/requests/orphans/${row.orphan_source}/${row.arr_instance_id}/${row.arr_id}/open`,
+      { method: 'POST' },
+    );
+    router.push(mediaDetailPath({ library_id: library_item_id }, 'library'));
+  } catch (e) {
+    alert(e.message || "Impossible d'ouvrir la fiche detaillee");
+  } finally {
+    opening.value = false;
+  }
+}
 </script>

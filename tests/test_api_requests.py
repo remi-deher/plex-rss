@@ -220,6 +220,61 @@ def test_delete_orphan_calls_radarr_delete_movie_with_files(client, db):
     mock_delete.assert_awaited_once_with("http://radarr", "x", 601, delete_files=True)
 
 
+def test_open_orphan_creates_library_item(client, db):
+    """Ouvrir la fiche d'une serie "Suivi Sonarr" jamais vue en base cree un
+    LibraryItem -- c'est ce qui permet ensuite de reutiliser la page de detail /
+    suivi VF existante sans aucun code dedie aux orphelins."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch(
+        "app.services.arr_orphans.sonarr.lookup_series",
+        new=AsyncMock(return_value=_sonarr_series(overview="Un resume")),
+    ):
+        resp = client.post(f"/api/requests/orphans/sonarr/{inst.id}/501/open")
+    assert resp.status_code == 200
+    library_item_id = resp.json()["library_item_id"]
+
+    from app.models import LibraryItem
+    li = db.query(LibraryItem).filter(LibraryItem.id == library_item_id).first()
+    assert li is not None
+    assert li.title == "Orphan Show"
+    assert li.tvdb_id == "999"
+    assert li.plex_guid is None
+    assert li.arr_instance_id == inst.id
+    assert li.arr_id == 501
+
+
+def test_open_orphan_reuses_existing_library_item(client, db):
+    """Si un LibraryItem correspond deja (rapprochement par tmdb_id), on le retrouve
+    et on le complete -- pas de doublon cree."""
+    from app.models import LibraryItem
+
+    inst = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True)
+    existing = LibraryItem(title="Orphan Movie", year=2021, media_type="movie", tmdb_id="777")
+    db.add(inst)
+    db.add(existing)
+    db.commit()
+    db.refresh(inst)
+    db.refresh(existing)
+
+    with patch(
+        "app.services.arr_orphans.radarr.lookup_movie",
+        new=AsyncMock(return_value=_radarr_movie()),
+    ):
+        resp = client.post(f"/api/requests/orphans/radarr/{inst.id}/601/open")
+    assert resp.status_code == 200
+    assert resp.json()["library_item_id"] == existing.id
+    assert db.query(LibraryItem).count() == 1
+
+
+def test_open_orphan_bad_arr_type(client, db):
+    resp = client.post("/api/requests/orphans/plex/1/501/open")
+    assert resp.status_code == 400
+
+
 def test_delete_orphan_propagates_arr_failure(client, db):
     """Si Sonarr/Radarr refuse la suppression, l'endpoint remonte une erreur -- il ne
     doit jamais faire croire a un succes si le media est toujours present cote *arr."""
