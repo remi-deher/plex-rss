@@ -19,6 +19,7 @@
       <article v-for="entry in metrics" :key="entry.label" class="metric-card">
         <span>{{ entry.label }}</span>
         <strong>{{ entry.value }}</strong>
+        <small v-if="entry.sub">{{ entry.sub }}</small>
       </article>
     </section>
 
@@ -186,7 +187,17 @@ const libraryItems = computed(() => items.value.filter(x => x._kind === 'library
 // comme "Dans Plex" pour les metriques aussi, pas comme "En cours" (voir matchesStatusFilter).
 const availableUnsynced = computed(() => items.value.filter(x => x._kind === 'request' && !x.orphan && x.status === 'available'));
 
+// Toutes les demandes (tous statuts confondus, cote arr) -- Radarr gere les films,
+// Sonarr les series, d'ou la repartition par media_type plutot qu'un champ "source"
+// dedie (source designe l'origine de la demande : Overseerr, formulaire, etc.).
+const requestsByArrCount = computed(() => {
+  const movies = allRequestsRaw.value.filter(x => x.media_type === 'movie').length;
+  const shows = allRequestsRaw.value.filter(x => x.media_type === 'show').length;
+  return { movies, shows };
+});
+
 const metrics = computed(() => [
+  { label: 'Demandes', value: allRequestsRaw.value.length, sub: `${requestsByArrCount.value.movies} Radarr / ${requestsByArrCount.value.shows} Sonarr` },
   { label: 'Dans Plex', value: (rawMetrics.value.total ?? libraryItems.value.length) + availableUnsynced.value.length },
   { label: 'En cours', value: items.value.length - libraryItems.value.length - availableUnsynced.value.length },
   { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
@@ -377,6 +388,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.metric-card small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
 .load-more-row {
   display: flex;
   justify-content: center;
