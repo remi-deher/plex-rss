@@ -31,7 +31,7 @@
 
     <p v-if="error" class="notice error-text">{{ error }}</p>
 
-    <section :class="view==='grid'?'media-grid':'panel media-list'">
+    <section :class="view==='grid'?'media-grid library-grid':'panel media-list'">
       <LibraryCard
         v-for="item in filtered"
         :key="`${item._kind}-${item.id}`"
@@ -230,5 +230,14 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   margin-top: 1rem;
+}
+
+/* Plafonne a 4 colonnes sur cette page (le reste du responsive -- 4/3/2 colonnes en
+   dessous de 1200px -- vient deja de .media-grid, partage avec Demandes/Decouvrir) :
+   sans ce plafond .media-grid passe a 5 colonnes au-dela de 1200px. */
+@media (min-width: 1201px) {
+  .library-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 </style>

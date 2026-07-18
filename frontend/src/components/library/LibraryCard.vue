@@ -6,18 +6,22 @@
         <Film/>
       </div>
       <span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
+      <div v-if="view==='grid' && (requesterLabel(item) || item.overview)" class="poster-overlay">
+        <span v-if="requesterLabel(item)" class="poster-requester">👤 {{ requesterLabel(item) }}</span>
+        <p v-if="item.overview" class="poster-overview">{{ item.overview }}</p>
+      </div>
     </div>
     <div>
       <strong>{{ item.title }}</strong>
       <span>{{ item.media_type==='show'?'Serie':'Film' }}<template v-if="item.year"> · {{ item.year }}</template></span>
-      <span v-if="item.custom_name || item.requested_by || item.plex_user || item.plex_user_id" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">
-        👤 {{ item.custom_name || item.requested_by || item.plex_user || item.plex_user_id }}
-      </span>
+      <template v-if="view==='list'">
+        <span v-if="requesterLabel(item)" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">👤 {{ requesterLabel(item) }}</span>
+        <small v-if="item._kind!=='request' && item.overview">{{ item.overview }}</small>
+      </template>
       <small v-if="item._kind==='request'">
-        {{ requestLabel(item.status) }}<template v-if="item.overview"> — {{ item.overview }}</template>
+        {{ requestLabel(item.status) }}<template v-if="view==='list' && item.overview"> — {{ item.overview }}</template>
         <button class="manage-link" @click.stop="$emit('go-to-request',item)">Gerer la demande <ArrowRight/></button>
       </small>
-      <small v-else-if="item.overview">{{ item.overview }}</small>
     </div>
   </div>
 </template>
@@ -30,6 +34,10 @@ defineProps({
   view: { type: String, default: 'grid' },
 });
 defineEmits(['open', 'go-to-request']);
+
+function requesterLabel(item) {
+  return item.custom_name || item.requested_by || item.plex_user || item.plex_user_id || '';
+}
 
 function requestLabel(s) {
   return ({
@@ -61,5 +69,41 @@ function requestLabel(s) {
 .manage-link svg {
   width: 14px;
   height: 14px;
+}
+
+/* Resume + demandeur affiches directement sur l'affiche (au lieu du bloc texte sous
+   la carte) : libere de la hauteur pour que la grille reste compacte et reguliere
+   quel que soit le nombre de lignes de resume. Police distincte (serif) pour
+   detacher visuellement ce texte "editorial" du reste de l'UI (Outfit, sans-serif). */
+.poster-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 10px 8px 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .88) 0%, rgba(0, 0, 0, .55) 65%, transparent 100%);
+  font-family: Georgia, "Times New Roman", Times, serif;
+  color: #f4f4f5;
+  pointer-events: none;
+}
+
+.poster-requester {
+  display: block;
+  overflow: hidden;
+  margin-bottom: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+}
+
+.poster-overview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.32;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
 }
 </style>
