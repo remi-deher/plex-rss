@@ -44,12 +44,12 @@
           <IntervalInput v-model="form.arr_poll_interval_seconds"/>
         </label>
         <label v-else-if="task.settings_unit === 'heure (0-23)'">
-          Heure (0-23)
-          <input v-model.number="form[task.settings_field]" type="number" min="0" max="23">
+          Heure de declenchement
+          <HourInput v-model="form[task.settings_field]"/>
         </label>
         <label v-else-if="task.settings_unit === 'minutes'">
-          Intervalle (minutes)
-          <input v-model.number="form[task.settings_field]" type="number" min="1">
+          Intervalle de rescan
+          <IntervalInput v-model="form[task.settings_field]" storage-unit="minutes" :units="['hours','minutes']"/>
         </label>
 
         <div v-if="openHistory === task.job" class="scheduled-task-history">
@@ -75,6 +75,7 @@ import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
 import IntervalInput from './IntervalInput.vue';
+import HourInput from './HourInput.vue';
 
 const tasks = ref([]);
 const openHistory = ref(null);

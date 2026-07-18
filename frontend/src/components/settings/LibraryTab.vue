@@ -13,9 +13,9 @@
           <button class="icon-button" title="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>
         <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label>
-        <label>Nouvelle analyse (minutes)<input v-model.number="form.vff_recheck_interval_minutes" type="number"></label>
+        <label>Nouvelle analyse<IntervalInput v-model="form.vff_recheck_interval_minutes" storage-unit="minutes" :units="['hours','minutes']"/></label>
         <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label>
-        <label>Heure de synchronisation Plex (complete)<input v-model.number="form.plex_sync_hour" type="number" min="0" max="23"><small>Heure locale a laquelle la bibliotheque Plex est resynchronisee en entier (1 fois par jour) ; un scan incremental (medias recemment ajoutes) tourne en continu toutes les 5 minutes</small></label>
+        <label>Heure de synchronisation Plex (complete)<HourInput v-model="form.plex_sync_hour"/><small>Heure locale a laquelle la bibliotheque Plex est resynchronisee en entier (1 fois par jour) ; un scan incremental (medias recemment ajoutes) tourne en continu toutes les 5 minutes</small></label>
         <div>
           <strong style="display:block;margin-bottom:8px;font-size:13px">Bibliotheques analysees</strong>
           <div v-if="plexSectionsLoading" class="notice">Chargement des bibliotheques Plex...</div>
@@ -55,6 +55,8 @@ import { Languages, RefreshCw, Rss, ScanSearch } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
+import IntervalInput from './IntervalInput.vue';
+import HourInput from './HourInput.vue';
 
 const plexSections = ref([]);
 const plexSectionsLoading = ref(false);
