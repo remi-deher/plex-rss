@@ -154,11 +154,13 @@ class Settings(Base):
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
     digest_enabled: Mapped[bool] = mapped_column(default=False)
     digest_hour: Mapped[int] = mapped_column(default=8)
+    digest_minute: Mapped[int] = mapped_column(default=0)
 
     # Heure murale (0-23, fuseau APP_TIMEZONE) a laquelle tourne la synchronisation
     # complete de la bibliotheque Plex (job "plex-sync") -- comparee via local_hour()
     # comme digest_hour, pour ne pas etre decalee de 1h/2h CET/CEST comme avant.
     plex_sync_hour: Mapped[int] = mapped_column(default=3)
+    plex_sync_minute: Mapped[int] = mapped_column(default=0)
 
     # Filigrane (watermark) du dernier scan Plex incremental reussi ("plex-sync-recent",
     # voir sync_plex_media_recent) -- persiste en base pour survivre a un redemarrage du

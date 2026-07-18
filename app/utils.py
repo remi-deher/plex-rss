@@ -92,6 +92,15 @@ def local_hour() -> int:
     return datetime.now(timezone.utc).astimezone(ZoneInfo(APP_TIMEZONE)).hour
 
 
+def local_minute() -> int:
+    """Minute murale courante dans APP_TIMEZONE — pendant de local_hour() pour les
+    réglages heure+minute (ex. digest_hour/digest_minute, plex_sync_hour/plex_sync_minute)."""
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(timezone.utc).astimezone(ZoneInfo(APP_TIMEZONE)).minute
+
+
 def wrap_image_proxy(url: str | None) -> str | None:
     """Wraps HTTP and/or local IP image URLs through /api/image-proxy to resolve Mixed Content issues in the browser."""
     if not url:

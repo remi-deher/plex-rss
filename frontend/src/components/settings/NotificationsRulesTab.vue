@@ -4,7 +4,7 @@
       <SettingsCard title="Retention et digest" :icon="Archive" status="active" :collapsible="false">
         <label>Journaux de notifications (jours)<input v-model.number="form.notification_log_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
         <label class="check"><input v-model="form.digest_enabled" type="checkbox"> Digest actif</label>
-        <label>Heure du digest<HourInput v-model="form.digest_hour"/></label>
+        <label>Heure du digest<TimeOfDayInput v-model:hour="form.digest_hour" v-model:minute="form.digest_minute"/></label>
       </SettingsCard>
     </div>
 
@@ -37,7 +37,7 @@
 import { Archive, Bell, Megaphone, MessageSquare, Send } from '@lucide/vue';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
-import HourInput from './HourInput.vue';
+import TimeOfDayInput from './TimeOfDayInput.vue';
 
 const channels = [
   { key: 'discord', label: 'Discord', icon: MessageSquare },

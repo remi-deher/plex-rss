@@ -13,9 +13,9 @@
           <button class="icon-button" title="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>
         <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label>
-        <label>Nouvelle analyse<IntervalInput v-model="form.vff_recheck_interval_minutes" storage-unit="minutes" :units="['hours','minutes']"/></label>
+        <label>Nouvelle analyse<IntervalPresetInput v-model="form.vff_recheck_interval_minutes" :presets="MINUTES_PRESETS"/></label>
         <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label>
-        <label>Heure de synchronisation Plex (complete)<HourInput v-model="form.plex_sync_hour"/><small>Heure locale a laquelle la bibliotheque Plex est resynchronisee en entier (1 fois par jour) ; un scan incremental (medias recemment ajoutes) tourne en continu toutes les 5 minutes</small></label>
+        <label>Heure de synchronisation Plex (complete)<TimeOfDayInput v-model:hour="form.plex_sync_hour" v-model:minute="form.plex_sync_minute"/><small>Heure locale a laquelle la bibliotheque Plex est resynchronisee en entier (1 fois par jour) ; un scan incremental (medias recemment ajoutes) tourne en continu toutes les 5 minutes</small></label>
         <div>
           <strong style="display:block;margin-bottom:8px;font-size:13px">Bibliotheques analysees</strong>
           <div v-if="plexSectionsLoading" class="notice">Chargement des bibliotheques Plex...</div>
@@ -55,8 +55,19 @@ import { Languages, RefreshCw, Rss, ScanSearch } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
-import IntervalInput from './IntervalInput.vue';
-import HourInput from './HourInput.vue';
+import IntervalPresetInput from './IntervalPresetInput.vue';
+import TimeOfDayInput from './TimeOfDayInput.vue';
+
+const MINUTES_PRESETS = [
+  { label: '10 minutes', value: 10 },
+  { label: '15 minutes', value: 15 },
+  { label: '30 minutes', value: 30 },
+  { label: '1 heure', value: 60 },
+  { label: '3 heures', value: 180 },
+  { label: '6 heures', value: 360 },
+  { label: '12 heures', value: 720 },
+  { label: '24 heures', value: 1440 },
+];
 
 const plexSections = ref([]);
 const plexSectionsLoading = ref(false);

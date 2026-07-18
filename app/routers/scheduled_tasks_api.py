@@ -20,116 +20,120 @@ from ..serializers import format_datetime
 router = APIRouter(prefix="/api", tags=["scheduled-tasks"], dependencies=[Depends(require_admin)])
 
 
-# (job, label, description, settings_field, settings_unit, default_seconds, fixed_schedule_note)
+# settings_minute_field n'est renseigne que pour les taches "heure murale" (plex-sync,
+# digest) qui ont, en plus de l'heure, une minute de declenchement (digest_minute,
+# plex_sync_minute).
 JOB_CATALOG = [
-    (
-        "watchlist",
-        "Watchlist Plex",
-        "Recupere la watchlist Plex/RSS et transmet les nouvelles demandes a Sonarr/Radarr/Prowlarr.",
-        "poll_interval_seconds",
-        "secondes",
-        300,
-        None,
-    ),
-    (
-        "arr-statuses",
-        "Disponibilite *arr",
-        "Verifie si les demandes transmises a Sonarr/Radarr sont desormais disponibles.",
-        "arr_poll_interval_seconds",
-        "secondes",
-        900,
-        None,
-    ),
-    (
-        "torrent-statuses",
-        "Suivi torrents",
-        "Suit la progression des torrents actifs (filet Prowlarr) et nettoie apres seed.",
-        None,
-        None,
-        120,
-        None,
-    ),
-    (
-        "vff-statuses",
-        "Scan VF complet",
-        "Rescanne les medias en VO pour detecter un passage en VF (et les jamais-scannes).",
-        "vff_recheck_interval_minutes",
-        "minutes",
-        21600,
-        None,
-    ),
-    (
-        "episode-tracking",
-        "Suivi episodes (sans langue)",
-        "Jalons episode/saison pour les series sans distinction VO/VF.",
-        "vff_recheck_interval_minutes",
-        "minutes",
-        21600,
-        None,
-    ),
-    (
-        "episode-availability",
-        "Disponibilite episodes (Sonarr)",
-        "Resynchronise la disponibilite Sonarr par episode, pour un affichage instantane sur la fiche detail.",
-        "vff_recheck_interval_minutes",
-        "minutes",
-        21600,
-        None,
-    ),
-    (
-        "new-vff",
-        "Scan VF leger",
-        "Analyse rapide des medias jamais scannes, comble le delai avant le scan complet.",
-        None,
-        None,
-        60,
-        None,
-    ),
-    (
-        "seer-sync",
-        "Synchronisation Seer",
-        "Synchronise les demandes et utilisateurs Seer.",
-        None,
-        None,
-        3600,
-        None,
-    ),
-    (
-        "plex-sync",
-        "Synchronisation bibliotheque Plex (complete)",
-        "Reconstruit entierement le cache local de la bibliotheque Plex.",
-        "plex_sync_hour",
-        "heure (0-23)",
-        86400,
-        None,
-    ),
-    (
-        "plex-sync-recent",
-        "Synchronisation bibliotheque Plex (recente)",
-        "Detecte rapidement les medias recemment ajoutes a Plex, sans attendre le scan complet quotidien.",
-        None,
-        None,
-        300,
-        None,
-    ),
-    (
-        "notification-purge",
-        "Purge des journaux",
-        "Purge les anciens journaux de notification selon la retention configuree.",
-        None,
-        None,
-        86400,
-        "Tous les jours a 03h00",
-    ),
-    (
-        "digest",
-        "Digest quotidien",
-        "Envoie le recapitulatif quotidien aux utilisateurs abonnes, si active.",
-        "digest_hour",
-        "heure (0-23)",
-        3600,
-        None,
-    ),
+    {
+        "job": "watchlist",
+        "label": "Watchlist Plex",
+        "description": "Recupere la watchlist Plex/RSS et transmet les nouvelles demandes a Sonarr/Radarr/Prowlarr.",
+        "settings_field": "poll_interval_seconds",
+        "settings_unit": "secondes",
+        "default_seconds": 300,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "arr-statuses",
+        "label": "Disponibilite *arr",
+        "description": "Verifie si les demandes transmises a Sonarr/Radarr sont desormais disponibles.",
+        "settings_field": "arr_poll_interval_seconds",
+        "settings_unit": "secondes",
+        "default_seconds": 900,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "torrent-statuses",
+        "label": "Suivi torrents",
+        "description": "Suit la progression des torrents actifs (filet Prowlarr) et nettoie apres seed.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 120,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "vff-statuses",
+        "label": "Scan VF complet",
+        "description": "Rescanne les medias en VO pour detecter un passage en VF (et les jamais-scannes).",
+        "settings_field": "vff_recheck_interval_minutes",
+        "settings_unit": "minutes",
+        "default_seconds": 21600,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "episode-tracking",
+        "label": "Suivi episodes (sans langue)",
+        "description": "Jalons episode/saison pour les series sans distinction VO/VF.",
+        "settings_field": "vff_recheck_interval_minutes",
+        "settings_unit": "minutes",
+        "default_seconds": 21600,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "episode-availability",
+        "label": "Disponibilite episodes (Sonarr)",
+        "description": "Resynchronise la disponibilite Sonarr par episode, pour un affichage instantane sur la fiche detail.",
+        "settings_field": "vff_recheck_interval_minutes",
+        "settings_unit": "minutes",
+        "default_seconds": 21600,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "new-vff",
+        "label": "Scan VF leger",
+        "description": "Analyse rapide des medias jamais scannes, comble le delai avant le scan complet.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 60,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "seer-sync",
+        "label": "Synchronisation Seer",
+        "description": "Synchronise les demandes et utilisateurs Seer.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 3600,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "plex-sync",
+        "label": "Synchronisation bibliotheque Plex (complete)",
+        "description": "Reconstruit entierement le cache local de la bibliotheque Plex.",
+        "settings_field": "plex_sync_hour",
+        "settings_unit": "heure (0-23)",
+        "settings_minute_field": "plex_sync_minute",
+        "default_seconds": 86400,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "plex-sync-recent",
+        "label": "Synchronisation bibliotheque Plex (recente)",
+        "description": "Detecte rapidement les medias recemment ajoutes a Plex, sans attendre le scan complet quotidien.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 300,
+        "fixed_schedule": None,
+    },
+    {
+        "job": "notification-purge",
+        "label": "Purge des journaux",
+        "description": "Purge les anciens journaux de notification selon la retention configuree.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 86400,
+        "fixed_schedule": "Tous les jours a 03h00",
+    },
+    {
+        "job": "digest",
+        "label": "Digest quotidien",
+        "description": "Envoie le recapitulatif quotidien aux utilisateurs abonnes, si active.",
+        "settings_field": "digest_hour",
+        "settings_unit": "heure (0-23)",
+        "settings_minute_field": "digest_minute",
+        "default_seconds": 3600,
+        "fixed_schedule": None,
+    },
 ]
 
 
@@ -162,25 +166,33 @@ async def list_scheduled_tasks(db: AsyncSession = Depends(get_db_async)):
     states = await _job_states()
 
     out = []
-    for job, label, description, settings_field, settings_unit, default_seconds, fixed_schedule in JOB_CATALOG:
-        interval_seconds = default_seconds
+    for entry in JOB_CATALOG:
+        settings_field = entry["settings_field"]
+        settings_unit = entry["settings_unit"]
+        settings_minute_field = entry.get("settings_minute_field")
+        interval_seconds = entry["default_seconds"]
         settings_value = None
+        settings_minute_value = None
         if settings_field and settings:
             raw = getattr(settings, settings_field, None)
             if raw:
                 settings_value = raw
                 interval_seconds = raw * 60 if settings_unit == "minutes" else raw
+        if settings_minute_field and settings:
+            settings_minute_value = getattr(settings, settings_minute_field, None)
         out.append({
-            "job": job,
-            "label": label,
-            "description": description,
+            "job": entry["job"],
+            "label": entry["label"],
+            "description": entry["description"],
             "interval_seconds": interval_seconds,
             "configurable": settings_field is not None and settings_unit in ("minutes", "secondes"),
             "settings_field": settings_field,
             "settings_unit": settings_unit,
             "settings_value": settings_value,
-            "fixed_schedule": fixed_schedule,
-            "state": states.get(job),
+            "settings_minute_field": settings_minute_field,
+            "settings_minute_value": settings_minute_value,
+            "fixed_schedule": entry["fixed_schedule"],
+            "state": states.get(entry["job"]),
         })
     return out
 

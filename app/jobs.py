@@ -17,7 +17,7 @@ from sqlalchemy.future import select
 from .database import AsyncSessionLocal, init_db
 from .models import JobRunLog, PendingNotification, Settings
 from .realtime import publish
-from .utils import local_hour, now_utc, now_utc_naive
+from .utils import local_hour, local_minute, now_utc, now_utc_naive
 
 # Le worker ARQ est un process séparé (commande `arq app.jobs.WorkerSettings`) qui
 # n'importe jamais app.main — sans ce basicConfig, aucun logger.info/warning/error de
@@ -286,14 +286,15 @@ async def job_seer_sync(ctx: dict, force: bool = False):
 async def job_plex_sync(ctx: dict, force: bool = False):
     from .services.plex_sync import sync_plex_media
 
-    # plex_sync_hour est une heure murale (comme digest_hour) -- comparer a
-    # now_utc().hour la decalerait silencieusement de 1h/2h selon CET/CEST (meme
+    # plex_sync_hour/plex_sync_minute est une heure murale (comme digest_hour) --
+    # comparer a now_utc() la decalerait silencieusement de 1h/2h selon CET/CEST (meme
     # incident que job_digest/job_notification_purge : regle a 3h, tourne en realite
-    # a 5h l'ete). Le cron tourne donc toutes les heures (voir cron_plex_sync) et
-    # c'est ce garde-fou qui decide si c'est vraiment l'heure locale visee.
+    # a 5h l'ete). Le cron tourne donc a chaque minute (voir cron_plex_sync) et c'est
+    # ce garde-fou qui decide si c'est vraiment l'heure locale visee.
     settings = await _settings()
     target_hour = settings.plex_sync_hour if settings and settings.plex_sync_hour is not None else 3
-    if not force and local_hour() != target_hour:
+    target_minute = settings.plex_sync_minute if settings and settings.plex_sync_minute is not None else 0
+    if not force and (local_hour() != target_hour or local_minute() != target_minute):
         return {"status": "not_due"}
     return await _run(
         ctx, "plex-sync", sync_plex_media, force=force, interval_seconds=86400, event_type="request.updated"
@@ -331,10 +332,16 @@ async def job_digest(ctx: dict, force: bool = False):
     from .services.notification_orchestrator import _send_digest
 
     settings = await _settings()
-    # digest_hour est une heure murale (ex. "8h" saisie dans les réglages) — la comparer à
-    # now_utc().hour la décale silencieusement de 1h/2h selon CET/CEST (incident réel :
-    # réglé à 8h, mail reçu à 10h). local_hour() convertit dans le fuseau de l'app.
-    if not force and (not settings or not settings.digest_enabled or settings.digest_hour != local_hour()):
+    # digest_hour/digest_minute est une heure murale (ex. "8h30" saisie dans les
+    # réglages) — la comparer à now_utc() la décale silencieusement de 1h/2h selon
+    # CET/CEST (incident réel : réglé à 8h, mail reçu à 10h). local_hour()/local_minute()
+    # convertissent dans le fuseau de l'app.
+    if not force and (
+        not settings
+        or not settings.digest_enabled
+        or settings.digest_hour != local_hour()
+        or (settings.digest_minute or 0) != local_minute()
+    ):
         return {"status": "not_due"}
     return await _run(
         ctx, "digest", _send_digest, force=force, interval_seconds=3600, event_type="notification.updated"
@@ -488,18 +495,20 @@ class WorkerSettings:
         cron(cron_episode_availability, minute=None, second=15, unique=True),
         cron(cron_new_vff, minute=None, second=20, unique=True),
         cron(cron_seer_sync, minute=5, unique=True),
-        # Tourne toutes les heures a :15 ; job_plex_sync decide via local_hour() si
-        # c'est vraiment l'heure configuree (plex_sync_hour) -- meme principe que
-        # cron_notification_purge/cron_digest. Plus de run_at_startup : un sync a
-        # chaque redemarrage du conteneur declenchait une rafale de notifications VF
-        # a des heures aleatoires (incident signale par l'utilisateur).
-        cron(cron_plex_sync, minute=15, unique=True),
+        # Tourne a chaque minute ; job_plex_sync decide via local_hour()/local_minute()
+        # si c'est vraiment l'heure configuree (plex_sync_hour/plex_sync_minute) --
+        # meme principe que cron_notification_purge/cron_digest (precision minute
+        # necessaire depuis que ces reglages ne sont plus une heure pleine). Plus de
+        # run_at_startup : un sync a chaque redemarrage du conteneur declenchait une
+        # rafale de notifications VF a des heures aleatoires (incident signale par
+        # l'utilisateur).
+        cron(cron_plex_sync, minute=None, unique=True),
         # Scan incremental (medias recemment ajoutes) : toutes les 5 minutes, cout
         # quasi nul (filtre serveur addedAt, pas de parcours complet de bibliotheque)
         # -- voir job_plex_sync_recent / sync_plex_media_recent.
         cron(cron_plex_sync_recent, minute=set(range(0, 60, 5)), unique=True),
         cron(cron_notification_purge, minute=0, unique=True),
-        cron(cron_digest, minute=0, unique=True),
+        cron(cron_digest, minute=None, unique=True),
     ]
     on_startup = startup
     redis_settings = redis_settings()

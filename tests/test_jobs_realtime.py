@@ -147,10 +147,11 @@ async def test_job_digest_compares_against_local_hour_not_utc():
     """Regression : digest_hour est une heure murale (reglee "8h" dans les reglages) —
     la comparer a now_utc().hour la decale de 1h/2h selon CET/CEST (incident reel :
     regle a 8h, mail recu a 10h en ete). Doit comparer via local_hour()."""
-    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8})()
+    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8, "digest_minute": 0})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs.local_hour", return_value=8),
+        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
     ):
         result = await jobs.job_digest({"redis": FakeRedis()})
@@ -160,10 +161,28 @@ async def test_job_digest_compares_against_local_hour_not_utc():
 
 @pytest.mark.asyncio
 async def test_job_digest_not_due_outside_configured_local_hour():
-    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8})()
+    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8, "digest_minute": 0})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs.local_hour", return_value=10),
+        patch("app.jobs.local_minute", return_value=0),
+        patch("app.jobs._run", new=AsyncMock()) as run_mock,
+    ):
+        result = await jobs.job_digest({"redis": FakeRedis()})
+    run_mock.assert_not_awaited()
+    assert result == {"status": "not_due"}
+
+
+@pytest.mark.asyncio
+async def test_job_digest_not_due_outside_configured_local_minute():
+    """Regression : digest_minute (precision minute ajoutee a digest_hour) doit aussi
+    etre comparee, pas seulement l'heure -- sinon un digest regle a 8h30 partirait a
+    n'importe quelle minute de 8h."""
+    fake_settings = type("S", (), {"digest_enabled": True, "digest_hour": 8, "digest_minute": 30})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=8),
+        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock()) as run_mock,
     ):
         result = await jobs.job_digest({"redis": FakeRedis()})
@@ -212,10 +231,11 @@ async def test_job_plex_sync_compares_against_local_hour_not_utc():
     """Regression : meme bug que le digest/la purge sur la sync Plex — hour=3 sur le
     cron ARQ etait une heure UTC, pas locale (plex_sync_hour est murale). Doit
     comparer via local_hour() plutot que l'heure UTC du cron."""
-    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs.local_hour", return_value=3),
+        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
     ):
         result = await jobs.job_plex_sync({"redis": FakeRedis()})
@@ -225,10 +245,25 @@ async def test_job_plex_sync_compares_against_local_hour_not_utc():
 
 @pytest.mark.asyncio
 async def test_job_plex_sync_not_due_outside_configured_local_hour():
-    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs.local_minute", return_value=0),
+        patch("app.jobs._run", new=AsyncMock()) as run_mock,
+    ):
+        result = await jobs.job_plex_sync({"redis": FakeRedis()})
+    run_mock.assert_not_awaited()
+    assert result == {"status": "not_due"}
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_not_due_outside_configured_local_minute():
+    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 15})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=3),
+        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock()) as run_mock,
     ):
         result = await jobs.job_plex_sync({"redis": FakeRedis()})
@@ -238,10 +273,11 @@ async def test_job_plex_sync_not_due_outside_configured_local_hour():
 
 @pytest.mark.asyncio
 async def test_job_plex_sync_force_bypasses_local_hour_gate():
-    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
         patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
     ):
         result = await jobs.job_plex_sync({"redis": FakeRedis()}, force=True)

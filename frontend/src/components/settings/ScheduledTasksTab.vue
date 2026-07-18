@@ -41,15 +41,15 @@
 
         <label v-if="task.job === 'arr-statuses'">
           Intervalle de verification
-          <IntervalInput v-model="form.arr_poll_interval_seconds"/>
+          <IntervalPresetInput v-model="form.arr_poll_interval_seconds" :presets="SECONDS_PRESETS"/>
         </label>
         <label v-else-if="task.settings_unit === 'heure (0-23)'">
           Heure de declenchement
-          <HourInput v-model="form[task.settings_field]"/>
+          <TimeOfDayInput v-model:hour="form[task.settings_field]" v-model:minute="form[task.settings_minute_field]"/>
         </label>
         <label v-else-if="task.settings_unit === 'minutes'">
           Intervalle de rescan
-          <IntervalInput v-model="form[task.settings_field]" storage-unit="minutes" :units="['hours','minutes']"/>
+          <IntervalPresetInput v-model="form[task.settings_field]" :presets="MINUTES_PRESETS"/>
         </label>
 
         <div v-if="openHistory === task.job" class="scheduled-task-history">
@@ -74,8 +74,27 @@ import { Archive, Clock, History } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
-import IntervalInput from './IntervalInput.vue';
-import HourInput from './HourInput.vue';
+import IntervalPresetInput from './IntervalPresetInput.vue';
+import TimeOfDayInput from './TimeOfDayInput.vue';
+
+const SECONDS_PRESETS = [
+  { label: '1 minute', value: 60 },
+  { label: '5 minutes', value: 300 },
+  { label: '10 minutes', value: 600 },
+  { label: '15 minutes', value: 900 },
+  { label: '30 minutes', value: 1800 },
+  { label: '1 heure', value: 3600 },
+];
+const MINUTES_PRESETS = [
+  { label: '10 minutes', value: 10 },
+  { label: '15 minutes', value: 15 },
+  { label: '30 minutes', value: 30 },
+  { label: '1 heure', value: 60 },
+  { label: '3 heures', value: 180 },
+  { label: '6 heures', value: 360 },
+  { label: '12 heures', value: 720 },
+  { label: '24 heures', value: 1440 },
+];
 
 const tasks = ref([]);
 const openHistory = ref(null);
