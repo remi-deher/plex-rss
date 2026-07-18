@@ -4,15 +4,10 @@
       <template #badges>
         <span v-if="item._kind==='library'" class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
         <span v-else class="badge status-tag" :class="item.status">{{ statusLabel(item.status) }}</span>
+        <span v-if="requesterLabel(item)" class="requester-tag">👤 {{ requesterLabel(item) }}</span>
         <label v-if="isAdmin && item._kind==='request' && !item.orphan" class="select-tag" @click.stop>
           <input :checked="selected" type="checkbox" @change="$emit('toggle-select', item.id)">
         </label>
-      </template>
-      <template #overlay>
-        <div v-if="view==='grid' && (requesterLabel(item) || item.overview)" class="poster-overlay">
-          <span v-if="requesterLabel(item)" class="poster-requester">👤 {{ requesterLabel(item) }}</span>
-          <p v-if="item.overview" class="poster-overview">{{ item.overview }}</p>
-        </div>
       </template>
     </MediaPoster>
     <div class="card-body">
@@ -23,8 +18,7 @@
         <template v-else-if="item._kind==='request' && item.source"> · {{ item.source }}</template>
       </span>
       <template v-if="view==='list'">
-        <span v-if="requesterLabel(item)" style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">👤 {{ requesterLabel(item) }}</span>
-        <small v-if="item._kind==='library' && item.overview">{{ item.overview }}</small>
+        <span v-if="requesterLabel(item)" class="requester-tag inline" style="margin-top: 4px;">👤 {{ requesterLabel(item) }}</span>
       </template>
       <div v-if="item._kind==='request'" class="card-actions" @click.stop>
         <template v-if="item.orphan">
@@ -119,46 +113,31 @@ function requesterLabel(item) {
   cursor: pointer;
 }
 
-/* Resume + demandeur affiches directement sur l'affiche (au lieu du bloc texte sous
-   la carte) : libere de la hauteur pour que la grille reste compacte et reguliere
-   quel que soit le nombre de lignes de resume. Police distincte (serif) pour
-   detacher visuellement ce texte "editorial" du reste de l'UI (Outfit, sans-serif).
-   Le fond doit rester quasi opaque sur TOUTE la hauteur du bloc (pas juste en bas) :
-   comme ce bloc est deja limite a la hauteur de son propre texte, un degrade qui va
-   jusqu'a transparent a 100% rendait la 1ere ligne illisible sur une affiche claire --
-   seul le tout dernier bord (vers l'image) doit s'estomper. */
-.poster-overlay {
-  position: absolute;
-  inset: auto 0 0 0;
-  padding: 10px 8px 9px;
-  background: linear-gradient(to top, rgba(0, 0, 0, .92) 80%, rgba(0, 0, 0, 0) 100%);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  font-family: Georgia, "Times New Roman", Times, serif;
+/* Demandeur sous forme de badge (fond plein) plutot qu'en texte sur overlay -- coherent
+   avec les badges statut/VF deja pleins (voir views.css), et plus lisible qu'un texte
+   sur degrade. Couleur distincte (bleu) pour ne pas se confondre avec le sens
+   statut/langue des autres badges (vert/rouge/ambre). */
+.requester-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 9px;
+  overflow: hidden;
+  border-radius: 999px;
   color: #fff;
-  pointer-events: none;
-}
-
-.poster-requester {
-  display: block;
-  overflow: hidden;
-  margin-bottom: 5px;
-  font-size: 0.82rem;
+  background: rgba(37, 99, 235, .92);
+  font-size: 0.78rem;
   font-weight: 700;
-  white-space: nowrap;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 1), 0 0 2px rgba(0, 0, 0, 1);
+  white-space: nowrap;
 }
 
-.poster-overview {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.42;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 1), 0 0 2px rgba(0, 0, 0, 1);
+.poster-shell .requester-tag {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
 }
 </style>
