@@ -31,6 +31,7 @@
       :vf-status-error="vfStatusError"
       @scan="$emit('scan-vff')"
       @correction="(...args) => $emit('open-correction', ...args)"
+      @expand-season="(n) => $emit('expand-season', n)"
     />
 
     <article v-for="issue in detail.issues || []" :key="issue.id" class="detail-row" style="margin-top: 1rem;">
@@ -61,6 +62,6 @@ defineProps({
 });
 defineEmits([
   'recheck-plex', 'open-correction', 'report-issue', 'cancel-issue',
-  'submit-correction', 'cancel-correction', 'scan-vff',
+  'submit-correction', 'cancel-correction', 'scan-vff', 'expand-season',
 ]);
 </script>

@@ -68,6 +68,15 @@ JOB_CATALOG = [
         None,
     ),
     (
+        "episode-availability",
+        "Disponibilite episodes (Sonarr)",
+        "Resynchronise la disponibilite Sonarr par episode, pour un affichage instantane sur la fiche detail.",
+        "vff_recheck_interval_minutes",
+        "minutes",
+        21600,
+        None,
+    ),
+    (
         "new-vff",
         "Scan VF leger",
         "Analyse rapide des medias jamais scannes, comble le delai avant le scan complet.",

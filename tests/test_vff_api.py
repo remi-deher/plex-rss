@@ -195,48 +195,22 @@ def _show_request(db, **kwargs):
 
 
 def test_episodes_envelope_uses_tmdb_only(db, client):
-    """L'enveloppe vient uniquement de TMDB -- aucun appel Sonarr/Radarr necessaire,
-    c'est ce qui la rend rapide."""
+    """L'enveloppe (saisons uniquement, pas les episodes) vient uniquement de TMDB --
+    aucun appel Sonarr/Radarr necessaire, c'est ce qui la rend quasi instantanee."""
     req = _show_request(db)
     overview = [{"season_number": 1, "name": "Season 1", "episode_count": 2}]
-    episodes = [
-        {"episode_number": 1, "title": "Pilot", "air_date": "2020-01-01", "overview": "", "still_url": None},
-        {"episode_number": 2, "title": "Ep 2", "air_date": "2020-01-08", "overview": "", "still_url": None},
-    ]
     with (
         patch("app.routers.vff_api.tmdb.get_tv_seasons_overview", new=AsyncMock(return_value=overview)),
-        patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(return_value=episodes)),
+        patch("app.routers.vff_api.tmdb.get_tv_season_episodes") as mock_season_eps,
         patch("app.routers.vff_api.lookup_series") as mock_sonarr,
     ):
         resp = client.get(f"/api/requests/{req.id}/episodes")
         mock_sonarr.assert_not_called()
+        mock_season_eps.assert_not_called()
     assert resp.status_code == 200
     data = resp.json()
     assert data["media_type"] == "show"
-    assert data["seasons"] == [{"season_number": 1, "name": "Season 1", "episodes": episodes}]
-
-
-def test_episodes_envelope_handles_multiple_seasons_sequentially(db, client):
-    """Plusieurs saisons ne doivent pas etre recuperees en parallele (asyncio.gather) --
-    elles partagent la meme AsyncSession (cache TMDB en DB), ce qui declenche
-    'concurrent operations are not permitted' des que 2+ saisons existent."""
-    req = _show_request(db)
-    overview = [
-        {"season_number": 1, "name": "Season 1", "episode_count": 1},
-        {"season_number": 2, "name": "Season 2", "episode_count": 1},
-        {"season_number": 3, "name": "Season 3", "episode_count": 1},
-    ]
-
-    async def fake_get_episodes(db_arg, tmdb_id, season_number):
-        return [{"episode_number": 1, "title": f"S{season_number}E1", "air_date": None, "overview": "", "still_url": None}]
-
-    with patch("app.routers.vff_api.tmdb.get_tv_seasons_overview", new=AsyncMock(return_value=overview)):
-        with patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(side_effect=fake_get_episodes)) as mock_ep:
-            resp = client.get(f"/api/requests/{req.id}/episodes")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert [s["season_number"] for s in data["seasons"]] == [1, 2, 3]
-    assert mock_ep.await_count == 3
+    assert data["seasons"] == [{"season_number": 1, "name": "Season 1", "episode_count": 2}]
 
 
 def test_episodes_envelope_tmdb_failure_returns_502_not_empty(db, client):
@@ -263,29 +237,67 @@ def test_episodes_envelope_movie_returns_empty_seasons(db, client):
     assert resp.json() == {"media_type": "movie", "seasons": []}
 
 
-def test_episodes_availability_uses_sonarr_hasfile(db, client):
-    from app.cache import cache
+def test_season_episodes_fetches_a_single_season(db, client):
+    """Les episodes d'une saison ne sont recuperes que lorsqu'elle est demandee
+    explicitement (deroule cote frontend), jamais toutes en meme temps."""
+    req = _show_request(db)
+    episodes = [
+        {"episode_number": 1, "title": "Pilot", "air_date": "2020-01-01", "overview": "", "still_url": None},
+        {"episode_number": 2, "title": "Ep 2", "air_date": "2020-01-08", "overview": "", "still_url": None},
+    ]
+    with patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(return_value=episodes)) as mock_ep:
+        resp = client.get(f"/api/requests/{req.id}/episodes/1")
+    assert resp.status_code == 200
+    assert resp.json() == {"season_number": 1, "episodes": episodes}
+    assert mock_ep.await_count == 1
+    assert mock_ep.await_args.args[1:] == (int(req.tmdb_id), 1)
+
+
+def test_season_episodes_tmdb_failure_returns_502(db, client):
+    req = _show_request(db)
+    with patch("app.routers.vff_api.tmdb.get_tv_season_episodes", new=AsyncMock(side_effect=Exception("boom"))):
+        resp = client.get(f"/api/requests/{req.id}/episodes/1")
+    assert resp.status_code == 502
+
+
+def test_episodes_availability_is_pure_db_read_by_default(db, client):
+    """Disponibilite par episode : lecture DB pure (EpisodeAvailability), aucun appel
+    Sonarr par defaut -- alimente en arriere-plan par le job planifie."""
+    from app.models import EpisodeAvailability
 
     req = _show_request(db)
-    cache._memory.clear()
-    sonarr_series = {"id": 42, "seasons": []}
-    sonarr_episodes = [
-        {"seasonNumber": 1, "episodeNumber": 1, "monitored": True, "hasFile": True, "airDateUtc": "2020-01-01T01:00:00Z"},
-        {"seasonNumber": 1, "episodeNumber": 2, "monitored": True, "hasFile": False, "airDateUtc": "2099-01-01T01:00:00Z"},
-        {"seasonNumber": 0, "episodeNumber": 1, "monitored": True, "hasFile": True},  # saison 0 exclue
-    ]
-    with (
-        patch("app.routers.vff_api._resolve_arr_instance", new=AsyncMock(return_value=type("I", (), {"url": "http://sonarr", "api_key": "x"})())),
-        patch("app.routers.vff_api.lookup_series", new=AsyncMock(return_value=sonarr_series)),
-        patch("app.routers.vff_api.get_episodes", new=AsyncMock(return_value=sonarr_episodes)),
-    ):
+    db.add(EpisodeAvailability(source_type="request", source_id=req.id, season_number=1, episode_number=1, has_file=True, air_date_utc="2020-01-01T01:00:00Z"))
+    db.add(EpisodeAvailability(source_type="request", source_id=req.id, season_number=1, episode_number=2, has_file=False, air_date_utc="2099-01-01T01:00:00Z"))
+    db.commit()
+
+    with patch("app.routers.vff_api.lookup_series") as mock_sonarr:
         resp = client.get(f"/api/requests/{req.id}/episodes-availability")
+        mock_sonarr.assert_not_called()
     assert resp.status_code == 200
     data = resp.json()
     assert data["seasons"] == [{"season_number": 1, "episodes": {
         "1": {"has_file": True, "air_date_utc": "2020-01-01T01:00:00Z"},
         "2": {"has_file": False, "air_date_utc": "2099-01-01T01:00:00Z"},
     }}]
+
+
+def test_episodes_availability_force_resyncs_before_reading(db, client):
+    """force=true declenche une resynchronisation Sonarr immediate (bouton
+    "Actualiser") avant de repondre, sans attendre le prochain cycle planifie."""
+    req = _show_request(db)
+
+    with (
+        patch("app.routers.vff_api._resolve_arr_instance", new=AsyncMock(return_value=type("I", (), {"url": "http://sonarr", "api_key": "x"})())),
+        patch("app.routers.vff_api.sync_episode_availability_for_show", new=AsyncMock(return_value={})) as mock_sync,
+    ):
+        resp = client.get(f"/api/requests/{req.id}/episodes-availability?force=true")
+        mock_sync.assert_awaited_once()
+
+    assert resp.status_code == 200
+    # La fonction reelle (mockee ici) est celle qui ecrit en EpisodeAvailability -- ce
+    # test verifie seulement qu'elle est bien invoquee avant la lecture DB, pas son
+    # contenu (deja couvert par test_episodes_availability_is_pure_db_read_by_default).
+    assert resp.json() == {"seasons": []}
 
 
 def test_episodes_vf_status_is_pure_db_read(db, client):

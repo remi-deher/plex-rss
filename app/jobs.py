@@ -252,6 +252,21 @@ async def job_episode_tracking(ctx: dict, force: bool = False):
     )
 
 
+async def job_episode_availability(ctx: dict, force: bool = False):
+    from .services.episode_availability import check_episode_availability
+
+    settings = await _settings()
+    interval = ((settings.vff_recheck_interval_minutes if settings else None) or 360) * 60
+    return await _run(
+        ctx,
+        "episode-availability",
+        check_episode_availability,
+        force=force,
+        interval_seconds=interval,
+        event_type="request.updated",
+    )
+
+
 async def job_new_vff(ctx: dict, force: bool = False):
     from .services.vff_scanner import check_new_vf_availability
 
@@ -398,6 +413,10 @@ async def cron_episode_tracking(ctx: dict):
     return await job_episode_tracking(ctx)
 
 
+async def cron_episode_availability(ctx: dict):
+    return await job_episode_availability(ctx)
+
+
 async def cron_new_vff(ctx: dict):
     return await job_new_vff(ctx)
 
@@ -425,6 +444,7 @@ class WorkerSettings:
         job_torrent_statuses,
         job_vff_statuses,
         job_episode_tracking,
+        job_episode_availability,
         job_new_vff,
         job_seer_sync,
         job_plex_sync,
@@ -439,6 +459,7 @@ class WorkerSettings:
         cron(cron_torrent_statuses, minute=set(range(0, 60, 2)), unique=True),
         cron(cron_vff_statuses, minute=None, unique=True),
         cron(cron_episode_tracking, minute=None, second=10, unique=True),
+        cron(cron_episode_availability, minute=None, second=15, unique=True),
         cron(cron_new_vff, minute=None, second=20, unique=True),
         cron(cron_seer_sync, minute=5, unique=True),
         cron(cron_plex_sync, hour=3, minute=15, unique=True, run_at_startup=True),

@@ -21,6 +21,7 @@ from .models import ArrInstance, Settings
 # --- Imports des services pour réexportation (compatibilité ascendante) ---
 from .notification_queue import enqueue as enqueue_notification
 from .services.download_clients import delete_torrent, get_torrent_status
+from .services.episode_availability import check_episode_availability, episode_availability_state
 from .services.notification_orchestrator import (
     _add_co_requester,
     _get_recipients,
@@ -116,6 +117,12 @@ async def start_scheduler(poll_seconds: int = 300):
     scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
     scheduler.add_job(
         check_episode_tracking, "interval", minutes=vff_interval, id="episode_tracking_check", replace_existing=True
+    )
+    # Resynchronise la disponibilite Sonarr (fichier + date de diffusion) de toutes les
+    # series suivies, pour que la fiche detail lise EpisodeAvailability en base au lieu
+    # d'appeler Sonarr en direct a chaque affichage (voir services/episode_availability.py).
+    scheduler.add_job(
+        check_episode_availability, "interval", minutes=vff_interval, id="episode_availability_check", replace_existing=True
     )
     # Scan léger et fréquent, restreint aux médias jamais analysés (has_vf IS NULL) :
     # comble le trou laissé par un scan eager raté (scan_and_notify_availability) sans

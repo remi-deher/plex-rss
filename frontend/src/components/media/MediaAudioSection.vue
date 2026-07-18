@@ -21,7 +21,13 @@
             @click="$emit('scan')"
           ><RefreshCw/></button>
         </div>
-        <details v-for="season in vfDetail.seasons || []" :key="season.season_number" class="detail-row" style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 6px;">
+        <details
+          v-for="season in vfDetail.seasons || []"
+          :key="season.season_number"
+          class="detail-row"
+          style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 6px;"
+          @toggle="$event.target.open && $emit('expand-season', season.season_number)"
+        >
           <summary style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
             <strong>Saison {{ season.season_number }}{{ season.name && !/^(saison|season)\s*\d+$/i.test(season.name) ? ` — ${season.name}` : '' }}</strong>
             <div class="inline-row compact" style="gap: 4px;">
@@ -30,10 +36,13 @@
               <span class="badge" v-if="season.counts.vf_secondary">VF(sec): {{ season.counts.vf_secondary }}</span>
               <span class="badge danger" v-if="season.counts.absent">Absent: {{ season.counts.absent }}</span>
               <span class="badge pending_approval" v-if="season.counts.tba">TBA: {{ season.counts.tba }}</span>
+              <span class="badge" v-if="!season.loaded && !season.loading && !season.error">{{ season.episode_count }} ep.</span>
               <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison"><MessageSquareWarning size="16" /></button>
             </div>
           </summary>
-          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+          <div v-if="season.loading" style="padding: 0.5rem 0; color: var(--muted); font-size: 0.9em;">Chargement des episodes...</div>
+          <p v-else-if="season.error" class="notice error-text">Échec du chargement de cette saison.</p>
+          <div v-else style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
             <div v-for="ep in season.episodes" :key="ep.episode" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start;">
               <img
                 v-if="ep.still_url"
@@ -117,7 +126,7 @@ defineProps({
   vfStatusError: { type: Boolean, default: false },
 });
 
-defineEmits(['scan', 'correction']);
+defineEmits(['scan', 'correction', 'expand-season']);
 
 function formatAirDate(airDate) {
   if (!airDate) return '';

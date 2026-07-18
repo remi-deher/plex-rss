@@ -766,6 +766,32 @@ class VfEpisodeStatus(Base):
     checked_at: Mapped[Optional[datetime]]
 
 
+class EpisodeAvailability(Base):
+    """Cache de la disponibilité Sonarr (fichier présent + date de diffusion) par
+    épisode, alimenté en arrière-plan par `services/episode_availability.py`.
+
+    Même principe que `VfEpisodeStatus` mais pour la disponibilité brute plutôt que le
+    VF : sans ce cache, la fiche détail devait interroger Sonarr en direct à chaque
+    affichage (auparavant mitigé par un cache de 90s seulement, insuffisant pour un
+    rendu "instantané" façon Seerr, qui ne fait jamais d'appel *arr live dans le chemin
+    de la requête).
+    """
+
+    __tablename__ = "episode_availability"
+    __table_args__ = (
+        UniqueConstraint("source_type", "source_id", "season_number", "episode_number", name="uq_episode_availability"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source_type: Mapped[str]
+    source_id: Mapped[int]
+    season_number: Mapped[int]
+    episode_number: Mapped[int]
+    has_file: Mapped[bool] = mapped_column(default=False)
+    air_date_utc: Mapped[Optional[str]]
+    checked_at: Mapped[Optional[datetime]]
+
+
 class RequestSeasonStatus(Base):
     """Disponibilité brute (fichier présent ou non côté Sonarr) par saison d'une demande.
 

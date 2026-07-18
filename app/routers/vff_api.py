@@ -7,10 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import sqlalchemy
 
-from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
-from ..models import LibraryItem, MediaRequest, RequestStatus, Settings, VfEpisodeStatus
+from ..models import EpisodeAvailability, LibraryItem, MediaRequest, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import (
     _invalidate_vf_cache,
     _load_known_vf_episodes,
@@ -25,6 +24,7 @@ from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
 from ..services import plex_finder as vff_svc
 from ..services import audio_analyzer, tmdb
+from ..services.episode_availability import sync_episode_availability_for_show
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
@@ -246,74 +246,71 @@ async def _vf_detail_payload(db: AsyncSession, req):
 
 
 async def _episodes_envelope_payload(db: AsyncSession, req) -> dict:
-    """Enveloppe saisons/épisodes (titres, numéros, dates de diffusion) depuis TMDB
-    uniquement — indépendante de la disponibilité et du statut VF/VO."""
+    """Enveloppe saisons (titres, numéros, nombre d'épisodes) depuis TMDB uniquement —
+    UN SEUL appel TMDB, jamais le détail épisode par épisode de chaque saison (voir
+    `_season_episodes_payload`, chargé à la demande quand une saison est dépliée côté
+    frontend — façon Seerr : `GET /tv/:id` ne renvoie jamais les épisodes, seulement la
+    liste des saisons ; `GET /tv/:id/season/:n` charge une saison a la fois)."""
     if req.media_type != "show":
         return {"media_type": "movie", "seasons": []}
     if not req.tmdb_id:
         return {"media_type": "show", "seasons": []}
     try:
         overview = await tmdb.get_tv_seasons_overview(db, int(req.tmdb_id))
-        # Sequentiel, pas asyncio.gather : ces appels partagent la meme AsyncSession
-        # (cache TMDB en DB) et une session SQLAlchemy async ne supporte pas les
-        # operations concurrentes sur une meme instance ("This session is provisioning
-        # a new connection; concurrent operations are not permitted") -- une fois cette
-        # erreur levee, elle etait avalee silencieusement et renvoyait "aucune saison"
-        # au lieu de l'erreur reelle, pour a peu pres toute serie multi-saisons.
-        seasons = [await tmdb.get_tv_season_episodes(db, int(req.tmdb_id), s["season_number"]) for s in overview]
     except Exception as e:
         logger.warning(f"episodes-envelope: TMDB indisponible pour '{req.title}': {e}")
         raise HTTPException(502, "TMDB indisponible pour les saisons/episodes") from e
     return {
         "media_type": "show",
         "seasons": [
-            {"season_number": s["season_number"], "name": s["name"], "episodes": eps}
-            for s, eps in zip(overview, seasons)
+            {"season_number": s["season_number"], "name": s["name"], "episode_count": s["episode_count"]}
+            for s in overview
         ],
     }
 
 
-_AVAILABILITY_CACHE_TTL = 90
+async def _season_episodes_payload(db: AsyncSession, req, season_number: int) -> dict:
+    """Épisodes (titre, résumé, miniature, date de diffusion) d'UNE saison, depuis TMDB
+    uniquement -- chargé à la demande quand la saison est dépliée, pas au chargement de
+    la fiche."""
+    if req.media_type != "show" or not req.tmdb_id:
+        return {"season_number": season_number, "episodes": []}
+    try:
+        episodes = await tmdb.get_tv_season_episodes(db, int(req.tmdb_id), season_number)
+    except Exception as e:
+        logger.warning(f"season-episodes: TMDB indisponible pour '{req.title}' S{season_number}: {e}")
+        raise HTTPException(502, "TMDB indisponible pour cette saison") from e
+    return {"season_number": season_number, "episodes": episodes}
 
 
-async def _availability_payload(db: AsyncSession, req) -> dict:
-    """Disponibilité par épisode (fichier présent côté Sonarr) — seul appel réseau
-    de ce trio, mis en cache court pour ne pas re-taper Sonarr a chaque affichage."""
+async def _availability_payload(db: AsyncSession, req, force: bool = False) -> dict:
+    """Disponibilité par épisode -- lecture DB pure (EpisodeAvailability, alimentée en
+    arrière-plan par `services/episode_availability.py`), jamais d'appel Sonarr live
+    par défaut. `force=True` (bouton "Actualiser") resynchronise cette série
+    immédiatement avant de répondre, sans attendre le prochain cycle planifié."""
     if req.media_type != "show":
         return {"seasons": []}
-    cache_key = f"plexarr:episodes-availability:{req.arr_instance_id}:{req.arr_id or req.tvdb_id}"
-    cached = await cache.get_json(cache_key)
-    if cached is not None:
-        return cached
 
+    if force:
+        try:
+            inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
+            await sync_episode_availability_for_show(db, inst, req)
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"episodes-availability: resynchronisation Sonarr impossible pour '{req.title}': {e}")
+
+    source_type = "request" if isinstance(req, MediaRequest) else "library_item"
+    rows = (await db.execute(
+        select(EpisodeAvailability).filter(
+            EpisodeAvailability.source_type == source_type, EpisodeAvailability.source_id == req.id
+        )
+    )).scalars().all()
     seasons: dict[int, dict[int, dict]] = {}
-    try:
-        inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
-        series_id = req.arr_id if getattr(req, "source", None) != "seer" else None
-        data = None
-        if req.tvdb_id:
-            data = await lookup_series(inst.url, inst.api_key, tvdb_id=req.tvdb_id)
-            series_id = data.get("id") if data else series_id
-        if not series_id:
-            data = await lookup_series(inst.url, inst.api_key, arr_id=req.arr_id)
-            series_id = data.get("id") if data else None
-        if series_id:
-            for ep in await get_episodes(inst.url, inst.api_key, series_id):
-                if not ep.get("monitored", True):
-                    continue
-                sn, en = ep.get("seasonNumber"), ep.get("episodeNumber")
-                if sn is None or en is None or sn == 0:
-                    continue
-                seasons.setdefault(sn, {})[en] = {
-                    "has_file": bool(ep.get("hasFile")),
-                    "air_date_utc": ep.get("airDateUtc") or ep.get("airDate"),
-                }
-    except Exception as e:
-        logger.warning(f"episodes-availability: Sonarr indisponible pour '{req.title}': {e}")
-
-    payload = {"seasons": [{"season_number": sn, "episodes": eps} for sn, eps in seasons.items()]}
-    await cache.set_json(cache_key, payload, ttl_seconds=_AVAILABILITY_CACHE_TTL)
-    return payload
+    for r in rows:
+        seasons.setdefault(r.season_number, {})[r.episode_number] = {
+            "has_file": r.has_file, "air_date_utc": r.air_date_utc,
+        }
+    return {"seasons": [{"season_number": sn, "episodes": eps} for sn, eps in seasons.items()]}
 
 
 async def _vf_status_payload(db: AsyncSession, req) -> dict:
@@ -526,30 +523,46 @@ async def library_vf_detail(item_id: int, db: AsyncSession = Depends(get_db_asyn
 
 @router.get("/requests/{request_id}/episodes")
 async def request_episodes(request_id: int, db: AsyncSession = Depends(get_db_async)):
-    """Enveloppe saisons/épisodes (TMDB, sans dispo ni VF/VO) d'une demande."""
+    """Enveloppe saisons (TMDB, sans les épisodes) d'une demande."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     return await _episodes_envelope_payload(db, req)
 
 
 @router.get("/library/{item_id}/episodes")
 async def library_episodes(item_id: int, db: AsyncSession = Depends(get_db_async)):
-    """Enveloppe saisons/épisodes (TMDB, sans dispo ni VF/VO) d'un élément de bibliothèque."""
+    """Enveloppe saisons (TMDB, sans les épisodes) d'un élément de bibliothèque."""
     item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
     return await _episodes_envelope_payload(db, item)
 
 
-@router.get("/requests/{request_id}/episodes-availability")
-async def request_episodes_availability(request_id: int, db: AsyncSession = Depends(get_db_async)):
-    """Disponibilité par épisode (Sonarr) d'une demande."""
+@router.get("/requests/{request_id}/episodes/{season_number}")
+async def request_season_episodes(request_id: int, season_number: int, db: AsyncSession = Depends(get_db_async)):
+    """Épisodes (TMDB) d'une saison d'une demande, chargés à la demande (saison dépliée)."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
-    return await _availability_payload(db, req)
+    return await _season_episodes_payload(db, req, season_number)
+
+
+@router.get("/library/{item_id}/episodes/{season_number}")
+async def library_season_episodes(item_id: int, season_number: int, db: AsyncSession = Depends(get_db_async)):
+    """Épisodes (TMDB) d'une saison d'un élément de bibliothèque, chargés à la demande."""
+    item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
+    return await _season_episodes_payload(db, item, season_number)
+
+
+@router.get("/requests/{request_id}/episodes-availability")
+async def request_episodes_availability(request_id: int, force: bool = False, db: AsyncSession = Depends(get_db_async)):
+    """Disponibilité par épisode d'une demande -- lecture DB par défaut, `force=true`
+    resynchronise Sonarr immédiatement (bouton "Actualiser")."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    return await _availability_payload(db, req, force=force)
 
 
 @router.get("/library/{item_id}/episodes-availability")
-async def library_episodes_availability(item_id: int, db: AsyncSession = Depends(get_db_async)):
-    """Disponibilité par épisode (Sonarr) d'un élément de bibliothèque."""
+async def library_episodes_availability(item_id: int, force: bool = False, db: AsyncSession = Depends(get_db_async)):
+    """Disponibilité par épisode d'un élément de bibliothèque -- lecture DB par défaut,
+    `force=true` resynchronise Sonarr immédiatement (bouton "Actualiser")."""
     item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")
-    return await _availability_payload(db, item)
+    return await _availability_payload(db, item, force=force)
 
 
 @router.get("/requests/{request_id}/episodes-vf-status")

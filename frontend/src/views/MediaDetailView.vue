@@ -70,6 +70,7 @@
             @submit-correction="sendCorrection"
             @cancel-correction="showCorrectionForm = false"
             @scan-vff="scanVff"
+            @expand-season="loadSeasonEpisodes"
           />
         </template>
 
@@ -110,6 +111,10 @@ const detail = ref(null), requesters = ref([]), folders = ref([]), vfDetail = re
 // hors-chemin critique du reste de la page).
 const episodesEnvelope = ref(null), availability = ref(null), vfStatus = ref(null);
 const envelopeError = ref(false);
+// Episodes charges saison par saison, uniquement quand l'utilisateur deplie la saison
+// (facon Seerr : GET /tv/:id/season/:n) -- l'enveloppe ne contient que le nombre de
+// saisons/episodes, jamais le detail episode par episode de toutes les saisons d'un coup.
+const seasonEpisodes = ref({}), seasonLoading = ref({}), seasonErrors = ref({});
 const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const tabs = ['summary', 'requests', 'calendar'];
@@ -143,10 +148,21 @@ const mergedVfDetail = computed(() => {
   const availBySeason = Object.fromEntries((availability.value?.seasons || []).map(s => [s.season_number, s.episodes]));
   const vfBySeason = Object.fromEntries((vfStatus.value?.seasons || []).map(s => [s.season_number, s.episodes]));
   const seasons = episodesEnvelope.value.seasons.map(season => {
+    const episodesData = seasonEpisodes.value[season.season_number];
+    if (!episodesData) {
+      // Saison pas encore depliee : ni compteurs ni episodes tant que TMDB n'a pas ete
+      // interroge pour CETTE saison precise (voir loadSeasonEpisodes, declenche par
+      // @expand-season au deploiement du <details> cote MediaAudioSection).
+      return {
+        season_number: season.season_number, name: season.name, episode_count: season.episode_count,
+        loaded: false, loading: !!seasonLoading.value[season.season_number], error: !!seasonErrors.value[season.season_number],
+        counts: {}, episodes: [],
+      };
+    }
     const availEps = availBySeason[season.season_number] || {};
     const vfEps = vfBySeason[season.season_number] || {};
     const counts = { vf: 0, vf_secondary: 0, vo: 0, present: 0, absent: 0, tba: 0, unknown: 0 };
-    const episodes = season.episodes.map(ep => {
+    const episodes = episodesData.map(ep => {
       const availInfo = availEps[ep.episode_number];
       const hasFile = availInfo?.has_file;
       // Sonarr (air_date_utc) fait foi car precis a l'heure pres ; TMDB (air_date,
@@ -164,7 +180,7 @@ const mergedVfDetail = computed(() => {
         overview: ep.overview, still_url: ep.still_url,
       };
     });
-    return { season_number: season.season_number, name: season.name, counts, episodes };
+    return { season_number: season.season_number, name: season.name, loaded: true, counts, episodes };
   });
   return { enabled: true, media_type: 'show', vf_available: true, seasons };
 });
@@ -201,6 +217,7 @@ async function load() {
   loading.value = true; error.value = ''; vfDetail.value = null;
   episodesEnvelope.value = null; availability.value = null; vfStatus.value = null;
   envelopeError.value = false; availabilityError.value = false; vfStatusError.value = false;
+  seasonEpisodes.value = {}; seasonLoading.value = {}; seasonErrors.value = {};
   tab.value = 'summary';
   try {
     const payload = await api(mediaPath());
@@ -367,13 +384,16 @@ async function loadEpisodesEnvelope() {
   catch (e) { envelopeError.value = true; }
 }
 
-async function loadAvailability() {
+async function loadAvailability(force = false) {
   if (detail.value?.media_type !== 'show') return;
   availabilityError.value = false;
   // Erreur geree ici (pas de propagation) : une panne Sonarr ne doit jamais empecher
   // l'enveloppe (TMDB) ou le statut VF (BDD) de s'afficher -- chaque source est
   // independante, une panne reste localisee et visible plutot que de tout bloquer.
-  try { availability.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-availability`); }
+  // Par defaut lecture DB pure (alimentee en arriere-plan) ; force=true (bouton
+  // "Actualiser") resynchronise Sonarr immediatement au lieu d'attendre le prochain
+  // cycle planifie.
+  try { availability.value = await api(`/api/${sourcePath()}/${sourceId()}/episodes-availability${force ? '?force=true' : ''}`); }
   catch (e) { availabilityError.value = true; }
 }
 
@@ -384,11 +404,28 @@ async function loadVfStatus() {
   catch (e) { vfStatusError.value = true; }
 }
 
+async function loadSeasonEpisodes(seasonNumber) {
+  // Deplie une saison (facon Seerr) : les episodes de CETTE saison ne sont demandes a
+  // TMDB qu'a ce moment-la, jamais toutes les saisons d'un coup au chargement de la
+  // fiche. Ne recharge pas une saison deja chargee ou en cours de chargement.
+  if (seasonEpisodes.value[seasonNumber] || seasonLoading.value[seasonNumber]) return;
+  seasonLoading.value = { ...seasonLoading.value, [seasonNumber]: true };
+  seasonErrors.value = { ...seasonErrors.value, [seasonNumber]: false };
+  try {
+    const data = await api(`/api/${sourcePath()}/${sourceId()}/episodes/${seasonNumber}`);
+    seasonEpisodes.value = { ...seasonEpisodes.value, [seasonNumber]: data.episodes };
+  } catch (e) {
+    seasonErrors.value = { ...seasonErrors.value, [seasonNumber]: true };
+  } finally {
+    seasonLoading.value = { ...seasonLoading.value, [seasonNumber]: false };
+  }
+}
+
 async function scanVff() {
   busy.value = true;
   try {
     await api(`/api/${sourcePath()}/${sourceId()}/vff-scan`, { method: 'POST' });
-    if (detail.value?.media_type === 'show') await Promise.all([loadAvailability(), loadVfStatus()]);
+    if (detail.value?.media_type === 'show') await Promise.all([loadAvailability(true), loadVfStatus()]);
     else await loadVf();
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
