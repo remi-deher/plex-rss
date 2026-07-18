@@ -270,8 +270,8 @@ def test_episodes_availability_uses_sonarr_hasfile(db, client):
     cache._memory.clear()
     sonarr_series = {"id": 42, "seasons": []}
     sonarr_episodes = [
-        {"seasonNumber": 1, "episodeNumber": 1, "monitored": True, "hasFile": True},
-        {"seasonNumber": 1, "episodeNumber": 2, "monitored": True, "hasFile": False},
+        {"seasonNumber": 1, "episodeNumber": 1, "monitored": True, "hasFile": True, "airDateUtc": "2020-01-01T01:00:00Z"},
+        {"seasonNumber": 1, "episodeNumber": 2, "monitored": True, "hasFile": False, "airDateUtc": "2099-01-01T01:00:00Z"},
         {"seasonNumber": 0, "episodeNumber": 1, "monitored": True, "hasFile": True},  # saison 0 exclue
     ]
     with (
@@ -282,7 +282,10 @@ def test_episodes_availability_uses_sonarr_hasfile(db, client):
         resp = client.get(f"/api/requests/{req.id}/episodes-availability")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["seasons"] == [{"season_number": 1, "episodes": {"1": True, "2": False}}]
+    assert data["seasons"] == [{"season_number": 1, "episodes": {
+        "1": {"has_file": True, "air_date_utc": "2020-01-01T01:00:00Z"},
+        "2": {"has_file": False, "air_date_utc": "2099-01-01T01:00:00Z"},
+    }}]
 
 
 def test_episodes_vf_status_is_pure_db_read(db, client):

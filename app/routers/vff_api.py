@@ -286,7 +286,7 @@ async def _availability_payload(db: AsyncSession, req) -> dict:
     if cached is not None:
         return cached
 
-    seasons: dict[int, dict[int, bool]] = {}
+    seasons: dict[int, dict[int, dict]] = {}
     try:
         inst = await _resolve_arr_instance(db, req.arr_instance_id, "sonarr")
         series_id = req.arr_id if getattr(req, "source", None) != "seer" else None
@@ -304,7 +304,10 @@ async def _availability_payload(db: AsyncSession, req) -> dict:
                 sn, en = ep.get("seasonNumber"), ep.get("episodeNumber")
                 if sn is None or en is None or sn == 0:
                     continue
-                seasons.setdefault(sn, {})[en] = bool(ep.get("hasFile"))
+                seasons.setdefault(sn, {})[en] = {
+                    "has_file": bool(ep.get("hasFile")),
+                    "air_date_utc": ep.get("airDateUtc") or ep.get("airDate"),
+                }
     except Exception as e:
         logger.warning(f"episodes-availability: Sonarr indisponible pour '{req.title}': {e}")
 

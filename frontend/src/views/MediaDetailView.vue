@@ -145,13 +145,22 @@ const mergedVfDetail = computed(() => {
   const seasons = episodesEnvelope.value.seasons.map(season => {
     const availEps = availBySeason[season.season_number] || {};
     const vfEps = vfBySeason[season.season_number] || {};
-    const counts = { vf: 0, vf_secondary: 0, vo: 0, present: 0, absent: 0, unknown: 0 };
+    const counts = { vf: 0, vf_secondary: 0, vo: 0, present: 0, absent: 0, tba: 0, unknown: 0 };
     const episodes = season.episodes.map(ep => {
-      const hasFile = availEps[ep.episode_number];
-      const status = vfEps[ep.episode_number] || (hasFile === undefined ? 'unknown' : hasFile ? 'present' : 'absent');
+      const availInfo = availEps[ep.episode_number];
+      const hasFile = availInfo?.has_file;
+      // Sonarr (air_date_utc) fait foi car precis a l'heure pres ; TMDB (air_date,
+      // date seule) sert de repli quand Sonarr n'a pas repondu.
+      const airDate = availInfo?.air_date_utc || ep.air_date;
+      const hasAired = !airDate || new Date(airDate) <= new Date();
+      let status;
+      if (vfEps[ep.episode_number]) status = vfEps[ep.episode_number];
+      else if (hasFile === undefined) status = 'unknown';
+      else if (hasFile) status = 'present';
+      else status = hasAired ? 'absent' : 'tba';
       counts[status] = (counts[status] || 0) + 1;
       return {
-        episode: ep.episode_number, title: ep.title, air_date: ep.air_date, status, has_file: hasFile,
+        episode: ep.episode_number, title: ep.title, air_date: airDate, status, has_file: hasFile,
         overview: ep.overview, still_url: ep.still_url,
       };
     });

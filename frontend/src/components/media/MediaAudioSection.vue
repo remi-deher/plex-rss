@@ -29,6 +29,7 @@
               <span class="badge" v-if="season.counts.vo">VO: {{ season.counts.vo }}</span>
               <span class="badge" v-if="season.counts.vf_secondary">VF(sec): {{ season.counts.vf_secondary }}</span>
               <span class="badge danger" v-if="season.counts.absent">Absent: {{ season.counts.absent }}</span>
+              <span class="badge pending_approval" v-if="season.counts.tba">TBA: {{ season.counts.tba }}</span>
               <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison"><MessageSquareWarning size="16" /></button>
             </div>
           </summary>
@@ -46,7 +47,7 @@
                   <strong style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.episode }}. {{ ep.title || `Episode ${ep.episode}` }}</strong>
                   <button
                     class="badge"
-                    :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent', 'pending': ep.status === 'unknown'}"
+                    :class="{'available': ep.status === 'vf' || ep.status === 'vf_secondary', 'danger': ep.status === 'absent', 'pending_approval': ep.status === 'tba', 'pending': ep.status === 'unknown'}"
                     @click="ep.status !== 'unknown' && $emit('correction', 'episode', season.season_number, ep.episode)"
                     style="cursor: pointer; flex-shrink: 0;"
                     :title="ep.status === 'unknown' ? 'Chargement...' : 'Signaler une correction'"
@@ -54,6 +55,7 @@
                     {{ ep.status === 'unknown' ? '…' : ep.status.toUpperCase() }}
                   </button>
                 </div>
+                <p v-if="formatAirDate(ep.air_date)" style="margin: 2px 0 0; font-size: 0.8em; color: var(--muted);">{{ formatAirDate(ep.air_date) }}</p>
                 <p v-if="ep.overview" style="margin: 4px 0 0; font-size: 0.85em; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ ep.overview }}</p>
               </div>
             </div>
@@ -116,4 +118,15 @@ defineProps({
 });
 
 defineEmits(['scan', 'correction']);
+
+function formatAirDate(airDate) {
+  if (!airDate) return '';
+  const hasTime = airDate.includes('T');
+  const d = new Date(airDate);
+  if (Number.isNaN(d.getTime())) return '';
+  const datePart = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  if (!hasTime) return datePart;
+  const timePart = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return `${datePart} a ${timePart}`;
+}
 </script>
