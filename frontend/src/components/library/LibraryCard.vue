@@ -74,14 +74,20 @@ function requestLabel(s) {
 /* Resume + demandeur affiches directement sur l'affiche (au lieu du bloc texte sous
    la carte) : libere de la hauteur pour que la grille reste compacte et reguliere
    quel que soit le nombre de lignes de resume. Police distincte (serif) pour
-   detacher visuellement ce texte "editorial" du reste de l'UI (Outfit, sans-serif). */
+   detacher visuellement ce texte "editorial" du reste de l'UI (Outfit, sans-serif).
+   Le fond doit rester quasi opaque sur TOUTE la hauteur du bloc (pas juste en bas) :
+   comme ce bloc est deja limite a la hauteur de son propre texte, un degrade qui va
+   jusqu'a transparent a 100% rendait la 1ere ligne illisible sur une affiche claire --
+   seul le tout dernier bord (vers l'image) doit s'estomper. */
 .poster-overlay {
   position: absolute;
   inset: auto 0 0 0;
-  padding: 10px 8px 8px;
-  background: linear-gradient(to top, rgba(0, 0, 0, .88) 0%, rgba(0, 0, 0, .55) 65%, transparent 100%);
+  padding: 10px 8px 9px;
+  background: linear-gradient(to top, rgba(0, 0, 0, .92) 80%, rgba(0, 0, 0, 0) 100%);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   font-family: Georgia, "Times New Roman", Times, serif;
-  color: #f4f4f5;
+  color: #fff;
   pointer-events: none;
 }
 
@@ -89,21 +95,21 @@ function requestLabel(s) {
   display: block;
   overflow: hidden;
   margin-bottom: 4px;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.76rem;
+  font-weight: 700;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 1px rgba(0, 0, 0, .95);
 }
 
 .poster-overview {
   display: -webkit-box;
   overflow: hidden;
   margin: 0;
-  font-size: 0.78rem;
-  line-height: 1.32;
+  font-size: 0.84rem;
+  line-height: 1.38;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 1px rgba(0, 0, 0, .95);
 }
 </style>
