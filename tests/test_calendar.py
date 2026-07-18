@@ -194,3 +194,52 @@ async def test_calendar_advanced_filtering():
         evs = await unified_calendar(vf="requested", db=db)
         assert len(evs) == 1
         assert evs[0]["title"] == "Dune"
+
+
+@pytest.mark.asyncio
+async def test_calendar_is_cached_between_calls_with_same_params():
+    """Deuxieme appel avec les memes parametres : ne doit pas retaper Sonarr -- c'est
+    ce qui evite de bloquer le calendrier a chaque affichage (voir cache.get_or_refresh)."""
+    from app.cache import cache
+    cache._memory.clear()
+    db = _make_db()
+    db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=True))
+    db.commit()
+
+    episodes = [
+        {
+            "seasonNumber": 1, "episodeNumber": 1, "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Pilot", "hasFile": False, "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
+    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)) as mock_cal:
+        first = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
+        second = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
+    assert first == second
+    mock_cal.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_calendar_cache_key_differs_per_filter():
+    """Deux appels avec des parametres differents ne doivent PAS partager le meme
+    cache -- sinon un filtre afficherait a tort le resultat d'un autre."""
+    from app.cache import cache
+    cache._memory.clear()
+    db = _make_db()
+    db.add(ArrInstance(id=1, name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key", enabled=True))
+    db.commit()
+
+    episodes = [
+        {
+            "seasonNumber": 1, "episodeNumber": 1, "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Breaking Bad", "hasFile": False, "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
+    with patch("app.routers.calendar_api.sonarr.get_calendar", new=AsyncMock(return_value=episodes)) as mock_cal:
+        all_events = await unified_calendar(start=None, end=None, tracked_only=False, db=db)
+        filtered = await unified_calendar(start=None, end=None, tracked_only=False, search="bad", db=db)
+        no_match = await unified_calendar(start=None, end=None, tracked_only=False, search="zzz", db=db)
+    assert len(all_events) == 1
+    assert len(filtered) == 1
+    assert no_match == []
+    assert mock_cal.await_count == 3

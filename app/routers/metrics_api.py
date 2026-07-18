@@ -13,7 +13,7 @@ import sqlalchemy
 
 from .. import metrics as app_metrics
 from ..cache import cache
-from ..database import get_db_async
+from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..services import arr_orphans, prowlarr, radarr, sonarr
@@ -528,9 +528,12 @@ async def stats_recently_available(db: AsyncSession = Depends(get_db_async), lim
     ]
 
 
-@router.get("/disk-space")
-async def disk_space(db: AsyncSession = Depends(get_db_async)):
-    """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin."""
+_DISK_SPACE_CACHE_KEY = "plexarr:disk-space"
+_DISK_SPACE_SOFT_TTL = 60
+_DISK_SPACE_HARD_TTL = 900
+
+
+async def _compute_disk_space(db: AsyncSession) -> list[dict]:
     volumes: dict[str, dict] = {}
 
     async def add(label: str, coro):
@@ -555,3 +558,22 @@ async def disk_space(db: AsyncSession = Depends(get_db_async)):
             await add(label, radarr.get_disk_space(inst.url, inst.api_key))
 
     return list(volumes.values())
+
+
+@router.get("/disk-space")
+async def disk_space(db: AsyncSession = Depends(get_db_async)):
+    """Retourne l'espace disque des volumes Sonarr/Radarr, dédupliqué par chemin.
+
+    Mis en cache (stale-while-revalidate, voir cache.py) : interroge chaque instance
+    Sonarr/Radarr en direct, jamais instantané -- sans cache, ce seul appel bloquait
+    tout le tableau de bord derrière lui (voir DashboardView.vue) alors que le reste
+    du tableau de bord (stats/*, onboarding, etc.) n'est que des requêtes DB rapides.
+    """
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            return await _compute_disk_space(fresh_db)
+
+    return await cache.get_or_refresh(
+        _DISK_SPACE_CACHE_KEY, _DISK_SPACE_SOFT_TTL, _DISK_SPACE_HARD_TTL,
+        compute_sync=lambda: _compute_disk_space(db), compute_background=_background,
+    )

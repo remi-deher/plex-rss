@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..cache import cache
+from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest
 from ..utils import now_utc_naive
 from . import radarr, sonarr
@@ -21,12 +22,20 @@ from .plex_sync import _find_library_item_by_ids
 # leur catalogue (aucun endpoint paginé côté *arr pour "juste les non-suivis") --
 # sans cache, chaque chargement de la page Bibliothèque (et chaque calcul de compteur
 # dashboard, voir metrics_api.py) retapait les deux à chaque fois, dominant largement
-# le temps de réponse. Un TTL court suffit : le statut "non suivi" ne change pas à la
-# seconde près, et _invalidate_orphans_cache() force un rafraîchissement immédiat après
-# une suppression (voir requests_api.delete_orphan_request) plutôt que d'attendre le TTL.
+# le temps de réponse.
+#
+# get_or_refresh (stale-while-revalidate, voir cache.py) : la page affiche toujours la
+# derniere valeur connue instantanement, meme perimee au-dela de _ORPHAN_SOFT_TTL --
+# un rafraichissement se lance alors en arriere-plan (nouvelle session DB, la requete
+# d'origine est deja repartie) sans jamais faire attendre l'utilisateur derriere un
+# appel Sonarr/Radarr en direct, sauf au tout premier chargement (rien en cache).
+# _invalidate_orphans_cache() force malgre tout un rafraichissement immediat apres une
+# suppression (voir requests_api.delete_orphan_request), pour ne pas laisser l'item
+# supprime visible jusqu'au prochain cycle.
 _ORPHAN_SHOWS_CACHE_KEY = "plexarr:orphans:shows"
 _ORPHAN_MOVIES_CACHE_KEY = "plexarr:orphans:movies"
-_ORPHAN_CACHE_TTL = 90
+_ORPHAN_SOFT_TTL = 60
+_ORPHAN_HARD_TTL = 900
 
 
 async def _invalidate_orphans_cache() -> None:
@@ -55,10 +64,17 @@ def _poster_url(images: list[dict] | None) -> str | None:
 
 async def find_orphan_shows(db: AsyncSession) -> list[dict]:
     """Séries surveillées par Sonarr, non complètes, sans MediaRequest associée."""
-    cached = await cache.get_json(_ORPHAN_SHOWS_CACHE_KEY)
-    if cached is not None:
-        return cached["items"]
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            return await _compute_orphan_shows(fresh_db)
 
+    return await cache.get_or_refresh(
+        _ORPHAN_SHOWS_CACHE_KEY, _ORPHAN_SOFT_TTL, _ORPHAN_HARD_TTL,
+        compute_sync=lambda: _compute_orphan_shows(db), compute_background=_background,
+    )
+
+
+async def _compute_orphan_shows(db: AsyncSession) -> list[dict]:
     instances = (await db.execute(
         select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "sonarr")
     )).scalars().all()
@@ -104,16 +120,22 @@ async def find_orphan_shows(db: AsyncSession) -> list[dict]:
                 "episodes_aired_count": stats["episode_count"],
                 "episodes_total_count": stats["total_episode_count"],
             })
-    await cache.set_json(_ORPHAN_SHOWS_CACHE_KEY, {"items": results}, ttl_seconds=_ORPHAN_CACHE_TTL)
     return results
 
 
 async def find_orphan_movies(db: AsyncSession) -> list[dict]:
     """Films surveillés par Radarr, sans fichier, sans MediaRequest associée."""
-    cached = await cache.get_json(_ORPHAN_MOVIES_CACHE_KEY)
-    if cached is not None:
-        return cached["items"]
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            return await _compute_orphan_movies(fresh_db)
 
+    return await cache.get_or_refresh(
+        _ORPHAN_MOVIES_CACHE_KEY, _ORPHAN_SOFT_TTL, _ORPHAN_HARD_TTL,
+        compute_sync=lambda: _compute_orphan_movies(db), compute_background=_background,
+    )
+
+
+async def _compute_orphan_movies(db: AsyncSession) -> list[dict]:
     instances = (await db.execute(
         select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "radarr")
     )).scalars().all()
@@ -155,7 +177,6 @@ async def find_orphan_movies(db: AsyncSession) -> list[dict]:
                 "arr_instance_id": inst.id,
                 "arr_id": movie.get("id"),
             })
-    await cache.set_json(_ORPHAN_MOVIES_CACHE_KEY, {"items": results}, ttl_seconds=_ORPHAN_CACHE_TTL)
     return results
 
 

@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..database import get_db_async
+from ..cache import cache
+from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
@@ -482,15 +483,11 @@ def _release_is_french(rel: dict) -> bool:
     return bool(words & _FRENCH_TITLE_WORDS)
 
 
-@router.get("/arr/releases")
-async def arr_interactive_releases(
-    media_type: str,
-    arr_id: int,
-    instance_id: Optional[int] = None,
-    episode_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_db_async),
-):
-    """Recherche interactive Sonarr/Radarr : releases déjà scorées (qualité + custom format + langue) avec marquage VF."""
+_RELEASES_SOFT_TTL = 20
+_RELEASES_HARD_TTL = 120
+
+
+async def _compute_releases(db: AsyncSession, media_type: str, arr_id: int, instance_id: Optional[int], episode_id: Optional[int]) -> list[dict]:
     arr_type = "radarr" if media_type == "movie" else "sonarr"
     inst = await _resolve_arr_instance(db, instance_id, arr_type)
     if media_type == "movie":
@@ -503,6 +500,34 @@ async def arr_interactive_releases(
 
     releases.sort(key=lambda r: (r["is_french"], r.get("custom_format_score", 0), r.get("seeders", 0)), reverse=True)
     return releases
+
+
+@router.get("/arr/releases")
+async def arr_interactive_releases(
+    media_type: str,
+    arr_id: int,
+    instance_id: Optional[int] = None,
+    episode_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Recherche interactive Sonarr/Radarr : releases déjà scorées (qualité + custom
+    format + langue) avec marquage VF.
+
+    Mis en cache tres court (stale-while-revalidate, voir cache.py) : evite de
+    re-taper l'indexeur a chaque clic/rechargement rapproche sur la meme recherche,
+    sans jamais retarder un premier lancement (recalcul synchrone si rien en cache).
+    """
+    args = (media_type, arr_id, instance_id, episode_id)
+    key = f"plexarr:releases:{media_type}:{arr_id}:{instance_id}:{episode_id}"
+
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            return await _compute_releases(fresh_db, *args)
+
+    return await cache.get_or_refresh(
+        key, _RELEASES_SOFT_TTL, _RELEASES_HARD_TTL,
+        compute_sync=lambda: _compute_releases(db, *args), compute_background=_background,
+    )
 
 
 @router.post("/arr/grab")

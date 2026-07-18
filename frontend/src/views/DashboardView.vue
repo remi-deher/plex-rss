@@ -146,20 +146,25 @@ async function load() {
     api('/api/stats/by-user'),
     api('/api/onboarding'),
     api('/api/next-poll'),
-    api('/api/disk-space'),
     api('/api/stats/top-requested'),
     api('/api/stats/recently-available'),
     api('/api/upcoming?limit=8'),
     api('/api/notifications/log?limit=5'),
   ]);
-  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, diskSpace, topRequested, recentlyAvailable, upcoming];
+  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, topRequested, recentlyAvailable, upcoming];
   results.forEach((r, i) => {
     if (r.status === 'fulfilled' && refs[i]) refs[i].value = r.value;
   });
-  if (results[11].status === 'fulfilled') {
-    recentNotifs.value = results[11].value?.items ?? results[11].value ?? [];
+  if (results[10].status === 'fulfilled') {
+    recentNotifs.value = results[10].value?.items ?? results[10].value ?? [];
   }
   seconds.value = nextPoll.value.next_run_seconds;
+
+  // Espace disque : interroge Sonarr/Radarr en direct (mis en cache stale-while-
+  // revalidate cote backend, voir metrics_api.py) -- ne doit jamais bloquer le reste
+  // du dashboard (requetes DB rapides ci-dessus), donc chargee separement, sans attendre.
+  api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
+
   await loadDownloadQueue();
 }
 

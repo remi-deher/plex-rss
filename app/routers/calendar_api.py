@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..database import get_db_async
+from ..cache import cache
+from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_auth
 from ..models import ArrInstance, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import radarr, sonarr
@@ -113,6 +114,18 @@ def _calendar_entry_excluded(tracked, *, search_text, search_target, user, statu
     return False
 
 
+_CALENDAR_SOFT_TTL = 45
+_CALENDAR_HARD_TTL = 600
+
+
+def _calendar_cache_key(
+    start: Optional[str], end: Optional[str], tracked_only: bool, type: Optional[str],
+    search: Optional[str], user: Optional[str], status: Optional[str], vf: Optional[str], source: Optional[str],
+) -> str:
+    parts = [start or "", end or "", str(tracked_only), type or "", search or "", user or "", status or "", vf or "", source or ""]
+    return "plexarr:calendar:" + "|".join(parts)
+
+
 @router.get("/calendar")
 async def unified_calendar(
     start: Optional[str] = None,
@@ -126,7 +139,30 @@ async def unified_calendar(
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Calendrier unifié : épisodes Sonarr + sorties Radarr sur une plage de dates."""
+    """Calendrier unifié : épisodes Sonarr + sorties Radarr sur une plage de dates.
+
+    Mis en cache (stale-while-revalidate, voir cache.py) : interroge Sonarr ET Radarr
+    en direct pour chaque instance a chaque appel, sans quoi le calendrier bloquait
+    derriere ces appels a chaque changement de mois/filtre.
+    """
+    args = (start, end, tracked_only, type, search, user, status, vf, source)
+    key = _calendar_cache_key(*args)
+
+    async def _background():
+        async with AsyncSessionLocal() as fresh_db:
+            return await _compute_calendar(fresh_db, *args)
+
+    return await cache.get_or_refresh(
+        key, _CALENDAR_SOFT_TTL, _CALENDAR_HARD_TTL,
+        compute_sync=lambda: _compute_calendar(db, *args), compute_background=_background,
+    )
+
+
+async def _compute_calendar(
+    db: AsyncSession,
+    start: Optional[str], end: Optional[str], tracked_only: bool, type: Optional[str],
+    search: Optional[str], user: Optional[str], status: Optional[str], vf: Optional[str], source: Optional[str],
+) -> list[dict]:
     now = now_utc()
     start_dt = datetime.fromisoformat(start) if start else now - timedelta(days=7)
     end_dt = datetime.fromisoformat(end) if end else now + timedelta(days=21)

@@ -474,3 +474,28 @@ def test_prometheus_help_and_type_lines(client, db):
     assert "# HELP plex_rss_poll_total" in body
     assert "# TYPE plex_rss_poll_total counter" in body
     assert "# TYPE plex_rss_requests_by_status gauge" in body
+
+
+# ---------------------------------------------------------------------------
+# GET /api/disk-space (mis en cache, voir cache.get_or_refresh)
+# ---------------------------------------------------------------------------
+
+
+def test_disk_space_is_cached_between_calls(client, db):
+    """Deuxieme appel : ne doit pas retaper Sonarr -- c'est ce qui evite de bloquer
+    le dashboard derriere cet appel a chaque chargement."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.commit()
+
+    with patch(
+        "app.routers.metrics_api.sonarr.get_disk_space",
+        new=AsyncMock(return_value=[{"path": "/data", "freeSpace": 100, "totalSpace": 200}]),
+    ) as mock_disk:
+        first = client.get("/api/disk-space")
+        second = client.get("/api/disk-space")
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json() == second.json()
+    assert len(first.json()) == 1
+    mock_disk.assert_awaited_once()
