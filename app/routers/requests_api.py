@@ -321,6 +321,9 @@ async def delete_orphan_request(
         deleted_by=actor.get("username") or actor.get("plex_user_id") or "api",
     )
     await db.commit()
+    # Sans ca, l'item supprime resterait visible jusqu'a expiration du cache orphelins
+    # (voir arr_orphans.py) au lieu de disparaitre immediatement de la page Bibliotheque.
+    await arr_orphans._invalidate_orphans_cache()
     return {"status": "ok", "message": message}
 
 

@@ -1,6 +1,6 @@
 <template>
   <div class="poster-shell">
-    <img v-if="posterUrl" :src="posterUrl" alt="" @error="$event.target.style.display='none'">
+    <img v-if="posterUrl" :src="posterUrl" alt="" loading="lazy" decoding="async" @error="$event.target.style.display='none'">
     <div v-else class="poster-fallback"><Film/></div>
     <slot name="badges" />
     <slot name="overlay" />

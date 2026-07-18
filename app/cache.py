@@ -70,6 +70,15 @@ class Cache:
             except Exception as exc:
                 logger.warning("Redis write failed: %s", exc)
 
+    async def delete(self, key: str) -> None:
+        self._memory.pop(key, None)
+        client = await self._client()
+        if client:
+            try:
+                await client.delete(key)
+            except Exception as exc:
+                logger.warning("Redis delete failed: %s", exc)
+
     async def close(self) -> None:
         if self._redis:
             await self._redis.aclose()

@@ -210,14 +210,30 @@ function _libraryParams(offset) {
 }
 
 async function load() {
-  loading.value = true;
   error.value = '';
   libraryOffset.value = 0;
+  loading.value = true;
+
+  // Chargement priorise (facon Seerr) : la bibliotheque (lecture DB pure, rapide)
+  // s'affiche des qu'elle arrive, sans attendre demandes/orphelins/metriques -- ces
+  // derniers completent la vue ensuite au fil de l'eau. Les orphelins en particulier
+  // interrogent Sonarr/Radarr en direct (cache court cote backend, voir
+  // arr_orphans.py) : avant, tout restait bloque derriere ce seul appel via
+  // Promise.all, donnant l'impression d'un rechargement complet a chaque visite.
+  try {
+    const library = await api(`/api/library?${_libraryParams(0)}`);
+    libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
+    libraryOffset.value = library.length;
+    hasMoreLibrary.value = library.length === PAGE_SIZE;
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    loading.value = false;
+  }
 
   try {
     const q = query.value.trim();
-    const [library, requests, orphanRows, stats] = await Promise.all([
-      api(`/api/library?${_libraryParams(0)}`),
+    const [requests, orphanRows, stats] = await Promise.all([
       api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`),
       api('/api/requests/orphans').catch(() => []),
       api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`).catch(() => ({})),
@@ -234,17 +250,12 @@ async function load() {
 
     const matchingOrphans = q ? orphanRows.filter(o => o.title?.toLowerCase().includes(q.toLowerCase())) : orphanRows;
 
-    libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
     pendingRequests.value = pending;
     orphans.value = matchingOrphans.map(x => ({ ...x, _kind: 'request' }));
-    libraryOffset.value = library.length;
-    hasMoreLibrary.value = library.length === PAGE_SIZE;
     rawMetrics.value = stats;
     selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
   } catch (e) {
     error.value = e.message;
-  } finally {
-    loading.value = false;
   }
 }
 

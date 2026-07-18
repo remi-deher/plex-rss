@@ -140,6 +140,8 @@ def _radarr_movie(**kwargs) -> dict:
 def test_list_orphan_requests_returns_sonarr_and_radarr(client, db):
     """Les series/films surveilles sans MediaRequest associee remontent bien, avec
     leur badge de source et leur progression."""
+    from app.cache import cache
+    cache._memory.clear()
     db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
     db.add(ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True))
     db.commit()
@@ -160,6 +162,8 @@ def test_list_orphan_requests_returns_sonarr_and_radarr(client, db):
 
 def test_list_orphan_requests_excludes_known_show(client, db):
     """Une serie deja liee a une demande (par tvdb_id) n'apparait pas comme orpheline."""
+    from app.cache import cache
+    cache._memory.clear()
     db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
     db.add(_req(title="Already Requested", media_type="show", tvdb_id="999", arr_id=None))
     db.commit()
@@ -168,6 +172,58 @@ def test_list_orphan_requests_excludes_known_show(client, db):
         resp = client.get("/api/requests/orphans")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_list_orphan_requests_is_cached_between_calls(client, db):
+    """Deuxieme appel : ne doit pas retaper Sonarr/Radarr (cache court, voir
+    arr_orphans.py) -- c'est ce qui evite de recharger tout le catalogue *arr a
+    chaque affichage de la page Bibliotheque."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True))
+    db.commit()
+
+    with (
+        patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])) as mock_series,
+        patch("app.services.arr_orphans.radarr.get_all_movies", new=AsyncMock(return_value=[_radarr_movie()])) as mock_movies,
+    ):
+        first = client.get("/api/requests/orphans")
+        second = client.get("/api/requests/orphans")
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json() == second.json()
+    mock_series.assert_awaited_once()
+    mock_movies.assert_awaited_once()
+
+
+def test_delete_orphan_invalidates_cache(client, db):
+    """Apres suppression, un item ne doit pas rester visible jusqu'a expiration du
+    cache -- la suppression doit forcer une resynchronisation immediate."""
+    from app.cache import cache
+    cache._memory.clear()
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])) as mock_series:
+        resp = client.get("/api/requests/orphans")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+        mock_series.assert_awaited_once()
+
+    with (
+        patch("app.routers.requests_api.sonarr.lookup_series", new=AsyncMock(return_value={"title": "Orphan Show", "tvdbId": 999})),
+        patch("app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))),
+    ):
+        del_resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert del_resp.status_code == 200
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[])) as mock_series_after:
+        resp2 = client.get("/api/requests/orphans")
+    assert resp2.status_code == 200
+    assert resp2.json() == []
+    mock_series_after.assert_awaited_once()
 
 
 def test_delete_orphan_calls_sonarr_delete_series(client, db):

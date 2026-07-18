@@ -11,10 +11,27 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from ..cache import cache
 from ..models import ArrInstance, LibraryItem, MediaRequest
 from ..utils import now_utc_naive
 from . import radarr, sonarr
 from .plex_sync import _find_library_item_by_ids
+
+# find_orphan_shows/find_orphan_movies interrogent Sonarr/Radarr en direct pour TOUT
+# leur catalogue (aucun endpoint paginé côté *arr pour "juste les non-suivis") --
+# sans cache, chaque chargement de la page Bibliothèque (et chaque calcul de compteur
+# dashboard, voir metrics_api.py) retapait les deux à chaque fois, dominant largement
+# le temps de réponse. Un TTL court suffit : le statut "non suivi" ne change pas à la
+# seconde près, et _invalidate_orphans_cache() force un rafraîchissement immédiat après
+# une suppression (voir requests_api.delete_orphan_request) plutôt que d'attendre le TTL.
+_ORPHAN_SHOWS_CACHE_KEY = "plexarr:orphans:shows"
+_ORPHAN_MOVIES_CACHE_KEY = "plexarr:orphans:movies"
+_ORPHAN_CACHE_TTL = 90
+
+
+async def _invalidate_orphans_cache() -> None:
+    await cache.delete(_ORPHAN_SHOWS_CACHE_KEY)
+    await cache.delete(_ORPHAN_MOVIES_CACHE_KEY)
 
 
 def is_show_genuinely_incomplete(file_count: int, aired_count: int, total_count: int) -> bool:
@@ -38,6 +55,10 @@ def _poster_url(images: list[dict] | None) -> str | None:
 
 async def find_orphan_shows(db: AsyncSession) -> list[dict]:
     """Séries surveillées par Sonarr, non complètes, sans MediaRequest associée."""
+    cached = await cache.get_json(_ORPHAN_SHOWS_CACHE_KEY)
+    if cached is not None:
+        return cached["items"]
+
     instances = (await db.execute(
         select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "sonarr")
     )).scalars().all()
@@ -83,11 +104,16 @@ async def find_orphan_shows(db: AsyncSession) -> list[dict]:
                 "episodes_aired_count": stats["episode_count"],
                 "episodes_total_count": stats["total_episode_count"],
             })
+    await cache.set_json(_ORPHAN_SHOWS_CACHE_KEY, {"items": results}, ttl_seconds=_ORPHAN_CACHE_TTL)
     return results
 
 
 async def find_orphan_movies(db: AsyncSession) -> list[dict]:
     """Films surveillés par Radarr, sans fichier, sans MediaRequest associée."""
+    cached = await cache.get_json(_ORPHAN_MOVIES_CACHE_KEY)
+    if cached is not None:
+        return cached["items"]
+
     instances = (await db.execute(
         select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type == "radarr")
     )).scalars().all()
@@ -129,6 +155,7 @@ async def find_orphan_movies(db: AsyncSession) -> list[dict]:
                 "arr_instance_id": inst.id,
                 "arr_id": movie.get("id"),
             })
+    await cache.set_json(_ORPHAN_MOVIES_CACHE_KEY, {"items": results}, ttl_seconds=_ORPHAN_CACHE_TTL)
     return results
 
 
