@@ -124,8 +124,12 @@ const items = computed(() => {
 
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
 const query = ref(route.query.query || '');
+// Filtre par defaut = "Dans Plex" (pas "Tout") a l'arrivee sur la page : Bibliotheque
+// doit d'abord montrer ce qui est reellement regardable, pas le melange complet avec
+// les demandes en cours/orphelins. Un lien externe avec ?status=xxx (dashboard) garde
+// son comportement d'origine.
 const statusFilters = ref(
-  route.query.status ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status]) : []
+  route.query.status ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status]) : ['library']
 );
 const typeFilters = ref(route.query.type ? (Array.isArray(route.query.type) ? route.query.type : [route.query.type]) : []);
 const vf = ref('');
@@ -155,7 +159,12 @@ const requesters = computed(() => {
 // affiche des series qui n'ont en realite rien de manquant cote Sonarr.
 function matchesStatusFilter(item) {
   if (!statusFilters.value.length) return true;
-  if (item._kind === 'library') return statusFilters.value.includes('library');
+  // Une demande "disponible" (Radarr/Sonarr) compte comme "Dans Plex" meme sans
+  // LibraryItem : le sync Plex (quotidien) n'a peut-etre pas encore rattrape, mais du
+  // point de vue de l'utilisateur le media est deja regardable, comme un vrai LibraryItem.
+  if (item._kind === 'library' || (item._kind === 'request' && !item.orphan && item.status === 'available')) {
+    return statusFilters.value.includes('library');
+  }
   if (item.orphan) return statusFilters.value.includes('orphan');
   if (!statusFilters.value.includes(item.status)) return false;
   if (item.status !== 'partially_available') return true;
@@ -173,10 +182,13 @@ const filtered = computed(() => items.value.filter(item =>
 ));
 
 const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
+// Demandes "disponibles" sans LibraryItem (pas encore synchronisees Plex) : comptent
+// comme "Dans Plex" pour les metriques aussi, pas comme "En cours" (voir matchesStatusFilter).
+const availableUnsynced = computed(() => items.value.filter(x => x._kind === 'request' && !x.orphan && x.status === 'available'));
 
 const metrics = computed(() => [
-  { label: 'Dans Plex', value: rawMetrics.value.total ?? libraryItems.value.length },
-  { label: 'En cours', value: items.value.length - libraryItems.value.length },
+  { label: 'Dans Plex', value: (rawMetrics.value.total ?? libraryItems.value.length) + availableUnsynced.value.length },
+  { label: 'En cours', value: items.value.length - libraryItems.value.length - availableUnsynced.value.length },
   { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
   { label: 'En VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
 ]);
@@ -241,11 +253,15 @@ async function load() {
 
     allRequestsRaw.value = requests;
     const pending = requests
-      // Une demande partiellement disponible reste affichee comme "en cours" meme une
-      // fois synchronisee cote Plex (library_item_id pose des qu'un episode est indexe) :
-      // sinon elle disparaissait silencieusement de la vue une fois le premier episode
-      // present, avant d'etre reellement complete.
-      .filter(x => (x.status !== 'available' && !x.library_item_id) || x.status === 'partially_available')
+      // Toute demande sans LibraryItem doit rester visible, MEME "disponible" : Radarr/
+      // Sonarr peut confirmer le telechargement (et declencher la notification) bien
+      // avant le prochain sync Plex (une fois par jour) qui cree reellement le
+      // LibraryItem -- sans ce filtre elargi, un media "disponible" mais pas encore
+      // synchronise disparaissait de la Bibliotheque jusqu'au sync suivant (jusqu'a 24h).
+      // Une demande partiellement disponible reste "en cours" meme une fois liee a un
+      // LibraryItem (library_item_id pose des qu'un episode est indexe), pour ne pas
+      // disparaitre avant d'etre reellement complete.
+      .filter(x => !x.library_item_id || x.status === 'partially_available')
       .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
 
     const matchingOrphans = q ? orphanRows.filter(o => o.title?.toLowerCase().includes(q.toLowerCase())) : orphanRows;

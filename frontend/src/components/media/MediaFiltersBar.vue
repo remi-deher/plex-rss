@@ -96,7 +96,10 @@ const emit = defineEmits([
   'update:sourceFilters', 'update:requesterFilters', 'search',
 ]);
 
-const ALL_STATUSES = ['library', ...STATUSES, 'orphan'];
+// 'available' n'est plus selectionnable ici : une demande "disponible" est desormais
+// classee sous 'library' (voir LibraryView.vue matchesStatusFilter) meme sans
+// LibraryItem -- la garder ici l'aurait rendue selectionnable mais toujours vide.
+const ALL_STATUSES = ['library', ...STATUSES.filter(s => s !== 'available'), 'orphan'];
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
 const isInProgressFilter = computed(() => {
   const current = [...props.statusFilters].sort();
