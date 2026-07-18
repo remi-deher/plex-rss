@@ -39,17 +39,13 @@
           </div>
         </div>
 
-        <label v-if="task.job === 'arr-statuses'">
-          Intervalle de verification
-          <IntervalPresetInput v-model="form.arr_poll_interval_seconds" :presets="SECONDS_PRESETS"/>
-        </label>
-        <label v-else-if="task.settings_unit === 'heure (0-23)'">
+        <label v-if="task.settings_unit === 'heure (0-23)'">
           Heure de declenchement
           <TimeOfDayInput v-model:hour="form[task.settings_field]" v-model:minute="form[task.settings_minute_field]"/>
         </label>
-        <label v-else-if="task.settings_unit === 'minutes'">
-          Intervalle de rescan
-          <IntervalPresetInput v-model="form[task.settings_field]" :presets="MINUTES_PRESETS"/>
+        <label v-else-if="jobPresets(task.job)">
+          Frequence
+          <IntervalPresetInput v-model="form[task.settings_field]" :presets="jobPresets(task.job)"/>
         </label>
 
         <div v-if="openHistory === task.job" class="scheduled-task-history">
@@ -77,24 +73,60 @@ import SettingsCard from './SettingsCard.vue';
 import IntervalPresetInput from './IntervalPresetInput.vue';
 import TimeOfDayInput from './TimeOfDayInput.vue';
 
-const SECONDS_PRESETS = [
-  { label: '1 minute', value: 60 },
-  { label: '5 minutes', value: 300 },
-  { label: '10 minutes', value: 600 },
-  { label: '15 minutes', value: 900 },
-  { label: '30 minutes', value: 1800 },
-  { label: '1 heure', value: 3600 },
-];
-const MINUTES_PRESETS = [
-  { label: '10 minutes', value: 10 },
-  { label: '15 minutes', value: 15 },
-  { label: '30 minutes', value: 30 },
-  { label: '1 heure', value: 60 },
-  { label: '3 heures', value: 180 },
-  { label: '6 heures', value: 360 },
-  { label: '12 heures', value: 720 },
-  { label: '24 heures', value: 1440 },
-];
+// Presets par tache : chaque job periodique a ses propres frequences pertinentes
+// (un scan leger n'a pas les memes echelles de temps qu'une synchro complete).
+const JOB_PRESETS = {
+  'watchlist': [
+    { label: '30 secondes', value: 30 },
+    { label: '45 secondes', value: 45 },
+    { label: '1 minute', value: 60 },
+    { label: '2 minutes', value: 120 },
+    { label: '5 minutes', value: 300 },
+  ],
+  'arr-statuses': [
+    { label: '1 minute', value: 60 },
+    { label: '5 minutes', value: 300 },
+    { label: '10 minutes', value: 600 },
+    { label: '15 minutes', value: 900 },
+    { label: '30 minutes', value: 1800 },
+    { label: '1 heure', value: 3600 },
+  ],
+  'vff-statuses': [
+    { label: '10 minutes', value: 10 },
+    { label: '15 minutes', value: 15 },
+    { label: '30 minutes', value: 30 },
+    { label: '1 heure', value: 60 },
+    { label: '3 heures', value: 180 },
+    { label: '6 heures', value: 360 },
+    { label: '12 heures', value: 720 },
+    { label: '24 heures', value: 1440 },
+  ],
+  'plex-sync-recent': [
+    { label: '5 minutes', value: 5 },
+    { label: '10 minutes', value: 10 },
+    { label: '15 minutes', value: 15 },
+    { label: '20 minutes', value: 20 },
+    { label: '30 minutes', value: 30 },
+    { label: '1 heure', value: 60 },
+  ],
+  'plex-sync': [
+    { label: '1 heure', value: 1 },
+    { label: '2 heures', value: 2 },
+    { label: '3 heures', value: 3 },
+    { label: '4 heures', value: 4 },
+    { label: '6 heures', value: 6 },
+    { label: '8 heures', value: 8 },
+    { label: '12 heures', value: 12 },
+    { label: '24 heures', value: 24 },
+    { label: '48 heures', value: 48 },
+    { label: '72 heures', value: 72 },
+  ],
+};
+// episode-tracking/episode-availability partagent vff_recheck_interval_minutes avec vff-statuses
+JOB_PRESETS['episode-tracking'] = JOB_PRESETS['vff-statuses'];
+JOB_PRESETS['episode-availability'] = JOB_PRESETS['vff-statuses'];
+
+function jobPresets(job) { return JOB_PRESETS[job] || null; }
 
 const tasks = ref([]);
 const openHistory = ref(null);

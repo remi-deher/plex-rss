@@ -227,73 +227,51 @@ async def test_job_notification_purge_force_bypasses_local_hour_gate():
 
 
 @pytest.mark.asyncio
-async def test_job_plex_sync_compares_against_local_hour_not_utc():
-    """Regression : meme bug que le digest/la purge sur la sync Plex — hour=3 sur le
-    cron ARQ etait une heure UTC, pas locale (plex_sync_hour est murale). Doit
-    comparer via local_hour() plutot que l'heure UTC du cron."""
-    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
+async def test_job_plex_sync_uses_configured_interval_hours():
+    """plex_sync_interval_hours est un intervalle periodique (comme arr_poll_interval_seconds),
+    pas une heure murale -- job_plex_sync ne doit plus gater sur local_hour()/local_minute(),
+    juste deleguer a _run avec l'intervalle configure converti en secondes."""
+    fake_settings = type("S", (), {"plex_sync_interval_hours": 6})()
     with (
         patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
-        patch("app.jobs.local_hour", return_value=3),
-        patch("app.jobs.local_minute", return_value=0),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
     ):
         result = await jobs.job_plex_sync({"redis": FakeRedis()})
-    run_mock.assert_awaited_once()
     assert result == {"status": "complete"}
+    run_mock.assert_awaited_once()
+    assert run_mock.call_args.args[1] == "plex-sync"
+    assert run_mock.call_args.kwargs["interval_seconds"] == 6 * 3600
 
 
 @pytest.mark.asyncio
-async def test_job_plex_sync_not_due_outside_configured_local_hour():
-    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
+async def test_job_plex_sync_defaults_to_24h_when_unset():
     with (
-        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
-        patch("app.jobs.local_hour", return_value=5),
-        patch("app.jobs.local_minute", return_value=0),
-        patch("app.jobs._run", new=AsyncMock()) as run_mock,
-    ):
-        result = await jobs.job_plex_sync({"redis": FakeRedis()})
-    run_mock.assert_not_awaited()
-    assert result == {"status": "not_due"}
-
-
-@pytest.mark.asyncio
-async def test_job_plex_sync_not_due_outside_configured_local_minute():
-    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 15})()
-    with (
-        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
-        patch("app.jobs.local_hour", return_value=3),
-        patch("app.jobs.local_minute", return_value=0),
-        patch("app.jobs._run", new=AsyncMock()) as run_mock,
-    ):
-        result = await jobs.job_plex_sync({"redis": FakeRedis()})
-    run_mock.assert_not_awaited()
-    assert result == {"status": "not_due"}
-
-
-@pytest.mark.asyncio
-async def test_job_plex_sync_force_bypasses_local_hour_gate():
-    fake_settings = type("S", (), {"plex_sync_hour": 3, "plex_sync_minute": 0})()
-    with (
-        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
-        patch("app.jobs.local_hour", return_value=5),
-        patch("app.jobs.local_minute", return_value=0),
+        patch("app.jobs._settings", new=AsyncMock(return_value=None)),
         patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
     ):
-        result = await jobs.job_plex_sync({"redis": FakeRedis()}, force=True)
-    run_mock.assert_awaited_once()
-    assert result == {"status": "complete"}
+        await jobs.job_plex_sync({"redis": FakeRedis()})
+    assert run_mock.call_args.kwargs["interval_seconds"] == 24 * 3600
 
 
 @pytest.mark.asyncio
-async def test_job_plex_sync_recent_delegates_to_run_with_short_interval():
-    """job_plex_sync_recent n'est pas gate par local_hour (contrairement au scan complet) :
-    il est cense tourner frequemment, seul _run/_due (via interval_seconds=300) decide s'il
-    est vraiment temps de relancer un scan incremental."""
-    with patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock:
+async def test_job_plex_sync_recent_uses_configured_interval_minutes():
+    fake_settings = type("S", (), {"plex_sync_recent_interval_minutes": 15})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
         result = await jobs.job_plex_sync_recent({"redis": FakeRedis()})
     assert result == {"status": "complete"}
     run_mock.assert_awaited_once()
-    _, kwargs = run_mock.call_args
     assert run_mock.call_args.args[1] == "plex-sync-recent"
+    assert run_mock.call_args.kwargs["interval_seconds"] == 15 * 60
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_recent_defaults_to_5min_when_unset():
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=None)),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        await jobs.job_plex_sync_recent({"redis": FakeRedis()})
     assert run_mock.call_args.kwargs["interval_seconds"] == 300

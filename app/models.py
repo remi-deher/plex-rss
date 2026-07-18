@@ -156,11 +156,13 @@ class Settings(Base):
     digest_hour: Mapped[int] = mapped_column(default=8)
     digest_minute: Mapped[int] = mapped_column(default=0)
 
-    # Heure murale (0-23, fuseau APP_TIMEZONE) a laquelle tourne la synchronisation
-    # complete de la bibliotheque Plex (job "plex-sync") -- comparee via local_hour()
-    # comme digest_hour, pour ne pas etre decalee de 1h/2h CET/CEST comme avant.
-    plex_sync_hour: Mapped[int] = mapped_column(default=3)
-    plex_sync_minute: Mapped[int] = mapped_column(default=0)
+    # Frequence (en heures) du scan Plex complet ("plex-sync") -- un intervalle
+    # periodique plutot qu'une heure murale fixe (abandonnee : plus simple a régler,
+    # coherent avec les autres taches planifiees de type "toutes les N").
+    plex_sync_interval_hours: Mapped[int] = mapped_column(default=24)
+    # Frequence (en minutes) du scan Plex incremental ("plex-sync-recent", medias
+    # recemment ajoutes).
+    plex_sync_recent_interval_minutes: Mapped[int] = mapped_column(default=5)
 
     # Filigrane (watermark) du dernier scan Plex incremental reussi ("plex-sync-recent",
     # voir sync_plex_media_recent) -- persiste en base pour survivre a un redemarrage du

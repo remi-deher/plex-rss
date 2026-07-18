@@ -5,7 +5,8 @@
 import { computed } from 'vue';
 
 // Composant reutilisable pour tout reglage "heure murale" avec precision minute (ex.
-// digest_hour+digest_minute, plex_sync_hour+plex_sync_minute). Un <input type="time">
+// digest_hour+digest_minute -- un digest doit partir a un instant precis, contrairement
+// aux scans/sync periodiques qui utilisent IntervalPresetInput). Un <input type="time">
 // natif plutot qu'un stepper maison : chaque segment (heures/minutes) se controle
 // independamment (fleches clavier, molette, defilement tactile) sans code a maintenir.
 // step="60" masque le segment secondes (non pertinent, ces reglages n'en ont pas).

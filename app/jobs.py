@@ -286,30 +286,30 @@ async def job_seer_sync(ctx: dict, force: bool = False):
 async def job_plex_sync(ctx: dict, force: bool = False):
     from .services.plex_sync import sync_plex_media
 
-    # plex_sync_hour/plex_sync_minute est une heure murale (comme digest_hour) --
-    # comparer a now_utc() la decalerait silencieusement de 1h/2h selon CET/CEST (meme
-    # incident que job_digest/job_notification_purge : regle a 3h, tourne en realite
-    # a 5h l'ete). Le cron tourne donc a chaque minute (voir cron_plex_sync) et c'est
-    # ce garde-fou qui decide si c'est vraiment l'heure locale visee.
+    # plex_sync_interval_hours : intervalle periodique (comme les autres taches
+    # planifiees), pas une heure murale fixe -- plus simple a regler et ca evite la
+    # gymnastique CET/CEST de local_hour()/local_minute() (utile pour digest_hour, qui
+    # lui doit reellement partir a une heure precise, mais pas pour un scan de fond).
     settings = await _settings()
-    target_hour = settings.plex_sync_hour if settings and settings.plex_sync_hour is not None else 3
-    target_minute = settings.plex_sync_minute if settings and settings.plex_sync_minute is not None else 0
-    if not force and (local_hour() != target_hour or local_minute() != target_minute):
-        return {"status": "not_due"}
+    interval_hours = settings.plex_sync_interval_hours if settings and settings.plex_sync_interval_hours else 24
     return await _run(
-        ctx, "plex-sync", sync_plex_media, force=force, interval_seconds=86400, event_type="request.updated"
+        ctx, "plex-sync", sync_plex_media, force=force, interval_seconds=interval_hours * 3600, event_type="request.updated"
     )
 
 
 async def job_plex_sync_recent(ctx: dict, force: bool = False):
     """Scan Plex incremental (medias recemment ajoutes) : complement rapide du scan
-    complet quotidien (job_plex_sync), voir sync_plex_media_recent. Tourne toutes les
-    quelques minutes -- un media confirme disponible cote Radarr/Sonarr n'a plus a
-    attendre jusqu'a 24h avant d'apparaitre dans la Bibliotheque."""
+    complet (job_plex_sync), voir sync_plex_media_recent. Tourne frequemment -- un
+    media confirme disponible cote Radarr/Sonarr n'a plus a attendre le prochain scan
+    complet avant d'apparaitre dans la Bibliotheque."""
     from .services.plex_sync import sync_plex_media_recent
 
+    settings = await _settings()
+    interval_minutes = (
+        settings.plex_sync_recent_interval_minutes if settings and settings.plex_sync_recent_interval_minutes else 5
+    )
     return await _run(
-        ctx, "plex-sync-recent", sync_plex_media_recent, force=force, interval_seconds=300
+        ctx, "plex-sync-recent", sync_plex_media_recent, force=force, interval_seconds=interval_minutes * 60
     )
 
 
@@ -495,16 +495,15 @@ class WorkerSettings:
         cron(cron_episode_availability, minute=None, second=15, unique=True),
         cron(cron_new_vff, minute=None, second=20, unique=True),
         cron(cron_seer_sync, minute=5, unique=True),
-        # Tourne a chaque minute ; job_plex_sync decide via local_hour()/local_minute()
-        # si c'est vraiment l'heure configuree (plex_sync_hour/plex_sync_minute) --
-        # meme principe que cron_notification_purge/cron_digest (precision minute
-        # necessaire depuis que ces reglages ne sont plus une heure pleine). Plus de
-        # run_at_startup : un sync a chaque redemarrage du conteneur declenchait une
-        # rafale de notifications VF a des heures aleatoires (incident signale par
-        # l'utilisateur).
-        cron(cron_plex_sync, minute=None, unique=True),
-        # Scan incremental (medias recemment ajoutes) : toutes les 5 minutes, cout
-        # quasi nul (filtre serveur addedAt, pas de parcours complet de bibliotheque)
+        # Tourne toutes les 15 min (comme cron_arr_statuses) ; job_plex_sync decide via
+        # _run/_due si l'intervalle configure (plex_sync_interval_hours) est vraiment
+        # ecoule. Plus de run_at_startup : un sync a chaque redemarrage du conteneur
+        # declenchait une rafale de notifications VF a des heures aleatoires (incident
+        # signale par l'utilisateur).
+        cron(cron_plex_sync, minute={0, 15, 30, 45}, unique=True),
+        # Scan incremental (medias recemment ajoutes) : toutes les 5 minutes (plus fin
+        # que le preset le plus court, 5 min), cout quasi nul (filtre serveur addedAt,
+        # pas de parcours complet de bibliotheque)
         # -- voir job_plex_sync_recent / sync_plex_media_recent.
         cron(cron_plex_sync_recent, minute=set(range(0, 60, 5)), unique=True),
         cron(cron_notification_purge, minute=0, unique=True),

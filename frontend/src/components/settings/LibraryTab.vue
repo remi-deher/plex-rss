@@ -2,7 +2,7 @@
   <div class="settings-grid">
     <div class="settings-cards span-two">
       <SettingsCard title="Watchlist" :icon="Rss" status="active" :collapsible="false">
-        <label>Intervalle en secondes<input v-model.number="form.poll_interval_seconds" type="number" min="15"></label>
+        <label>Frequence de synchronisation<IntervalPresetInput v-model="form.poll_interval_seconds" :presets="WATCHLIST_PRESETS"/></label>
         <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">RSS</option></select></label>
         <label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label>
         <label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label>
@@ -15,7 +15,7 @@
         <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label>
         <label>Nouvelle analyse<IntervalPresetInput v-model="form.vff_recheck_interval_minutes" :presets="MINUTES_PRESETS"/></label>
         <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label>
-        <label>Heure de synchronisation Plex (complete)<TimeOfDayInput v-model:hour="form.plex_sync_hour" v-model:minute="form.plex_sync_minute"/><small>Heure locale a laquelle la bibliotheque Plex est resynchronisee en entier (1 fois par jour) ; un scan incremental (medias recemment ajoutes) tourne en continu toutes les 5 minutes</small></label>
+        <label>Frequence de synchronisation Plex (complete)<IntervalPresetInput v-model="form.plex_sync_interval_hours" :presets="PLEX_SYNC_PRESETS"/><small>La bibliotheque Plex est resynchronisee en entier a cette frequence ; un scan incremental (medias recemment ajoutes) tourne en continu, voir l'onglet Planification</small></label>
         <div>
           <strong style="display:block;margin-bottom:8px;font-size:13px">Bibliotheques analysees</strong>
           <div v-if="plexSectionsLoading" class="notice">Chargement des bibliotheques Plex...</div>
@@ -56,8 +56,14 @@ import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
 import IntervalPresetInput from './IntervalPresetInput.vue';
-import TimeOfDayInput from './TimeOfDayInput.vue';
 
+const WATCHLIST_PRESETS = [
+  { label: '30 secondes', value: 30 },
+  { label: '45 secondes', value: 45 },
+  { label: '1 minute', value: 60 },
+  { label: '2 minutes', value: 120 },
+  { label: '5 minutes', value: 300 },
+];
 const MINUTES_PRESETS = [
   { label: '10 minutes', value: 10 },
   { label: '15 minutes', value: 15 },
@@ -67,6 +73,18 @@ const MINUTES_PRESETS = [
   { label: '6 heures', value: 360 },
   { label: '12 heures', value: 720 },
   { label: '24 heures', value: 1440 },
+];
+const PLEX_SYNC_PRESETS = [
+  { label: '1 heure', value: 1 },
+  { label: '2 heures', value: 2 },
+  { label: '3 heures', value: 3 },
+  { label: '4 heures', value: 4 },
+  { label: '6 heures', value: 6 },
+  { label: '8 heures', value: 8 },
+  { label: '12 heures', value: 12 },
+  { label: '24 heures', value: 24 },
+  { label: '48 heures', value: 48 },
+  { label: '72 heures', value: 72 },
 ];
 
 const plexSections = ref([]);

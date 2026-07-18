@@ -20,9 +20,10 @@ from ..serializers import format_datetime
 router = APIRouter(prefix="/api", tags=["scheduled-tasks"], dependencies=[Depends(require_admin)])
 
 
-# settings_minute_field n'est renseigne que pour les taches "heure murale" (plex-sync,
-# digest) qui ont, en plus de l'heure, une minute de declenchement (digest_minute,
-# plex_sync_minute).
+# settings_minute_field n'est renseigne que pour les taches "heure murale" (digest,
+# la seule qui doit reellement partir a un instant precis plutot que suivre un simple
+# intervalle periodique) qui ont, en plus de l'heure, une minute de declenchement
+# (digest_minute).
 JOB_CATALOG = [
     {
         "job": "watchlist",
@@ -100,9 +101,8 @@ JOB_CATALOG = [
         "job": "plex-sync",
         "label": "Synchronisation bibliotheque Plex (complete)",
         "description": "Reconstruit entierement le cache local de la bibliotheque Plex.",
-        "settings_field": "plex_sync_hour",
-        "settings_unit": "heure (0-23)",
-        "settings_minute_field": "plex_sync_minute",
+        "settings_field": "plex_sync_interval_hours",
+        "settings_unit": "heures",
         "default_seconds": 86400,
         "fixed_schedule": None,
     },
@@ -110,8 +110,8 @@ JOB_CATALOG = [
         "job": "plex-sync-recent",
         "label": "Synchronisation bibliotheque Plex (recente)",
         "description": "Detecte rapidement les medias recemment ajoutes a Plex, sans attendre le scan complet quotidien.",
-        "settings_field": None,
-        "settings_unit": None,
+        "settings_field": "plex_sync_recent_interval_minutes",
+        "settings_unit": "minutes",
         "default_seconds": 300,
         "fixed_schedule": None,
     },
@@ -177,7 +177,7 @@ async def list_scheduled_tasks(db: AsyncSession = Depends(get_db_async)):
             raw = getattr(settings, settings_field, None)
             if raw:
                 settings_value = raw
-                interval_seconds = raw * 60 if settings_unit == "minutes" else raw
+                interval_seconds = raw * 3600 if settings_unit == "heures" else raw * 60 if settings_unit == "minutes" else raw
         if settings_minute_field and settings:
             settings_minute_value = getattr(settings, settings_minute_field, None)
         out.append({
@@ -185,7 +185,7 @@ async def list_scheduled_tasks(db: AsyncSession = Depends(get_db_async)):
             "label": entry["label"],
             "description": entry["description"],
             "interval_seconds": interval_seconds,
-            "configurable": settings_field is not None and settings_unit in ("minutes", "secondes"),
+            "configurable": settings_field is not None and settings_unit in ("minutes", "secondes", "heures"),
             "settings_field": settings_field,
             "settings_unit": settings_unit,
             "settings_value": settings_value,
