@@ -247,3 +247,17 @@ async def test_job_plex_sync_force_bypasses_local_hour_gate():
         result = await jobs.job_plex_sync({"redis": FakeRedis()}, force=True)
     run_mock.assert_awaited_once()
     assert result == {"status": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_recent_delegates_to_run_with_short_interval():
+    """job_plex_sync_recent n'est pas gate par local_hour (contrairement au scan complet) :
+    il est cense tourner frequemment, seul _run/_due (via interval_seconds=300) decide s'il
+    est vraiment temps de relancer un scan incremental."""
+    with patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock:
+        result = await jobs.job_plex_sync_recent({"redis": FakeRedis()})
+    assert result == {"status": "complete"}
+    run_mock.assert_awaited_once()
+    _, kwargs = run_mock.call_args
+    assert run_mock.call_args.args[1] == "plex-sync-recent"
+    assert run_mock.call_args.kwargs["interval_seconds"] == 300

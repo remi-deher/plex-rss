@@ -96,11 +96,20 @@ JOB_CATALOG = [
     ),
     (
         "plex-sync",
-        "Synchronisation bibliotheque Plex",
-        "Reconstruit le cache local de la bibliotheque Plex (necessaire a la confirmation de disponibilite).",
+        "Synchronisation bibliotheque Plex (complete)",
+        "Reconstruit entierement le cache local de la bibliotheque Plex.",
         "plex_sync_hour",
         "heure (0-23)",
         86400,
+        None,
+    ),
+    (
+        "plex-sync-recent",
+        "Synchronisation bibliotheque Plex (recente)",
+        "Detecte rapidement les medias recemment ajoutes a Plex, sans attendre le scan complet quotidien.",
+        None,
+        None,
+        300,
         None,
     ),
     (

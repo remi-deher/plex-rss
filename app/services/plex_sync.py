@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from datetime import timedelta
 from typing import Any, Optional
 
 from sqlalchemy import or_
@@ -25,6 +26,27 @@ plex_sync_state: dict[str, Any] = {
     "total_items": 0,
     "error": None,
 }
+
+# plex_sync_state est partage entre le scan complet (potentiellement long) et le scan
+# incremental (rapide) pour qu'ils ne tournent jamais en meme temps. Filet de securite
+# contre un run reellement bloque (process tue en plein scan) qui laisserait le flag a
+# "running" pour toujours et empecherait tout futur scan, complet ou incremental.
+_STALE_RUN_THRESHOLD = timedelta(minutes=45)
+
+
+def _reset_if_stale() -> None:
+    if plex_sync_state["status"] != "running" or not plex_sync_state["started_at"]:
+        return
+    from datetime import datetime
+
+    started = datetime.fromisoformat(plex_sync_state["started_at"])
+    if now_utc() - started > _STALE_RUN_THRESHOLD:
+        logger.warning(
+            "Plex Sync : run precedent bloque depuis plus de %s min, remise a idle",
+            _STALE_RUN_THRESHOLD.total_seconds() // 60,
+        )
+        plex_sync_state["status"] = "idle"
+        plex_sync_state["error"] = "Run precedent interrompu (timeout)"
 
 
 async def _find_library_item_by_ids(
@@ -182,12 +204,52 @@ async def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int
     return added_count
 
 
+async def _build_arr_lookup(db: AsyncSession) -> dict:
+    """Table de correspondance (media_type, id_kind, id_valeur) -> (instance, arr_id, slug),
+    partagee par le scan complet et le scan incremental pour rattacher un media Plex a
+    son instance Sonarr/Radarr des son integration.
+    """
+    instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
+    arr_lookup: dict = {}
+    for inst in instances:
+        try:
+            if inst.arr_type == "radarr":
+                movies = await get_all_movies(inst.url, inst.api_key)
+                for m in movies:
+                    tmdb = str(m.get("tmdbId") or "")
+                    imdb = m.get("imdbId")
+                    slug = m.get("titleSlug")
+                    arr_id = m.get("id")
+                    if tmdb:
+                        arr_lookup[("movie", "tmdb", tmdb)] = (inst.id, arr_id, slug)
+                    if imdb:
+                        arr_lookup[("movie", "imdb", imdb)] = (inst.id, arr_id, slug)
+            else:  # sonarr
+                series = await get_all_series(inst.url, inst.api_key)
+                for s in series:
+                    tvdb = str(s.get("tvdbId") or "")
+                    tmdb = str(s.get("tmdbId") or "")
+                    imdb = s.get("imdbId")
+                    slug = s.get("titleSlug")
+                    arr_id = s.get("id")
+                    if tvdb:
+                        arr_lookup[("show", "tvdb", tvdb)] = (inst.id, arr_id, slug)
+                    if tmdb:
+                        arr_lookup[("show", "tmdb", tmdb)] = (inst.id, arr_id, slug)
+                    if imdb:
+                        arr_lookup[("show", "imdb", imdb)] = (inst.id, arr_id, slug)
+        except Exception as inst_exc:
+            logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
+    return arr_lookup
+
+
 async def sync_plex_media():
     """Tâche planifiée : synchronise les médias Plex configurés avec la base de données.
 
     Vérifie l'existence de chaque média par GUID Plex ou identifiant externe.
     Enregistre les nouveaux médias en statut disponible avec la source "plex_sync".
     """
+    _reset_if_stale()
     if plex_sync_state["status"] == "running":
         logger.info("VFF Sync : une synchronisation est déjà en cours, skip")
         return
@@ -224,39 +286,7 @@ async def sync_plex_media():
         plex_sync_state["total_items"] = len(plex_items)
         logger.info(f"VFF Sync : {len(plex_items)} média(s) récupéré(s) de Plex, intégration en base...")
 
-        # Charger la table de correspondance Sonarr/Radarr
-        instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
-        arr_lookup = {}
-        for inst in instances:
-            try:
-                if inst.arr_type == "radarr":
-                    movies = await get_all_movies(inst.url, inst.api_key)
-                    for m in movies:
-                        tmdb = str(m.get("tmdbId") or "")
-                        imdb = m.get("imdbId")
-                        slug = m.get("titleSlug")
-                        arr_id = m.get("id")
-                        if tmdb:
-                            arr_lookup[("movie", "tmdb", tmdb)] = (inst.id, arr_id, slug)
-                        if imdb:
-                            arr_lookup[("movie", "imdb", imdb)] = (inst.id, arr_id, slug)
-                else:  # sonarr
-                    series = await get_all_series(inst.url, inst.api_key)
-                    for s in series:
-                        tvdb = str(s.get("tvdbId") or "")
-                        tmdb = str(s.get("tmdbId") or "")
-                        imdb = s.get("imdbId")
-                        slug = s.get("titleSlug")
-                        arr_id = s.get("id")
-                        if tvdb:
-                            arr_lookup[("show", "tvdb", tvdb)] = (inst.id, arr_id, slug)
-                        if tmdb:
-                            arr_lookup[("show", "tmdb", tmdb)] = (inst.id, arr_id, slug)
-                        if imdb:
-                            arr_lookup[("show", "imdb", imdb)] = (inst.id, arr_id, slug)
-            except Exception as inst_exc:
-                logger.warning(f"VFF Sync : impossible de charger la bibliothèque de {inst.name} : {inst_exc}")
-
+        arr_lookup = await _build_arr_lookup(db)
         added_count = await _integrate_plex_items(plex_items, arr_lookup)
 
         if added_count > 0:
@@ -272,6 +302,91 @@ async def sync_plex_media():
         plex_sync_state["finished_at"] = now_utc().isoformat()
     except Exception as e:
         logger.error(f"VFF Sync : erreur synchronisation : {e}")
+        plex_sync_state["status"] = "failed"
+        plex_sync_state["error"] = str(e)
+    finally:
+        await db.close()
+
+
+# Marge de securite soustraite au filigrane persiste, pour couvrir le decalage entre le
+# moment ou Plex indexe reellement un fichier et l'instant "addedAt" qu'il rapporte (et
+# une eventuelle horloge legerement desynchronisee) -- meme principe que le
+# "buffer de 10 minutes" du scan incremental de Seer/Overseerr.
+_RECENT_SYNC_BUFFER = timedelta(minutes=10)
+_RECENT_SYNC_DEFAULT_LOOKBACK = timedelta(minutes=15)
+
+
+async def sync_plex_media_recent():
+    """Scan incremental : ne recupere que les medias Plex ajoutes depuis le dernier scan.
+
+    Complement du scan complet quotidien (sync_plex_media) : pense pour tourner toutes
+    les quelques minutes (voir job_plex_sync_recent) sans jamais faire de gros appel a
+    Plex, pour qu'un media confirme disponible cote Radarr/Sonarr n'attende plus jusqu'a
+    24h avant d'apparaitre dans la Bibliotheque (voir LibraryItem). Partage le meme flag
+    plex_sync_state que le scan complet : les deux ne tournent jamais en meme temps.
+    """
+    _reset_if_stale()
+    if plex_sync_state["status"] == "running":
+        logger.info("VFF Sync (recent) : une synchronisation est déjà en cours, skip")
+        return
+
+    plex_sync_state["status"] = "running"
+    plex_sync_state["started_at"] = now_utc().isoformat()
+    plex_sync_state["finished_at"] = None
+    plex_sync_state["items_synced"] = 0
+    plex_sync_state["total_items"] = 0
+    plex_sync_state["error"] = None
+
+    db: AsyncSession = AsyncSessionLocal()
+    try:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if not settings or not settings.vff_enabled:
+            plex_sync_state["status"] = "idle"
+            return
+        if not settings.plex_url or not settings.plex_token:
+            plex_sync_state["status"] = "idle"
+            return
+
+        libs = _parse_vff_libraries(settings)
+        if not libs:
+            plex_sync_state["status"] = "idle"
+            return
+
+        # now_utc_naive() : coherent avec le stockage naif-UTC de la colonne et avec
+        # l'hypothese deja prise ailleurs (_integrate_plex_items) que l'horloge du
+        # conteneur est en UTC, addedAt de plexapi (naif, heure locale du process)
+        # etant alors directement comparable sans conversion.
+        run_started_at = now_utc_naive()
+        since = (
+            settings.plex_recent_sync_last_at - _RECENT_SYNC_BUFFER
+            if settings.plex_recent_sync_last_at
+            else run_started_at - _RECENT_SYNC_DEFAULT_LOOKBACK
+        )
+
+        plex_items = await asyncio.to_thread(
+            plex_finder.sync_plex_library_recent_blocking, settings.plex_url, settings.plex_token, libs, since
+        )
+        plex_sync_state["total_items"] = len(plex_items)
+
+        # Avance le filigrane des la recuperation Plex reussie, avant l'integration en
+        # base (_integrate_plex_items ouvre sa propre session) : un souci d'integration
+        # ne doit pas faire re-parcourir la meme fenetre de temps au prochain cycle.
+        settings.plex_recent_sync_last_at = run_started_at
+        await db.commit()
+
+        if plex_items:
+            logger.info(f"VFF Sync (recent) : {len(plex_items)} média(s) récemment ajouté(s) détecté(s)")
+            arr_lookup = await _build_arr_lookup(db)
+            added_count = await _integrate_plex_items(plex_items, arr_lookup)
+            if added_count > 0:
+                from .vff_scanner import check_vf_statuses
+
+                asyncio.create_task(check_vf_statuses())
+
+        plex_sync_state["status"] = "idle"
+        plex_sync_state["finished_at"] = now_utc().isoformat()
+    except Exception as e:
+        logger.error(f"VFF Sync (recent) : erreur synchronisation : {e}")
         plex_sync_state["status"] = "failed"
         plex_sync_state["error"] = str(e)
     finally:

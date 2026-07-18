@@ -253,6 +253,135 @@ async def test_sync_plex_media():
         assert item.arr_slug == "new-movie-from-plex"
 
 
+def test_sync_plex_library_recent_blocking_uses_added_at_filter():
+    """Le scan incremental doit filtrer cote serveur Plex via addedAt__gte plutot que
+    parcourir toute la bibliotheque (section.all()) -- voir sync_plex_media_recent."""
+    from app.services.plex_finder import sync_plex_library_recent_blocking
+
+    mock_item = MagicMock()
+    mock_item.title = "Fresh Movie"
+    mock_item.year = 2026
+    mock_item.guid = "plex://movie/555"
+    mock_item.thumb = None
+    mock_item.summary = "Just added"
+    mock_item.addedAt = None
+    mock_item.guids = []
+
+    mock_section = MagicMock()
+    mock_section.search.return_value = [mock_item]
+
+    mock_plex = MagicMock()
+    mock_plex.library.section.return_value = mock_section
+
+    since = object()  # sentinel, la valeur exacte n'est pas interpretee ici
+    with patch("app.services.plex_finder.connect", return_value=mock_plex):
+        results = sync_plex_library_recent_blocking(
+            "http://localhost:32400", "token", [{"name": "Films", "kind": "movie"}], since
+        )
+
+    assert len(results) == 1
+    assert results[0]["title"] == "Fresh Movie"
+    mock_section.search.assert_called_once_with(filters={"addedAt>>": since})
+    mock_section.all.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sync_plex_media_recent_persists_watermark_and_integrates_new_item():
+    from app.models import ArrInstance
+    from app.services import plex_sync
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    db = TestSession(Session())
+
+    settings = Settings(
+        plex_url="http://localhost",
+        plex_token="token",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        plex_recent_sync_last_at=None,
+    )
+    db.add(settings)
+    db.add(ArrInstance(id=1, name="Radarr Test", arr_type="radarr", url="http://radarr", api_key="key", enabled=True))
+    db.commit()
+
+    mock_item = {
+        "title": "Freshly Added",
+        "year": 2026,
+        "media_type": "movie",
+        "plex_guid": "plex://movie/777",
+        "tmdb_id": "7777",
+        "tvdb_id": None,
+        "imdb_id": None,
+        "poster_url": "http://poster",
+        "overview": "Overview",
+        "added_at": None,
+    }
+
+    captured_since = {}
+
+    def fake_recent_scan(plex_url, plex_token, libs, since):
+        captured_since["value"] = since
+        return [mock_item]
+
+    plex_sync.plex_sync_state["status"] = "idle"
+
+    with (
+        patch("app.services.plex_finder.sync_plex_library_recent_blocking", side_effect=fake_recent_scan),
+        patch("app.services.plex_sync.AsyncSessionLocal", return_value=db),
+        patch("app.services.plex_sync.get_all_movies", return_value=[]),
+        patch("app.services.plex_sync.get_all_series", return_value=[]),
+        patch("app.services.vff_scanner.check_vf_statuses"),
+    ):
+        await plex_sync.sync_plex_media_recent()
+
+    # Pas de watermark existant : repli sur le lookback par defaut (pas sur "depuis toujours").
+    assert captured_since["value"] is not None
+
+    item = db.query(LibraryItem).filter(LibraryItem.plex_guid == "plex://movie/777").first()
+    assert item is not None
+    assert item.title == "Freshly Added"
+
+    refreshed = db.query(Settings).first()
+    assert refreshed.plex_recent_sync_last_at is not None
+    assert plex_sync.plex_sync_state["status"] == "idle"
+
+
+def test_reset_if_stale_clears_a_wedged_run():
+    """Filet de securite : un run 'running' depuis plus de _STALE_RUN_THRESHOLD (process
+    tue en plein scan) ne doit pas bloquer indefiniment tout futur scan Plex."""
+    from datetime import timedelta
+
+    from app.services import plex_sync
+    from app.utils import now_utc
+
+    plex_sync.plex_sync_state["status"] = "running"
+    plex_sync.plex_sync_state["started_at"] = (now_utc() - timedelta(hours=2)).isoformat()
+
+    plex_sync._reset_if_stale()
+
+    assert plex_sync.plex_sync_state["status"] == "idle"
+
+
+def test_reset_if_stale_leaves_a_recent_run_alone():
+    from datetime import timedelta
+
+    from app.services import plex_sync
+    from app.utils import now_utc
+
+    plex_sync.plex_sync_state["status"] = "running"
+    plex_sync.plex_sync_state["started_at"] = (now_utc() - timedelta(minutes=2)).isoformat()
+
+    plex_sync._reset_if_stale()
+
+    assert plex_sync.plex_sync_state["status"] == "running"
+
+
 # ---------------------------------------------------------------------------
 # compute_vf_granularity
 # ---------------------------------------------------------------------------

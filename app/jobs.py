@@ -300,6 +300,18 @@ async def job_plex_sync(ctx: dict, force: bool = False):
     )
 
 
+async def job_plex_sync_recent(ctx: dict, force: bool = False):
+    """Scan Plex incremental (medias recemment ajoutes) : complement rapide du scan
+    complet quotidien (job_plex_sync), voir sync_plex_media_recent. Tourne toutes les
+    quelques minutes -- un media confirme disponible cote Radarr/Sonarr n'a plus a
+    attendre jusqu'a 24h avant d'apparaitre dans la Bibliotheque."""
+    from .services.plex_sync import sync_plex_media_recent
+
+    return await _run(
+        ctx, "plex-sync-recent", sync_plex_media_recent, force=force, interval_seconds=300
+    )
+
+
 PURGE_LOCAL_HOUR = 3  # heure murale visee, hors heures d'utilisation habituelles
 
 
@@ -438,6 +450,10 @@ async def cron_plex_sync(ctx: dict):
     return await job_plex_sync(ctx)
 
 
+async def cron_plex_sync_recent(ctx: dict):
+    return await job_plex_sync_recent(ctx)
+
+
 async def cron_notification_purge(ctx: dict):
     return await job_notification_purge(ctx)
 
@@ -457,6 +473,7 @@ class WorkerSettings:
         job_new_vff,
         job_seer_sync,
         job_plex_sync,
+        job_plex_sync_recent,
         job_notification_purge,
         job_digest,
         job_send_notification,
@@ -477,6 +494,10 @@ class WorkerSettings:
         # chaque redemarrage du conteneur declenchait une rafale de notifications VF
         # a des heures aleatoires (incident signale par l'utilisateur).
         cron(cron_plex_sync, minute=15, unique=True),
+        # Scan incremental (medias recemment ajoutes) : toutes les 5 minutes, cout
+        # quasi nul (filtre serveur addedAt, pas de parcours complet de bibliotheque)
+        # -- voir job_plex_sync_recent / sync_plex_media_recent.
+        cron(cron_plex_sync_recent, minute=set(range(0, 60, 5)), unique=True),
         cron(cron_notification_purge, minute=0, unique=True),
         cron(cron_digest, minute=0, unique=True),
     ]

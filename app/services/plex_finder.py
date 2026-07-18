@@ -272,6 +272,40 @@ def scan_media_vf(
     }
 
 
+def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
+    """Convertit un item plexapi (Movie/Show) en dict structuré pour l'integration en base.
+
+    Partagee par le scan complet et le scan incremental ("recemment ajoutes") : meme
+    forme de sortie consommee par `_integrate_plex_items`, quelle que soit la source.
+    """
+    tmdb_id = None
+    tvdb_id = None
+    imdb_id = None
+    for guid in getattr(m, "guids", []):
+        gid = guid.id or ""
+        if gid.startswith("tmdb://"):
+            tmdb_id = gid.split("tmdb://")[-1]
+        elif gid.startswith("tvdb://"):
+            tvdb_id = gid.split("tvdb://")[-1]
+        elif gid.startswith("imdb://"):
+            imdb_id = gid.split("imdb://")[-1]
+
+    return {
+        "title": m.title,
+        "year": getattr(m, "year", None),
+        "media_type": "show" if lib["kind"] in ("series", "anime") else "movie",
+        "plex_guid": getattr(m, "guid", None),
+        "tmdb_id": tmdb_id,
+        "tvdb_id": tvdb_id,
+        "imdb_id": imdb_id,
+        "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}"
+        if getattr(m, "thumb", None)
+        else None,
+        "overview": getattr(m, "summary", None),
+        "added_at": getattr(m, "addedAt", None),
+    }
+
+
 def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict]) -> list[dict]:
     """Récupère l'intégralité des médias présents dans les bibliothèques Plex spécifiées.
 
@@ -290,38 +324,47 @@ def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict])
             all_media = section.all()
             for m in all_media:
                 try:
-                    # Extraction des GUIDs externes (TMDB, TVDB, IMDB)
-                    tmdb_id = None
-                    tvdb_id = None
-                    imdb_id = None
-                    for guid in getattr(m, "guids", []):
-                        gid = guid.id or ""
-                        if gid.startswith("tmdb://"):
-                            tmdb_id = gid.split("tmdb://")[-1]
-                        elif gid.startswith("tvdb://"):
-                            tvdb_id = gid.split("tvdb://")[-1]
-                        elif gid.startswith("imdb://"):
-                            imdb_id = gid.split("imdb://")[-1]
-
-                    items.append(
-                        {
-                            "title": m.title,
-                            "year": getattr(m, "year", None),
-                            "media_type": "show" if lib["kind"] in ("series", "anime") else "movie",
-                            "plex_guid": getattr(m, "guid", None),
-                            "tmdb_id": tmdb_id,
-                            "tvdb_id": tvdb_id,
-                            "imdb_id": imdb_id,
-                            "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}"
-                            if getattr(m, "thumb", None)
-                            else None,
-                            "overview": getattr(m, "summary", None),
-                            "added_at": getattr(m, "addedAt", None),
-                        }
-                    )
+                    items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))
                 except Exception as item_exc:
                     logger.warning(f"VFF sync : erreur lecture média '{getattr(m, 'title', '?')}' : {item_exc}")
         except Exception as lib_exc:
             logger.warning(f"VFF sync : impossible de lire la bibliothèque '{lib['name']}' : {lib_exc}")
+
+    return items
+
+
+def sync_plex_library_recent_blocking(plex_url: str, plex_token: str, libs: list[dict], since) -> list[dict]:
+    """Recupere uniquement les medias ajoutes a Plex depuis `since` (scan incremental).
+
+    Utilise le filtre avance `filters={"addedAt>>": since}` de plexapi (traduit
+    serveur-side en epoch, voir LibrarySection._validateFieldValueDate) plutot que
+    `section.all()` : cout quasi nul meme sur une grosse bibliotheque, pense pour
+    tourner toutes les quelques minutes (voir sync_plex_media_recent) au lieu
+    d'attendre le scan complet quotidien -- meme principe que le "Recently Added Scan"
+    de Seer/Overseerr.
+
+    Note : la forme kwarg `addedAt__gte=...` existe aussi cote plexapi mais declenche
+    un filtrage cote client qui compare la valeur brute renvoyee par Plex (str) a notre
+    datetime Python et leve une TypeError -- `filters={"addedAt>>": ...}` est la seule
+    forme qui passe par la conversion epoch serveur.
+    """
+    try:
+        plex = connect(plex_url, plex_token)
+    except Exception as exc:
+        logger.error(f"VFF sync (recent) : connexion Plex impossible : {exc}")
+        return []
+
+    items = []
+    for lib in libs:
+        try:
+            section = plex.library.section(lib["name"])
+            recent_media = section.search(filters={"addedAt>>": since})
+            for m in recent_media:
+                try:
+                    items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))
+                except Exception as item_exc:
+                    logger.warning(f"VFF sync (recent) : erreur lecture média '{getattr(m, 'title', '?')}' : {item_exc}")
+        except Exception as lib_exc:
+            logger.warning(f"VFF sync (recent) : impossible de lire la bibliothèque '{lib['name']}' : {lib_exc}")
 
     return items
