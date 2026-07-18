@@ -4,6 +4,7 @@
     :subtitle="`${clients.length} client(s) configure(s)`"
     :icon="Download"
     :status="clients.some(c => c.enabled) ? 'active' : 'inactive'"
+    :collapsible="false"
   >
     <template #actions>
       <button class="secondary" @click.stop="openClientModal()"><Plus/>Ajouter</button>

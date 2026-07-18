@@ -1,6 +1,10 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
+      <SettingsCard title="Historique" :icon="Archive" status="active" :collapsible="false">
+        <label>Historique de polling (jours)<input v-model.number="form.poll_history_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
+      </SettingsCard>
+
       <SettingsCard
         v-for="task in tasks"
         :key="task.job"
@@ -9,6 +13,7 @@
         :icon="Clock"
         :status="cardStatus(task)"
         :status-text="cardStatusText(task)"
+        :collapsible="false"
       >
         <template #actions>
           <button class="secondary" @click.stop="toggleHistory(task.job)">
@@ -38,9 +43,14 @@
           Intervalle de verification
           <IntervalInput v-model="form.arr_poll_interval_seconds"/>
         </label>
-        <p v-else-if="task.settings_field" class="hint">
-          Modifiable depuis l'onglet Automatisation.
-        </p>
+        <label v-else-if="task.settings_unit === 'heure (0-23)'">
+          Heure (0-23)
+          <input v-model.number="form[task.settings_field]" type="number" min="0" max="23">
+        </label>
+        <label v-else-if="task.settings_unit === 'minutes'">
+          Intervalle (minutes)
+          <input v-model.number="form[task.settings_field]" type="number" min="1">
+        </label>
 
         <div v-if="openHistory === task.job" class="scheduled-task-history">
           <p v-if="historyLoading" class="notice">Chargement...</p>
@@ -60,7 +70,7 @@
 </template>
 <script setup>
 import { onMounted, ref } from 'vue';
-import { Clock, History } from '@lucide/vue';
+import { Archive, Clock, History } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';

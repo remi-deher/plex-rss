@@ -4,6 +4,7 @@
     :subtitle="`${arrInstances.length} instance(s) configuree(s)`"
     :icon="ServerCog"
     :status="arrInstances.some(i => i.enabled) ? 'active' : 'inactive'"
+    :collapsible="false"
   >
     <template #actions>
       <button class="secondary" @click.stop="openArrModal()"><Plus/>Ajouter</button>

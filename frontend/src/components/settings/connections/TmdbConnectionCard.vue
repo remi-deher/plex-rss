@@ -1,5 +1,5 @@
 <template>
-  <SettingsCard title="TMDB" subtitle="Metadonnees et posters" :icon="Clapperboard" :status="form.tmdb_enabled ? 'active' : 'inactive'">
+  <SettingsCard title="TMDB" subtitle="Metadonnees et posters" :icon="Clapperboard" :status="form.tmdb_enabled ? 'active' : 'inactive'" :collapsible="false">
     <template #actions>
       <button class="secondary" :disabled="!form.tmdb_enabled" @click.stop="testTmdb"><PlugZap/>Tester</button>
     </template>

@@ -5,7 +5,6 @@
       <SeerConnectionCard/>
       <TmdbConnectionCard/>
       <ArrInstancesCard/>
-      <DownloadClientsCard/>
     </div>
   </div>
 </template>
@@ -14,5 +13,4 @@ import PlexConnectionCard from './connections/PlexConnectionCard.vue';
 import SeerConnectionCard from './connections/SeerConnectionCard.vue';
 import TmdbConnectionCard from './connections/TmdbConnectionCard.vue';
 import ArrInstancesCard from './connections/ArrInstancesCard.vue';
-import DownloadClientsCard from './connections/DownloadClientsCard.vue';
 </script>
