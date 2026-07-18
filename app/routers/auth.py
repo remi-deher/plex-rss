@@ -132,6 +132,13 @@ async def login_get(request: Request, next: str = "/", db: AsyncSession = Depend
     return templates.TemplateResponse(request, "login.html", {"next": next, "error": None})
 
 
+@router.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy(request: Request):
+    """Page publique, sans authentification -- liee depuis la connexion, la barre
+    laterale et le pied de page des emails."""
+    return templates.TemplateResponse(request, "privacy.html", {})
+
+
 @router.post("/login", response_class=HTMLResponse)
 async def login_post(
     request: Request,

@@ -101,6 +101,19 @@ def test_get_shared_email_parts_respects_overrides():
     assert parts["_brand_color"] == "#123456"
 
 
+def test_get_shared_email_parts_omits_privacy_link_when_no_base_url():
+    """Sans public_base_url configuree, pas de lien vers /privacy dans le pied de page --
+    un lien absent vaut mieux qu'un lien casse ou pointant vers le mauvais domaine."""
+    parts = get_shared_email_parts(_settings())
+    assert "/privacy" not in parts["_footer_html"]
+
+
+def test_get_shared_email_parts_includes_privacy_link_when_base_url_set():
+    s = _settings(public_base_url="https://plexarr.example.com/")
+    parts = get_shared_email_parts(s)
+    assert 'href="https://plexarr.example.com/privacy"' in parts["_footer_html"]
+
+
 def test_get_event_visuals_defaults_per_event():
     visuals = get_event_visuals(None, "request")
     assert visuals["_badge_text"] == "Nouvelle demande"

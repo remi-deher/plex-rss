@@ -28,6 +28,7 @@
       <div class="menu-section mt-auto">
         <span class="menu-label">Compte</span>
         <RouterLink to="/profile" title="Profil"><UserRound />Profil</RouterLink>
+        <a href="/privacy" title="Confidentialite"><ShieldCheck />Confidentialite</a>
         <a href="/logout" title="Deconnexion"><LogOut />Deconnexion</a>
       </div>
     </aside>
@@ -71,6 +72,7 @@
             <div class="menu-section">
               <span class="menu-label">Compte</span>
               <RouterLink to="/profile" @click="closeMoreMenu"><UserRound />Profil</RouterLink>
+              <a href="/privacy"><ShieldCheck />Confidentialite</a>
               <a href="/logout"><LogOut />Deconnexion</a>
             </div>
           </div>
@@ -86,7 +88,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Bell, CalendarDays, Compass, Download, Gauge, Library, LogOut, ScrollText, Settings, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Bell, CalendarDays, Compass, Download, Gauge, Library, LogOut, ScrollText, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 const session=ref(null);

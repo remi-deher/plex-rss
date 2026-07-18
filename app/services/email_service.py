@@ -130,7 +130,9 @@ DEFAULT_HEADER_BRAND = "PLEXARR"
 DEFAULT_HEADER_SUBTITLE = "Notification Plex"
 DEFAULT_FOOTER_TEMPLATE = """Géré par **Plexarr**
 
-[Logiciel créé par DEHER Rémi](https://github.com/remi-deher/plex-rss)"""
+[Logiciel créé par DEHER Rémi](https://github.com/remi-deher/plex-rss)
+
+Projet personnel, sans finalité commerciale."""
 DEFAULT_SHOW_POSTER = True
 DEFAULT_SHOW_GENRES = True
 DEFAULT_SHOW_REQUESTER = True
@@ -217,10 +219,21 @@ def _setting_int(settings, field: str, default: int) -> int:
 def get_shared_email_parts(settings) -> dict:
     """Partie commune à tous les emails (header, pied de page, bloc affiche/tags), éditable une seule fois."""
     footer_md = _setting_str(settings, "email_footer_template", DEFAULT_FOOTER_TEMPLATE)
+    footer_html = markdown.markdown(footer_md)
+    # Lien vers /privacy ajouté dynamiquement (pas codé en dur dans le template) : un
+    # job planifié qui envoie l'email n'a pas de requête HTTP entrante dont dériver le
+    # domaine, donc pas de lien si l'admin n'a pas renseigné public_base_url -- un lien
+    # absent vaut mieux qu'un lien cassé ou pointant vers le mauvais domaine.
+    base_url = _setting_str(settings, "public_base_url", "").rstrip("/")
+    if base_url:
+        footer_html += (
+            f'<p style="margin-top:8px;font-size:12px;color:#888;">'
+            f'<a href="{base_url}/privacy" style="color:inherit;">Politique de confidentialité</a></p>'
+        )
     return {
         "_header_brand": _setting_str(settings, "email_header_brand", DEFAULT_HEADER_BRAND),
         "_header_subtitle": _setting_str(settings, "email_header_subtitle", DEFAULT_HEADER_SUBTITLE),
-        "_footer_html": markdown.markdown(footer_md),
+        "_footer_html": footer_html,
         "_show_poster": _setting_bool(settings, "email_show_poster", DEFAULT_SHOW_POSTER),
         "_show_genres": _setting_bool(settings, "email_show_genres", DEFAULT_SHOW_GENRES),
         "_show_requester": _setting_bool(settings, "email_show_requester", DEFAULT_SHOW_REQUESTER),

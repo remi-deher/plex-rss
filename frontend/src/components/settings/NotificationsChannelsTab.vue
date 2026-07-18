@@ -13,6 +13,7 @@
         <label>Expediteur<input v-model="form.smtp_from" type="email"></label>
         <label>Email administrateur<input v-model="form.admin_notification_email"></label>
         <label class="check"><input v-model="form.smtp_tls" type="checkbox"> TLS</label>
+        <label>URL publique de l'application<input v-model="form.public_base_url" type="url" placeholder="https://plexarr.mondomaine.fr"><small>Utilisee pour le lien vers la politique de confidentialite dans le pied de page des emails ; laisser vide pour ne pas l'afficher</small></label>
       </SettingsCard>
 
       <SettingsCard

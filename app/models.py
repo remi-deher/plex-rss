@@ -230,6 +230,12 @@ class Settings(Base):
     totp_enabled: Mapped[bool] = mapped_column(default=False)
     default_locale: Mapped[str] = mapped_column(default="fr")
 
+    # URL publique de l'instance (ex: https://plexarr.mondomaine.fr), utilisee pour
+    # construire des liens absolus dans des contextes sans requete HTTP entrante (les
+    # jobs planifies qui envoient les emails n'ont pas de "page courante" dont deriver
+    # une URL) -- typiquement le lien vers /privacy dans le pied de page des emails.
+    public_base_url: Mapped[Optional[str]] = mapped_column(default=None)
+
     # --- Approbation des demandes ---
     # Si True, une demande d'un utilisateur 'user' non auto-approuvé attend la validation
     # d'un admin (statut pending_approval) avant d'être envoyée à *arr. Les admins et les
