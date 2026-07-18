@@ -73,6 +73,8 @@
         </div>
       </div>
       <div class="actions">
+        <button v-if="row.status === 'pending_approval' && admin" class="icon-button success" title="Approuver" :disabled="busy" @click="$emit('approve', row.id)"><Check /></button>
+        <button v-if="row.status === 'pending_approval' && admin" class="icon-button danger" title="Refuser" :disabled="busy" @click="$emit('reject', row)"><Ban /></button>
         <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="$emit('open-release', row.id)"><Search /></button>
         <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" @click="$emit('retry', row.id)"><RotateCcw /></button>
         <button v-if="admin && hasUnnotified(row)" class="icon-button" title="Rattraper tout le monde (notifier les demandeurs pas encore prevenus)" :disabled="busy" @click="$emit('catch-up-all', row)"><Users /></button>
@@ -88,7 +90,7 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircle, RotateCcw, Search, Trash2, UserMinus, Users } from '@lucide/vue';
+import { Ban, Check, CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircle, RotateCcw, Search, Trash2, UserMinus, Users } from '@lucide/vue';
 
 defineProps({
   requests: { type: Array, default: () => [] },
@@ -100,6 +102,7 @@ defineProps({
 defineEmits([
   'update:newRequesterId', 'add-requester', 'open-release', 'retry', 'catch-up-all',
   'resend-mail', 'close-request', 'delete-request', 'notify-user', 'promote-requester', 'remove-requester',
+  'approve', 'reject',
 ]);
 
 const openRequesterMenu = ref(null);

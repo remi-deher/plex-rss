@@ -5,9 +5,14 @@
         <h1>Bibliotheque</h1>
         <p>Catalogue Plex, demandes en cours et suivi des versions.</p>
       </div>
-      <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
-        <RefreshCw :class="{spin:loading}"/>
-      </button>
+      <div class="actions">
+        <button v-if="isAdmin" class="secondary" :disabled="busy" @click="runUtility('/api/requests/poll')">
+          <RefreshCw/>Verifier maintenant
+        </button>
+        <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+          <RefreshCw :class="{spin:loading}"/>
+        </button>
+      </div>
     </header>
 
     <section class="metric-grid compact-metrics">
@@ -17,17 +22,28 @@
       </article>
     </section>
 
-    <LibraryFiltersBar
-      v-model:query="query"
-      v-model:type="type"
-      v-model:vf="vf"
-      v-model:status="status"
-      v-model:user-filter="userFilter"
-      v-model:view="view"
-      :users="users"
-      @search="scheduleLoad"
-      @update:type="load"
-    />
+    <div class="sticky-stack">
+      <MediaFiltersBar
+        v-model:query="query"
+        v-model:view="view"
+        v-model:status-filters="statusFilters"
+        v-model:type-filters="typeFilters"
+        v-model:vf="vf"
+        v-model:source-filters="sourceFilters"
+        v-model:requester-filters="requesterFilters"
+        :sources="sources"
+        :requesters="requesters"
+        @search="scheduleLoad"
+      />
+
+      <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
+        <strong>{{ selectedIds.length }} selectionnee(s)</strong>
+        <button class="secondary" @click="bulk('retry')"><RotateCcw/>Relancer</button>
+        <button class="secondary" @click="bulk('mark-processed')"><CheckCheck/>Traiter</button>
+        <button class="secondary danger" @click="bulk('delete')"><Trash2/>Supprimer</button>
+        <button class="icon-button" title="Annuler" @click="selectedIds=[]"><X/></button>
+      </div>
+    </div>
 
     <p v-if="error" class="notice error-text">{{ error }}</p>
 
@@ -37,8 +53,12 @@
         :key="`${item._kind}-${item.id}`"
         :item="item"
         :view="view"
+        :is-admin="isAdmin"
+        :selected="selectedIds.includes(item.id)"
         @open="openDetail"
-        @go-to-request="goToRequest"
+        @toggle-select="toggleSelect"
+        @act="act"
+        @delete-orphan="deleteOrphan"
       />
     </section>
 
@@ -50,24 +70,25 @@
         {{ loadingMore ? 'Chargement...' : 'Charger plus' }}
       </button>
     </div>
-
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
-import { RefreshCw } from '@lucide/vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 import { api } from '@/api';
-import LibraryFiltersBar from '@/components/library/LibraryFiltersBar.vue';
+import { useRealtime } from '@/events';
+import { useConfirm } from '@/composables/useConfirm';
+import MediaFiltersBar from '@/components/media/MediaFiltersBar.vue';
 import LibraryCard from '@/components/library/LibraryCard.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
 
+const route = useRoute();
 const router = useRouter();
-
-function goToRequest(item) {
-  router.push({ path: '/requests', query: { query: item.title } });
-}
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 function openDetail(item) {
   router.push(mediaDetailPath(item, item._kind));
@@ -77,11 +98,16 @@ const PAGE_SIZE = 200;
 
 const libraryItemsRaw = ref([]);
 const pendingRequests = ref([]);
+const allRequestsRaw = ref([]);
+const orphans = ref([]);
 const rawMetrics = ref({});
 const users = ref([]);
 const libraryOffset = ref(0);
 const hasMoreLibrary = ref(false);
 const loadingMore = ref(false);
+const selectedIds = ref([]);
+const isAdmin = ref(false);
+const busy = ref(false);
 
 // Une demande partiellement disponible garde son library_item_id une fois indexee cote
 // Plex : on exclut le LibraryItem correspondant pour ne pas l'afficher deux fois (une
@@ -93,42 +119,58 @@ const items = computed(() => {
   const libraryItems = partialLibraryIds.size
     ? libraryItemsRaw.value.filter(x => !partialLibraryIds.has(x.id))
     : libraryItemsRaw.value;
-  return [...libraryItems, ...pendingRequests.value];
+  return [...libraryItems, ...pendingRequests.value, ...orphans.value];
 });
 
-const query = ref('');
-const type = ref('');
+const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
+const query = ref(route.query.query || '');
+const statusFilters = ref(
+  route.query.status ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status]) : []
+);
+const typeFilters = ref(route.query.type ? (Array.isArray(route.query.type) ? route.query.type : [route.query.type]) : []);
 const vf = ref('');
-const status = ref('');
-const userFilter = ref('');
+const sourceFilters = ref([]);
+const requesterFilters = ref([]);
 const view = ref(localStorage.getItem('library.view') || 'grid');
 
 const loading = ref(false);
 const error = ref('');
 
-let timer;
+let timer, fallback;
 
-const filtered = computed(() => {
-  return items.value.filter(item => {
-    // Audio filter
-    if (vf.value === 'vf' && item.has_vf !== true) return false;
-    if (vf.value === 'vo' && item.has_vf !== false) return false;
-    if (vf.value === 'unchecked' && item.has_vf != null) return false;
-
-    // Status filter
-    if (status.value === 'library' && item._kind !== 'library') return false;
-    if (status.value === 'request' && item._kind !== 'request') return false;
-    if (status.value === 'partial' && item.status !== 'partially_available') return false;
-
-    // User filter (only applies to requests)
-    if (userFilter.value) {
-      if (item._kind !== 'request') return false;
-      if (item.plex_user_id !== userFilter.value && item.requested_by !== userFilter.value) return false;
-    }
-
-    return true;
-  });
+const sources = computed(() => [...new Set(allRequestsRaw.value.map(x => x.source).filter(Boolean))]);
+const requesters = computed(() => {
+  const seen = new Map();
+  for (const row of allRequestsRaw.value) {
+    const id = row.plex_user_id;
+    if (!id || seen.has(id)) continue;
+    seen.set(id, row.requested_by || row.plex_user || id);
+  }
+  return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
+
+// Une serie "partially_available" reste dans ce statut tant qu'elle n'a pas fini de
+// diffuser (voir arr_tracker.is_show_partial cote backend), meme quand elle est deja a
+// jour sur tout ce qui est reellement sorti -- sans ce filtre, "Partiellement disponible"
+// affiche des series qui n'ont en realite rien de manquant cote Sonarr.
+function matchesStatusFilter(item) {
+  if (!statusFilters.value.length) return true;
+  if (item._kind === 'library') return statusFilters.value.includes('library');
+  if (item.orphan) return statusFilters.value.includes('orphan');
+  if (!statusFilters.value.includes(item.status)) return false;
+  if (item.status !== 'partially_available') return true;
+  return Boolean(item.episodes_aired_count) && item.episodes_available_count < item.episodes_aired_count;
+}
+
+const filtered = computed(() => items.value.filter(item =>
+  matchesStatusFilter(item) &&
+  (!typeFilters.value.length || typeFilters.value.includes(item.media_type)) &&
+  (vf.value !== 'vf' || item.has_vf === true) &&
+  (vf.value !== 'vo' || item.has_vf === false) &&
+  (vf.value !== 'unchecked' || item.has_vf == null) &&
+  (!sourceFilters.value.length || sourceFilters.value.includes(item.source)) &&
+  (!requesterFilters.value.length || requesterFilters.value.includes(item.plex_user_id))
+));
 
 const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
 
@@ -147,6 +189,10 @@ function proxyUrl(url) {
   return url;
 }
 
+function toggleSelect(id) {
+  selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(x => x !== id) : [...selectedIds.value, id];
+}
+
 watch(view, value => localStorage.setItem('library.view', value));
 
 function scheduleLoad() {
@@ -157,7 +203,7 @@ function scheduleLoad() {
 function _libraryParams(offset) {
   const p = new URLSearchParams();
   if (query.value.trim()) p.set('query', query.value.trim());
-  if (type.value) p.set('media_type', type.value);
+  if (typeFilters.value.length === 1) p.set('media_type', typeFilters.value[0]);
   p.set('limit', PAGE_SIZE);
   p.set('offset', offset);
   return p;
@@ -169,26 +215,32 @@ async function load() {
   libraryOffset.value = 0;
 
   try {
-    const [library, requests, stats] = await Promise.all([
+    const q = query.value.trim();
+    const [library, requests, orphanRows, stats] = await Promise.all([
       api(`/api/library?${_libraryParams(0)}`),
-      api(`/api/requests${query.value.trim() ? `?query=${encodeURIComponent(query.value.trim())}` : ''}`),
-      api(`/api/library-metrics${type.value ? `?media_type=${type.value}` : ''}`).catch(() => ({}))
+      api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`),
+      api('/api/requests/orphans').catch(() => []),
+      api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`).catch(() => ({})),
     ]);
 
+    allRequestsRaw.value = requests;
     const pending = requests
       // Une demande partiellement disponible reste affichee comme "en cours" meme une
       // fois synchronisee cote Plex (library_item_id pose des qu'un episode est indexe) :
       // sinon elle disparaissait silencieusement de la vue une fois le premier episode
       // present, avant d'etre reellement complete.
       .filter(x => (x.status !== 'available' && !x.library_item_id) || x.status === 'partially_available')
-      .filter(x => !type.value || x.media_type === type.value)
       .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
+
+    const matchingOrphans = q ? orphanRows.filter(o => o.title?.toLowerCase().includes(q.toLowerCase())) : orphanRows;
 
     libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
     pendingRequests.value = pending;
+    orphans.value = matchingOrphans.map(x => ({ ...x, _kind: 'request' }));
     libraryOffset.value = library.length;
     hasMoreLibrary.value = library.length === PAGE_SIZE;
     rawMetrics.value = stats;
+    selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -219,9 +271,81 @@ async function loadUsers() {
   }
 }
 
-onMounted(() => {
-  load();
+async function deleteOrphan(row) {
+  const source = row.orphan_source === 'sonarr' ? 'Sonarr' : 'Radarr';
+  if (!await askConfirm({
+    title: `Supprimer directement de ${source} ?`,
+    message: `"${row.title}" ne sera plus suivi(e) par ${source}. Cette action est irreversible.`,
+    confirmLabel: 'Supprimer',
+    danger: true,
+  })) return;
+  // Les fichiers deja telecharges (le cas echeant) restent sur le disque -- et donc
+  // visibles dans Plex jusqu'a son prochain scan -- sauf choix explicite ici.
+  const deleteFiles = confirm(
+    `Supprimer aussi les fichiers deja telecharges pour "${row.title}" ?\n\n` +
+    `Sans cela, ${source} arrete le suivi mais laisse les fichiers en place (toujours visibles dans Plex).`
+  );
+  busy.value = true;
+  try {
+    await api(`/api/requests/orphans/${row.orphan_source}/${row.arr_instance_id}/${row.arr_id}?delete_files=${deleteFiles}`, { method: 'DELETE' });
+    await load();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function act(row, action) {
+  busy.value = true;
+  try {
+    if (action === 'cancel' && isAdmin.value) await api(`/api/requests/${row.id}`, { method: 'DELETE' });
+    else await api(`/api/requests/${row.id}/${action}`, { method: 'POST' });
+    await load();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function bulk(action) {
+  if (action === 'delete' && !await askConfirm({ title: 'Supprimer les demandes sélectionnées ?', message: `${selectedIds.value.length} demande(s) seront supprimée(s) définitivement.`, confirmLabel: 'Supprimer', danger: true })) return;
+  busy.value = true;
+  try {
+    await api(`/api/requests/bulk/${action}`, { method: 'POST', body: JSON.stringify({ ids: selectedIds.value, delete_from_arr: false, delete_files: false }) });
+    selectedIds.value = [];
+    await load();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function runUtility(path) {
+  busy.value = true;
+  try {
+    await api(path, { method: 'POST' });
+    await load();
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+useRealtime(['request.updated'], load);
+onMounted(async () => {
+  const session = await api('/api/session').catch(() => null);
+  isAdmin.value = Boolean(session?.is_owner || session?.role === 'admin');
+  await load();
   loadUsers();
+  fallback = setInterval(load, 120000);
+});
+onUnmounted(() => {
+  clearTimeout(timer);
+  clearInterval(fallback);
 });
 </script>
 
@@ -233,8 +357,8 @@ onMounted(() => {
 }
 
 /* Plafonne a 4 colonnes sur cette page (le reste du responsive -- 4/3/2 colonnes en
-   dessous de 1200px -- vient deja de .media-grid, partage avec Demandes/Decouvrir) :
-   sans ce plafond .media-grid passe a 5 colonnes au-dela de 1200px. */
+   dessous de 1200px -- vient deja de .media-grid, partage avec Decouvrir) : sans ce
+   plafond .media-grid passe a 5 colonnes au-dela de 1200px. */
 @media (min-width: 1201px) {
   .library-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));

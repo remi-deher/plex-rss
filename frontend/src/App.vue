@@ -10,7 +10,6 @@
         <span class="menu-label">Principal</span>
         <RouterLink to="/dashboard" title="Dashboard"><Gauge />Dashboard</RouterLink>
         <RouterLink to="/discover" title="Decouvrir"><Compass />Decouvrir</RouterLink>
-        <RouterLink to="/requests" title="Demandes"><ListChecks />Demandes</RouterLink>
         <RouterLink to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
         <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
         <RouterLink to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
@@ -56,7 +55,6 @@
           <div class="sheet-content">
             <div class="menu-section">
               <span class="menu-label">Principal</span>
-              <RouterLink to="/requests" @click="closeMoreMenu"><ListChecks />Demandes</RouterLink>
               <RouterLink to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
             </div>
             
@@ -88,7 +86,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { Bell, CalendarDays, Compass, Download, Gauge, Library, ListChecks, LogOut, ScrollText, Settings, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Bell, CalendarDays, Compass, Download, Gauge, Library, LogOut, ScrollText, Settings, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 const session=ref(null);

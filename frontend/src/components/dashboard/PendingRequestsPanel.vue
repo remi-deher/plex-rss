@@ -2,7 +2,7 @@
   <section class="panel">
     <div class="panel-head">
       <h2>Demandes a valider</h2>
-      <RouterLink to="/requests" class="panel-link">Tout voir</RouterLink>
+      <RouterLink to="/library?status=pending_approval" class="panel-link">Tout voir</RouterLink>
     </div>
     <article v-for="row in pending" :key="row.id" class="detail-row">
       <div>

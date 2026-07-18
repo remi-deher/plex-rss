@@ -46,6 +46,8 @@
             @notify-user="notifyUser"
             @promote-requester="promoteRequester"
             @remove-requester="removeRequester"
+            @approve="id => requestAction(id, 'approve')"
+            @reject="rejectRequest"
           />
 
           <MediaCalendarTab v-else-if="tab === 'calendar'" :events="detail.calendar" />
@@ -271,6 +273,16 @@ async function requestAction(id, action) {
   catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
+async function rejectRequest(row) {
+  const reason = prompt('Motif du refus', 'Demande refusee par un administrateur');
+  if (reason === null) return;
+  busy.value = true;
+  try {
+    await api(`/api/requests/${row.id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+    await load();
+  } catch (e) { error.value = e.message; } finally { busy.value = false; }
+}
+
 async function closeRequest(row) {
   const notify = await askConfirm({ title: 'Notifier la disponibilité ?', message: 'Un email de disponibilité sera envoyé au demandeur.', confirmLabel: 'Notifier' });
   let stopVfTracking = false;
@@ -358,7 +370,7 @@ async function removeRequester(row, uid) {
 async function deleteRequest(id) {
   if (!await askConfirm({ title: 'Supprimer cette demande ?', message: 'La demande sera supprimée définitivement.', confirmLabel: 'Supprimer', danger: true })) return;
   busy.value = true;
-  try { await api(`/api/requests/${id}`, { method: 'DELETE' }); router.push('/requests'); }
+  try { await api(`/api/requests/${id}`, { method: 'DELETE' }); router.push('/library'); }
   catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
