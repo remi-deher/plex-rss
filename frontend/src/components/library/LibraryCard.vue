@@ -104,7 +104,6 @@ function requesterLabel(item) {
   position: absolute;
   top: 8px;
   left: 8px;
-  background: rgba(20, 20, 20, .9);
 }
 .poster-shell .select-tag {
   position: absolute;
@@ -143,22 +142,23 @@ function requesterLabel(item) {
 .poster-requester {
   display: block;
   overflow: hidden;
-  margin-bottom: 4px;
-  font-size: 0.76rem;
+  margin-bottom: 5px;
+  font-size: 0.82rem;
   font-weight: 700;
   white-space: nowrap;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 1px rgba(0, 0, 0, .95);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 1), 0 0 2px rgba(0, 0, 0, 1);
 }
 
 .poster-overview {
   display: -webkit-box;
   overflow: hidden;
   margin: 0;
-  font-size: 0.84rem;
-  line-height: 1.38;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.42;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 1px rgba(0, 0, 0, .95);
+  -webkit-line-clamp: 2;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 1), 0 0 2px rgba(0, 0, 0, 1);
 }
 </style>

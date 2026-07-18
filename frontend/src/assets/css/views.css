@@ -389,6 +389,40 @@ td {
   background: rgba(20, 20, 20, .9);
 }
 
+/* Badges sur affiche (statut + VF/VO) : remplace le texte colore sur fond translucide
+   generique par un remplissage plein propre a chaque statut -- sur une affiche deja
+   chargee visuellement, un badge "texte vert sur gris" se noie facilement, un badge
+   "fond vert plein, texte blanc" se detache immediatement au premier coup d'oeil. */
+.poster-shell .status-tag,
+.poster-shell .language-tag {
+  padding: 3px 9px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: none;
+  color: #fff;
+  background: rgba(39, 39, 42, .95);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+}
+
+.poster-shell .status-tag.available,
+.poster-shell .status-tag.sent_to_arr,
+.poster-shell .language-tag.vf {
+  background: rgba(22, 163, 74, .95);
+}
+
+.poster-shell .status-tag.failed,
+.poster-shell .status-tag.rejected,
+.poster-shell .language-tag.vo {
+  background: rgba(220, 38, 38, .95);
+}
+
+.poster-shell .status-tag.pending_approval,
+.poster-shell .status-tag.partially_available {
+  color: #1a1200;
+  background: rgba(245, 179, 26, .97);
+}
+
 .timeline,
 .action-grid,
 .settings-grid {
