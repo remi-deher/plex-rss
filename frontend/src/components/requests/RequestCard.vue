@@ -1,13 +1,16 @@
 <template>
   <article class="media-card request-card" :class="{list:view==='list'}">
-    <div class="poster-shell" @click="row.orphan ? openOrphan(row) : router.push(mediaDetailPath(row,'request'))">
-      <img v-if="row.poster_url" :src="proxyUrl(row.poster_url)" alt="" @error="$event.target.style.display='none'">
-      <div v-else class="poster-fallback"><Film/></div>
-      <span v-if="view==='grid'" class="badge status-tag" :class="row.status">{{ statusLabel(row.status) }}</span>
-      <label v-if="isAdmin&&view==='grid'&&!row.orphan" class="select-tag" @click.stop>
-        <input :checked="selected" type="checkbox" @change="$emit('toggle-select')">
-      </label>
-    </div>
+    <MediaPoster
+      :poster-url="row.poster_url ? proxyUrl(row.poster_url) : null"
+      @click="row.orphan ? openOrphan(row) : router.push(mediaDetailPath(row,'request'))"
+    >
+      <template #badges>
+        <span v-if="view==='grid'" class="badge status-tag" :class="row.status">{{ statusLabel(row.status) }}</span>
+        <label v-if="isAdmin&&view==='grid'&&!row.orphan" class="select-tag" @click.stop>
+          <input :checked="selected" type="checkbox" @change="$emit('toggle-select')">
+        </label>
+      </template>
+    </MediaPoster>
     <div class="request-body">
       <div class="request-title-row">
         <button v-if="!row.orphan" class="text-button" @click="router.push(mediaDetailPath(row,'request'))">
@@ -50,10 +53,11 @@
 
 <script setup>
 import { ref } from 'vue';
-import { Ban, Check, Film, RotateCcw, Search, Trash2, X } from '@lucide/vue';
+import { Ban, Check, RotateCcw, Search, Trash2, X } from '@lucide/vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
+import MediaPoster from '@/components/media/MediaPoster.vue';
 import { statusLabel, formatDate, proxyUrl } from './requestHelpers';
 
 defineProps({

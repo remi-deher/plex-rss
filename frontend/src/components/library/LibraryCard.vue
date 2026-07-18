@@ -1,16 +1,16 @@
 <template>
   <div class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="$emit('open',item)" @keydown.enter="$emit('open',item)">
-    <div class="poster-shell">
-      <img v-if="item.poster_url" :src="item.poster_url" alt="" @error="$event.target.style.display='none'">
-      <div v-else class="poster-fallback">
-        <Film/>
-      </div>
-      <span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
-      <div v-if="view==='grid' && (requesterLabel(item) || item.overview)" class="poster-overlay">
-        <span v-if="requesterLabel(item)" class="poster-requester">👤 {{ requesterLabel(item) }}</span>
-        <p v-if="item.overview" class="poster-overview">{{ item.overview }}</p>
-      </div>
-    </div>
+    <MediaPoster :poster-url="item.poster_url">
+      <template #badges>
+        <span class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
+      </template>
+      <template #overlay>
+        <div v-if="view==='grid' && (requesterLabel(item) || item.overview)" class="poster-overlay">
+          <span v-if="requesterLabel(item)" class="poster-requester">👤 {{ requesterLabel(item) }}</span>
+          <p v-if="item.overview" class="poster-overview">{{ item.overview }}</p>
+        </div>
+      </template>
+    </MediaPoster>
     <div>
       <strong>{{ item.title }}</strong>
       <span>{{ item.media_type==='show'?'Serie':'Film' }}<template v-if="item.year"> · {{ item.year }}</template></span>
@@ -27,7 +27,8 @@
 </template>
 
 <script setup>
-import { ArrowRight, Film } from '@lucide/vue';
+import { ArrowRight } from '@lucide/vue';
+import MediaPoster from '@/components/media/MediaPoster.vue';
 
 defineProps({
   item: { type: Object, required: true },
