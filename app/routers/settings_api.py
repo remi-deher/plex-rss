@@ -126,6 +126,7 @@ class SettingsUpdate(BaseModel):
     torrent_max_size_gb: Optional[float] = None
     digest_enabled: Optional[bool] = None
     digest_hour: Optional[int] = None
+    plex_sync_hour: Optional[int] = None
     torrent_ratio_limit: Optional[float] = None
     torrent_seed_time_limit_hours: Optional[int] = None
     torrent_auto_delete_files: Optional[bool] = None

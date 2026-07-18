@@ -286,6 +286,15 @@ async def job_seer_sync(ctx: dict, force: bool = False):
 async def job_plex_sync(ctx: dict, force: bool = False):
     from .services.plex_sync import sync_plex_media
 
+    # plex_sync_hour est une heure murale (comme digest_hour) -- comparer a
+    # now_utc().hour la decalerait silencieusement de 1h/2h selon CET/CEST (meme
+    # incident que job_digest/job_notification_purge : regle a 3h, tourne en realite
+    # a 5h l'ete). Le cron tourne donc toutes les heures (voir cron_plex_sync) et
+    # c'est ce garde-fou qui decide si c'est vraiment l'heure locale visee.
+    settings = await _settings()
+    target_hour = settings.plex_sync_hour if settings and settings.plex_sync_hour is not None else 3
+    if not force and local_hour() != target_hour:
+        return {"status": "not_due"}
     return await _run(
         ctx, "plex-sync", sync_plex_media, force=force, interval_seconds=86400, event_type="request.updated"
     )
@@ -462,7 +471,12 @@ class WorkerSettings:
         cron(cron_episode_availability, minute=None, second=15, unique=True),
         cron(cron_new_vff, minute=None, second=20, unique=True),
         cron(cron_seer_sync, minute=5, unique=True),
-        cron(cron_plex_sync, hour=3, minute=15, unique=True, run_at_startup=True),
+        # Tourne toutes les heures a :15 ; job_plex_sync decide via local_hour() si
+        # c'est vraiment l'heure configuree (plex_sync_hour) -- meme principe que
+        # cron_notification_purge/cron_digest. Plus de run_at_startup : un sync a
+        # chaque redemarrage du conteneur declenchait une rafale de notifications VF
+        # a des heures aleatoires (incident signale par l'utilisateur).
+        cron(cron_plex_sync, minute=15, unique=True),
         cron(cron_notification_purge, minute=0, unique=True),
         cron(cron_digest, minute=0, unique=True),
     ]

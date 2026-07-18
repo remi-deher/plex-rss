@@ -205,3 +205,45 @@ async def test_job_notification_purge_force_bypasses_local_hour_gate():
         result = await jobs.job_notification_purge({"redis": FakeRedis()}, force=True)
     run_mock.assert_awaited_once()
     assert result == {"status": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_compares_against_local_hour_not_utc():
+    """Regression : meme bug que le digest/la purge sur la sync Plex — hour=3 sur le
+    cron ARQ etait une heure UTC, pas locale (plex_sync_hour est murale). Doit
+    comparer via local_hour() plutot que l'heure UTC du cron."""
+    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=3),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        result = await jobs.job_plex_sync({"redis": FakeRedis()})
+    run_mock.assert_awaited_once()
+    assert result == {"status": "complete"}
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_not_due_outside_configured_local_hour():
+    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs._run", new=AsyncMock()) as run_mock,
+    ):
+        result = await jobs.job_plex_sync({"redis": FakeRedis()})
+    run_mock.assert_not_awaited()
+    assert result == {"status": "not_due"}
+
+
+@pytest.mark.asyncio
+async def test_job_plex_sync_force_bypasses_local_hour_gate():
+    fake_settings = type("S", (), {"plex_sync_hour": 3})()
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=fake_settings)),
+        patch("app.jobs.local_hour", return_value=5),
+        patch("app.jobs._run", new=AsyncMock(return_value={"status": "complete"})) as run_mock,
+    ):
+        result = await jobs.job_plex_sync({"redis": FakeRedis()}, force=True)
+    run_mock.assert_awaited_once()
+    assert result == {"status": "complete"}

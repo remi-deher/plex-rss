@@ -98,10 +98,10 @@ JOB_CATALOG = [
         "plex-sync",
         "Synchronisation bibliotheque Plex",
         "Reconstruit le cache local de la bibliotheque Plex (necessaire a la confirmation de disponibilite).",
-        None,
-        None,
+        "plex_sync_hour",
+        "heure (0-23)",
         86400,
-        "Tous les jours a 03h15, plus une fois au demarrage du conteneur worker",
+        None,
     ),
     (
         "notification-purge",

@@ -26,6 +26,7 @@ export const form = reactive({
   poll_interval_seconds: 300, watchlist_source_priority: 'api', watchlist_fallback_enabled: true, require_approval: false,
   vff_enabled: true, vff_libraries: '', vff_recheck_interval_minutes: 60, vff_auto_search: false,
   notification_log_retention_days: 30, arr_poll_interval_seconds: 900, digest_enabled: false, digest_hour: 8,
+  plex_sync_hour: 3,
   torrent_required_keywords: '', torrent_forbidden_keywords: '', torrent_min_size_gb: null, torrent_max_size_gb: null,
   torrent_ratio_limit: null, torrent_seed_time_limit_hours: null, torrent_auto_delete_files: false,
 });
