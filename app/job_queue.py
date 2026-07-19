@@ -127,9 +127,7 @@ async def notification_hold_enabled() -> bool:
         await redis.aclose()
 
 
-async def set_resync_notification_baselines(
-    baselines: dict[int, dict[str, Any]], ttl: int = 7200
-) -> None:
+async def set_resync_notification_baselines(baselines: dict[int, dict[str, Any]], ttl: int = 7200) -> None:
     """Enregistre les états historiques ciblés par un resync, partagés via Redis."""
     global _local_resync_notification_baselines
     _local_resync_notification_baselines = dict(baselines)
@@ -161,10 +159,7 @@ async def clear_resync_notification_baselines(request_ids: list[int]) -> None:
 
     redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
     try:
-        await redis.delete(*[
-            f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{int(request_id)}"
-            for request_id in request_ids
-        ])
+        await redis.delete(*[f"{RESYNC_NOTIFICATION_BASELINE_PREFIX}{int(request_id)}" for request_id in request_ids])
     finally:
         await redis.aclose()
 

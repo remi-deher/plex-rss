@@ -63,7 +63,7 @@ async def _vf_detail_payload(db: AsyncSession, req):
     libs = _parse_vff_libraries(settings)
     vf_detected = bool(settings.vff_enabled and settings.plex_url and settings.plex_token and libs)
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
-    show_libs = [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
+    [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
 
     if req.media_type == "movie":
         release_date = None

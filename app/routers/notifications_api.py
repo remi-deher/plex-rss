@@ -312,9 +312,9 @@ async def list_notification_logs(
     q = select(NotificationLog)
 
     if state == "success":
-        q = q.filter(NotificationLog.success == True)
+        q = q.filter(NotificationLog.success.is_(True))
     elif state == "error":
-        q = q.filter(NotificationLog.success == False)
+        q = q.filter(NotificationLog.success.is_(False))
 
     if types:
         type_list = [t.strip() for t in types.split(",") if t.strip()]
@@ -325,13 +325,13 @@ async def list_notification_logs(
                     conditions.append(NotificationLog.event.startswith("correction"))
                     conditions.append(NotificationLog.event.startswith("request.correction"))
                 elif t == "upgrade":
-                    conditions.append(NotificationLog.is_upgrade == True)
+                    conditions.append(NotificationLog.is_upgrade.is_(True))
                     conditions.append(NotificationLog.event == "vf_available")
                 else:
                     conditions.append(NotificationLog.event.startswith(t))
                     if t == "available":
                         legacy_prefixes = [
-                            "episode_track", "vo_only", 
+                            "episode_track", "vo_only",
                             "partially_available", "language_"
                         ]
                         for lp in legacy_prefixes:

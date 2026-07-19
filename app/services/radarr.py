@@ -52,8 +52,7 @@ async def add_movie(
         (radarr_id, already_existed, titleSlug)
         - already_existed=True signifie que le film était déjà dans Radarr.
     """
-    headers = {"X-Api-Key": api_key}
-    base = url.rstrip("/")
+    url.rstrip("/")
 
     tmdb_id = item.get("tmdb_id")
     if not tmdb_id and item.get("imdb_id"):
@@ -79,7 +78,7 @@ async def add_movie(
     # Vérification d'existence avant ajout
     try:
         client = ArrClient(url, api_key, timeout=15)
-        existing = await client.get(f"/api/v3/movie")
+        existing = await client.get("/api/v3/movie")
         existing.raise_for_status()
         for m in existing.json():
             if str(m.get("tmdbId")) == str(tmdb_id):
@@ -101,7 +100,7 @@ async def add_movie(
 
     try:
         client = ArrClient(url, api_key, timeout=30)
-        resp = await client.post(f"/api/v3/movie", json=payload)
+        resp = await client.post("/api/v3/movie", json=payload)
         resp.raise_for_status()
         data = resp.json()
         return data.get("id"), False, data.get("titleSlug")
@@ -128,11 +127,11 @@ async def resolve_tmdb_id(url: str, api_key: str, imdb_id: str) -> str | None:
     """
     if not imdb_id:
         return None
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=15)
         resp = await client.get(
-            f"/api/v3/movie/lookup",
+            "/api/v3/movie/lookup",
             params={"term": f"imdb:{imdb_id}"},
         )
         resp.raise_for_status()
@@ -156,7 +155,7 @@ async def _search_tmdb_id(url: str, api_key: str, title: str, year: int | None) 
         client = ArrClient(url, api_key, timeout=15)
         for term in ([f"{title} {year}", title] if year else [title]):
             resp = await client.get(
-                f"/api/v3/movie/lookup",
+                "/api/v3/movie/lookup",
                 params={"term": term},
                 )
             resp.raise_for_status()
@@ -178,9 +177,9 @@ async def _search_tmdb_id(url: str, api_key: str, title: str, year: int | None) 
 
 async def get_all_movies(url: str, api_key: str) -> list[dict]:
     """Retourne la liste complète des films connus de Radarr (pour le scan de fallback)."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=15)
-    resp = await client.get(f"/api/v3/movie")
+    resp = await client.get("/api/v3/movie")
     resp.raise_for_status()
     return resp.json()
 
@@ -202,8 +201,7 @@ async def lookup_movie(
     Returns:
         Dictionnaire Radarr brut ou None si introuvable.
     """
-    base = url.rstrip("/")
-    headers = {"X-Api-Key": api_key}
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=15)
         if arr_id:
@@ -213,7 +211,7 @@ async def lookup_movie(
         if tmdb_id or imdb_id:
             movies = movies_list
             if movies is None:
-                resp = await client.get(f"/api/v3/movie")
+                resp = await client.get("/api/v3/movie")
                 resp.raise_for_status()
                 movies = resp.json()
             for m in movies:
@@ -254,7 +252,7 @@ async def movie_exists(url: str, api_key: str, arr_id: int) -> bool:
     remontent à l'appelant pour ne jamais être confondues avec un 404 confirmé
     (Radarr injoignable != film supprimé).
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=15)
     resp = await client.get(f"/api/v3/movie/{arr_id}")
     if resp.status_code == 404:
@@ -270,7 +268,7 @@ async def delete_movie(url: str, api_key: str, arr_id: int, delete_files: bool =
     timeout, 5xx) lève une exception — l'appelant ne doit jamais supprimer la
     demande locale correspondante si cet appel échoue.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=20)
     resp = await client.delete(
         f"/api/v3/movie/{arr_id}",
@@ -288,11 +286,11 @@ async def search_movie(url: str, api_key: str, movie_id: int) -> bool:
     Utilisé par l'auto-search VFF : relance une recherche quand un film n'est
     disponible qu'en VO, dans l'espoir de trouver une version française.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=15)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json={"name": "MoviesSearch", "movieIds": [movie_id]},
         )
         resp.raise_for_status()
@@ -330,11 +328,11 @@ def _normalize_release(r: dict) -> dict:
 
 async def get_releases(url: str, api_key: str, movie_id: int) -> list[dict]:
     """Recherche interactive Radarr : releases scorées pour un film (GET /release)."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=90)
         resp = await client.get(
-            f"/api/v3/release",
+            "/api/v3/release",
             params={"movieId": movie_id},
         )
         resp.raise_for_status()
@@ -349,11 +347,11 @@ async def grab_release(url: str, api_key: str, guid: str, indexer_id: int) -> tu
 
     Returns (ok, message).
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=30)
         resp = await client.post(
-            f"/api/v3/release",
+            "/api/v3/release",
             json={"guid": guid, "indexerId": indexer_id},
         )
         resp.raise_for_status()
@@ -365,11 +363,11 @@ async def grab_release(url: str, api_key: str, guid: str, indexer_id: int) -> tu
 
 async def get_manual_import_candidates(url: str, api_key: str, download_id: str) -> list[dict]:
     """Fichiers en attente d'import manuel pour un téléchargement (GET /manualimport)."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/manualimport",
+            "/api/v3/manualimport",
             params={"downloadId": download_id, "filterExistingFiles": "true"},
         )
         resp.raise_for_status()
@@ -393,7 +391,7 @@ async def manual_import_movie(
     indexer_flags: int | None,
 ) -> tuple[bool, str]:
     """Force l'import d'un fichier téléchargé sur un film (commande ManualImport)."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     file_entry = {
         "path": path,
         "folderName": folder_name,
@@ -407,7 +405,7 @@ async def manual_import_movie(
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
         )
         resp.raise_for_status()
@@ -465,7 +463,7 @@ async def trigger_import(
     (trackedDownloadState == importPending). Utilise la commande DownloadedMoviesScan
     avec le chemin de sortie ou le downloadId.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     payload: dict = {"name": "DownloadedMoviesScan"}
     if output_path:
         payload["path"] = output_path
@@ -474,7 +472,7 @@ async def trigger_import(
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json=payload,
         )
         resp.raise_for_status()
@@ -487,11 +485,11 @@ async def trigger_import(
 
 async def get_queue(url: str, api_key: str) -> list[dict]:
     """File d'attente de téléchargement Radarr (GET /queue), format compact."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/queue",
+            "/api/v3/queue",
             params={"pageSize": 100, "includeMovie": "true"},
         )
         resp.raise_for_status()
@@ -511,7 +509,7 @@ async def delete_queue_item(
     url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
 ) -> tuple[bool, str]:
     """Supprime un item de la file d'attente Radarr, avec blocklist et relance de recherche optionnelles."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.delete(
@@ -538,11 +536,11 @@ async def get_queue_movie_ids(url: str, api_key: str) -> set[int]:
     Plex) d'un film encore en cours de téléchargement (ex: upgrade de qualité en file alors
     qu'un fichier de moindre qualité est déjà présent sur disque).
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/queue",
+            "/api/v3/queue",
             params={"pageSize": 200},
         )
         resp.raise_for_status()
@@ -610,11 +608,11 @@ async def test_notification(url: str, api_key: str, notification: dict) -> tuple
     Réutilise l'endpoint /api/v3/notification/test de Radarr, qui envoie une notification de
     test avec la configuration fournie sans la re-sauvegarder.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/notification/test",
+            "/api/v3/notification/test",
             json=notification,
         )
         if resp.status_code in (200, 204):

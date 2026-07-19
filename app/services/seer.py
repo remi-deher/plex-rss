@@ -88,8 +88,8 @@ async def request_media(
         (seer_request_id, already_existed, None)
         - already_existed=True si la demande existait déjà (statut non-PENDING)
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     media_type = "movie" if item["media_type"] == "movie" else "tv"
 
     tmdb_id = await _resolve_tmdb_id(seer_url, api_key, item)
@@ -106,7 +106,7 @@ async def request_media(
 
     try:
         client = ArrClient(seer_url, api_key, timeout=20)
-        resp = await client.post(f"/api/v1/request", json=payload)
+        resp = await client.post("/api/v1/request", json=payload)
         if resp.status_code == 409:
             logger.info(f"Seer: '{item['title']}' déjà demandé")
             return None, True, None
@@ -134,8 +134,8 @@ async def is_request_available(
     Returns:
         (is_available, seer_request_id, None)
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     try:
         client = ArrClient(seer_url, api_key, timeout=15)
         resp = await client.get(f"/api/v1/request/{seer_request_id}")
@@ -165,7 +165,7 @@ async def _resolve_tmdb_id(seer_url: str, api_key: str, item: dict) -> str | Non
     try:
         client = ArrClient(seer_url, api_key, timeout=15)
         resp = await client.get(
-            f"/api/v1/search",
+            "/api/v1/search",
             params={"query": term, "page": 1, "language": "fr"},
             )
         resp.raise_for_status()
@@ -187,8 +187,8 @@ async def get_users(seer_url: str, api_key: str) -> dict[str, dict]:
     - plex_id   : ID numérique Plex (entier), disponible si user_type=2
     - plex_username : nom d'utilisateur Plex
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     result: dict[str, dict] = {}
     skip = 0
     take = 100
@@ -197,7 +197,7 @@ async def get_users(seer_url: str, api_key: str) -> dict[str, dict]:
         client = ArrClient(seer_url, api_key, timeout=15)
         while True:
             resp = await client.get(
-                f"/api/v1/user",
+                "/api/v1/user",
                 params={"take": take, "skip": skip},
                 )
             resp.raise_for_status()
@@ -233,8 +233,8 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
     Une seconde vague de requêtes parallèles récupère les détails via /movie/{id}
     ou /tv/{id} pour chaque tmdbId unique.
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     raw: list[dict] = []
     skip = 0
     take = 100
@@ -341,8 +341,8 @@ async def delete_request_by_tmdb(
     Returns:
         (success, message)
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     seer_media_type = "movie" if media_type == "movie" else "tv"
     
     try:

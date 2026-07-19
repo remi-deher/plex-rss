@@ -33,6 +33,7 @@ from ..services.email_service import build_correction_email, send_correction_not
 from ..services.diagnostics import record_event, update_request_context
 from ..utils import async_get_or_404, identity_keys, now_utc_naive, wrap_image_proxy
 from .arr_api import _resolve_arr_instance
+from .issues_api import _serialize_issue
 
 logger = logging.getLogger(__name__)
 

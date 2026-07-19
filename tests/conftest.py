@@ -23,13 +23,24 @@ def _patch_app_startup():
 
 
 @pytest.fixture(autouse=True)
-def _clear_memory_cache():
-    """Prevent cached endpoint responses from leaking between tests."""
-    from app.cache import cache
+def _isolate_application_cache(monkeypatch):
+    """Keep cache tests deterministic when CI exposes a shared Redis service.
 
+    Redis transport itself is covered by test_realtime_redis.py. Endpoint and
+    stale-while-revalidate tests must use their per-instance memory cache;
+    otherwise fixed production keys leak values between otherwise isolated tests.
+    """
+    from app.cache import Cache, _refreshing_keys, cache
+
+    async def memory_only_client(self):
+        return None
+
+    monkeypatch.setattr(Cache, "_client", memory_only_client)
     cache._memory.clear()
+    _refreshing_keys.clear()
     yield
     cache._memory.clear()
+    _refreshing_keys.clear()
 
 
 @pytest.fixture()

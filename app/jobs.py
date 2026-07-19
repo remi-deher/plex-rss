@@ -210,7 +210,14 @@ async def job_arr_statuses(ctx: dict, force: bool = False, run_id: str | None = 
     return await _manual_result(
         run_id,
         action,
-        _run(ctx, "arr-statuses", check_arr_statuses, force=force, interval_seconds=interval, event_type="request.updated"),
+        _run(
+            ctx,
+            "arr-statuses",
+            check_arr_statuses,
+            force=force,
+            interval_seconds=interval,
+            event_type="request.updated",
+        ),
     )
 
 
@@ -306,7 +313,12 @@ async def job_plex_sync(ctx: dict, force: bool = False):
     settings = await _settings()
     interval_hours = settings.plex_sync_interval_hours if settings and settings.plex_sync_interval_hours else 24
     return await _run(
-        ctx, "plex-sync", sync_plex_media, force=force, interval_seconds=interval_hours * 3600, event_type="request.updated"
+        ctx,
+        "plex-sync",
+        sync_plex_media,
+        force=force,
+        interval_seconds=interval_hours * 3600,
+        event_type="request.updated",
     )
 
 

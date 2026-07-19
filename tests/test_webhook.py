@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.dependencies import require_admin
 from app.main import app
-from app.models import MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings
 from app.routers.webhook import _get_recipients, _mark_available_and_notify
 from tests.async_support import make_test_session
 
@@ -432,10 +433,6 @@ def test_plex_webhook_json_direct_fallback():
 # ---------------------------------------------------------------------------
 # POST /webhook/configure/{service} — auto-configuration du connecteur Sonarr/Radarr
 # ---------------------------------------------------------------------------
-
-from app.dependencies import require_admin
-from app.models import ArrInstance
-
 
 def _arr_instance(arr_type="sonarr"):
     return ArrInstance(name=arr_type.capitalize(), arr_type=arr_type, url="http://arr.local", api_key="key123")

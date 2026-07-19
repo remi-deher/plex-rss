@@ -36,8 +36,7 @@ async def add_series(
         - already_existed=True signifie que la série était déjà dans Sonarr
           (la notification de demande ne doit pas être renvoyée).
     """
-    headers = {"X-Api-Key": api_key}
-    base = url.rstrip("/")
+    url.rstrip("/")
 
     tvdb_id = item.get("tvdb_id")
     if not tvdb_id:
@@ -61,7 +60,7 @@ async def add_series(
     # Vérification d'existence avant ajout pour retourner already_existed=True
     try:
         client = ArrClient(url, api_key, timeout=15)
-        existing = await client.get(f"/api/v3/series")
+        existing = await client.get("/api/v3/series")
         existing.raise_for_status()
         for s in existing.json():
             if str(s.get("tvdbId")) == str(tvdb_id):
@@ -92,7 +91,7 @@ async def add_series(
 
     try:
         client = ArrClient(url, api_key, timeout=30)
-        resp = await client.post(f"/api/v3/series", json=payload)
+        resp = await client.post("/api/v3/series", json=payload)
         resp.raise_for_status()
         data = resp.json()
         if not selected_seasons:
@@ -188,7 +187,7 @@ async def _lookup_series_candidates(url: str, api_key: str, term: str) -> list[d
     try:
         client = ArrClient(url, api_key, timeout=15)
         resp = await client.get(
-            f"/api/v3/series/lookup",
+            "/api/v3/series/lookup",
             params={"term": term},
             )
         resp.raise_for_status()
@@ -245,9 +244,9 @@ async def _search_tvdb_id(url: str, api_key: str, item: dict) -> str | None:
 
 async def get_all_series(url: str, api_key: str) -> list[dict]:
     """Retourne la liste complète des séries connues de Sonarr (pour le scan de fallback)."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=15)
-    resp = await client.get(f"/api/v3/series")
+    resp = await client.get("/api/v3/series")
     resp.raise_for_status()
     return resp.json()
 
@@ -270,8 +269,7 @@ async def lookup_series(
     Returns:
         Dictionnaire Sonarr brut ou None si introuvable.
     """
-    base = url.rstrip("/")
-    headers = {"X-Api-Key": api_key}
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=15)
         if arr_id:
@@ -292,7 +290,7 @@ async def lookup_series(
         if tvdb_id or tmdb_id or imdb_id:
             series = series_list
             if series is None:
-                resp = await client.get(f"/api/v3/series")
+                resp = await client.get("/api/v3/series")
                 resp.raise_for_status()
                 series = resp.json()
             for s in series:
@@ -418,7 +416,7 @@ async def series_exists(url: str, api_key: str, arr_id: int) -> bool:
     remontent à l'appelant pour ne jamais être confondues avec un 404 confirmé
     (Sonarr injoignable != série supprimée).
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=15)
     resp = await client.get(f"/api/v3/series/{arr_id}")
     if resp.status_code == 404:
@@ -434,7 +432,7 @@ async def delete_series(url: str, api_key: str, arr_id: int, delete_files: bool 
     timeout, 5xx) lève une exception — l'appelant ne doit jamais supprimer la
     demande locale correspondante si cet appel échoue.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=20)
     resp = await client.delete(
         f"/api/v3/series/{arr_id}",
@@ -452,11 +450,11 @@ async def search_series(url: str, api_key: str, series_id: int) -> bool:
     Utilisé par l'auto-search VFF : relance une recherche quand une série n'est
     disponible qu'en VO, dans l'espoir de trouver une version française.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=15)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json={"name": "SeriesSearch", "seriesId": series_id},
         )
         resp.raise_for_status()
@@ -490,7 +488,7 @@ def _normalize_release(r: dict) -> dict:
 
 async def get_releases(url: str, api_key: str, series_id: int = None, episode_id: int = None) -> list[dict]:
     """Recherche interactive Sonarr : releases scorées pour une série ou un épisode."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     params = {}
     if episode_id:
         params["episodeId"] = episode_id
@@ -500,7 +498,7 @@ async def get_releases(url: str, api_key: str, series_id: int = None, episode_id
         return []
     try:
         client = ArrClient(url, api_key, timeout=90)
-        resp = await client.get(f"/api/v3/release", params=params)
+        resp = await client.get("/api/v3/release", params=params)
         resp.raise_for_status()
         return [_normalize_release(r) for r in resp.json()]
     except Exception as e:
@@ -510,11 +508,11 @@ async def get_releases(url: str, api_key: str, series_id: int = None, episode_id
 
 async def grab_release(url: str, api_key: str, guid: str, indexer_id: int) -> tuple[bool, str]:
     """Grab d'une release choisie manuellement : Sonarr télécharge ET importe."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=30)
         resp = await client.post(
-            f"/api/v3/release",
+            "/api/v3/release",
             json={"guid": guid, "indexerId": indexer_id},
         )
         resp.raise_for_status()
@@ -530,10 +528,10 @@ async def get_episodes(url: str, api_key: str, series_id: int) -> list[dict]:
     Utilisé pour le détail VF par saison/épisode : Sonarr donne la liste attendue
     complète (y compris épisodes non encore téléchargés), Plex fournit la VF réelle.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     client = ArrClient(url, api_key, timeout=20)
     resp = await client.get(
-        f"/api/v3/episode",
+        "/api/v3/episode",
         params={"seriesId": series_id},
     )
     resp.raise_for_status()
@@ -628,11 +626,11 @@ async def get_manual_import_candidates(url: str, api_key: str, download_id: str)
     pas encore officiellement sorti dans ses métadonnées), pour laisser l'utilisateur
     choisir l'épisode à la main, comme dans l'UI native de Sonarr.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/manualimport",
+            "/api/v3/manualimport",
             params={"downloadId": download_id, "filterExistingFiles": "true"},
         )
         resp.raise_for_status()
@@ -657,7 +655,7 @@ async def manual_import_episode(
     indexer_flags: int | None,
 ) -> tuple[bool, str]:
     """Force l'import d'un fichier téléchargé sur un épisode choisi manuellement."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     file_entry = {
         "path": path,
         "folderName": folder_name,
@@ -672,7 +670,7 @@ async def manual_import_episode(
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json={"name": "ManualImport", "files": [file_entry], "importMode": "auto"},
         )
         resp.raise_for_status()
@@ -694,7 +692,7 @@ async def trigger_import(
     (trackedDownloadState == importPending). Utilise la commande DownloadedEpisodesScan
     avec le chemin de sortie ou le downloadId.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     payload: dict = {"name": "DownloadedEpisodesScan"}
     if output_path:
         payload["path"] = output_path
@@ -703,7 +701,7 @@ async def trigger_import(
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/command",
+            "/api/v3/command",
             json=payload,
         )
         resp.raise_for_status()
@@ -716,11 +714,11 @@ async def trigger_import(
 
 async def get_queue(url: str, api_key: str, *, raise_on_error: bool = False) -> list[dict]:
     """File d'attente de téléchargement Sonarr (GET /queue), format compact."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/queue",
+            "/api/v3/queue",
             params={"pageSize": 100, "includeSeries": "true", "includeEpisode": "true"},
         )
         resp.raise_for_status()
@@ -748,7 +746,7 @@ async def delete_queue_item(
     url: str, api_key: str, queue_id: int, *, blocklist: bool = False, search: bool = True
 ) -> tuple[bool, str]:
     """Supprime un item de la file d'attente Sonarr, avec blocklist et relance de recherche optionnelles."""
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.delete(
@@ -775,11 +773,11 @@ async def get_queue_series_ids(url: str, api_key: str) -> set[int]:
     Plex) d'une série encore partiellement en cours de téléchargement (ex: d'autres épisodes
     de la même série toujours en file pendant qu'un premier épisode est déjà disponible).
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.get(
-            f"/api/v3/queue",
+            "/api/v3/queue",
             params={"pageSize": 200},
         )
         resp.raise_for_status()
@@ -847,11 +845,11 @@ async def test_notification(url: str, api_key: str, notification: dict) -> tuple
     Réutilise l'endpoint /api/v3/notification/test de Sonarr, qui envoie une notification de
     test avec la configuration fournie sans la re-sauvegarder.
     """
-    base = url.rstrip("/")
+    url.rstrip("/")
     try:
         client = ArrClient(url, api_key, timeout=20)
         resp = await client.post(
-            f"/api/v3/notification/test",
+            "/api/v3/notification/test",
             json=notification,
         )
         if resp.status_code in (200, 204):
