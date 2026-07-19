@@ -1,12 +1,14 @@
 """Tests unitaires pour app/services/availability_service.py — has_plex_proof."""
 
 import json
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.models import LibraryItem, MediaRequest, RequestStatus, Settings
-from app.services.availability_service import has_plex_proof
+from app.services.availability_service import availability_confirmed, has_plex_proof
+from app.utils import now_utc_naive
 
 
 def _settings(**kwargs) -> Settings:
@@ -124,3 +126,38 @@ async def test_has_plex_proof_no_live_fallback_without_matching_library_kind(asy
 
     assert result is False
     mock_finder.connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_arr_confirmation_mode_does_not_require_plex(async_db):
+    settings = _settings(availability_confirmation_mode="arr")
+    req = _req()
+    async_db.add_all([settings, req])
+    async_db.commit()
+
+    assert await availability_confirmed(async_db, req, settings=settings) == (True, "arr_confirmed")
+
+
+@pytest.mark.asyncio
+async def test_plex_confirmation_mode_is_strict(async_db):
+    settings = _settings(availability_confirmation_mode="plex", plex_url=None, plex_token=None)
+    req = _req()
+    async_db.add_all([settings, req])
+    async_db.commit()
+
+    assert await availability_confirmed(async_db, req, settings=settings) == (False, "plex_pending")
+
+
+@pytest.mark.asyncio
+async def test_hybrid_confirmation_uses_arr_after_timeout(async_db):
+    settings = _settings(
+        availability_confirmation_mode="hybrid",
+        availability_confirmation_timeout_minutes=10,
+        plex_url=None,
+        plex_token=None,
+    )
+    req = _req(arr_processed_at=now_utc_naive() - timedelta(minutes=11))
+    async_db.add_all([settings, req])
+    async_db.commit()
+
+    assert await availability_confirmed(async_db, req, settings=settings) == (True, "hybrid_arr_timeout")

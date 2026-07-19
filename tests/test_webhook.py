@@ -69,7 +69,7 @@ def _db_patch(db):
     db.close = AsyncMock()
     with ExitStack() as stack:
         stack.enter_context(patch("app.routers.webhook.AsyncSessionLocal", return_value=db))
-        stack.enter_context(patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)))
+        stack.enter_context(patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=True)))
         stack.enter_context(patch("app.routers.webhook.trigger_plex_library_refresh", new=AsyncMock()))
         stack.enter_context(patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=False)))
         stack.enter_context(patch("app.routers.webhook.record_completed", new=AsyncMock()))
@@ -112,7 +112,7 @@ async def test_mark_available_and_notify_marks_request():
     req = _req()
     db = _make_db(requests=[req])
     with (
-        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=True)),
         patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=False)),
         patch("app.routers.webhook.record_completed", new=AsyncMock()),
         patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()) as notify,
@@ -133,7 +133,7 @@ async def test_mark_available_and_notify_skips_if_already_sent():
     req = _req(available_mail_sent=True)
     db = _make_db(requests=[req])
     with (
-        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=True)),
         patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=False)),
         patch("app.routers.webhook.record_completed", new=AsyncMock()),
         patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()) as notify,
@@ -145,7 +145,7 @@ async def test_mark_available_and_notify_skips_if_already_sent():
 @pytest.mark.asyncio
 async def test_mark_available_and_notify_lookup_by_arr_id():
     db = _make_db(requests=[_req(title="X", media_type="show", arr_id=42)])
-    with patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=False)):
+    with patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=False)):
         count = await _mark_available_and_notify("X", "show", 42, db, _settings())
     assert count == 1
 
@@ -158,7 +158,7 @@ async def test_mark_available_and_notify_arr_detected_vf_sets_has_vf_immediately
     req = _req()
     db = _make_db(requests=[req])
     with (
-        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=True)),
         patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=True)) as scan_mock,
         patch("app.routers.webhook.record_completed", new=AsyncMock()),
         patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()),
@@ -174,7 +174,7 @@ async def test_mark_available_and_notify_no_arr_signal_leaves_has_vf_untouched()
     req = _req()
     db = _make_db(requests=[req])
     with (
-        patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=True)),
+        patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=True)),
         patch("app.routers.webhook.scan_and_notify_availability", new=AsyncMock(return_value=False)),
         patch("app.routers.webhook.record_completed", new=AsyncMock()),
         patch("app.routers.webhook.resolve_and_notify_availability", new=AsyncMock()),
@@ -190,7 +190,7 @@ async def test_mark_available_and_notify_arr_signal_persists_even_without_plex_p
     (statut reste bloque en attente de Plex, mais on connait deja la VF des l'import)."""
     req = _req()
     db = _make_db(requests=[req])
-    with patch("app.routers.webhook.has_plex_proof", new=AsyncMock(return_value=False)):
+    with patch("app.routers.webhook.should_confirm_available", new=AsyncMock(return_value=False)):
         await _mark_available_and_notify("Dune", "movie", 10, db, _settings(), arr_detected_vf=True)
     assert req.status == RequestStatus.sent_to_arr
     assert req.has_vf is True
@@ -262,6 +262,40 @@ def test_sonarr_webhook_delete_event_removes_requests():
     assert response.status_code == 200
     assert response.json()["deleted"] == 1
     assert db.query(MediaRequest).count() == 0
+
+
+def test_sonarr_episode_file_delete_recalculates_without_deleting_request():
+    req = _req(
+        title="Lost",
+        media_type="show",
+        arr_id=77,
+        tvdb_id="73739",
+        status_val=RequestStatus.available,
+    )
+    db = _make_db(settings=_settings(), requests=[req])
+    stats = {
+        "episode_file_count": 11,
+        "episode_count": 12,
+        "total_episode_count": 12,
+    }
+    with (
+        _db_patch(db),
+        patch(
+            "app.routers.webhook._resolve_arr_connection",
+            new=AsyncMock(return_value=("http://sonarr", "key", "sonarr:legacy")),
+        ),
+        patch("app.routers.webhook.sonarr.get_series_episode_stats", new=AsyncMock(return_value=stats)),
+    ):
+        response = client.post(
+            "/webhook/sonarr",
+            json={"eventType": "EpisodeFileDelete", "series": {"id": 77, "title": "Lost", "tvdbId": 73739}},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "reconciled": 1, "deleted": 0}
+    assert db.query(MediaRequest).count() == 1
+    assert req.status == RequestStatus.partially_available
+    assert req.episodes_available_count == 11
 
 
 def test_radarr_webhook_ignored_event():

@@ -40,6 +40,22 @@ class RequestStatus(str, enum.Enum):
     failed = "failed"
 
 
+class FulfillmentStatus(str, enum.Enum):
+    """Etat technique d'execution, distinct de la decision metier de la demande."""
+
+    not_submitted = "not_submitted"
+    awaiting_submission = "awaiting_submission"
+    submitted = "submitted"
+    queued = "queued"
+    downloading = "downloading"
+    importing = "importing"
+    awaiting_plex = "awaiting_plex"
+    partially_available = "partially_available"
+    completed = "completed"
+    failed = "failed"
+    removed = "removed"
+
+
 class Settings(Base):
     __tablename__ = "settings"
 
@@ -252,7 +268,12 @@ class Settings(Base):
     torrent_max_size_gb: Mapped[Optional[float]]
     torrent_ratio_limit: Mapped[Optional[float]]
     torrent_seed_time_limit_hours: Mapped[Optional[int]]
-    torrent_auto_delete_files: Mapped[bool] = mapped_column(default=True)
+    # La suppression des donnees est explicitement opt-in : le fichier peut etre celui
+    # que Plex lit directement, particulierement pour la voie torrent sans *arr.
+    torrent_auto_delete_files: Mapped[bool] = mapped_column(default=False)
+    # "arr" | "plex" | "hybrid" (Plex puis repli *arr apres delai).
+    availability_confirmation_mode: Mapped[str] = mapped_column(default="hybrid")
+    availability_confirmation_timeout_minutes: Mapped[int] = mapped_column(default=30)
 
     # --- VFF (audit / suivi des pistes françaises) ---
     # Actif par défaut : le suivi VO/VF est la priorité par défaut (voir plan de session),
@@ -612,6 +633,14 @@ class MediaRequest(Base):
     diagnostic_context: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
     status: Mapped[str] = mapped_column(default=RequestStatus.pending, index=True)
+    # Etat technique du traitement. `status` reste l'etat metier/API historique : les
+    # deux colonnes sont volontairement separees afin que "demande acceptee" ne soit
+    # plus confondu avec "telechargement en cours" ou "attente d'indexation Plex".
+    fulfillment_status: Mapped[str] = mapped_column(
+        default=FulfillmentStatus.not_submitted, index=True
+    )
+    fulfillment_updated_at: Mapped[Optional[datetime]] = mapped_column(default=now_utc_naive)
+    fulfillment_error: Mapped[Optional[str]] = mapped_column(Text, default=None)
     source: Mapped[Optional[str]]
     arr_id: Mapped[Optional[int]]
     arr_slug: Mapped[Optional[str]]
@@ -658,6 +687,10 @@ class MediaRequest(Base):
     arr_instance_id: Mapped[Optional[int]] = mapped_column(index=True)
     download_client_id: Mapped[Optional[int]]
     torrent_hash: Mapped[Optional[str]] = mapped_column(index=True)
+    torrent_name: Mapped[Optional[str]] = mapped_column(default=None)
+    torrent_content_path: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    torrent_completed_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    torrent_import_verified_at: Mapped[Optional[datetime]] = mapped_column(default=None)
 
     # --- VFF : état de la piste française au moment de la disponibilité ---
     # None = pas encore analysé ; True = VF présente ; False = VO uniquement (suivi actif)
@@ -711,6 +744,22 @@ class MediaRequest(Base):
     def _stamp_arr_processed(self, key, value):
         if value == RequestStatus.sent_to_arr and self.status != RequestStatus.sent_to_arr:
             self.arr_processed_at = now_utc_naive()
+        # Filet de compatibilite pour les imports/constructeurs historiques. Les
+        # transitions applicatives passent par request_lifecycle, mais une ligne creee
+        # avec un statut explicite ne doit jamais naitre avec un etat technique incoherent.
+        compatibility = {
+            RequestStatus.pending_approval: FulfillmentStatus.not_submitted,
+            RequestStatus.pending: FulfillmentStatus.awaiting_submission,
+            RequestStatus.sent_to_arr: FulfillmentStatus.submitted,
+            RequestStatus.partially_available: FulfillmentStatus.partially_available,
+            RequestStatus.available: FulfillmentStatus.completed,
+            RequestStatus.failed: FulfillmentStatus.failed,
+            RequestStatus.rejected: FulfillmentStatus.removed,
+        }
+        normalized = RequestStatus(value) if isinstance(value, str) else value
+        if normalized in compatibility:
+            self.fulfillment_status = compatibility[normalized]
+            self.fulfillment_updated_at = now_utc_naive()
         return value
 
 

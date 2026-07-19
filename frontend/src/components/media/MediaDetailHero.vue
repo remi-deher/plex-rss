@@ -15,6 +15,7 @@
             <span v-if="detail.year" class="badge">{{ detail.year }}</span>
             <span v-if="detail.vote" class="badge"><Star size="14" />{{ detail.vote }}</span>
             <span v-if="statusLabel" class="badge" :class="statusClass">{{ statusLabel }}</span>
+            <span v-if="detail.origin_label" class="badge origin-badge">{{ detail.origin_label }}</span>
             <template v-if="detail.vf_granularity === 'partial'">
               <span class="badge warning">VF Partiel</span>
             </template>
@@ -25,6 +26,7 @@
               <span class="badge available">VF</span>
             </template>
           </div>
+          <p v-if="detail.waiting_reason" class="mdh-waiting">{{ detail.waiting_reason }}</p>
           <p class="mdh-overview">{{ detail.overview || 'Aucun resume disponible.' }}</p>
           <div v-if="detail.genres?.length" class="tag-row">
             <span v-for="genre in detail.genres" :key="genre" class="badge">{{ genre }}</span>
@@ -129,6 +131,19 @@ const typeLabel = computed(() => (props.detail.media_type === 'show' ? 'Serie' :
   color: var(--text);
   opacity: .9;
   margin-bottom: 10px;
+}
+.mdh-waiting {
+  max-width: 760px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .28);
+  color: var(--muted);
+  font-size: 13px;
+}
+.origin-badge {
+  border-color: rgba(255, 255, 255, .24);
 }
 .mdh-links {
   display: flex;

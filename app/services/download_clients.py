@@ -32,6 +32,7 @@ _WATCH_FOLDER_STATUS = {
     "download_speed": 0,
     "upload_speed": 0,
     "eta": 0,
+    "content_path": None,
 }
 
 
@@ -156,6 +157,9 @@ async def get_qbittorrent_status(
 
             return {
                 "name": t.get("name", ""),
+                "content_path": t.get("content_path") or (
+                    os.path.join(t.get("save_path"), t.get("name", "")) if t.get("save_path") else None
+                ),
                 "progress": t.get("progress", 0.0) * 100.0,
                 "status": status,
                 "ratio": t.get("ratio", 0.0),
@@ -287,6 +291,7 @@ async def get_transmission_status(
                     "rateDownload",
                     "rateUpload",
                     "eta",
+                    "downloadDir",
                 ],
             }
             res = await transmission_rpc(client, url, username, password, "torrent-get", args)
@@ -308,6 +313,9 @@ async def get_transmission_status(
 
             return {
                 "name": t.get("name", ""),
+                "content_path": (
+                    os.path.join(t.get("downloadDir"), t.get("name", "")) if t.get("downloadDir") else None
+                ),
                 "progress": t.get("percentDone", 0.0) * 100.0,
                 "status": status,
                 "ratio": t.get("uploadRatio", 0.0),
@@ -428,7 +436,6 @@ async def add_torrent_file_to_client(
 ) -> tuple[bool, str, str | None]:
     """Envoie un fichier .torrent (bytes) directement à un client. Retourne (success, message, hash)."""
     import base64
-    import struct
 
     def _parse_info_hash(data: bytes) -> str | None:
         """Extrait le SHA1 info-hash d'un fichier .torrent via bencode minimal."""
@@ -540,7 +547,7 @@ async def delete_torrent(
     username: Optional[str],
     password: Optional[str],
     torrent_hash: str,
-    delete_files: bool = True,
+    delete_files: bool = False,
 ) -> bool:
     """Point d'entrée générique pour supprimer un torrent."""
     if client_type == "qbittorrent":

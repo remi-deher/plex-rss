@@ -9,6 +9,7 @@ from ..database import get_db_async
 from ..dependencies import require_api_scope, require_auth
 from ..models import MediaRequest, PlexUser, PollHistory, RequestStatus
 from ..scheduler import poll_watchlists
+from ..services.request_lifecycle import transition_request
 from ..schemas import HealthOut, MetricsOut, PollHistoryOut, RequestOut, UserOut
 from ..utils import async_get_or_404
 from .metrics_api import get_metrics, get_poll_history, health_check
@@ -49,8 +50,7 @@ async def retry_request_v1(request_id: int, db: AsyncSession = Depends(get_db_as
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status not in (RequestStatus.pending, RequestStatus.failed):
         raise HTTPException(status_code=400, detail="Only failed or pending requests can be retried")
-    req.status = RequestStatus.pending
-    req.failure_mail_sent = False
+    await transition_request(db, req, "retry", source="api_v1")
     await db.commit()
     await poll_watchlists()
     return {"status": "retrying"}

@@ -19,6 +19,8 @@ def request_status_value(status: Any) -> str:
 
 
 def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
+    from .services.operational_projection import request_operational_projection
+
     # Deduplique par plex_user_id : quelques lignes historiques ont le demandeur
     # principal redondant dans extra_requesters (donnee corrompue anterieure a la
     # garde de _add_co_requester), ce qui produisait des requester_ids en double —
@@ -44,6 +46,9 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "year": req.year,
         "media_type": req.media_type,
         "status": request_status_value(req.status),
+        "fulfillment_status": request_status_value(req.fulfillment_status),
+        "fulfillment_updated_at": format_datetime(req.fulfillment_updated_at),
+        "fulfillment_error": req.fulfillment_error,
         "source": req.source,
         "plex_user_id": req.plex_user_id,
         "plex_user": users.get(req.plex_user_id, req.plex_user or req.plex_user_id),
@@ -64,6 +69,11 @@ def serialize_media_request(req: MediaRequest, users: dict[str, str]) -> dict:
         "arr_instance_id": req.arr_instance_id,
         "library_item_id": req.library_item_id,
         "is_downloading": req.is_downloading,
+        "torrent_name": req.torrent_name,
+        "torrent_content_path": req.torrent_content_path,
+        "torrent_completed_at": format_datetime(req.torrent_completed_at),
+        "torrent_import_verified_at": format_datetime(req.torrent_import_verified_at),
+        **request_operational_projection(req),
     }
 
 

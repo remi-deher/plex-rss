@@ -186,6 +186,23 @@ def test_spa_media_detail_matches_requests_by_title(async_db):
         _cleanup()
 
 
+def test_spa_media_detail_exposes_plex_origin_without_request(async_db):
+    item = LibraryItem(title="Plex only", media_type="movie", year=2025)
+    async_db.add(item)
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get(f"/api/media/detail?library_id={item.id}")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["requests"] == []
+        assert payload["media"]["origin_kind"] == "plex"
+        assert payload["media"]["operational_status"] == "completed"
+        assert payload["media"]["origin_label"] == "Deja present dans Plex"
+    finally:
+        _cleanup()
+
+
 def test_spa_media_detail_exposes_last_mail_history(async_db):
     """/api/media/detail expose la dernière notification par événement (demande/dispo),
     avec l'horodatage et si l'envoi était manuel ou automatique — utilisé par la fiche

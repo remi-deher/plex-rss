@@ -139,8 +139,7 @@ def _patch_session_arr(db):
         patch("app.services.arr_tracker.AsyncSessionLocal", return_value=db),
         patch("app.services.arr_tracker.get_all_movies", new=AsyncMock(return_value=[])),
         patch("app.services.arr_tracker.get_all_series", new=AsyncMock(return_value=[])),
-        patch("app.services.arr_tracker.get_queue_movie_ids", new=AsyncMock(return_value=set())),
-        patch("app.services.arr_tracker.get_queue_series_ids", new=AsyncMock(return_value=set())),
+        patch("app.services.arr_tracker.fetch_queue_entity_ids", new=AsyncMock(return_value=set())),
         patch("app.services.arr_tracker.movie_exists", new=AsyncMock(return_value=True)),
         patch("app.services.arr_tracker.series_exists", new=AsyncMock(return_value=True)),
         patch("app.services.arr_tracker._refresh_next_release", new=AsyncMock()),
@@ -707,7 +706,7 @@ async def test_check_arr_show_becomes_partially_available(db):
     c'est le comportement corrigé (voir arr_tracker.py, is_show_partial). Pas de
     LibraryItem non-matchant ici : table LibraryItem vide -> has_plex_proof() bypass
     à True (voir commentaire de _settings), donc le statut peut réellement transiter."""
-    db.add(_settings())
+    db.add(_settings(availability_confirmation_mode="arr"))
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
     db.commit()
 
@@ -740,7 +739,7 @@ async def test_check_arr_notify_false_corrects_status_without_notifying(db):
     """notify=False (resync manuel Maintenance) doit corriger le statut/les compteurs
     normalement, mais n'envoyer aucune notification -- sinon rattraper des mois de
     series historiques enverrait une rafale de mails aux utilisateurs."""
-    db.add(_settings())
+    db.add(_settings(availability_confirmation_mode="arr"))
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
     db.commit()
 
@@ -767,7 +766,7 @@ async def test_check_arr_notify_false_corrects_status_without_notifying(db):
 @pytest.mark.asyncio
 async def test_check_arr_resync_available_series_stays_silent(db):
     """Le resync silencieux ne doit pas notifier une série déjà disponible."""
-    db.add(_settings())
+    db.add(_settings(availability_confirmation_mode="arr"))
     req = _sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189")
     req.status = RequestStatus.available
     db.add(req)
@@ -795,7 +794,7 @@ async def test_check_arr_resync_available_series_stays_silent(db):
 async def test_check_arr_show_becomes_fully_available(db):
     """Régression : quand tous les épisodes sont présents, le statut doit bien passer
     à RequestStatus.available (pas rester bloqué à partially_available)."""
-    db.add(_settings())
+    db.add(_settings(availability_confirmation_mode="arr"))
     db.add(_sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189"))
     db.commit()
 
@@ -823,7 +822,7 @@ async def test_check_arr_show_upserts_season_status(db):
     """Le detail par saison Sonarr (seasons[]) doit etre persiste dans
     request_season_status, avec le bon statut par saison (available/partially_available/
     pending selon episodes_available_count vs episodes_total_count)."""
-    db.add(_settings())
+    db.add(_settings(availability_confirmation_mode="arr"))
     req = _sent_request(title="Breaking Bad", media_type="show", tvdb_id="81189")
     db.add(req)
     db.commit()

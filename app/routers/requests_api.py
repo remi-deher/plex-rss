@@ -16,6 +16,7 @@ from ..dependencies import current_user, require_admin, require_auth
 from ..models import AdminActionLog, ArrInstance, DeletedMediaLog, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import check_arr_statuses, poll_watchlists
 from ..services.notification_orchestrator import _notify, notify_single_user
+from ..services.request_lifecycle import transition_request
 from ..services import arr_orphans, deleted_media, radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
@@ -457,8 +458,7 @@ async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_d
     count = 0
     for req in reqs:
         if req.status in ("failed", "pending"):
-            req.status = "pending"
-            req.failure_mail_sent = False
+            await transition_request(db, req, "retry", source="manual_bulk")
             count += 1
     if count > 0:
         await db.commit()
@@ -470,15 +470,12 @@ async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_d
 async def bulk_mark_requests_processed(body: BulkAction, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
     reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
-    now = now_utc_naive()
     items = []
     for req in reqs:
         before_status = req.status.value if hasattr(req.status, "value") else req.status
-        req.status = "available"
+        await transition_request(db, req, "available", source="manual_admin")
         req.request_mail_sent = True
         req.available_mail_sent = True
-        if not req.available_at:
-            req.available_at = now
         items.append(
             {
                 "id": req.id,
@@ -566,7 +563,7 @@ async def approve_request(request_id: int, request: Request, db: AsyncSession = 
     # Source de suivi : Seer si l'envoi n'a pas transité par une instance *arr ni un torrent.
     seer_used = arr_id is not None and not item.get("_arr_instance_id") and not item.get("_torrent_hash")
     req.source = "seer" if seer_used else "manual_search"
-    req.status = RequestStatus.sent_to_arr
+    await transition_request(db, req, "submitted", source=item.get("_attempted_target") or "manual")
     req.arr_id = arr_id if isinstance(arr_id, int) else None
     req.arr_slug = arr_slug
     req.arr_instance_id = item.get("_arr_instance_id")
@@ -590,7 +587,7 @@ async def reject_request(request_id: int, body: RejectBody, request: Request, db
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status != RequestStatus.pending_approval:
         raise HTTPException(400, "Seules les demandes en attente de validation peuvent être refusées.")
-    req.status = RequestStatus.rejected
+    await transition_request(db, req, "rejected", source="manual_admin", message=body.reason)
     req.rejected_reason = (body.reason or "").strip() or None
     caller = current_user(request, db)
     req.approved_by = (caller or {}).get("plex_user_id") or "admin"
@@ -605,8 +602,7 @@ async def retry_request(request_id: int, db: AsyncSession = Depends(get_db_async
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
     if req.status not in ("failed", "pending"):
         raise HTTPException(400, "Only failed or pending requests can be retried")
-    req.status = "pending"
-    req.failure_mail_sent = False
+    await transition_request(db, req, "retry", source="manual")
     await db.commit()
     await poll_watchlists()
     return {"status": "retrying"}
@@ -618,8 +614,7 @@ async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
     failed = (await db.execute(select(MediaRequest).filter(MediaRequest.status == "failed"))).scalars().all()
     count = len(failed)
     for req in failed:
-        req.status = "pending"
-        req.failure_mail_sent = False
+        await transition_request(db, req, "retry", source="manual_bulk")
     await db.commit()
     await poll_watchlists()
     return {"status": "ok", "retried": count}
@@ -774,10 +769,8 @@ async def mark_request_processed(
         event = "available"
         if settings and notify:
             await _notify("available", settings, req, db, force=True, triggered_by="manual")
-        req.status = RequestStatus.available
+        await transition_request(db, req, "available", source="manual_admin")
         req.available_mail_sent = True
-        if not req.available_at:
-            req.available_at = now_utc_naive()
 
     if stop_vf_tracking:
         req.vf_tracking_disabled = True

@@ -176,7 +176,11 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
             is_movie_available,
             is_series_available,
         )
-        from ..services.availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
+        from ..services.availability_service import (
+            confirm_available_from_plex,
+            note_arr_processed,
+            should_confirm_available,
+        )
         from ..services.seer import is_request_available as seer_available
 
         settings = (await db.execute(select(Settings))).scalars().first()
@@ -222,7 +226,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                 continue
 
             if available:
-                if await has_plex_proof(db, req):
+                if await should_confirm_available(db, req, settings=settings):
                     changed = await confirm_available_from_plex(
                         settings,
                         req,
@@ -233,7 +237,7 @@ async def _run_check_arr_statuses(run: MaintenanceRun):
                         newly_available += 1
                     emit.ok(f"OK '{req.title}' - disponible confirme par Plex")
                 else:
-                    note_arr_processed(req)
+                    await note_arr_processed(db, req)
                     await db.commit()
                     emit.info(f"- '{req.title}' - traite cote service, attente Plex")
                 continue
@@ -462,8 +466,9 @@ async def _run_retry_failed(run: MaintenanceRun):
             return
         emit.info(f"{len(failed)} demande(s) en échec — repassage en pending…")
         for req in failed:
-            req.status = RequestStatus.pending
-            req.failure_mail_sent = False
+            from ..services.request_lifecycle import transition_request
+
+            await transition_request(db, req, "retry", source="maintenance")
         await db.commit()
         run.progress = 40
         emit.info("Déclenchement du polling…")

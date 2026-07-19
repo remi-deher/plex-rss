@@ -18,6 +18,8 @@ from ..services.download_clients import (
     add_torrent_to_client,
     check_client_connection,
 )
+from ..services.request_lifecycle import transition_request
+from ..services.arr_queue_service import fetch_instance_queue
 from ..utils import async_get_or_404, wrap_image_proxy
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
@@ -297,7 +299,7 @@ async def prowlarr_grab_release(body: ProwlarrGrabRequest, db: AsyncSession = De
     if body.request_id:
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == body.request_id))).scalars().first()
         if req and req.status not in (RequestStatus.available,):
-            req.status = RequestStatus.sent_to_arr
+            await transition_request(db, req, "submitted", source="prowlarr_manual")
             await db.commit()
     return {"success": True, "message": msg}
 
@@ -430,7 +432,7 @@ async def download_release(body: DownloadReleaseRequest, db: AsyncSession = Depe
         if req:
             req.download_client_id = client.id
             req.torrent_hash = info_hash
-            req.status = "sent_to_arr"
+            await transition_request(db, req, "submitted", source="torrent_manual")
             await db.commit()
 
     return {"success": True, "message": msg, "info_hash": info_hash}
@@ -465,7 +467,7 @@ async def download_torrent_file(
         if req:
             req.download_client_id = client.id
             req.torrent_hash = info_hash
-            req.status = "sent_to_arr"
+            await transition_request(db, req, "submitted", source="torrent_file_manual")
             await db.commit()
     return {"success": True, "message": msg, "info_hash": info_hash}
 
@@ -542,7 +544,7 @@ async def arr_grab_release(body: ArrGrabRequest, db: AsyncSession = Depends(get_
     if body.request_id:
         req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == body.request_id))).scalars().first()
         if req and req.status not in (RequestStatus.available,):
-            req.status = RequestStatus.sent_to_arr
+            await transition_request(db, req, "submitted", source=arr_type)
             await db.commit()
     return {"success": True, "message": msg}
 
@@ -569,12 +571,7 @@ async def arr_download_queue(db: AsyncSession = Depends(get_db_async)):
 
     items = []
     for inst in instances:
-        if inst.arr_type == "radarr":
-            records = await radarr.get_queue(inst.url, inst.api_key)
-        elif inst.arr_type == "sonarr":
-            records = await sonarr.get_queue(inst.url, inst.api_key)
-        else:
-            continue
+        records = await fetch_instance_queue(inst)
         for rec in records:
             rec["instance"] = inst.name
             rec["instance_id"] = inst.id
@@ -590,8 +587,21 @@ async def arr_download_queue(db: AsyncSession = Depends(get_db_async)):
             key = (inst.id, arr_media_id) if arr_media_id else None
             li = lib_by_key.get(key) if key else None
             req = req_by_key.get(key) if key else None
+            from ..services.operational_projection import plex_library_projection, request_operational_projection
+
+            operational = request_operational_projection(req) if req else (
+                plex_library_projection() if li else {
+                    "origin_kind": "arr",
+                    "origin_label": "Ajoute directement dans *ARR",
+                    "operational_status": "downloading",
+                    "operational_status_label": "Telechargement gere par *ARR",
+                    "waiting_reason": "Aucune demande utilisateur n'est liee a cette entree *ARR.",
+                }
+            )
             rec["library_id"] = li.id if li else None
             rec["request_id"] = req.id if (req and not li) else None
+            rec["linked_request_id"] = req.id if req else None
+            rec.update(operational)
             items.append(rec)
     items.sort(key=lambda x: x.get("progress") or 0)
     _queue_cache["data"] = items

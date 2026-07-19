@@ -28,12 +28,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["settings"], dependencies=[Depends(require_admin)])
 
 GRANULARITY_MODES = {"minimal", "jalons", "tout"}
+AVAILABILITY_CONFIRMATION_MODES = {"arr", "plex", "hybrid"}
 
 
 def _validate_notify_settings(payload: dict):
     granularity = payload.get("series_notify_granularity")
     if granularity is not None and granularity not in GRANULARITY_MODES:
         raise HTTPException(status_code=400, detail=f"Granularité de notification invalide: {granularity}")
+
+
+    confirmation_mode = payload.get("availability_confirmation_mode")
+    if confirmation_mode is not None and confirmation_mode not in AVAILABILITY_CONFIRMATION_MODES:
+        raise HTTPException(status_code=400, detail=f"Mode de confirmation invalide: {confirmation_mode}")
+    timeout = payload.get("availability_confirmation_timeout_minutes")
+    if timeout is not None and timeout < 1:
+        raise HTTPException(status_code=400, detail="Le delai de confirmation doit etre positif")
 
 
 class SettingsUpdate(BaseModel):
@@ -133,6 +142,8 @@ class SettingsUpdate(BaseModel):
     torrent_ratio_limit: Optional[float] = None
     torrent_seed_time_limit_hours: Optional[int] = None
     torrent_auto_delete_files: Optional[bool] = None
+    availability_confirmation_mode: Optional[str] = None
+    availability_confirmation_timeout_minutes: Optional[int] = None
     # --- VFF ---
     vff_enabled: Optional[bool] = None
     vff_libraries: Optional[str] = None

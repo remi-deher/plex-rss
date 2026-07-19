@@ -713,10 +713,11 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
             li = await _link_request_to_library_item(db, req)
             if not li:
                 continue
-            req.status = RequestStatus.available
-            req.available_at = now_reconcile
-            req.next_release_at = None
-            req.next_release_label = None
+            from .request_lifecycle import transition_request
+
+            await transition_request(
+                db, req, "available", source="plex_vff", available_at=now_reconcile
+            )
             promoted += 1
             logger.info(f"VFF : '{req.title}' détecté disponible via la bibliothèque Plex (arr en retard/inconnu)")
             # Pas de notification "available" ici : cette fonction ne tourne que si VFF est

@@ -11,7 +11,8 @@ from ..database import AsyncSessionLocal
 from ..models import MediaRequest, PlexUser, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
 from . import watchlist_poller
-from .availability_service import has_plex_proof
+from .availability_service import should_confirm_available
+from .request_lifecycle import transition_request
 from .notification_orchestrator import _add_co_requester
 from .seer import _headers as _seer_headers
 from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
@@ -329,11 +330,20 @@ async def sync_seer_requests():
                             f"'{existing.title}' (seer_req #{req.get('seer_request_id')}): "
                             f"createdAt absent — requested_at non corrigé (valeur actuelle: {existing.requested_at})"
                         )
-                    plex_confirmed = await has_plex_proof(db, existing) if is_available else False
+                    plex_confirmed = (
+                        await should_confirm_available(db, existing, settings=settings)
+                        if is_available
+                        else False
+                    )
                     if is_available and plex_confirmed and existing.status != RequestStatus.available:
-                        existing.status = RequestStatus.available
                         existing.arr_id = existing.arr_id or req["seer_request_id"]
-                        existing.available_at = seer_updated_at or now_utc_naive()
+                        await transition_request(
+                            db,
+                            existing,
+                            "available",
+                            source="seer",
+                            available_at=seer_updated_at,
+                        )
                         changed = True
                     elif (
                         is_available

@@ -17,8 +17,14 @@
           <span class="badge status-tag" :class="row.status">{{ requestStatusLabel(row.status) }}</span>
         </div>
 
-        <div v-if="!['failed','rejected','available'].includes(row.status)" class="status-stepper">
-          <span v-for="step in statusSteps" :key="step.key" :class="['step', stepState(row, step.key)]">{{ step.label }}</span>
+        <div class="origin-line">
+          <span class="badge tiny">{{ row.origin_label || 'Demande utilisateur' }}</span>
+          <small>{{ row.operational_status_label }}</small>
+        </div>
+        <p v-if="row.waiting_reason" class="waiting-reason">{{ row.waiting_reason }}</p>
+
+        <div v-if="!['failed','rejected'].includes(row.status)" class="status-stepper">
+          <span v-for="step in statusSteps(row)" :key="step.key" :class="['step', stepState(row, step.key)]">{{ step.label }}</span>
         </div>
 
         <details v-if="row.media_type === 'show' && row.seasons?.length" class="mail-history-details">
@@ -31,7 +37,7 @@
 
         <details class="mail-history-details">
           <summary>Historique</summary>
-          <small>Demandee le {{ formatDate(row.requested_at) }}</small>
+          <small>{{ row.origin_kind === 'arr' ? 'Detectee le' : 'Demandee le' }} {{ formatDate(row.requested_at) }}</small>
           <small v-if="row.arr_processed_at" class="mail-history">
             Validee par *arr le {{ formatDateTime(row.arr_processed_at) }}
           </small>
@@ -84,7 +90,17 @@
         <button class="icon-button danger" title="Supprimer" @click="$emit('delete-request', row.id)"><Trash2 /></button>
       </div>
     </article>
-    <p v-if="!requests?.length" class="empty">Aucune demande liee.</p>
+    <article v-if="!requests?.length && detail?.in_library" class="detail-row plex-origin-card">
+      <div>
+        <strong>Disponible directement dans Plex</strong>
+        <p>Ce media ne possede aucune demande utilisateur liee. Son point d'entree operationnel est Plex.</p>
+        <div class="status-stepper">
+          <span class="step done">Detecte dans Plex</span>
+          <span class="step current">Disponible</span>
+        </div>
+      </div>
+    </article>
+    <p v-else-if="!requests?.length" class="empty">Aucune demande liee.</p>
   </section>
 </template>
 
@@ -94,6 +110,7 @@ import { Ban, Check, CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircl
 
 defineProps({
   requests: { type: Array, default: () => [] },
+  detail: { type: Object, default: () => ({}) },
   admin: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   addableUsers: { type: Array, default: () => [] },
@@ -106,7 +123,17 @@ defineEmits([
 ]);
 
 const openRequesterMenu = ref(null);
-const statusSteps = [{ key: 'requested', label: 'Demandee' }, { key: 'sent', label: 'Transmise' }, { key: 'available', label: 'Disponible' }];
+const requestSteps = [
+  { key: 'requested', label: 'Demandee' }, { key: 'submitted', label: 'Transmise a *ARR' },
+  { key: 'queued', label: 'En file' }, { key: 'downloading', label: 'Telechargement' },
+  { key: 'importing', label: 'Import *ARR' }, { key: 'awaiting_plex', label: 'Attente Plex' },
+  { key: 'completed', label: 'Disponible' },
+];
+const arrSteps = [
+  { key: 'submitted', label: 'Detectee dans *ARR' }, { key: 'queued', label: 'En file' },
+  { key: 'downloading', label: 'Telechargement' }, { key: 'importing', label: 'Import *ARR' },
+  { key: 'awaiting_plex', label: 'Attente Plex' }, { key: 'completed', label: 'Disponible' },
+];
 
 function formatDate(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-'; }
 function formatDateTime(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-'; }
@@ -125,9 +152,15 @@ function seasonsSummary(seasons) {
   const available = seasons.filter(s => s.status === 'available').length;
   return `${available}/${seasons.length} completes`;
 }
+function statusSteps(row) { return row.origin_kind === 'arr' ? arrSteps : requestSteps; }
 function stepState(row, key) {
-  const order = ['requested', 'sent', 'available'];
-  const statusIndex = ['available', 'partially_available'].includes(row.status) ? 2 : row.status === 'sent_to_arr' ? 1 : 0;
+  const steps = statusSteps(row);
+  const order = steps.map(step => step.key);
+  let current = row.operational_status || 'not_submitted';
+  if (['not_submitted', 'awaiting_submission'].includes(current)) current = 'requested';
+  if (current === 'partially_available') current = 'completed';
+  if (row.origin_kind === 'arr' && current === 'requested') current = 'submitted';
+  const statusIndex = Math.max(0, order.indexOf(current));
   const keyIndex = order.indexOf(key);
   if (keyIndex < statusIndex) return 'done';
   if (keyIndex === statusIndex) return 'current';
@@ -191,9 +224,26 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
 
 .status-stepper {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
   margin: 6px 0;
+}
+.origin-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.waiting-reason {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.plex-origin-card p {
+  margin: 6px 0;
+  color: var(--muted);
 }
 .status-stepper .step {
   font-size: 11px;

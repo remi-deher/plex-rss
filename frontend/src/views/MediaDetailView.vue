@@ -32,6 +32,7 @@
           <MediaRequestsTab
             v-if="tab === 'requests'"
             :requests="detail.requests"
+            :detail="detail"
             :admin="admin"
             :busy="busy"
             :addable-users="addableUsers"
@@ -131,7 +132,7 @@ const newRequesterId = ref('');
 const kind = computed(() => route.params.kind);
 
 const typeLabel = computed(() => detail.value?.media_type === 'show' ? 'Serie' : 'Film');
-const statusLabel = computed(() => detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || '');
+const statusLabel = computed(() => detail.value?.operational_status_label || (detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || ''));
 const statusClass = computed(() => detail.value?.available || detail.value?.in_library ? 'available' : 'pending');
 const canRequest = computed(() => kind.value === 'discover' && !detail.value?.available && !detail.value?.in_library && !detail.value?.requested);
 const seasonNumbers = computed(() => Array.from({ length: Number(detail.value?.number_of_seasons || 0) + 1 }, (_, i) => i));

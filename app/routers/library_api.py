@@ -28,6 +28,7 @@ from ..models import (
 )
 from ..services import deleted_media, radarr, sonarr, tmdb
 from ..services import seer as seer_service
+from ..services.request_lifecycle import transition_request
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..services.diagnostics import record_event, update_request_context
 from ..services.notification_orchestrator import _notify
@@ -454,6 +455,15 @@ async def media_detail(
         except Exception as e:
             logger.debug(f"Failed to build arr_url: {e}")
 
+    from ..services.operational_projection import plex_library_projection
+
+    operational = (
+        request_payloads[0]
+        if request_payloads
+        else plex_library_projection()
+        if library_item
+        else {}
+    )
     return {
         "media": {
             "kind": "library" if library_item else "request",
@@ -481,6 +491,11 @@ async def media_detail(
             "plex_guid": media_obj.plex_guid,
             "in_library": library_item is not None,
             "added_at": format_datetime(library_item.added_at) if library_item else None,
+            "origin_kind": operational.get("origin_kind"),
+            "origin_label": operational.get("origin_label"),
+            "operational_status": operational.get("operational_status"),
+            "operational_status_label": operational.get("operational_status_label"),
+            "waiting_reason": operational.get("waiting_reason"),
         },
         "requests": request_payloads,
         "issues": [_serialize_issue(issue) for issue in open_issues],
@@ -1039,7 +1054,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
             pu = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == body.plex_user_id))).scalars().first()
             existing.plex_user = (pu.display_name or pu.plex_user_id) if pu else body.plex_user_id
         if existing.status in (RequestStatus.failed, RequestStatus.pending):
-            existing.status = RequestStatus.sent_to_arr
+            await transition_request(db, existing, "submitted", source=via)
         await db.commit()
         if s:
             await _notify("request", s, existing, db)

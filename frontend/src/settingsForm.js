@@ -28,6 +28,7 @@ export const form = reactive({
   plex_sync_interval_hours: 24, plex_sync_recent_interval_minutes: 5,
   torrent_required_keywords: '', torrent_forbidden_keywords: '', torrent_min_size_gb: null, torrent_max_size_gb: null,
   torrent_ratio_limit: null, torrent_seed_time_limit_hours: null, torrent_auto_delete_files: false,
+  availability_confirmation_mode: 'hybrid', availability_confirmation_timeout_minutes: 30,
 });
 
 export const saving = ref(false);

@@ -49,6 +49,8 @@
                 <div>
                   <strong>{{ row.title }}</strong>
                   <small>{{ row.download_client||row.indexer||'' }}</small>
+                  <small v-if="row.origin_label">{{ row.origin_label }} · {{ row.operational_status_label }}</small>
+                  <small v-if="row.waiting_reason" class="muted">{{ row.waiting_reason }}</small>
                   <small v-if="row.error" class="error-text">{{ row.error }}</small>
                 </div>
               </div>

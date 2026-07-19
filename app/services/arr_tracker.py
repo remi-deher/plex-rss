@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 import time
 
 import sqlalchemy
@@ -19,17 +18,18 @@ from ..models import (
     Settings,
     VfEpisodeStatus,
 )
-from ..utils import now_utc, now_utc_naive
-from . import notification_orchestrator, watchlist_poller
-from .availability_service import confirm_available_from_plex, has_plex_proof, note_arr_processed
+from ..utils import now_utc_naive
+from . import notification_orchestrator
+from .availability_service import confirm_available_from_plex, note_arr_processed, should_confirm_available
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .download_clients import delete_torrent, get_torrent_status
-from .download_history import record_completed
+from .request_lifecycle import transition_request
+from .arr_queue_service import fetch_queue_entity_ids
 from .notification_orchestrator import _handle_show_progress_notification
-from .radarr import get_all_movies, get_queue_movie_ids, is_movie_available, movie_exists
+from .radarr import get_all_movies, is_movie_available, movie_exists
 from .seer import is_request_available as seer_available
 from .seer import resolve_mode as seer_resolve_mode
-from .sonarr import get_all_series, get_queue_series_ids, get_series_episode_stats, is_series_available, series_exists
+from .sonarr import get_all_series, get_series_episode_stats, series_exists
 from .vff_scanner import scan_and_notify_availability
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
 
@@ -246,7 +246,7 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                     logger.warning(f"Sonarr series prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
                     error_details.append(f"[{inst.name}] prefetch Sonarr: {e}")
-                queue_ids = await get_queue_series_ids(inst.url, inst.api_key)
+                queue_ids = await fetch_queue_entity_ids(inst)
             elif inst.arr_type == "radarr":
                 try:
                     movies_list = await get_all_movies(inst.url, inst.api_key)
@@ -254,7 +254,7 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                     logger.warning(f"Radarr movies prefetch failed for '{inst.name}': {e}")
                     errors_count += 1
                     error_details.append(f"[{inst.name}] prefetch Radarr: {e}")
-                queue_ids = await get_queue_movie_ids(inst.url, inst.api_key)
+                queue_ids = await fetch_queue_entity_ids(inst)
 
             seer_mode = seer_resolve_mode(settings)
             for req in inst_candidates:
@@ -325,7 +325,9 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                             )
                             new_arr_id = new_arr_id or arr_new_id
                             new_slug = new_slug or arr_new_slug
-                    elif seer_checked and available and not await has_plex_proof(db, req):
+                    elif seer_checked and available and not await should_confirm_available(
+                        db, req, settings=settings
+                    ):
                         logger.info(
                             "Seer indique '%s' disponible, mais Plex ne confirme pas encore sa presence; "
                             "la demande reste en attente.",
@@ -386,7 +388,11 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                 # (fichier importé mais introuvable dans Plex) d'un média encore en cours de
                 # téléchargement/import (ex: série avec d'autres épisodes en cours de téléchargement).
                 effective_arr_id = None if seer_checked else (new_arr_id or arr_lookup_id)
-                req.is_downloading = bool(effective_arr_id and effective_arr_id in queue_ids)
+                in_queue = bool(effective_arr_id and effective_arr_id in queue_ids)
+                if in_queue:
+                    await transition_request(db, req, "download_started", source=inst.arr_type)
+                elif req.is_downloading:
+                    await transition_request(db, req, "download_finished", source=inst.arr_type)
 
                 # Série en cours de diffusion : au moins un épisode a un fichier mais pas
                 # tous — statut distinct de `available` pour ne pas afficher un badge
@@ -399,8 +405,10 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
 
                 was_already_available = req.status == RequestStatus.available
                 if available:
-                    if not await has_plex_proof(db, req):
-                        note_arr_processed(req, arr_id=new_arr_id, arr_slug=new_slug, arr_instance_id=inst.id)
+                    if not await should_confirm_available(db, req, settings=settings):
+                        await note_arr_processed(
+                            db, req, arr_id=new_arr_id, arr_slug=new_slug, arr_instance_id=inst.id
+                        )
                         logger.info(
                             "'%s' est traite cote %s, en attente de confirmation Plex avant disponibilite.",
                             req.title,
@@ -409,31 +417,22 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                         await db.commit()
                         continue
                     if is_show_partial:
-                        if req.status != RequestStatus.partially_available:
-                            req.status = RequestStatus.partially_available
+                        changed = await transition_request(
+                            db, req, "partially_available", source="plex_sync", instance_name=inst.name
+                        )
+                        if changed:
                             logger.info(
                                 "'%s' est partiellement disponible (%s/%s episodes)",
                                 req.title, req.episodes_available_count, req.episodes_total_count,
                             )
                         await db.commit()
                     elif not was_already_available:
-                        req.status = RequestStatus.available
-                        req.available_at = now_utc_naive()
-                        req.next_release_at = None
-                        req.next_release_label = None
+                        await transition_request(
+                            db, req, "available", source="plex_sync", instance_name=inst.name
+                        )
                         newly_available += 1
                         logger.info(f"'{req.title}' is now available")
                         await db.commit()
-                        await record_completed(
-                            db,
-                            title=req.title,
-                            year=req.year,
-                            media_type=req.media_type,
-                            source="plex_sync",
-                            instance_name=inst.name,
-                            poster_url=req.poster_url,
-                            request_id=req.id,
-                        )
                     else:
                         await db.commit()
 
@@ -542,8 +541,16 @@ async def check_torrent_statuses():
             logger.debug(
                 f"Torrent '{req.title}' status: {status['status']}, progress: {status['progress']:.1f}%, ratio: {status['ratio']:.2f}"
             )
+            req.torrent_name = status.get("name") or req.torrent_name
+            req.torrent_content_path = status.get("content_path") or req.torrent_content_path
+
+            if status["progress"] < 100.0 and status["status"] not in ("completed", "seeding"):
+                event = "download_started" if status["status"] == "downloading" else "queued"
+                await transition_request(db, req, event, source="torrent")
+                await db.commit()
 
             if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
+                req.torrent_completed_at = req.torrent_completed_at or now_utc_naive()
                 if req.status != RequestStatus.available:
                     # Ces demandes n'ont pas d'ID Sonarr/Radarr (filet Prowlarr) : elles ne
                     # sont jamais vues par check_arr_statuses. Sans ce contrôle, seule la
@@ -552,9 +559,11 @@ async def check_torrent_statuses():
                     # malgré un torrent terminé et présent dans Plex.
                     promoted = await confirm_available_from_plex(settings, req, db, source="torrent")
                     if promoted:
+                        req.torrent_import_verified_at = req.torrent_import_verified_at or now_utc_naive()
+                        await db.commit()
                         logger.info(f"'{req.title}' est desormais disponible (torrent termine + preuve Plex)")
                     else:
-                        req.is_downloading = False
+                        await transition_request(db, req, "plex_pending", source="torrent")
                         await db.commit()
                         logger.info(
                             "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
@@ -574,10 +583,8 @@ async def check_torrent_statuses():
                     if seed_time_hours >= settings.torrent_seed_time_limit_hours:
                         time_reached = True
 
-                if ratio_reached or time_reached:
-                    delete_files = (
-                        settings.torrent_auto_delete_files if settings.torrent_auto_delete_files is not None else True
-                    )
+                if (ratio_reached or time_reached) and req.torrent_import_verified_at:
+                    delete_files = bool(settings.torrent_auto_delete_files)
                     deleted = await delete_torrent(
                         client.client_type, client.url, client.username, client.password, req.torrent_hash, delete_files
                     )

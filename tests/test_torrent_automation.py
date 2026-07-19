@@ -176,6 +176,7 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
 
     mock_status = {
         "name": "Inception",
+        "content_path": "/downloads/Inception",
         "progress": 100.0,
         "status": "seeding",
         "ratio": 2.5,  # Exceeds ratio limit (2.0)
@@ -202,12 +203,13 @@ async def test_check_torrent_statuses_available_and_cleanup(db):
             assert req_db is not None
             # Completion alone is not proof of Plex availability.
             assert req_db.status == RequestStatus.sent_to_arr
-            # Torrent should be cleaned up (deleted) and hash cleared
-            assert req_db.torrent_hash is None
+            # Le torrent reste suivi tant que Plex n'a pas confirme l'import.
+            assert req_db.torrent_hash == "inception_hash"
+            assert req_db.torrent_completed_at is not None
         finally:
             new_session.close()
 
-        mock_delete.assert_called_once_with("qbittorrent", "http://localhost:8080", None, None, "inception_hash", True)
+        mock_delete.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -258,6 +260,7 @@ async def test_check_torrent_statuses_promotes_available_with_plex_proof(db):
 
     mock_status = {
         "name": "Inception",
+        "content_path": "/downloads/Inception",
         "progress": 100.0,
         "status": "completed",
         "ratio": 0.1,
@@ -276,3 +279,6 @@ async def test_check_torrent_statuses_promotes_available_with_plex_proof(db):
     req_db = db.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
     assert req_db.status == RequestStatus.available
     assert req_db.library_item_id is not None
+    assert req_db.torrent_content_path == "/downloads/Inception"
+    assert req_db.torrent_completed_at is not None
+    assert req_db.torrent_import_verified_at is not None

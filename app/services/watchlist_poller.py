@@ -19,6 +19,7 @@ from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .diagnostics import record_event, update_request_context
 from .download_clients import add_torrent_to_client
 from .notification_orchestrator import _add_co_requester
+from .request_lifecycle import transition_request
 from .radarr import add_movie, lookup_movie, resolve_tmdb_id
 from .seer import _headers as _seer_headers
 from .seer import _resolve_tmdb_id as _seer_resolve_tmdb_id
@@ -695,7 +696,7 @@ async def _process_watchlist_item(
     ):
         needs_approval = True
     if needs_approval:
-        req.status = RequestStatus.pending_approval
+        await transition_request(db, req, "approval_required", source=item.get("source") or "watchlist")
         await db.commit()
         logger.info("Demande en attente de validation : %s -> '%s'", display_name, item["title"])
         return "sent"
@@ -733,7 +734,13 @@ async def _process_watchlist_item(
         if arr_id is None and not already_existed and not item.get("_torrent_hash"):
             raise Exception("Transmission échouée : métadonnées introuvables (TMDB/TVDB) ou instance inaccessible.")
             
-        req.status = RequestStatus.sent_to_arr
+        await transition_request(
+            db,
+            req,
+            "submitted",
+            source=item.get("_attempted_target") or "arr",
+            details={"already_existed": already_existed},
+        )
         req.arr_id = arr_id
         req.arr_slug = arr_slug
         req.arr_instance_id = item.get("_arr_instance_id")
@@ -748,7 +755,13 @@ async def _process_watchlist_item(
         if hasattr(e, "response") and hasattr(e.response, "text"):
             body_log = f" | Body: {e.response.text}"
         logger.error(f"Failed to send '{item['title']}' to arr: {e}{body_log}")
-        req.status = RequestStatus.failed
+        await transition_request(
+            db,
+            req,
+            "failed",
+            source=item.get("_attempted_target") or "arr",
+            error=str(e),
+        )
         result = "failed"
 
     await db.commit()

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import false, or_
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import sqlalchemy
@@ -16,9 +16,14 @@ from ..job_queue import mark_external_availability_event
 from ..models import ArrInstance, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
 from ..services import radarr, sonarr
 from ..services.audio_analyzer import languages_list_has_french
-from ..services.availability_service import has_plex_proof, note_arr_processed
+from ..services.availability_service import note_arr_processed, should_confirm_available
 from ..services.diagnostics import record_event, update_request_context
-from ..services.download_history import record_completed
+# Alias conserve pendant la migration du cycle de vie : plusieurs integrations et
+# tests historiques patchent ce symbole. L'ecriture reelle passe desormais par
+# request_lifecycle.transition_request.
+from ..services.download_history import record_completed  # noqa: F401
+from ..services.request_lifecycle import transition_request
+from ..services.media_matching import request_identity_filter
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
     _resolve_movie_notify_language,
@@ -97,21 +102,15 @@ def _arr_event_query(
     if instance_id:
         q = q.filter(MediaRequest.arr_instance_id == instance_id)
 
-    candidates = []
-    if arr_id:
-        candidates.append(MediaRequest.arr_id == int(arr_id))
-    if tmdb_id:
-        candidates.append(MediaRequest.tmdb_id == str(tmdb_id))
-    if tvdb_id:
-        candidates.append(MediaRequest.tvdb_id == str(tvdb_id))
-    if imdb_id:
-        candidates.append(MediaRequest.imdb_id == str(imdb_id))
-
-    if candidates:
-        return q.filter(or_(*candidates))
-    if title:
-        return q.filter(MediaRequest.title.ilike(f"%{title}%"))
-    return q.filter(false())
+    return q.filter(
+        request_identity_filter(
+            arr_id=arr_id,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            imdb_id=imdb_id,
+            title=title,
+        )
+    )
 
 
 async def _mark_available_and_notify(
@@ -186,8 +185,8 @@ async def _mark_available_and_notify(
             await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
             await db.commit()
             continue
-        if not await has_plex_proof(db, req):
-            note_arr_processed(req, arr_id=arr_id, arr_instance_id=instance_id)
+        if not await should_confirm_available(db, req, settings=settings):
+            await note_arr_processed(db, req, arr_id=arr_id, arr_instance_id=instance_id)
             if arr_detected_vf and req.has_vf is not True:
                 # Media pas encore confirmé disponible côté Plex, mais on sait déjà via
                 # *arr qu'une piste VF existe sur le fichier importé — pas la peine
@@ -204,24 +203,19 @@ async def _mark_available_and_notify(
 
             await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)
             continue
-        req.status = RequestStatus.available
-        req.available_at = now_utc_naive()
-        req.is_downloading = False
         if arr_id and not req.arr_id:
             req.arr_id = int(arr_id)
         if instance_id and not req.arr_instance_id:
             req.arr_instance_id = instance_id
-        await db.commit()
-        await record_completed(
+        await transition_request(
             db,
-            title=req.title,
-            year=req.year,
-            media_type=req.media_type,
+            req,
+            "available",
             source=source,
             instance_name=instance_name,
-            poster_url=req.poster_url,
-            request_id=req.id,
+            details={"arr_id": arr_id, "arr_detected_vf": arr_detected_vf},
         )
+        await db.commit()
         if arr_detected_vf and req.has_vf is not True:
             # Confirmation VF anticipée via *arr (voir docstring) : le scan Plex ci-dessous
             # tourne quand même (et fera foi s'il contredit ce signal), mais si Plex n'a pas
@@ -288,6 +282,85 @@ async def _delete_arr_requests(
     return count
 
 
+async def _reconcile_sonarr_episode_delete(
+    db: AsyncSession,
+    series: dict,
+    instance_id: int | None,
+) -> int:
+    """Recalcule une serie apres EpisodeFileDelete sans supprimer sa demande.
+
+    Un EpisodeFileDelete est aussi emis pendant certains upgrades/remplacements. Le
+    catalogue Sonarr, relu apres l'evenement, est donc la source la plus fiable pour
+    determiner si la serie reste complete, devient partielle ou n'a plus aucun fichier.
+    """
+    q = _arr_event_query(
+        db,
+        "show",
+        arr_id=series.get("id"),
+        tvdb_id=series.get("tvdbId"),
+        title=series.get("title", ""),
+        instance_id=instance_id,
+    )
+    requests = (await db.execute(q)).scalars().all()
+    if not requests:
+        return 0
+
+    conn = await _resolve_arr_connection(db, "sonarr", instance_id)
+    if not conn:
+        logger.warning("EpisodeFileDelete: connexion Sonarr introuvable, demandes conservees")
+        return 0
+
+    reconciled = 0
+    for req in requests:
+        try:
+            stats = await sonarr.get_series_episode_stats(
+                conn[0],
+                conn[1],
+                arr_id=series.get("id") or req.arr_id,
+                tvdb_id=series.get("tvdbId") or req.tvdb_id,
+                tmdb_id=req.tmdb_id,
+                imdb_id=req.imdb_id,
+            )
+        except Exception as exc:
+            logger.warning("EpisodeFileDelete: recalcul impossible pour '%s': %s", req.title, exc)
+            continue
+        if not stats:
+            logger.warning("EpisodeFileDelete: serie '%s' introuvable, demande conservee", req.title)
+            continue
+
+        available = int(stats.get("episode_file_count") or 0)
+        aired = int(stats.get("episode_count") or 0)
+        total = int(stats.get("total_episode_count") or 0)
+        req.episodes_available_count = available
+        req.episodes_aired_count = aired
+        req.episodes_total_count = total
+        if available <= 0:
+            event = "availability_lost"
+        elif total and available < total:
+            event = "partially_available"
+        else:
+            event = "available"
+        await transition_request(
+            db,
+            req,
+            event,
+            source="sonarr_episode_delete",
+            instance_name=await _instance_name(db, instance_id),
+            details={"episodes_available": available, "episodes_aired": aired, "episodes_total": total},
+        )
+        await record_event(
+            db,
+            category="arr",
+            action="episode_file_deleted",
+            request=req,
+            message="Disponibilite de la serie recalculee apres suppression d'un fichier episode.",
+            details={"episodes_available": available, "episodes_aired": aired, "episodes_total": total},
+        )
+        reconciled += 1
+    await db.commit()
+    return reconciled
+
+
 def _query_instance_id(request: Request) -> int | None:
     raw = request.query_params.get("instance_id")
     try:
@@ -345,7 +418,7 @@ async def sonarr_webhook(request: Request):
             logger.info("Sonarr webhook test reçu avec succès")
             return {"status": "ok", "event": "Test", "message": "Webhook Sonarr opérationnel"}
 
-        if event in ("SeriesDelete", "EpisodeFileDelete"):
+        if event == "SeriesDelete":
             series = data.get("series", {})
             deleted = await _delete_arr_requests(
                 db,
@@ -356,6 +429,13 @@ async def sonarr_webhook(request: Request):
                 instance_id=_query_instance_id(request),
             )
             return {"status": "ok", "deleted": deleted}
+
+        if event == "EpisodeFileDelete":
+            series = data.get("series", {})
+            reconciled = await _reconcile_sonarr_episode_delete(
+                db, series, _query_instance_id(request)
+            )
+            return {"status": "ok", "reconciled": reconciled, "deleted": 0}
 
         if event not in ("Download", "Import"):
             return {"status": "ignored"}
@@ -586,20 +666,15 @@ async def plex_webhook(request: Request):
                 message=f"Média Plex trouvé par {plex_match_method}.",
                 details={"event": event, "plex_title": title, "plex_guid": plex_guid},
             )
-            req.status = RequestStatus.available
-            req.available_at = now_utc_naive()
-            req.is_downloading = False
+            await transition_request(
+                db,
+                req,
+                "available",
+                source="plex",
+                details={"plex_match_method": plex_match_method, "plex_guid": plex_guid},
+            )
             await db.commit()
             logger.info(f"Plex webhook: '{req.title}' marqué disponible")
-            await record_completed(
-                db,
-                title=req.title,
-                year=req.year,
-                media_type=req.media_type,
-                source="plex",
-                poster_url=req.poster_url,
-                request_id=req.id,
-            )
             await mark_external_availability_event(req.id)
             handled = await scan_and_notify_availability(req, settings, db) if settings else False
             user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
