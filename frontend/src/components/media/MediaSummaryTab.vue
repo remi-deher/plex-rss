@@ -1,5 +1,7 @@
 <template>
   <section class="drawer-section">
+    <MediaWorkflowTimeline :steps="detail.workflow_timeline" />
+
     <div class="action-grid compact-actions">
       <button class="secondary" :disabled="busy" @click="$emit('recheck-plex')"><RefreshCw />Verifier dans Plex</button>
       <button class="secondary" :disabled="busy" @click="$emit('open-correction', 'media', null, null)"><MessageSquareWarning />Correction globale</button>
@@ -46,6 +48,7 @@ import { RefreshCw, MessageSquareWarning } from '@lucide/vue';
 import MediaIssueForm from './MediaIssueForm.vue';
 import MediaCorrectionForm from './MediaCorrectionForm.vue';
 import MediaAudioSection from './MediaAudioSection.vue';
+import MediaWorkflowTimeline from './MediaWorkflowTimeline.vue';
 
 defineProps({
   detail: { type: Object, required: true },

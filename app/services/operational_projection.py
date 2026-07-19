@@ -64,7 +64,101 @@ def request_operational_projection(req: Any) -> dict[str, Any]:
         "operational_status": fulfillment,
         "operational_status_label": labels.get(fulfillment, fulfillment),
         "waiting_reason": waiting_reasons.get(fulfillment),
+        "workflow_timeline": request_workflow_timeline(req, origin=origin, fulfillment=fulfillment),
     }
+
+
+def request_workflow_timeline(
+    req: Any, *, origin: dict[str, str] | None = None, fulfillment: str | None = None
+) -> list[dict[str, Any]]:
+    """Construit le parcours visible sans inventer les etapes anterieures a l'entree."""
+    origin = origin or request_origin(getattr(req, "source", None))
+    fulfillment = fulfillment or _value(getattr(req, "fulfillment_status", None)) or "not_submitted"
+
+    if origin["kind"] == "plex":
+        return [{
+            "key": "completed",
+            "label": "Deja present dans Plex",
+            "state": "completed",
+            "occurred_at": getattr(req, "available_at", None),
+        }]
+
+    steps: list[dict[str, Any]] = []
+    if origin["kind"] == "request":
+        steps.append({
+            "key": "requested",
+            "label": origin["label"],
+            "state": "completed",
+            "occurred_at": getattr(req, "requested_at", None),
+        })
+        if getattr(req, "approved_at", None) is not None or fulfillment == "not_submitted":
+            steps.append({
+                "key": "approval",
+                "label": "Approbation de la demande",
+                "state": "completed" if getattr(req, "approved_at", None) else "current",
+                "occurred_at": getattr(req, "approved_at", None),
+            })
+
+    technical_steps = [
+        ("awaiting_submission", "En attente d'envoi vers *ARR"),
+        ("submitted", "Transmis a *ARR"),
+        ("queued", "En file de telechargement"),
+        ("downloading", "Telechargement en cours"),
+        ("importing", "Import *ARR en cours"),
+        ("awaiting_plex", "En attente d'indexation Plex"),
+        ("partially_available", "Partiellement disponible dans Plex"),
+        ("completed", "Disponible dans Plex"),
+    ]
+    start_key = "submitted" if origin["kind"] == "arr" else "awaiting_submission"
+    start_index = next(i for i, (key, _) in enumerate(technical_steps) if key == start_key)
+    visible_steps = technical_steps[start_index:]
+
+    if fulfillment in {"failed", "removed"}:
+        completed_until = "submitted" if getattr(req, "arr_processed_at", None) else None
+        for key, label in visible_steps:
+            if completed_until is None:
+                break
+            steps.append({
+                "key": key,
+                "label": label,
+                "state": "completed",
+                "occurred_at": getattr(req, "arr_processed_at", None) if key == "submitted" else None,
+            })
+            if key == completed_until:
+                break
+        steps.append({
+            "key": fulfillment,
+            "label": "Traitement en erreur" if fulfillment == "failed" else "Retire de *ARR",
+            "state": "error",
+            "occurred_at": getattr(req, "fulfillment_updated_at", None),
+        })
+        return steps
+
+    current_index = next(
+        (i for i, (key, _) in enumerate(visible_steps) if key == fulfillment),
+        -1,
+    )
+    for index, (key, label) in enumerate(visible_steps):
+        occurred_at = None
+        if key == "submitted":
+            occurred_at = getattr(req, "arr_processed_at", None)
+        elif key == "completed":
+            occurred_at = getattr(req, "available_at", None)
+        elif key == fulfillment:
+            occurred_at = getattr(req, "fulfillment_updated_at", None)
+        steps.append({
+            "key": key,
+            "label": label,
+            "state": (
+                "completed"
+                if current_index >= 0 and index < current_index
+                else "current"
+                if index == current_index
+                else "upcoming"
+            ),
+            "occurred_at": occurred_at,
+        })
+    return steps
 
 
 def plex_library_projection() -> dict[str, Any]:
@@ -74,4 +168,10 @@ def plex_library_projection() -> dict[str, Any]:
         "operational_status": "completed",
         "operational_status_label": "Disponible dans Plex",
         "waiting_reason": None,
+        "workflow_timeline": [{
+            "key": "completed",
+            "label": "Deja present dans Plex",
+            "state": "completed",
+            "occurred_at": None,
+        }],
     }

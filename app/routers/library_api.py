@@ -495,6 +495,7 @@ async def media_detail(
             "operational_status": operational.get("operational_status"),
             "operational_status_label": operational.get("operational_status_label"),
             "waiting_reason": operational.get("waiting_reason"),
+            "workflow_timeline": operational.get("workflow_timeline", []),
         },
         "requests": request_payloads,
         "issues": [_serialize_issue(issue) for issue in open_issues],
