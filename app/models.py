@@ -169,6 +169,8 @@ class Settings(Base):
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
     digest_enabled: Mapped[bool] = mapped_column(default=False)
+    # Suspension globale durable, y compris sans Redis.
+    notification_hold_enabled: Mapped[bool] = mapped_column(default=False)
     digest_hour: Mapped[int] = mapped_column(default=8)
     digest_minute: Mapped[int] = mapped_column(default=0)
 

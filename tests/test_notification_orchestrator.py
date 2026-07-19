@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, MediaRequest, NotificationMilestone, PlexUser, RequestSeasonStatus, RequestStatus, Settings
+from app.models import Base, MediaRequest, NotificationMilestone, PendingNotification, PlexUser, RequestSeasonStatus, RequestStatus, Settings
 from app.services.notification_orchestrator import (
     AvailabilityCandidate,
     _handle_show_progress_notification,
@@ -68,6 +68,56 @@ async def test_resolve_and_notify_availability_sends_one_and_consumes_all_candid
         ("episode", 2, 5),
     }
     assert all(m.language is None and m.is_upgrade is False for m in milestones)
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_milestone_and_pending_notification_are_committed_together():
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True)
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(
+        plex_user_id="alice", title="Movie", media_type="movie", status=RequestStatus.available,
+    )
+    db.add_all([settings, user, req])
+    await db.commit()
+
+    with patch("app.notification_queue.schedule_pending_notification", new_callable=AsyncMock) as schedule:
+        sent = await resolve_and_notify_availability(
+            settings, req, db, candidates=[AvailabilityCandidate(scope="movie")]
+        )
+
+    assert sent is True
+    assert len((await db.execute(select(NotificationMilestone))).scalars().all()) == 1
+    assert len((await db.execute(select(PendingNotification))).scalars().all()) == 1
+    schedule.assert_awaited_once()
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pending_persistence_failure_rolls_back_milestone():
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True)
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(
+        plex_user_id="alice", title="Movie", media_type="movie", status=RequestStatus.available,
+    )
+    db.add_all([settings, user, req])
+    await db.commit()
+
+    with patch(
+        "app.notification_queue.persist_pending_notification",
+        new=AsyncMock(side_effect=RuntimeError("database unavailable")),
+    ):
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await resolve_and_notify_availability(
+                settings, req, db, candidates=[AvailabilityCandidate(scope="movie")]
+            )
+
+    assert (await db.execute(select(NotificationMilestone))).scalars().all() == []
+    assert (await db.execute(select(PendingNotification))).scalars().all() == []
     await db.close()
     await engine.dispose()
 

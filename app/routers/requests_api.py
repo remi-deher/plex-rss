@@ -772,13 +772,11 @@ async def mark_request_processed(
     if event == "request":
         if settings and notify:
             await _notify("request", settings, req, db, force=True, triggered_by="manual")
-        req.request_mail_sent = True
     else:
         event = "available"
         if settings and notify:
             await _notify("available", settings, req, db, force=True, triggered_by="manual")
         await transition_request(db, req, "available", source="manual_admin")
-        req.available_mail_sent = True
 
     if stop_vf_tracking:
         req.vf_tracking_disabled = True

@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import ArrInstance, Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import ArrInstance, Base, FulfillmentStatus, MediaRequest, PlexUser, RequestStatus, Settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -46,6 +46,27 @@ def _req(**kwargs) -> MediaRequest:
     )
     defaults.update(kwargs)
     return MediaRequest(**defaults)
+
+
+def test_approve_failure_transitions_and_dispatches_failure_notification(client, db):
+    settings = Settings(id=1)
+    user = PlexUser(plex_user_id="alice", enabled=True)
+    req = _req(status=RequestStatus.pending_approval, source="rss", arr_id=None)
+    db.add_all([settings, user, req])
+    db.commit()
+
+    with (
+        patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(side_effect=RuntimeError("Radarr indisponible"))),
+        patch("app.services.notification_policy.dispatch_transition_notification", new=AsyncMock(return_value=True)) as dispatch,
+    ):
+        response = client.post(f"/api/requests/{req.id}/approve")
+
+    assert response.status_code == 502
+    db.refresh(req)
+    assert req.status == RequestStatus.failed
+    assert req.fulfillment_status == FulfillmentStatus.failed
+    assert req.fulfillment_error == "Radarr indisponible"
+    dispatch.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +620,8 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
 
     db.refresh(req)
     assert req.status == RequestStatus.available
-    assert req.available_mail_sent is True
+    # Le flag est posé uniquement par le worker après livraison réelle, jamais par la route.
+    assert req.available_mail_sent is False
     assert req.available_at is not None
     mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
 
@@ -644,7 +666,7 @@ def test_mark_request_processed_without_stop_vf_tracking_leaves_it_enabled(clien
 def test_mark_request_processed_event_request_resends_without_closing(client, db):
     """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
     settings = Settings(id=1, smtp_host="smtp.example.com")
-    req = _req(status=RequestStatus.pending, request_mail_sent=True, available_mail_sent=False)
+    req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
     db.add_all([settings, req])
     db.commit()
     db.refresh(req)
@@ -658,7 +680,8 @@ def test_mark_request_processed_event_request_resends_without_closing(client, db
 
     db.refresh(req)
     assert req.status == RequestStatus.pending  # Pas de clôture
-    assert req.request_mail_sent is True
+    # `_notify` est simulé : aucun worker n'a confirmé la livraison.
+    assert req.request_mail_sent is False
     mock_notify.assert_called_once_with("request", settings, req, db, force=True, triggered_by="manual")
 
 

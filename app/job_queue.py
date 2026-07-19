@@ -65,10 +65,18 @@ async def get_json(key: str) -> dict[str, Any] | None:
         await redis.aclose()
 
 
-async def set_notification_hold(enabled: bool) -> None:
+async def set_notification_hold(enabled: bool, db=None) -> None:
     """Active/désactive la conservation manuelle de toutes les notifications."""
     global _local_notification_hold
     _local_notification_hold = bool(enabled)
+    if db is not None:
+        from sqlalchemy import select
+
+        from .models import Settings
+
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if settings:
+            settings.notification_hold_enabled = bool(enabled)
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
         return
@@ -76,15 +84,31 @@ async def set_notification_hold(enabled: bool) -> None:
 
     redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
     try:
-        if enabled:
-            await redis.set(NOTIFICATION_HOLD_KEY, "1")
-        else:
-            await redis.delete(NOTIFICATION_HOLD_KEY)
+        try:
+            if enabled:
+                await redis.set(NOTIFICATION_HOLD_KEY, "1")
+            else:
+                await redis.delete(NOTIFICATION_HOLD_KEY)
+        except Exception as exc:
+            logger.warning("Impossible de synchroniser la suspension dans Redis: %s", exc)
     finally:
         await redis.aclose()
 
 
 async def notification_hold_enabled() -> bool:
+    try:
+        from sqlalchemy import select
+
+        from .database import AsyncSessionLocal
+        from .models import Settings
+
+        async with AsyncSessionLocal() as db:
+            value = (await db.execute(select(Settings.notification_hold_enabled))).scalar()
+            return bool(value)
+    except Exception as exc:
+        logger.warning("Impossible de lire la suspension persistante: %s", exc)
+
+    # Repli pendant une migration ou une indisponibilite temporaire de la base.
     if _local_notification_hold:
         return True
     redis_url = os.getenv("REDIS_URL")
@@ -94,7 +118,11 @@ async def notification_hold_enabled() -> bool:
 
     redis = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
     try:
-        return bool(await redis.exists(NOTIFICATION_HOLD_KEY))
+        try:
+            return bool(await redis.exists(NOTIFICATION_HOLD_KEY))
+        except Exception as exc:
+            logger.warning("Impossible de lire la suspension dans Redis: %s", exc)
+            return False
     finally:
         await redis.aclose()
 

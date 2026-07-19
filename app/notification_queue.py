@@ -12,6 +12,7 @@ Cycle de vie :
 """
 
 import asyncio
+import inspect
 import json
 import logging
 
@@ -105,7 +106,13 @@ def _push_allowed(settings: Settings, channel: str, event: str) -> bool:
 
 
 async def enqueue(
-    event: str, req_id: int, recipients: list[str], context: dict | str | None = None, triggered_by: str = "auto"
+    event: str,
+    req_id: int,
+    recipients: list[str],
+    context: dict | str | None = None,
+    triggered_by: str = "auto",
+    *,
+    db: AsyncSession | None = None,
 ):
     """Empile et persiste une notification dans la queue.
 
@@ -126,46 +133,98 @@ async def enqueue(
     (la queue asyncio en mémoire serait sinon vidée silencieusement). La ligne est
     supprimée par `_worker` une fois le traitement terminé (succès ou échec définitif).
     """
-    event, context = _normalize_event_context(event, context)
-    if triggered_by != "auto":
-        context["triggered_by"] = triggered_by
     pending_id = None
+    normalized_event = event
+    normalized_context: dict = {}
+    if db is not None:
+        try:
+            pending_id, normalized_event, normalized_context = await persist_pending_notification(
+                db, event, req_id, recipients, context, triggered_by=triggered_by
+            )
+            if pending_id is None:
+                await db.rollback()
+                return None
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+        await schedule_pending_notification(
+            pending_id, normalized_event, req_id, recipients, normalized_context
+        )
+        return pending_id
+
     async with AsyncSessionLocal() as db:
         try:
-            recipients_json = json.dumps(recipients)
-            reason_json = json.dumps(context)
-            
-            existing = (await db.execute(select(PendingNotification).filter(
-                PendingNotification.event == event,
-                PendingNotification.req_id == req_id,
-                PendingNotification.reason == reason_json
-            ))).scalars().first()
-            
-            if existing:
-                logger.info(f"Notification [{event}] req#{req_id} déjà en attente, ignorée pour éviter un doublon.")
-                return
-
-            row = PendingNotification(
-                event=event, req_id=req_id, recipients=recipients_json, reason=reason_json
+            pending_id, normalized_event, normalized_context = await persist_pending_notification(
+                db, event, req_id, recipients, context, triggered_by=triggered_by
             )
-            db.add(row)
+            if pending_id is None:
+                return
             await db.commit()
-            pending_id = row.id
         except Exception as e:
             logger.error(f"Impossible de persister la notification en attente [{event}] req#{req_id}: {e}")
             return
-        
-    if pending_id is not None:
-        from .job_queue import arq_enabled, enqueue_job
 
-        if arq_enabled():
-            try:
-                await enqueue_job("job_send_notification", pending_id, job_id=f"notification:{pending_id}")
-            except Exception as exc:
-                logger.error("Impossible de mettre la notification #%s dans ARQ: %s", pending_id, exc)
-                raise
-        else:
-            _queue.put_nowait((pending_id, event, req_id, recipients, context))
+    await schedule_pending_notification(
+        pending_id, normalized_event, req_id, recipients, normalized_context
+    )
+    return pending_id
+
+
+async def persist_pending_notification(
+    db: AsyncSession,
+    event: str,
+    req_id: int,
+    recipients: list[str],
+    context: dict | str | None = None,
+    *,
+    triggered_by: str = "auto",
+) -> tuple[int | None, str, dict]:
+    """Ajoute une notification à la transaction courante, sans commit ni planification."""
+    event, normalized_context = _normalize_event_context(event, context)
+    if triggered_by != "auto":
+        normalized_context["triggered_by"] = triggered_by
+    recipients_json = json.dumps(recipients)
+    reason_json = json.dumps(normalized_context)
+    existing = (await db.execute(select(PendingNotification).filter(
+        PendingNotification.event == event,
+        PendingNotification.req_id == req_id,
+        PendingNotification.reason == reason_json,
+    ))).scalars().first()
+    if existing:
+        logger.info(
+            "Notification [%s] req#%s déjà en attente, ignorée pour éviter un doublon.",
+            event, req_id,
+        )
+        return None, event, normalized_context
+    row = PendingNotification(
+        event=event, req_id=req_id, recipients=recipients_json, reason=reason_json
+    )
+    db.add(row)
+    flush_result = db.flush()
+    if inspect.isawaitable(flush_result):
+        await flush_result
+    return row.id, event, normalized_context
+
+
+async def schedule_pending_notification(
+    pending_id: int,
+    event: str,
+    req_id: int,
+    recipients: list[str],
+    context: dict,
+) -> None:
+    """Planifie une notification déjà committée."""
+    from .job_queue import arq_enabled, enqueue_job
+
+    if arq_enabled():
+        try:
+            await enqueue_job("job_send_notification", pending_id, job_id=f"notification:{pending_id}")
+        except Exception as exc:
+            logger.error("Impossible de mettre la notification #%s dans ARQ: %s", pending_id, exc)
+            raise
+    else:
+        _queue.put_nowait((pending_id, event, req_id, recipients, context))
 
 
 async def _delete_pending(pending_id: int | None):

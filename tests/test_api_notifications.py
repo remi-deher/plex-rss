@@ -5,6 +5,7 @@ POST /api/users/{id}/test-email
 GET  /api/email/preview
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,6 +15,7 @@ from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import DiagnosticEvent, MediaRequest, NotificationLog, PlexUser, Settings
+from tests.async_support import AsyncSessionContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,6 +89,27 @@ def _make_settings():
 
 def _make_req(req_id=42, title="Inception", media_type="movie"):
     return MediaRequest(id=req_id, plex_user_id="alice", title=title, media_type=media_type, status="pending")
+
+
+def test_notification_hold_is_persisted_and_survives_local_state_reset(async_db, monkeypatch):
+    """La suspension reste active apres un redemarrage, meme sans Redis."""
+    import app.database
+    import app.job_queue as job_queue
+
+    settings = _make_settings()
+    async_db.add(settings)
+    async_db.commit()
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setattr(job_queue, "_local_notification_hold", False)
+
+    asyncio.run(job_queue.set_notification_hold(True, db=async_db))
+    async_db.commit()
+    assert settings.notification_hold_enabled is True
+
+    # Simule un nouveau processus : l'etat memoire est perdu.
+    monkeypatch.setattr(job_queue, "_local_notification_hold", False)
+    monkeypatch.setattr(app.database, "AsyncSessionLocal", lambda: AsyncSessionContext(async_db))
+    assert asyncio.run(job_queue.notification_hold_enabled()) is True
 
 
 def test_diagnostic_logs_are_filterable(async_db):

@@ -447,7 +447,7 @@ async def get_notification_hold(db: AsyncSession = Depends(get_db_async)):
 
 @router.put("/notifications/hold")
 async def update_notification_hold(body: NotificationHoldPayload, request: Request, db: AsyncSession = Depends(get_db_async)):
-    await set_notification_hold(body.enabled)
+    await set_notification_hold(body.enabled, db=db)
     pending_count = await db.scalar(text("SELECT COUNT(*) FROM pending_notifications"))
     await _log_admin_action(
         db,

@@ -467,7 +467,6 @@ async def resolve_and_notify_availability(
             )
         )
         new_candidates.append(candidate)
-    await db.commit()
     if not new_candidates:
         return False
 
@@ -490,12 +489,17 @@ async def resolve_and_notify_availability(
     }
     if allow_during_resync:
         notification_context["allow_during_resync"] = True
-    await enqueue(
-        "available",
-        req.id,
-        recipients,
-        notification_context,
+    # Avec `db`, enqueue persiste le jalon déjà ajouté et PendingNotification dans le
+    # même commit, puis planifie le worker seulement après ce commit.
+    pending_id = await enqueue(
+        "available", req.id, recipients, notification_context, db=db
     )
+    # Les tests et intégrations peuvent fournir un adaptateur de queue sans transaction
+    # (retour non numérique). Ils conservent l'ancien contrat de commit ; le refresh
+    # maintient l'objet utilisable même avec une session configurée expire_on_commit.
+    if not isinstance(pending_id, int):
+        await db.commit()
+        await db.refresh(req)
     return True
 
 
