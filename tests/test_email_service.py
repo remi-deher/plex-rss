@@ -83,6 +83,21 @@ def test_render_subject_falls_back_when_empty():
     assert subject == "[Plexarr] Fallback"
 
 
+def test_season_template_variables_support_subjects_and_grouped_seasons():
+    req = _req(media_type="show")
+    tags = _build_tags(
+        req,
+        scope="season_complete",
+        season_number=1,
+        availability_details={"available_seasons": [4, 1, 2]},
+    )
+
+    assert tags["{numero_saison}"] == "1"
+    assert tags["{saison}"] == "Saison 1"
+    assert tags["{saisons_concernees}"] == "Saison 1, 2 et 4"
+    assert render_subject("{titre} - {saisons_concernees}", tags, fallback="fallback") == f"{req.title} - Saison 1, 2 et 4"
+
+
 # ---------------------------------------------------------------------------
 # get_shared_email_parts / get_event_visuals
 # ---------------------------------------------------------------------------

@@ -399,12 +399,28 @@ def _build_tags(
         values = details.get(key) or []
         return ", ".join(str(value) for value in values)
 
+    def french_list(values: list[int]) -> str:
+        labels = [str(value) for value in values]
+        if not labels:
+            return ""
+        if len(labels) == 1:
+            return labels[0]
+        return f"{', '.join(labels[:-1])} et {labels[-1]}"
+
+    concerned_seasons = details.get("concerned_seasons") or details.get("available_seasons") or []
+    if not concerned_seasons and season_number is not None:
+        concerned_seasons = [season_number]
+    concerned_seasons = sorted({int(value) for value in concerned_seasons if value is not None})
+
     return {
         "{titre}": request.title or "",
         "{type}": type_media,
         "{annee}": str(request.year) if request.year else "",
         "{affiche}": request.poster_url or "",
         "{details_saison_episode}": details_se,
+        "{numero_saison}": str(season_number) if season_number is not None else "",
+        "{saison}": f"Saison {season_number}" if season_number is not None else "",
+        "{saisons_concernees}": f"Saison {french_list(concerned_seasons)}" if concerned_seasons else "",
         "{langue}": langue_str,
         "{nom_utilisateur}": display_name
         or getattr(request, "plex_user", None)

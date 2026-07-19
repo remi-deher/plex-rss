@@ -479,6 +479,8 @@ onMounted(load);
 <style scoped>
 .media-detail-page {
   min-height: 100%;
+  --muted: #d9a13b;
+  --text-muted: #d9a13b;
 }
 .media-detail-body {
   max-width: 1280px;
@@ -495,5 +497,15 @@ onMounted(load);
   gap: 8px;
   padding: 80px 0;
   color: var(--muted);
+}
+@media (min-width: 1025px) {
+  .media-detail-body { font-size: 15px; gap: 19px; }
+  .media-detail-body :deep(.drawer-section > h2),
+  .media-detail-body :deep(.drawer-section > h3) { font-size: 18px; }
+  .media-detail-body :deep(.detail-row > div:first-child > strong) { font-size: 14px; }
+  .media-detail-body :deep(.detail-row > div:first-child > span),
+  .media-detail-body :deep(.detail-row > div:first-child > small) { font-size: 12px; line-height: 1.45; }
+  .media-detail-body :deep(.detail-tabs button) { font-size: 14px; }
+  .media-detail-body :deep(.badge) { font-size: 12px; }
 }
 </style>
