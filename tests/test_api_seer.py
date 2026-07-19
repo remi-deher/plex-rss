@@ -18,12 +18,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
+from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.routers import api as api_router
 from app.routers import email_templates as email_templates_router
-from app.routers import pages as pages_router
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,24 +30,15 @@ from app.routers import pages as pages_router
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+def db(async_db):
+    return async_db
 
 
 @pytest.fixture()
 def client(db):
-    app.dependency_overrides[pages_router.require_auth] = lambda: None
-    app.dependency_overrides[email_templates_router.require_auth] = lambda: None
-    app.dependency_overrides[api_router.require_auth] = lambda: None
+    app.dependency_overrides[email_templates_router.require_admin] = lambda: None
+    app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
     yield c
@@ -121,7 +111,7 @@ def test_seer_complete_fills_missing_fields(client, db):
     _settings(db)
     u = _user(db, seer_user_id=3, plex_email=None, custom_name=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-complete")
 
     assert r.status_code == 200
@@ -154,7 +144,7 @@ def test_seer_complete_preserves_existing_fields(client, db):
     _settings(db)
     u = _user(db, seer_user_id=3, plex_email="deja@existant.fr", custom_name="Nom Existant")
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-complete")
 
     assert r.status_code == 200
@@ -172,7 +162,7 @@ def test_automatch_by_email(client, db):
     _settings(db)
     u = _user(db, plex_email="alice@example.com", seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200
@@ -188,7 +178,7 @@ def test_automatch_by_plex_username(client, db):
     _settings(db)
     u = _user(db, plex_user_id="alice", display_name="alice", plex_email=None, seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200
@@ -202,8 +192,8 @@ def test_automatch_no_match(client, db):
     u = _user(db, plex_email="nobody@example.com", display_name="nobody", seer_user_id=None)
 
     with (
-        patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)),
-        patch("app.services.seer.get_user_requests", new=AsyncMock(return_value=[])),
+        patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)),
+        patch("app.routers.users_api.seer_get_user_requests", new=AsyncMock(return_value=[])),
     ):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
@@ -217,7 +207,7 @@ def test_automatch_already_matched_seer_id_not_reused(client, db):
     _user(db, plex_user_id="bob", seer_user_id=3)
     u = _user(db, plex_user_id="alice", plex_email="alice@example.com", seer_user_id=None)
 
-    with patch("app.services.seer.get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
+    with patch("app.routers.users_api.seer_get_users", new=AsyncMock(return_value=SEER_USERS_RESPONSE)):
         r = client.post(f"/api/users/{u.id}/seer-automatch")
 
     assert r.status_code == 200
@@ -271,7 +261,7 @@ def test_merge_seer_only_into_rss_transfers_requests(client, db):
     body = r.json()
     assert body["status"] == "merged"
     assert body["requests_moved"] == 2
-    assert body["target_plex_user_id"] == "abc123"
+    assert body["keeper_plex_user_id"] == "abc123"
     assert body["seer_user_id"] == 99
 
 
@@ -310,21 +300,31 @@ def test_merge_seer_only_requests_now_belong_to_rss_user(client, db):
     assert rows[0].plex_user_id == "abc123"
 
 
-def test_merge_seer_only_fails_if_source_not_seer(client, db):
-    """Un user RSS ne peut pas être la source d'une fusion (source != 'seer')."""
+def test_merge_general_allows_two_rss_users(client, db):
+    """Fusion générale : n'importe quels deux comptes peuvent être fusionnés (source RSS)."""
     rss_user1 = _user(db, plex_user_id="abc123")
     rss_user2 = _user(db, plex_user_id="def456")
+    _req(db, plex_user_id="abc123")
 
     r = client.post(f"/api/users/{rss_user1.id}/merge-into/{rss_user2.id}")
-    assert r.status_code == 400
+    assert r.status_code == 200
+    assert db.query(PlexUser).filter_by(plex_user_id="abc123").first() is None
+    assert db.query(MediaRequest).first().plex_user_id == "def456"
 
 
-def test_merge_seer_only_fails_if_target_is_seer(client, db):
-    """La cible ne peut pas être un user seer-only."""
+def test_merge_general_allows_seer_target(client, db):
+    """Fusion générale : la cible peut désormais être n'importe quel compte, seer inclus."""
     seer1 = _seer_only_user(db, seer_id=1)
     seer2 = _seer_only_user(db, seer_id=2)
 
     r = client.post(f"/api/users/{seer1.id}/merge-into/{seer2.id}")
+    assert r.status_code == 200
+
+
+def test_merge_fails_on_self_merge(client, db):
+    """On ne peut pas fusionner un utilisateur avec lui-même."""
+    u = _user(db, plex_user_id="abc123")
+    r = client.post(f"/api/users/{u.id}/merge-into/{u.id}")
     assert r.status_code == 400
 
 

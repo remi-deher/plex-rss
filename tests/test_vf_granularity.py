@@ -1,0 +1,609 @@
+"""Tests pour la granularitÃ© VF (vf_granularity) sur MediaRequest/LibraryItem.
+
+Une sÃ©rie non-complÃ¨te en VF (has_vf=False) peut avoir 0 Ã©pisode VF, quelques
+Ã©pisodes VF Ã©pars ("episode_partial"), ou une saison entiÃ¨re en VF sans que la
+sÃ©rie le soit ("season_partial"). Ces tests vÃ©rifient que check_vf_statuses
+persiste bien ce champ, pour piloter les badges "VF Ã‰pisode Partiel" /
+"VF Saison Partiel" sans requÃªte supplÃ©mentaire Ã  l'affichage.
+"""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.models import Base, LibraryItem, MediaRequest, NotificationMilestone, PlexUser, RequestStatus, Settings
+from app.scheduler import check_vf_statuses
+from tests.async_support import TestSession
+
+
+def _make_db():
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    return TestSession(sessionmaker(bind=engine)())
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_sets_episode_partial_granularity():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
+    )
+    db.add(settings)
+    li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc")
+    db.add(li)
+    db.commit()
+    li_id = li.id
+
+    scan_result = {
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: False}, 2: {1: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    li_fresh = db.query(LibraryItem).filter(LibraryItem.id == li_id).first()
+    assert li_fresh.has_vf is False
+    assert li_fresh.vf_granularity == "episode_partial"
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_sets_season_partial_granularity():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
+    )
+    db.add(settings)
+    li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc")
+    db.add(li)
+    db.commit()
+    li_id = li.id
+
+    scan_result = {
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: True}, 2: {1: False, 2: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    li_fresh = db.query(LibraryItem).filter(LibraryItem.id == li_id).first()
+    assert li_fresh.has_vf is False
+    assert li_fresh.vf_granularity == "season_partial"
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_sets_full_granularity_on_complete_show():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
+        email_on_vf_available=True,
+    )
+    db.add(settings)
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {
+        "id": req_id,
+        "found": True,
+        "has_vf": True,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: True}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_granularity == "full"
+
+
+@pytest.mark.asyncio
+async def test_linked_request_shares_single_scan_with_library_item():
+    """Une demande liÃ©e Ã  un LibraryItem encore suivi (has_vf=False) partage le mÃªme
+    scan Plex que la bibliothÃ¨que : un seul appel _scan_vf_blocking, pas de scan
+    dÃ©diÃ© pour la demande â€” et elle reprend la granularitÃ© fraÃ®chement calculÃ©e."""
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        vff_enabled=True,
+        vff_libraries='[{"name": "SÃ©ries", "kind": "series"}]',
+    )
+    db.add(settings)
+    li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc", has_vf=False)
+    db.add(li)
+    db.commit()
+    li_id = li.id
+
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+        library_item_id=li_id,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: True}, 2: {1: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock),
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]) as mock_scan,
+    ):
+        await check_vf_statuses()
+
+    assert mock_scan.call_count == 1  # un seul scan Plex, partagÃ© entre li et req
+    li_fresh = db.query(LibraryItem).filter(LibraryItem.id == li_id).first()
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert li_fresh.vf_granularity == "season_partial"
+    assert req_fresh.vf_granularity == "season_partial"
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_notifies_vf_season_start_once_for_partial_upgrade():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Series", "kind": "series"}]',
+        email_on_vf_available=True,
+        series_notify_granularity="jalons",
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {
+        "id": req_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+        await check_vf_statuses()
+
+    assert mock_enqueue.call_count == 1
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "season_start",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": 1,
+        "episode_number": 1,
+    }
+    milestones = db.query(NotificationMilestone).filter_by(req_id=req_id).all()
+    assert len(milestones) == 1
+    assert milestones[0].direction == "vf"
+    assert milestones[0].milestone_type == "season_start"
+    assert milestones[0].season_number == 1
+    assert milestones[0].episode_number == 1
+
+
+@pytest.mark.asyncio
+async def test_linked_request_notifies_vf_milestone_from_library_episode_cache():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Series", "kind": "series"}]',
+        email_on_vf_available=True,
+        series_notify_granularity="jalons",
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    li = LibraryItem(title="Show", year=2020, media_type="show", plex_guid="plex://show/abc", has_vf=False)
+    db.add(li)
+    db.commit()
+    li_id = li.id
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+        library_item_id=li_id,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {
+        "id": li_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: True, 2: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    assert mock_enqueue.call_count == 1
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "season_start",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": 1,
+        "episode_number": 1,
+    }
+    milestone = db.query(NotificationMilestone).filter_by(req_id=req_id).one()
+    assert milestone.direction == "vf"
+    assert milestone.milestone_type == "season_start"
+
+
+@pytest.mark.asyncio
+async def test_check_vf_statuses_notifies_vo_every_episode_on_first_detection():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Series", "kind": "series"}]',
+        series_notify_granularity="tout",
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        year=2020,
+        media_type="show",
+        plex_guid="plex://show/abc",
+        status=RequestStatus.available,
+        has_vf=None,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {
+        "id": req_id,
+        "found": True,
+        "has_vf": False,
+        "category": "series",
+        "episode_status": {1: {1: False, 2: False}},
+    }
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    assert mock_enqueue.call_count == 1
+    assert mock_enqueue.call_args.args[0] == "available"
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "episode",
+        "language": "vo",
+        "is_upgrade": False,
+        "season_number": 1,
+        "episode_number": 1,
+    }
+    milestones = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vo").all()
+    assert len(milestones) == 2
+
+
+@pytest.mark.asyncio
+async def test_movie_first_vo_detection_uses_single_available_vo_tracking_event():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=None,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": False, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vo",
+        "is_upgrade": False,
+        "season_number": None,
+        "episode_number": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_movie_first_vf_detection_uses_single_available_vf_event():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=None,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vf",
+        "is_upgrade": False,
+        "season_number": None,
+        "episode_number": None,
+    }
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_granularity == "full"
+
+
+@pytest.mark.asyncio
+async def test_vf_tracking_disabled_request_excluded_from_scan():
+    """Une demande clôturée avec 'arrêter la surveillance VO->VF' (vf_tracking_disabled)
+    ne doit plus jamais être scannée par check_vf_statuses, même si has_vf est encore
+    False/None — voir requests_api.mark_request_processed(stop_vf_tracking=True)."""
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Vieux Film VO",
+        year=1990,
+        media_type="movie",
+        plex_guid="plex://movie/vieux-film-vo",
+        status=RequestStatus.available,
+        has_vf=False,
+        vf_tracking_disabled=True,
+    )
+    db.add(req)
+    db.commit()
+
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking") as mock_scan,
+    ):
+        await check_vf_statuses()
+
+    mock_scan.assert_not_called()
+    mock_enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_movie_first_vf_scan_notifies_even_if_available_mail_already_sent():
+    """Régression "Police Flash 80" : la demande était déjà marquée disponible (mail
+    générique déjà envoyé, ex. confirmation *arr) bien avant que le tout premier scan
+    VF n'ait eu l'occasion de tourner (fichier arrivé dans Plex des semaines plus
+    tard). L'ancien code renvoyait alors _notify("available", ...), bloqué net par le
+    garde-fou available_mail_sent déjà à True — aucune notification ne partait jamais.
+    """
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Police Flash 80",
+        year=1978,
+        media_type="movie",
+        plex_guid="plex://movie/police-flash-80",
+        status=RequestStatus.available,
+        has_vf=None,
+        available_mail_sent=True,  # deja notifie "disponible" (generique) bien avant
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3]["is_upgrade"] is False
+
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_available_at is not None
+
+
+@pytest.mark.asyncio
+async def test_movie_vo_to_vf_upgrade_uses_vf_upgrade_event_once():
+    db = _make_db()
+    settings = Settings(
+        id=1,
+        plex_url="http://plex",
+        plex_token="tok",
+        smtp_from="admin@example.com",
+        vff_enabled=True,
+        vff_libraries='[{"name": "Films", "kind": "movie"}]',
+        email_on_vf_available=True,
+    )
+    db.add(settings)
+    db.add(PlexUser(plex_user_id="alice", notification_email="alice@example.com", enabled=True))
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Movie",
+        year=2020,
+        media_type="movie",
+        plex_guid="plex://movie/abc",
+        status=RequestStatus.available,
+        has_vf=False,
+        available_mail_sent=True,
+        vo_only_mail_sent=True,
+    )
+    db.add(req)
+    db.commit()
+    req_id = req.id
+
+    scan_result = {"id": req_id, "found": True, "has_vf": True, "category": "movie"}
+    with (
+        patch("app.services.vff_scanner.AsyncSessionLocal", return_value=db),
+        patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as mock_enqueue,
+        patch("app.services.vff_scanner._scan_vf_blocking", return_value=[scan_result]),
+    ):
+        await check_vf_statuses()
+        await check_vf_statuses()
+
+    mock_enqueue.assert_called_once()
+    assert mock_enqueue.call_args.args[:3] == ("available", req_id, ["alice@example.com"])
+    assert mock_enqueue.call_args.args[3] == {
+        "scope": "movie",
+        "language": "vf",
+        "is_upgrade": True,
+        "season_number": None,
+        "episode_number": None,
+    }
+    req_fresh = db.query(MediaRequest).filter(MediaRequest.id == req_id).first()
+    assert req_fresh.has_vf is True
+    assert req_fresh.vf_granularity == "full"
+    milestone = db.query(NotificationMilestone).filter_by(req_id=req_id, direction="vf").one()
+    assert milestone.milestone_type == "movie"

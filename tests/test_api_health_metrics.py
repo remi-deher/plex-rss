@@ -8,10 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
+from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import Base, MediaRequest, RequestStatus, Settings
-from app.routers.api import require_auth
+from app.models import ArrInstance, Base, MediaRequest, RequestStatus, Settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -19,26 +19,19 @@ from app.routers.api import require_auth
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+def db(async_db):
+    return async_db
 
 
 @pytest.fixture()
 def client(db):
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=False)
     yield c
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_admin, None)
     app.dependency_overrides.pop(get_db, None)
 
 
@@ -67,6 +60,19 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
+def _arr_instances() -> list[ArrInstance]:
+    """Instances Sonarr/Radarr par défaut : /api/health résout via ArrInstance,
+    pas directement via Settings.sonarr_url/radarr_url."""
+    return [
+        ArrInstance(
+            name="Sonarr", arr_type="sonarr", url="http://sonarr.local", api_key="key", enabled=True, is_default=True
+        ),
+        ArrInstance(
+            name="Radarr", arr_type="radarr", url="http://radarr.local", api_key="key", enabled=True, is_default=True
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # /api/health — structure de la réponse
 # ---------------------------------------------------------------------------
@@ -78,9 +84,9 @@ def test_health_returns_top_level_fields(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -98,9 +104,9 @@ def test_health_all_ok_returns_healthy(client, db):
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -110,12 +116,13 @@ def test_health_all_ok_returns_healthy(client, db):
 def test_health_sonarr_down_returns_down(client, db):
     """Sonarr KO → status = down."""
     db.add(_settings())
+    db.add_all(_arr_instances())
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(False, "refused"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(False, "refused"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -131,15 +138,17 @@ def test_health_seer_down_returns_degraded(client, db):
             seer_enabled=True,
             seer_url="http://seer.local",
             seer_api_key="key",
+            seer_send_requests=True,
         )
     )
+    db.add_all(_arr_instances())
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.seer_test", new=AsyncMock(return_value=(False, "refused"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.seer_test", new=AsyncMock(return_value=(False, "refused"))),
     ):
         resp = client.get("/api/health")
 
@@ -160,12 +169,13 @@ def test_health_unconfigured_service_has_null_ok(client, db):
 def test_health_services_include_response_ms(client, db):
     """Les services checkés inclus response_ms (float ou int)."""
     db.add(_settings())
+    db.add_all(_arr_instances())
     db.commit()
 
     with (
-        patch("app.routers.api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
-        patch("app.routers.api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.sonarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.radarr.check_connection", new=AsyncMock(return_value=(True, "OK"))),
+        patch("app.routers.metrics_api.plex_test", new=AsyncMock(return_value=(True, "OK"))),
     ):
         resp = client.get("/api/health")
 
@@ -388,11 +398,11 @@ def test_generate_token_regenerates(client, db):
 
 
 def test_api_key_header_authenticates(client_real_auth, db):
-    """X-Api-Key valide → 200 sans session cookie."""
+    """X-Api-Key valide → 200 sans session cookie sur les routes /api/v1."""
     db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="secret-token"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "secret-token"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "secret-token"})
     assert resp.status_code == 200
 
 
@@ -401,7 +411,7 @@ def test_wrong_api_key_returns_401(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash", api_token="correct"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "wrong"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "wrong"})
     assert resp.status_code == 401
 
 
@@ -410,7 +420,7 @@ def test_no_auth_returns_401(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts")
+    resp = client_real_auth.get("/api/v1/requests")
     assert resp.status_code == 401
 
 
@@ -419,7 +429,7 @@ def test_no_token_configured_rejects_any_key(client_real_auth, db):
     db.add(Settings(auth_username="admin", auth_password_hash="hash"))
     db.commit()
 
-    resp = client_real_auth.get("/api/stats/counts", headers={"X-Api-Key": "anything"})
+    resp = client_real_auth.get("/api/v1/requests", headers={"X-Api-Key": "some-key"})
     assert resp.status_code == 401
 
 
@@ -464,3 +474,28 @@ def test_prometheus_help_and_type_lines(client, db):
     assert "# HELP plex_rss_poll_total" in body
     assert "# TYPE plex_rss_poll_total counter" in body
     assert "# TYPE plex_rss_requests_by_status gauge" in body
+
+
+# ---------------------------------------------------------------------------
+# GET /api/disk-space (mis en cache, voir cache.get_or_refresh)
+# ---------------------------------------------------------------------------
+
+
+def test_disk_space_is_cached_between_calls(client, db):
+    """Deuxieme appel : ne doit pas retaper Sonarr -- c'est ce qui evite de bloquer
+    le dashboard derriere cet appel a chaque chargement."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.commit()
+
+    with patch(
+        "app.routers.metrics_api.sonarr.get_disk_space",
+        new=AsyncMock(return_value=[{"path": "/data", "freeSpace": 100, "totalSpace": 200}]),
+    ) as mock_disk:
+        first = client.get("/api/disk-space")
+        second = client.get("/api/disk-space")
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json() == second.json()
+    assert len(first.json()) == 1
+    mock_disk.assert_awaited_once()

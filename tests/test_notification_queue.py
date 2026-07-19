@@ -3,8 +3,16 @@
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from sqlalchemy import text
 
-from app.notification_queue import _process, enqueue
+from app.notification_queue import NotificationDeliveryError, _process, enqueue
+from app.job_queue import (
+    availability_notification_is_historical,
+    clear_resync_notification_baselines,
+    set_resync_notification_baselines,
+)
+from app.models import MediaRequest, PlexUser, Settings
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -15,6 +23,10 @@ def _make_settings(**kwargs):
     s = MagicMock()
     s.admin_notification_email = kwargs.get("admin_notification_email", None)
     s.telegram_bot_token = kwargs.get("telegram_bot_token", None)
+    s.discord_enabled = kwargs.get("discord_enabled", True)
+    s.telegram_enabled = kwargs.get("telegram_enabled", True)
+    s.ntfy_enabled = kwargs.get("ntfy_enabled", False)
+    s.gotify_enabled = kwargs.get("gotify_enabled", False)
     for k, v in kwargs.items():
         setattr(s, k, v)
     return s
@@ -38,12 +50,34 @@ def _make_user(discord_webhook_url=None, telegram_chat_id=None):
     return u
 
 
+class _Result:
+    def __init__(self, value=None, rows=None):
+        self.value = value
+        self.rows = rows if rows is not None else ([] if value is None else [value])
+
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self.value
+
+    def all(self):
+        return self.rows
+
+
 def _make_db(settings=None, req=None, user=None):
-    """DB mock qui renvoie settings via .first() et req/user via .filter().first()."""
+    """AsyncSession mock resolving selects by their ORM entity."""
     db = MagicMock()
-    db.query.return_value.first.side_effect = [settings, req]
-    # Tous les appels filter().first() renvoient req en premier, puis user
-    db.query.return_value.filter.return_value.first.side_effect = [req, user]
+    db.__aenter__ = AsyncMock(return_value=db)
+    db.__aexit__ = AsyncMock(return_value=False)
+    db.commit = AsyncMock()
+    db.close = AsyncMock()
+
+    async def _execute(statement, *args, **kwargs):
+        entity = statement.column_descriptions[0].get("entity") if statement.column_descriptions else None
+        return _Result({Settings: settings, MediaRequest: req, PlexUser: user}.get(entity))
+
+    db.execute = AsyncMock(side_effect=_execute)
     return db
 
 
@@ -55,10 +89,9 @@ def _make_db(settings=None, req=None, user=None):
 @pytest.mark.asyncio
 async def test_process_no_settings_does_nothing():
     """Si Settings est absent, _process retourne sans envoyer ni committer."""
-    db = MagicMock()
-    db.query.return_value.first.return_value = None
+    db = _make_db()
 
-    with patch("app.notification_queue.SessionLocal", return_value=db):
+    with patch("app.notification_queue.AsyncSessionLocal", return_value=db):
         await _process("request", 1, ["a@b.com"], "")
 
     db.commit.assert_not_called()
@@ -67,14 +100,48 @@ async def test_process_no_settings_does_nothing():
 @pytest.mark.asyncio
 async def test_process_no_request_does_nothing():
     """Si MediaRequest est absent, _process retourne sans envoyer ni committer."""
-    db = MagicMock()
-    db.query.return_value.first.side_effect = [_make_settings(), None]
-    db.query.return_value.filter.return_value.first.return_value = None
+    db = _make_db(_make_settings(), None)
 
-    with patch("app.notification_queue.SessionLocal", return_value=db):
+    with patch("app.notification_queue.AsyncSessionLocal", return_value=db):
         await _process("request", 99, ["a@b.com"], "")
 
     db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_availability_enqueue_is_blocked_during_resync():
+    """Un état historique est ignoré au dernier moment, avant l'envoi."""
+    db = _make_db(_make_settings(), _make_req(media_type="show"), _make_user())
+    with (
+        patch("app.notification_queue.availability_notification_is_historical", new=AsyncMock(return_value=True)),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_available_notification", new_callable=AsyncMock) as mock_send,
+    ):
+        await _process("available", 42, ["alice@example.com"], {"scope": "series_complete"})
+
+    mock_send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resync_suppresses_only_old_state_and_allows_real_progress(monkeypatch):
+    """Un changement d'état seul ne transforme pas une correction de resync en notification."""
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    baseline = {
+        "status": "available",
+        "episodes_available_count": 10,
+        "episodes_aired_count": 10,
+        "episodes_total_count": 10,
+        "has_vf": False,
+    }
+    await set_resync_notification_baselines({7: baseline})
+    try:
+        assert await availability_notification_is_historical(7, baseline)
+        assert await availability_notification_is_historical(
+            7, {**baseline, "has_vf": True}
+        )
+        assert not await availability_notification_is_historical(999, baseline)
+    finally:
+        await clear_resync_notification_baselines([7])
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +157,7 @@ async def test_process_request_all_ok_sets_flag():
     db = _make_db(settings, req, user=None)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock) as mock_send,
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -114,7 +181,7 @@ async def test_process_passes_custom_name_as_display_name():
     db = _make_db(settings, req, user=user)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock) as mock_send,
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -134,7 +201,7 @@ async def test_process_available_all_ok_sets_flag():
     db = _make_db(settings, req, user=None)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_available_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -155,7 +222,7 @@ async def test_process_empty_recipients_still_commits():
     db = _make_db(settings, req, user=None)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
@@ -188,7 +255,7 @@ async def test_process_retry_succeeds_on_second_attempt():
             raise Exception("SMTP temporaire")
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=flaky_send),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -210,7 +277,7 @@ async def test_process_all_retries_fail_flag_not_set():
     db = _make_db(settings, req, user=None)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP down")),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -245,7 +312,7 @@ async def test_process_partial_failure_all_retries_flag_not_set():
         success_calls += 1
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=targeted_send),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -258,6 +325,51 @@ async def test_process_partial_failure_all_retries_flag_not_set():
     assert success_calls == 1  # ok@b.com réussit du premier coup
     assert fail_calls == 3  # fail@b.com: 3 tentatives (1 + 2 retries)
     assert req.request_mail_sent is False
+
+
+@pytest.mark.asyncio
+async def test_process_returns_true_on_full_success():
+    """_process() retourne True quand tous les destinataires sont livrés."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_process_returns_false_when_delivery_fails():
+    """_process() retourne False si un destinataire échoue après tous ses retries.
+
+    Signal exploité par process_pending_id/_worker pour NE PAS supprimer la
+    PendingNotification persistée — voir les tests process_pending_id ci-dessous.
+    """
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP down")),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is False
 
 
 @pytest.mark.asyncio
@@ -274,7 +386,7 @@ async def test_process_retry_uses_correct_delays():
         sleep_calls.append(delay)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=Exception("down")),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -295,14 +407,14 @@ async def test_process_retry_uses_correct_delays():
 @pytest.mark.asyncio
 async def test_process_logs_success_entry():
     """Un envoi réussi → NotificationLog avec success=True ajouté à la DB."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
     db.add.side_effect = lambda obj: added_logs.append(obj)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -325,14 +437,14 @@ async def test_process_logs_success_entry():
 @pytest.mark.asyncio
 async def test_process_logs_failure_entry_with_error_msg():
     """Un envoi en échec → NotificationLog avec success=False + error_msg."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
     db.add.side_effect = lambda obj: added_logs.append(obj)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP refused")),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -353,14 +465,14 @@ async def test_process_logs_failure_entry_with_error_msg():
 @pytest.mark.asyncio
 async def test_process_logs_one_entry_per_recipient():
     """2 destinataires → 2 entrées de log distinctes."""
-    settings = _make_settings()
+    settings = _make_settings(discord_enabled=False, telegram_enabled=False)
     req = _make_req()
     db = _make_db(settings, req, user=None)
     added_logs = []
     db.add.side_effect = lambda obj: added_logs.append(obj)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -387,7 +499,7 @@ async def test_process_logs_is_admin_flag():
     db.add.side_effect = lambda obj: added_logs.append(obj)
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -418,7 +530,7 @@ async def test_process_per_user_discord_webhook_called():
 
     mock_discord_user = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -427,7 +539,7 @@ async def test_process_per_user_discord_webhook_called():
     ):
         await _process("request", 1, ["a@b.com"], "")
 
-    mock_discord_user.assert_called_once_with("https://discord.com/api/webhooks/xxx", req, "request")
+    mock_discord_user.assert_called_once_with("https://discord.com/api/webhooks/xxx", req, "request", {})
 
 
 @pytest.mark.asyncio
@@ -440,7 +552,7 @@ async def test_process_per_user_telegram_called_with_global_token():
 
     mock_tg_user = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -449,7 +561,7 @@ async def test_process_per_user_telegram_called_with_global_token():
     ):
         await _process("request", 1, ["a@b.com"], "")
 
-    mock_tg_user.assert_called_once_with("BOT:TOKEN123", "-100123456", req, "request")
+    mock_tg_user.assert_called_once_with("BOT:TOKEN123", "-100123456", req, "request", {})
 
 
 @pytest.mark.asyncio
@@ -463,7 +575,7 @@ async def test_process_no_per_user_push_when_no_webhook():
     mock_discord_user = AsyncMock()
     mock_tg_user = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -485,7 +597,7 @@ async def test_process_no_per_user_push_when_user_not_found():
 
     mock_discord_user = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -507,7 +619,7 @@ async def test_process_telegram_not_called_without_global_token():
 
     mock_tg_user = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -534,7 +646,7 @@ async def test_process_discord_called_even_if_email_fails():
     mock_discord = AsyncMock()
 
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_request_notification", side_effect=Exception("down")),
         patch("app.notification_queue.send_discord", mock_discord),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -545,6 +657,85 @@ async def test_process_discord_called_even_if_email_fails():
         await _process("request", 1, ["a@b.com"], "")
 
     mock_discord.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_process_push_failure_is_retried_and_logged():
+    """Un push qui échoue est retenté (comme l'email) puis journalisé avec channel='discord'."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+    added_logs = []
+    db.add.side_effect = lambda obj: added_logs.append(obj)
+
+    mock_discord = AsyncMock(side_effect=Exception("Discord down"))
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", mock_discord),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        await _process("request", 1, ["a@b.com"], "")
+
+    from app.models import NotificationLog
+
+    assert mock_discord.call_count == 3  # 1 + 2 retries, comme _send_with_retry pour l'email
+    push_logs = [o for o in added_logs if isinstance(o, NotificationLog) and o.channel == "discord"]
+    assert len(push_logs) == 1
+    assert push_logs[0].success is False
+    assert "Discord down" in push_logs[0].error_msg
+
+
+@pytest.mark.asyncio
+async def test_process_push_not_configured_is_not_logged():
+    """ChannelNotConfigured (canal non configuré) ne crée aucune entrée de log."""
+    from app.services.notifications import ChannelNotConfigured
+
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+    added_logs = []
+    db.add.side_effect = lambda obj: added_logs.append(obj)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock, side_effect=ChannelNotConfigured()),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock, side_effect=ChannelNotConfigured()),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await _process("request", 1, ["a@b.com"], "")
+
+    from app.models import NotificationLog
+
+    push_logs = [o for o in added_logs if isinstance(o, NotificationLog) and o.channel != "email"]
+    assert push_logs == []
+
+
+@pytest.mark.asyncio
+async def test_process_push_failure_does_not_block_pending_notification_return():
+    """Un push en échec ne doit PAS faire garder la PendingNotification (risque de renvoyer l'email en double)."""
+    settings = _make_settings()
+    req = _make_req()
+    db = _make_db(settings, req, user=None)
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock, side_effect=Exception("down")),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        ok = await _process("request", 1, ["a@b.com"], "")
+
+    assert ok is True  # email seul détermine all_ok, malgré l'échec Discord
+    assert req.request_mail_sent is True
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +752,7 @@ async def test_process_failed_event_calls_failure_notification():
 
     mock_failure = AsyncMock()
     with (
-        patch("app.notification_queue.SessionLocal", return_value=db),
+        patch("app.notification_queue.AsyncSessionLocal", return_value=db),
         patch("app.notification_queue.send_failure_notification", mock_failure),
         patch("app.notification_queue.send_discord", new_callable=AsyncMock),
         patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
@@ -581,12 +772,273 @@ async def test_process_failed_event_calls_failure_notification():
 # ---------------------------------------------------------------------------
 
 
-def test_enqueue_puts_item_in_queue():
+@patch("app.notification_queue.AsyncSessionLocal")
+@pytest.mark.asyncio
+async def test_enqueue_puts_item_in_queue(mock_session_local):
     """enqueue() dépose un tuple dans la queue sans bloquer."""
     from app.notification_queue import _queue
+    
+    mock_db = _make_db()
+    mock_db.add.side_effect = lambda row: setattr(row, "id", 123)
+    mock_session_local.return_value = mock_db
 
     initial_size = _queue.qsize()
-    enqueue("request", 99, ["x@y.com"], "")
+    await enqueue("request", 99, ["x@y.com"], "")
     assert _queue.qsize() == initial_size + 1
     # Vide la queue pour ne pas polluer d'autres tests
     _queue.get_nowait()
+
+
+# ---------------------------------------------------------------------------
+# Cas : _load_pending — une ligne corrompue ne doit jamais faire perdre les
+# autres (voir notification_queue.py : incident réel où des lignes poll_history
+# mal insérées dans pending_notifications faisaient échouer tout le rechargement).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def pending_db():
+    import json as _json
+
+    from sqlalchemy import create_engine
+    from sqlalchemy import text as _text
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    from app.models import Base
+
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    def _insert(event, req_id, recipients, reason=""):
+        session.execute(
+            _text(
+                "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+                "VALUES (:created_at, :event, :req_id, :recipients, :reason)"
+            ),
+            {
+                "created_at": "2026-07-11 21:19:56.602985",
+                "event": event,
+                "req_id": req_id,
+                "recipients": _json.dumps(recipients),
+                "reason": reason,
+            },
+        )
+        session.commit()
+
+    def _insert_garbage():
+        # Reproduit exactement l'incident : des données shape "poll_history" dans
+        # les colonnes de pending_notifications (created_at contient "watchlist",
+        # event contient un timestamp).
+        session.execute(
+            _text(
+                "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+                "VALUES ('watchlist', '2026-07-11 21:19:56.602985', 2192, '70', '0')"
+            )
+        )
+        session.commit()
+
+    db = TestSession(session)
+    db.insert = _insert
+    db.insert_garbage = _insert_garbage
+    yield db
+    session.close()
+
+
+@pytest.mark.asyncio
+async def test_load_pending_skips_garbage_rows_without_losing_valid_ones(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_db.insert_garbage()
+    pending_db.insert("available", 2, ["bob@example.com"], reason='{"scope": "movie"}')
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db):
+        await _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    events = {item[1] for item in loaded}
+    assert events == {"request", "available"}
+    assert len(loaded) == 2
+
+
+@pytest.mark.asyncio
+async def test_load_pending_skips_row_with_invalid_req_id(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.execute(
+        text(
+            "INSERT INTO pending_notifications (created_at, event, req_id, recipients, reason) "
+            "VALUES ('2026-07-11 21:19:56', 'request', 'not-an-id', '[]', '')"
+        )
+    )
+    pending_db.commit()
+    pending_db.insert("request", 3, ["carol@example.com"])
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db):
+        await _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    assert len(loaded) == 1
+    assert loaded[0][2] == 3
+
+
+@pytest.mark.asyncio
+async def test_load_pending_recovers_all_rows_when_none_are_corrupt(pending_db):
+    from app.notification_queue import _load_pending, _queue
+
+    pending_db.insert("request", 10, ["a@example.com"])
+    pending_db.insert("available", 11, ["b@example.com"])
+    pending_db.insert("failed", 12, ["c@example.com"], reason="Sonarr down")
+
+    initial_size = _queue.qsize()
+    with patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db):
+        await _load_pending()
+
+    loaded = [_queue.get_nowait() for _ in range(_queue.qsize() - initial_size)]
+    assert len(loaded) == 3
+
+
+# ---------------------------------------------------------------------------
+# process_pending_id — survie de la PendingNotification en cas d'échec de livraison
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_process_pending_id_deletes_row_on_success(pending_db):
+    """Livraison réussie → la PendingNotification est bien supprimée."""
+    from app.models import MediaRequest, Settings
+    from app.notification_queue import process_pending_id
+
+    pending_db.add(Settings(smtp_from="admin@example.com", email_enabled=True))
+    pending_db.add(MediaRequest(id=1, plex_user_id="alice", title="Inception", media_type="movie"))
+    pending_db.commit()
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_id = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).first()[0]
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db),
+        patch("app.notification_queue.send_request_notification", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+    ):
+        await process_pending_id(pending_id)
+
+    remaining = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).all()
+    assert remaining == []
+
+
+@pytest.mark.asyncio
+async def test_process_pending_id_keeps_row_and_raises_on_failure(pending_db):
+    """Livraison échouée → NotificationDeliveryError levée ET la ligne persiste.
+
+    C'est ce qui permet à ARQ (WorkerSettings.max_tries=3) de retenter le job, et,
+    si toutes les tentatives ARQ échouent aussi, à jobs.py::startup() de la
+    réenfiler au prochain démarrage du worker — plutôt que de la perdre en silence
+    comme avant (suppression inconditionnelle dans un `finally`).
+    """
+    from app.models import MediaRequest, Settings
+    from app.notification_queue import process_pending_id
+
+    pending_db.add(Settings(smtp_from="admin@example.com", email_enabled=True))
+    pending_db.add(MediaRequest(id=1, plex_user_id="alice", title="Inception", media_type="movie"))
+    pending_db.commit()
+    pending_db.insert("request", 1, ["alice@example.com"])
+    pending_id = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).first()[0]
+
+    with (
+        patch("app.notification_queue.AsyncSessionLocal", return_value=pending_db),
+        patch("app.notification_queue.send_request_notification", side_effect=Exception("SMTP down")),
+        patch("app.notification_queue.send_discord", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram", new_callable=AsyncMock),
+        patch("app.notification_queue.send_discord_to_webhook", new_callable=AsyncMock),
+        patch("app.notification_queue.send_telegram_to_chat", new_callable=AsyncMock),
+        patch("app.notification_queue.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        with pytest.raises(NotificationDeliveryError):
+            await process_pending_id(pending_id)
+
+    remaining = (await pending_db.execute(text("SELECT id FROM pending_notifications"))).all()
+    assert len(remaining) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cas : stop_worker — doit attendre la sortie effective du worker (pas juste
+# demander l'annulation) avant de rendre la main à l'appelant (lifespan).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_waits_for_task_to_actually_finish():
+    import asyncio as _asyncio
+
+    import app.notification_queue as nq
+
+    finished = _asyncio.Event()
+
+    async def fake_worker():
+        try:
+            await _asyncio.sleep(100)
+        except _asyncio.CancelledError:
+            finished.set()
+            raise
+
+    nq._worker_task = _asyncio.create_task(fake_worker())
+    await _asyncio.sleep(0)  # laisse le worker démarrer et atteindre son premier await, comme en prod
+    await nq.stop_worker()
+
+    assert finished.is_set()
+    assert nq._worker_task.done()
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_is_noop_without_running_task():
+    import app.notification_queue as nq
+
+    nq._worker_task = None
+    await nq.stop_worker()  # ne doit pas lever
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_gives_up_after_timeout_if_task_ignores_cancellation():
+    """stop_worker() ne doit jamais bloquer indéfiniment, même si le worker met du
+    temps à répondre à l'annulation (ex. bloqué dans un envoi SMTP) — il rend la
+    main après son timeout de 5s plutôt que d'empêcher tout arrêt du process."""
+    import asyncio as _asyncio
+
+    import app.notification_queue as nq
+
+    ignored_once = _asyncio.Event()
+
+    async def slow_to_cancel_worker():
+        # Ignore une seule annulation (simule un travail en cours qui ne peut pas
+        # être interrompu instantanément), puis se termine normalement à la suivante
+        # — sans quoi ce test laisserait une tâche orpheline tourner indéfiniment.
+        try:
+            await _asyncio.sleep(100)
+        except _asyncio.CancelledError:
+            ignored_once.set()
+        await _asyncio.sleep(100)
+
+    nq._worker_task = _asyncio.create_task(slow_to_cancel_worker())
+    await _asyncio.sleep(0)  # laisse le worker démarrer, comme en prod
+
+    started = _asyncio.get_event_loop().time()
+    await _asyncio.wait_for(nq.stop_worker(), timeout=7)
+    elapsed = _asyncio.get_event_loop().time() - started
+
+    assert ignored_once.is_set()
+    assert elapsed < 7  # a bien rendu la main via son propre timeout (~5s), pas via wait_for
+
+    # Nettoyage réel pour ne pas polluer les autres tests.
+    nq._worker_task.cancel()
+    try:
+        await nq._worker_task
+    except _asyncio.CancelledError:
+        pass

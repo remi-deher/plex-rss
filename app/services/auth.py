@@ -27,6 +27,11 @@ def get_secret_key() -> str:
     key = secrets.token_hex(32)
     with open(_SECRET_KEY_FILE, "w") as f:
         f.write(key)
+    try:
+        os.chmod(_SECRET_KEY_FILE, 0o600)
+    except OSError:
+        # Système de fichiers ne supportant pas les permissions Unix (ex: certains volumes Windows).
+        pass
     return key
 
 

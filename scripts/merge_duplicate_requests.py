@@ -18,6 +18,7 @@ Options :
 """
 
 import argparse
+import asyncio
 import json
 import sys
 from collections import defaultdict
@@ -26,14 +27,17 @@ from pathlib import Path
 # Ajoute la racine du projet au path pour importer l'app
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database import SessionLocal
+from sqlalchemy.future import select
+
+from app.database import AsyncSessionLocal
 from app.models import MediaRequest
 
 
-def merge_duplicates(dry_run: bool = False):
-    db = SessionLocal()
-    try:
-        all_requests = db.query(MediaRequest).order_by(MediaRequest.requested_at).all()
+async def merge_duplicates(dry_run: bool = False):
+    async with AsyncSessionLocal() as db:
+        all_requests = (
+            await db.execute(select(MediaRequest).order_by(MediaRequest.requested_at))
+        ).scalars().all()
 
         # Grouper par (media_type, tmdb_id) — ignorer les entrées sans tmdb_id
         groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
@@ -66,7 +70,14 @@ def merge_duplicates(dry_run: bool = False):
                             existing_key,
                         )
                         other_key = (media_type, tmdb_id) if seer_key == existing_key else existing_key
-                        groups_to_merge[other_key] = seer_key
+                        # Deux doublons du MÊME groupe tmdb partageant aussi le même tvdb_id
+                        # (ex: deux lignes créées par une race de poll concurrent) retombent ici
+                        # avec other_key == seer_key (fusion d'une clé sur elle-même). Le faire
+                        # via pop()+extend() plus bas évacue silencieusement le groupe du dict
+                        # (pop retire l'entrée, extend() sur la liste orpheline ne la réinsère
+                        # pas) — le groupe disparaît sans jamais être signalé/fusionné.
+                        if other_key != seer_key:
+                            groups_to_merge[other_key] = seer_key
                     else:
                         tvdb_to_key[vkey] = (media_type, tmdb_id)
 
@@ -172,7 +183,7 @@ def merge_duplicates(dry_run: bool = False):
             if not dry_run:
                 primary.extra_requesters = json.dumps(new_extras, ensure_ascii=False)
                 for dup in to_delete:
-                    db.delete(dup)
+                    await db.delete(dup)
 
             total_merged += 1
             total_deleted += len(to_delete)
@@ -185,21 +196,13 @@ def merge_duplicates(dry_run: bool = False):
         )
 
         if not dry_run:
-            db.commit()
+            await db.commit()
             print("Base de données mise à jour.")
         else:
             print("Mode dry-run : aucune modification effectuée.")
-
-    except Exception as e:
-        print(f"Erreur : {e}", file=sys.stderr)
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fusionne les demandes en double dans media_requests.")
     parser.add_argument("--dry-run", action="store_true", help="Affiche les changements sans modifier la base")
     args = parser.parse_args()
-    merge_duplicates(dry_run=args.dry_run)
+    asyncio.run(merge_duplicates(dry_run=args.dry_run))

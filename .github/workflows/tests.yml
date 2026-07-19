@@ -8,20 +8,49 @@ on:
       - "app/**"
       - "tests/**"
       - "requirements.txt"
+      - "requirements-dev.txt"
       - "pytest.ini"
+      - "frontend/**"
+      - "package*.json"
+      - "alembic/**"
+      - "docker-compose.yml"
   pull_request:
     paths:
       - "app/**"
       - "tests/**"
       - "requirements.txt"
+      - "requirements-dev.txt"
       - "pytest.ini"
+      - "frontend/**"
+      - "package*.json"
+      - "alembic/**"
+      - "docker-compose.yml"
 
 jobs:
   test:
     name: Run unit tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: plexrss
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: plexrss_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U plexrss -d plexrss_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENABLE_ARQ: "0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,7 +59,61 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio pytest-cov
+        run: pip install -r requirements-dev.txt
 
       - name: Run tests with coverage
+        env:
+          REDIS_URL: "redis://127.0.0.1:6379/0"
         run: python -m pytest -v --cov=app --cov-report=term-missing --cov-fail-under=60
+
+      - name: Validate Redis
+        run: python -c "from redis import Redis; assert Redis.from_url('redis://127.0.0.1:6379/0').ping()"
+
+      - name: Validate PostgreSQL migrations
+        env:
+          DATABASE_URL: postgresql://plexrss:ci-password@127.0.0.1:5432/plexrss_test
+        run: alembic upgrade head
+
+  frontend:
+    name: Build Vue SPA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  docker-smoke:
+    name: Docker upgrade smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure test secrets
+        run: |
+          printf '%s\n' \
+            'POSTGRES_PASSWORD=ci-docker-password' \
+            'POSTGRES_DB=plexrss' \
+            'PLEXARR_ENCRYPTION_KEY=' > .env
+      - name: Start stack
+        run: docker compose up -d --build
+      - name: Verify first deployment
+        run: |
+          timeout 120 sh -c 'until docker compose exec -T worker arq --check app.jobs.WorkerSettings; do sleep 3; done'
+          curl --fail http://127.0.0.1:8000/favicon.ico
+      - name: Rebuild existing deployment
+        run: docker compose up -d --build
+      - name: Verify upgraded deployment
+        run: |
+          timeout 120 sh -c 'until docker compose exec -T worker arq --check app.jobs.WorkerSettings; do sleep 3; done'
+          curl --fail http://127.0.0.1:8000/favicon.ico
+          docker compose ps
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

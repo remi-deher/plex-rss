@@ -1,23 +1,66 @@
+import json
 from typing import Optional
 
+import markdown
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database import get_db
-from ..models import PlexUser, Settings
-from ..services.email_service import DEFAULT_AVAILABLE_TEMPLATE, DEFAULT_REQUEST_TEMPLATE, render_template
+from ..database import get_db_async
+from ..dependencies import get_settings_or_404, require_admin
+from ..models import MediaRequest, PlexUser, Settings
+from ..services.email_service import (
+    DEFAULT_AVAILABLE_TEMPLATE,
+    DEFAULT_BG_COLOR,
+    DEFAULT_BRAND_COLOR,
+    DEFAULT_CARD_BG_COLOR,
+    DEFAULT_CARD_BORDER_RADIUS,
+    DEFAULT_CARD_WIDTH,
+    DEFAULT_CORRECTION_TEMPLATE,
+    DEFAULT_FAILURE_TEMPLATE,
+    DEFAULT_FONT_FAMILY_KEY,
+    DEFAULT_FOOTER_TEMPLATE,
+    DEFAULT_HEADER_BRAND,
+    DEFAULT_HEADER_SUBTITLE,
+    DEFAULT_MEDIA_LAYOUT,
+    DEFAULT_POSTER_WIDTH,
+    DEFAULT_REQUEST_TEMPLATE,
+    DEFAULT_REQUESTER_LABEL,
+    DEFAULT_SHOW_GENRES,
+    DEFAULT_SHOW_HEADER_SUBTITLE,
+    DEFAULT_SHOW_PLEX_BUTTON,
+    DEFAULT_SHOW_POSTER,
+    DEFAULT_SHOW_REQUESTER,
+    DEFAULT_SHOW_TMDB_LINK,
+    DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
+    DEFAULT_UPGRADE_TEMPLATE,
+    SERIES_AVAILABILITY_DEFAULTS,
+    FONT_FAMILY_PRESETS,
+    SYNOPSIS_FONT_SIZE_PRESETS,
+    _build_jinja_ctx,
+    _build_tags,
+    build_tmdb_url,
+    get_event_visuals,
+    get_shared_email_parts,
+    render_subject,
+    render_template,
+    resolve_plex_deep_link,
+)
+from ..services.email_service import _send as smtp_send
+from ..services.notification_catalog import get_event
+
+router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_admin)])
+
+_SERIES_EVENT_TYPES = tuple(SERIES_AVAILABILITY_DEFAULTS)
+_EVENT_TYPES = ("request", "available", *_SERIES_EVENT_TYPES, "upgrade", "failure", "correction")
 
 
-def require_auth(request: Request):
-    if not request.session.get("authenticated"):
-        raise HTTPException(status_code=401, detail="Non authentifié")
-
-
-router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_auth)])
-templates = Jinja2Templates(directory="app/templates")
+@router.get("/settings/email-templates")
+def email_templates_redirect():
+    return RedirectResponse("/settings?tab=templates", status_code=308)
 
 
 SAMPLE_CONTEXT = {
@@ -33,67 +76,240 @@ SAMPLE_CONTEXT = {
 }
 
 
-@router.get("/settings/email-templates", response_class=HTMLResponse)
-def email_templates_page(request: Request, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
-    users = db.query(PlexUser).order_by(PlexUser.display_name).all()
-    return templates.TemplateResponse(
-        request,
-        "email_templates.html",
-        {
-            "page": "email-templates",
-            "request_template": s.email_request_template or DEFAULT_REQUEST_TEMPLATE,
-            "available_template": s.email_available_template or DEFAULT_AVAILABLE_TEMPLATE,
-            "request_subject": s.email_request_subject or "",
-            "available_subject": s.email_available_subject or "",
-            "users": users,
-            "variables": [
-                ("{{ title }}", "Titre du film ou de la série"),
-                ("{{ year }}", "Année de sortie"),
-                ("{{ poster_url }}", "URL de l'affiche"),
-                ("{{ plex_user }}", "Nom de l'utilisateur"),
-                ("{{ media_type_label }}", "Film ou Série"),
-                ("{{ media_type_label_cap }}", "Le film / La série"),
-                ("{{ overview }}", "Synopsis"),
-                ("{{ genres }}", "Genres (ex: Action, Drame)"),
-            ],
-        },
-    )
+def _create_dummy_request() -> MediaRequest:
+    req = MediaRequest()
+    req.title = "Breaking Bad"
+    req.year = 2008
+    req.plex_user = "Jean Dupont"
+    req.media_type = "show"
+    req.poster_url = "https://image.tmdb.org/t/p/w300/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"
+    req.overview = "Un professeur de chimie atteint d'un cancer du poumon se lance dans la fabrication et la vente de méthamphétamine afin de subvenir aux besoins de sa famille."
+    setattr(
+        req, "genres", "Crime, Drame, Thriller"
+    )  # attribut dynamique, non déclaré sur MediaRequest (voir _build_jinja_ctx)
+    req.tmdb_id = "1396"  # vrai ID TMDB de Breaking Bad, pour que le lien TMDB de démo soit réel
+    return req
 
 
-class PreviewRequest(BaseModel):
+# Le catalogue de notifications (notification_catalog.EVENTS) utilise "failed" et n'a pas
+# d'entrée "upgrade" (qui est une variante d'"available") : traduction des 4 clés de l'éditeur
+# vers les clés du catalogue, pour le libellé/sujet par défaut uniquement.
+_CATALOG_EVENT_KEY = {"upgrade": "available", "failure": "failed"}
+_CATALOG_EVENT_KEY.update({key: "available" for key in _SERIES_EVENT_TYPES})
+
+
+def _preview_context(event_type: str, preview_variant: Optional[str]):
+    mapping = {
+        "episode_available": ("episode", None, 2, 4),
+        "season_started": ("season_start", None, 2, 1),
+        "season_partial": ("series_batch", None, None, None),
+        "season_complete": ("season_complete", None, 2, None),
+        "series_partial": ("series_batch", None, None, None),
+        "series_complete": ("series_complete", None, None, None),
+    }
+    parsed = _parse_preview_variant(preview_variant)
+    return parsed if preview_variant and preview_variant != "default" else mapping.get(event_type, parsed)
+
+
+def _preview_availability_details(event_type: str) -> tuple[str, dict]:
+    samples = {
+        "season_partial": ("La saison 2 est partiellement disponible : 6 episodes sont presents.", {"available_seasons": [2], "partial_seasons": [2], "expected_seasons": [1, 2, 3], "episode_count": 6}),
+        "season_complete": ("La saison 2 est disponible integralement.", {"available_seasons": [2], "complete_seasons": [2], "expected_seasons": [1, 2, 3]}),
+        "series_partial": ("3 saisons completes sont disponibles. 2 saisons restent attendues.", {"available_seasons": [1, 2, 3], "complete_seasons": [1, 2, 3], "missing_seasons": [4, 5], "expected_seasons": [1, 2, 3, 4, 5]}),
+        "series_complete": ("Les 5 saisons attendues sont disponibles integralement.", {"available_seasons": [1, 2, 3, 4, 5], "complete_seasons": [1, 2, 3, 4, 5], "expected_seasons": [1, 2, 3, 4, 5]}),
+    }
+    summary, details = samples.get(event_type, ("", {}))
+    details["availability_variant"] = event_type
+    return summary, details
+
+
+def _parse_preview_variant(preview_variant: Optional[str]):
+    """(scope, language, season_number, episode_number) pour un variant de preview donné."""
+    if preview_variant == "movie_vo":
+        return "movie", "vo", None, None
+    if preview_variant == "movie_vf":
+        return "movie", "vf", None, None
+    if preview_variant == "episode":
+        return "episode", None, 2, 1
+    if preview_variant == "episode_vo":
+        return "episode", "vo", 2, 4
+    if preview_variant == "episode_vf":
+        return "episode", "vf", 2, 4
+    if preview_variant == "season_start_vf":
+        return "season_start", "vf", 2, 1
+    if preview_variant == "season_complete_vf":
+        return "season_complete", "vf", 2, None
+    if preview_variant == "season_complete":
+        return "season_complete", None, 2, None
+    return "movie", None, None, None
+
+
+class _EmailShellDraft(BaseModel):
+    """Valeurs de brouillon (non enregistrées) pour la coquille email, en overrides des Settings."""
+
+    header_brand: Optional[str] = None
+    header_subtitle: Optional[str] = None
+    footer_template: Optional[str] = None
+    accent_color: Optional[str] = None
+    badge_text: Optional[str] = None
+    headline_text: Optional[str] = None
+    show_synopsis: Optional[bool] = None
+    show_poster: Optional[bool] = None
+    show_genres: Optional[bool] = None
+    show_requester: Optional[bool] = None
+    requester_label: Optional[str] = None
+    brand_color: Optional[str] = None
+    show_header_subtitle: Optional[bool] = None
+    poster_width: Optional[int] = None
+    media_layout: Optional[str] = None
+    bg_color: Optional[str] = None
+    card_bg_color: Optional[str] = None
+    font_family: Optional[str] = None
+    card_width: Optional[int] = None
+    card_border_radius: Optional[int] = None
+    synopsis_font_size: Optional[str] = None
+    show_tmdb_link: Optional[bool] = None
+    show_plex_button: Optional[bool] = None
+
+
+def _apply_draft_overrides(jinja_ctx: dict, draft: _EmailShellDraft) -> None:
+    if draft.header_brand is not None:
+        jinja_ctx["_header_brand"] = draft.header_brand
+    if draft.header_subtitle is not None:
+        jinja_ctx["_header_subtitle"] = draft.header_subtitle
+    if draft.footer_template is not None:
+        jinja_ctx["_footer_html"] = markdown.markdown(draft.footer_template)
+    if draft.accent_color is not None:
+        jinja_ctx["_accent_color"] = draft.accent_color
+    if draft.badge_text is not None:
+        jinja_ctx["_badge_text"] = draft.badge_text
+    if draft.headline_text is not None:
+        jinja_ctx["_headline_text"] = draft.headline_text
+    if draft.show_synopsis is not None:
+        jinja_ctx["_show_synopsis"] = draft.show_synopsis
+    if draft.show_poster is not None:
+        jinja_ctx["_show_poster"] = draft.show_poster
+    if draft.show_genres is not None:
+        jinja_ctx["_show_genres"] = draft.show_genres
+    if draft.show_requester is not None:
+        jinja_ctx["_show_requester"] = draft.show_requester
+    if draft.requester_label is not None:
+        jinja_ctx["_requester_label"] = draft.requester_label
+    if draft.brand_color is not None:
+        jinja_ctx["_brand_color"] = draft.brand_color
+    if draft.show_header_subtitle is not None:
+        jinja_ctx["_show_header_subtitle"] = draft.show_header_subtitle
+    if draft.poster_width is not None:
+        jinja_ctx["_poster_width"] = draft.poster_width
+    if draft.media_layout is not None:
+        jinja_ctx["_media_layout"] = draft.media_layout
+    if draft.bg_color is not None:
+        jinja_ctx["_bg_color"] = draft.bg_color
+    if draft.card_bg_color is not None:
+        jinja_ctx["_card_bg_color"] = draft.card_bg_color
+    if draft.font_family is not None:
+        jinja_ctx["_font_family"] = FONT_FAMILY_PRESETS.get(draft.font_family, FONT_FAMILY_PRESETS["arial"])
+    if draft.card_width is not None:
+        jinja_ctx["_card_width"] = draft.card_width
+    if draft.card_border_radius is not None:
+        jinja_ctx["_card_border_radius"] = draft.card_border_radius
+    if draft.synopsis_font_size is not None:
+        jinja_ctx["_synopsis_font_size"] = SYNOPSIS_FONT_SIZE_PRESETS.get(
+            draft.synopsis_font_size, SYNOPSIS_FONT_SIZE_PRESETS["normal"]
+        )
+    if draft.show_tmdb_link is not None:
+        jinja_ctx["_show_tmdb_link"] = draft.show_tmdb_link
+    if draft.show_plex_button is not None:
+        jinja_ctx["_show_plex_button"] = draft.show_plex_button
+
+
+def _build_preview_jinja_ctx(
+    settings, event_type: str, req, display_name: str, language: Optional[str], draft: _EmailShellDraft
+) -> dict:
+    jinja_ctx = _build_jinja_ctx(req, display_name=display_name)
+    jinja_ctx.update(get_shared_email_parts(settings))
+    jinja_ctx.update(get_event_visuals(settings, event_type))
+    # Exception VO : même règle que send_available_notification (email_service.py).
+    if event_type == "available" and language == "vo":
+        jinja_ctx["_accent_color"] = "#0d6efd"
+        jinja_ctx["_badge_text"] = "Disponible en VO"
+    _apply_draft_overrides(jinja_ctx, draft)
+    if event_type == "correction":
+        jinja_ctx["_requester_label"] = "Destinataire"
+    return jinja_ctx
+
+
+class PreviewRequest(_EmailShellDraft):
     template: str
     subject: str
     type: str = "request"
     user_id: Optional[int] = None
+    preview_variant: Optional[str] = None
 
 
 @router.post("/api/email-preview")
-def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
-    ctx = dict(SAMPLE_CONTEXT)
+async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_async)):
+    event_type = body.type if body.type in _EVENT_TYPES else "request"
+    is_upgrade = event_type == "upgrade"
+    # "upgrade" n'est pas un évènement du catalogue à part entière : c'est une variante
+    # de "available" (voir email_service.send_available_notification). On réutilise donc
+    # le libellé/sujet par défaut d'"available" pour le fallback.
+    event_def = get_event(_CATALOG_EVENT_KEY.get(event_type, event_type))
+    req = _create_dummy_request()
+    display_name = "Jean Dupont"
+
+    scope, language, season_number, episode_number = (
+        _preview_context(event_type, body.preview_variant)
+        if event_type in ("available", "upgrade", *_SERIES_EVENT_TYPES)
+        else ("movie", None, None, None)
+    )
+
+    settings = (await db.execute(select(Settings))).scalars().first()
     recipient_email = "jean.dupont@plex.local"
     if body.user_id:
-        user = db.query(PlexUser).filter(PlexUser.id == body.user_id).first()
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == body.user_id))).scalars().first()
         if user:
-            ctx["plex_user"] = user.custom_name or user.display_name or user.plex_user_id
+            display_name = user.custom_name or user.display_name or user.plex_user_id
             recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
 
-    if body.type == "available":
-        ctx["media_type_label"] = "Série"
-        ctx["media_type_label_cap"] = "La série"
+    batch_summary, availability_details = _preview_availability_details(event_type)
+    tags = _build_tags(
+        req,
+        display_name=display_name,
+        scope=scope,
+        language=language,
+        is_upgrade=is_upgrade,
+        season_number=season_number,
+        episode_number=episode_number,
+        batch_summary=batch_summary,
+        availability_details=availability_details,
+        reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
+        corrections=["Son corrigé", "Sous-titres resynchronisés"],
+        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
+        if event_type == "correction"
+        else "",
+    )
 
-    rendered_subject = render_template(body.subject, ctx)
-    if rendered_subject.startswith("<p>Erreur de template"):
-        rendered_subject = (
-            f"[Plex] Nouvelle demande : {ctx['title']}"
-            if body.type == "request"
-            else f"[Plex] Disponible : {ctx['title']}"
-        )
+    visual_event_type = "available" if event_type in _SERIES_EVENT_TYPES else event_type
+    jinja_ctx = _build_preview_jinja_ctx(settings, visual_event_type, req, display_name, language, body)
+    # Aperçu : jamais d'appel Plex réel (redéclenché à chaque frappe) — lien TMDB réel
+    # (la demande factice a un vrai tmdb_id), lien Plex factice juste pour visualiser la mise en page.
+    jinja_ctx["_tmdb_url"] = build_tmdb_url(req)
+    jinja_ctx["_plex_deep_link"] = "#"
 
-    html = render_template(body.template, ctx)
+    generic_fallback = f"[Plexarr] {'Correction' if event_type == 'correction' else event_def.label} : {req.title}"
+    default_subject = (
+        "[Plexarr] Correction : {titre} {details_saison_episode}"
+        if event_type == "correction"
+        else event_def.default_subject
+    )
+    fallback_subject = (
+        render_subject(default_subject, tags, fallback=generic_fallback) if default_subject else generic_fallback
+    )
+    rendered_subject = render_subject(body.subject, tags, fallback=fallback_subject)
 
-    # Prepend email client headers
-    settings = db.query(Settings).first()
+    html = render_template(body.template, tags, jinja_ctx)
+
     header_html = f"""
     <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">
       <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{rendered_subject}</span></div>
@@ -118,27 +334,361 @@ def preview_email(body: PreviewRequest, db: Session = Depends(get_db)):
 class SaveTemplates(BaseModel):
     email_request_template: str
     email_available_template: str
+    email_upgrade_template: Optional[str] = None
+    email_failure_template: str
+    email_correction_template: Optional[str] = None
     email_request_subject: Optional[str] = None
     email_available_subject: Optional[str] = None
+    email_episode_available_template: Optional[str] = None
+    email_episode_available_subject: Optional[str] = None
+    email_season_started_template: Optional[str] = None
+    email_season_started_subject: Optional[str] = None
+    email_season_partial_template: Optional[str] = None
+    email_season_partial_subject: Optional[str] = None
+    email_season_complete_template: Optional[str] = None
+    email_season_complete_subject: Optional[str] = None
+    email_series_partial_template: Optional[str] = None
+    email_series_partial_subject: Optional[str] = None
+    email_series_complete_template: Optional[str] = None
+    email_series_complete_subject: Optional[str] = None
+    email_upgrade_subject: Optional[str] = None
+    email_failure_subject: Optional[str] = None
+    email_correction_subject: Optional[str] = None
+    email_header_brand: Optional[str] = None
+    email_header_subtitle: Optional[str] = None
+    email_footer_template: Optional[str] = None
+    email_request_accent_color: Optional[str] = None
+    email_request_badge_text: Optional[str] = None
+    email_request_headline_text: Optional[str] = None
+    email_request_show_synopsis: Optional[bool] = None
+    email_available_accent_color: Optional[str] = None
+    email_available_badge_text: Optional[str] = None
+    email_available_headline_text: Optional[str] = None
+    email_available_show_synopsis: Optional[bool] = None
+    email_upgrade_accent_color: Optional[str] = None
+    email_upgrade_badge_text: Optional[str] = None
+    email_upgrade_headline_text: Optional[str] = None
+    email_upgrade_show_synopsis: Optional[bool] = None
+    email_failure_accent_color: Optional[str] = None
+    email_failure_badge_text: Optional[str] = None
+    email_failure_headline_text: Optional[str] = None
+    email_failure_show_synopsis: Optional[bool] = None
+    email_correction_accent_color: Optional[str] = None
+    email_correction_badge_text: Optional[str] = None
+    email_correction_headline_text: Optional[str] = None
+    email_correction_show_synopsis: Optional[bool] = None
+    email_show_poster: Optional[bool] = None
+    email_show_genres: Optional[bool] = None
+    email_show_requester: Optional[bool] = None
+    email_requester_label: Optional[str] = None
+    email_brand_color: Optional[str] = None
+    email_show_header_subtitle: Optional[bool] = None
+    email_poster_width: Optional[int] = None
+    email_media_layout: Optional[str] = None
+    email_bg_color: Optional[str] = None
+    email_card_bg_color: Optional[str] = None
+    email_font_family: Optional[str] = None
+    email_card_width: Optional[int] = None
+    email_card_border_radius: Optional[int] = None
+    email_synopsis_font_size: Optional[str] = None
+    email_show_tmdb_link: Optional[bool] = None
+    email_show_plex_button: Optional[bool] = None
+
+
+TEMPLATE_FIELDS = [
+    "email_request_template",
+    "email_available_template",
+    "email_upgrade_template",
+    "email_failure_template",
+    "email_correction_template",
+    "email_request_subject",
+    "email_available_subject",
+    *[f"email_{variant}_{suffix}" for variant in _SERIES_EVENT_TYPES for suffix in ("template", "subject")],
+    "email_upgrade_subject",
+    "email_failure_subject",
+    "email_correction_subject",
+    "email_header_brand",
+    "email_header_subtitle",
+    "email_footer_template",
+    "email_request_accent_color",
+    "email_request_badge_text",
+    "email_request_headline_text",
+    "email_request_show_synopsis",
+    "email_available_accent_color",
+    "email_available_badge_text",
+    "email_available_headline_text",
+    "email_available_show_synopsis",
+    "email_upgrade_accent_color",
+    "email_upgrade_badge_text",
+    "email_upgrade_headline_text",
+    "email_upgrade_show_synopsis",
+    "email_failure_accent_color",
+    "email_failure_badge_text",
+    "email_failure_headline_text",
+    "email_failure_show_synopsis",
+    "email_correction_accent_color",
+    "email_correction_badge_text",
+    "email_correction_headline_text",
+    "email_correction_show_synopsis",
+    "email_show_poster",
+    "email_show_genres",
+    "email_show_requester",
+    "email_requester_label",
+    "email_brand_color",
+    "email_show_header_subtitle",
+    "email_poster_width",
+    "email_media_layout",
+    "email_bg_color",
+    "email_card_bg_color",
+    "email_font_family",
+    "email_card_width",
+    "email_card_border_radius",
+    "email_synopsis_font_size",
+    "email_show_tmdb_link",
+    "email_show_plex_button",
+]
+
+
+@router.get("/api/email-templates")
+def get_templates(s: Settings = Depends(get_settings_or_404)):
+    """Return effective editor values, including defaults for nullable settings."""
+    template_defaults = {
+        "request": DEFAULT_REQUEST_TEMPLATE,
+        "available": DEFAULT_AVAILABLE_TEMPLATE,
+        "upgrade": DEFAULT_UPGRADE_TEMPLATE,
+        "failure": DEFAULT_FAILURE_TEMPLATE,
+        "correction": DEFAULT_CORRECTION_TEMPLATE,
+        **{variant: defaults[0] for variant, defaults in SERIES_AVAILABILITY_DEFAULTS.items()},
+    }
+    result = {}
+    for event_type, default_template in template_defaults.items():
+        result[f"email_{event_type}_template"] = getattr(s, f"email_{event_type}_template") or default_template
+        result[f"email_{event_type}_subject"] = getattr(s, f"email_{event_type}_subject") or ""
+        visuals = get_event_visuals(s, "available" if event_type in _SERIES_EVENT_TYPES else event_type)
+        result[f"email_{event_type}_accent_color"] = visuals["_accent_color"]
+        result[f"email_{event_type}_badge_text"] = visuals["_badge_text"]
+        result[f"email_{event_type}_headline_text"] = visuals["_headline_text"]
+        result[f"email_{event_type}_show_synopsis"] = visuals["_show_synopsis"]
+
+    result.update(
+        {
+            "email_header_brand": s.email_header_brand or DEFAULT_HEADER_BRAND,
+            "email_header_subtitle": s.email_header_subtitle or DEFAULT_HEADER_SUBTITLE,
+            "email_footer_template": s.email_footer_template or DEFAULT_FOOTER_TEMPLATE,
+            "email_show_poster": DEFAULT_SHOW_POSTER if s.email_show_poster is None else s.email_show_poster,
+            "email_show_genres": DEFAULT_SHOW_GENRES if s.email_show_genres is None else s.email_show_genres,
+            "email_show_requester": DEFAULT_SHOW_REQUESTER
+            if s.email_show_requester is None
+            else s.email_show_requester,
+            "email_requester_label": s.email_requester_label or DEFAULT_REQUESTER_LABEL,
+            "email_brand_color": s.email_brand_color or DEFAULT_BRAND_COLOR,
+            "email_show_header_subtitle": DEFAULT_SHOW_HEADER_SUBTITLE
+            if s.email_show_header_subtitle is None
+            else s.email_show_header_subtitle,
+            "email_poster_width": s.email_poster_width or DEFAULT_POSTER_WIDTH,
+            "email_media_layout": s.email_media_layout or DEFAULT_MEDIA_LAYOUT,
+            "email_bg_color": s.email_bg_color or DEFAULT_BG_COLOR,
+            "email_card_bg_color": s.email_card_bg_color or DEFAULT_CARD_BG_COLOR,
+            "email_font_family": s.email_font_family or DEFAULT_FONT_FAMILY_KEY,
+            "email_card_width": s.email_card_width or DEFAULT_CARD_WIDTH,
+            "email_card_border_radius": s.email_card_border_radius
+            if s.email_card_border_radius is not None
+            else DEFAULT_CARD_BORDER_RADIUS,
+            "email_synopsis_font_size": s.email_synopsis_font_size or DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
+            "email_show_tmdb_link": DEFAULT_SHOW_TMDB_LINK
+            if s.email_show_tmdb_link is None
+            else s.email_show_tmdb_link,
+            "email_show_plex_button": DEFAULT_SHOW_PLEX_BUTTON
+            if s.email_show_plex_button is None
+            else s.email_show_plex_button,
+            "has_previous_version": bool(s.email_templates_backup),
+            "simulation_settings": {
+                "email_enabled": bool(s.email_enabled),
+                "notification_hold_enabled": bool(s.notification_hold_enabled),
+                "email_on_request": bool(s.email_on_request),
+                "email_on_available": bool(s.email_on_available),
+                "email_on_vf_available": bool(s.email_on_vf_available),
+                "email_on_failure": bool(s.email_on_failure),
+                "series_notify_granularity": s.series_notify_granularity or "jalons",
+                "series_notify_language": s.series_notify_language is not False,
+                "movie_notify_language": s.movie_notify_language is not False,
+                "has_admin_recipient": bool((s.admin_notification_email or "").strip()),
+                "has_fallback_recipient": bool((s.smtp_from or "").strip()),
+            },
+        }
+    )
+    return result
 
 
 @router.put("/api/email-templates")
-def save_templates(body: SaveTemplates, db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
-    s.email_request_template = body.email_request_template
-    s.email_available_template = body.email_available_template
-    s.email_request_subject = body.email_request_subject
-    s.email_available_subject = body.email_available_subject
-    db.commit()
+async def save_templates(body: SaveTemplates, db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
+    s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
+    for field in TEMPLATE_FIELDS:
+        setattr(s, field, getattr(body, field, None))
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/api/email-templates/restore-previous")
+async def restore_previous_templates(db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
+    if not s.email_templates_backup:
+        raise HTTPException(status_code=404, detail="Aucune sauvegarde précédente disponible")
+    backup = json.loads(s.email_templates_backup)
+    for field in TEMPLATE_FIELDS:
+        setattr(s, field, backup.get(field))
+    s.email_templates_backup = None
+    await db.commit()
     return {"status": "ok"}
 
 
 @router.post("/api/email-templates/reset")
-def reset_templates(db: Session = Depends(get_db)):
-    s = db.query(Settings).first()
+async def reset_templates(db: AsyncSession = Depends(get_db_async), s: Settings = Depends(get_settings_or_404)):
+    s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
+    for variant, defaults in SERIES_AVAILABILITY_DEFAULTS.items():
+        setattr(s, f"email_{variant}_template", defaults[0])
+        setattr(s, f"email_{variant}_subject", None)
+    s.email_upgrade_template = DEFAULT_UPGRADE_TEMPLATE
+    s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
+    s.email_correction_template = DEFAULT_CORRECTION_TEMPLATE
     s.email_request_subject = None
     s.email_available_subject = None
-    db.commit()
+    s.email_upgrade_subject = None
+    s.email_failure_subject = None
+    s.email_correction_subject = None
+    for field in (
+        "email_header_brand",
+        "email_header_subtitle",
+        "email_footer_template",
+        "email_request_accent_color",
+        "email_request_badge_text",
+        "email_request_headline_text",
+        "email_request_show_synopsis",
+        "email_available_accent_color",
+        "email_available_badge_text",
+        "email_available_headline_text",
+        "email_available_show_synopsis",
+        "email_upgrade_accent_color",
+        "email_upgrade_badge_text",
+        "email_upgrade_headline_text",
+        "email_upgrade_show_synopsis",
+        "email_failure_accent_color",
+        "email_failure_badge_text",
+        "email_failure_headline_text",
+        "email_failure_show_synopsis",
+        "email_correction_accent_color",
+        "email_correction_badge_text",
+        "email_correction_headline_text",
+        "email_correction_show_synopsis",
+        "email_show_poster",
+        "email_show_genres",
+        "email_show_requester",
+        "email_requester_label",
+        "email_brand_color",
+        "email_show_header_subtitle",
+        "email_poster_width",
+        "email_media_layout",
+        "email_bg_color",
+        "email_card_bg_color",
+        "email_font_family",
+        "email_card_width",
+        "email_card_border_radius",
+        "email_synopsis_font_size",
+        "email_show_tmdb_link",
+        "email_show_plex_button",
+    ):
+        setattr(s, field, None)
+    await db.commit()
     return {"status": "ok"}
+
+
+class TestSendRequest(_EmailShellDraft):
+    template: str
+    subject: str
+    type: str = "request"
+    user_id: Optional[int] = None
+    preview_variant: Optional[str] = None
+    recipient_mode: str = "admin"
+
+
+@router.post("/api/email-templates/test-send")
+async def test_send_email(
+    body: TestSendRequest, db: AsyncSession = Depends(get_db_async), settings: Settings = Depends(get_settings_or_404)
+):
+    recipient = (settings.admin_notification_email or settings.smtp_from or "").strip()
+    display_name = "Jean Dupont"
+    if body.recipient_mode == "user":
+        if not body.user_id:
+            raise HTTPException(status_code=400, detail="Selectionnez un utilisateur pour cet envoi de test")
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == body.user_id))).scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        recipient = user.notification_email or user.plex_email
+        display_name = user.custom_name or user.display_name or user.plex_user_id
+
+    if not recipient:
+        recipient = settings.smtp_from
+
+    if not recipient:
+        raise HTTPException(
+            status_code=400,
+            detail="Aucun destinataire de test configuré",
+        )
+
+    event_type = body.type if body.type in _EVENT_TYPES else "request"
+    is_upgrade = event_type == "upgrade"
+    event_def = get_event(_CATALOG_EVENT_KEY.get(event_type, event_type))
+    req = _create_dummy_request()
+
+    scope, language, season_number, episode_number = (
+        _preview_context(event_type, body.preview_variant)
+        if event_type in ("available", "upgrade", *_SERIES_EVENT_TYPES)
+        else ("movie", None, None, None)
+    )
+
+    batch_summary, availability_details = _preview_availability_details(event_type)
+    tags = _build_tags(
+        req,
+        display_name=display_name,
+        scope=scope,
+        language=language,
+        is_upgrade=is_upgrade,
+        season_number=season_number,
+        episode_number=episode_number,
+        batch_summary=batch_summary,
+        availability_details=availability_details,
+        reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
+        corrections=["Son corrigé", "Sous-titres resynchronisés"],
+        correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
+        if event_type == "correction"
+        else "",
+    )
+
+    visual_event_type = "available" if event_type in _SERIES_EVENT_TYPES else event_type
+    jinja_ctx = _build_preview_jinja_ctx(settings, visual_event_type, req, display_name, language, body)
+    # Envoi réel (contrairement à l'aperçu) : résolution effective du lien Plex, avec
+    # fallback silencieux (None -> bouton omis) si le serveur est injoignable ou l'item introuvable.
+    jinja_ctx["_tmdb_url"] = build_tmdb_url(req)
+    jinja_ctx["_plex_deep_link"] = await resolve_plex_deep_link(settings, req)
+
+    generic_fallback = f"[Plexarr] {'Correction' if event_type == 'correction' else event_def.label} : {req.title}"
+    default_subject = (
+        "[Plexarr] Correction : {titre} {details_saison_episode}"
+        if event_type == "correction"
+        else event_def.default_subject
+    )
+    fallback_subject = (
+        render_subject(default_subject, tags, fallback=generic_fallback) if default_subject else generic_fallback
+    )
+    rendered_subject = render_subject(body.subject, tags, fallback=fallback_subject)
+
+    html = render_template(body.template, tags, jinja_ctx)
+
+    try:
+        from ..services.email_service import _send
+
+        await _send(settings, recipient, rendered_subject, html)
+        return {"status": "ok", "message": f"Email envoyé avec succès à {recipient}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,10 +1,13 @@
-# Plex RSS Monitor
+# Plexarr
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/mrcryllix/plex-rss?style=flat&color=e5a00d&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
 [![Docker Image Size](https://img.shields.io/docker/image-size/mrcryllix/plex-rss/latest?style=flat&color=1f1f1f&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
 [![License](https://img.shields.io/github/license/remi-deher/plex-rss?color=198754&style=flat)](LICENSE)
 
-Application web auto-hébergée qui surveille les watchlists Plex de vos amis et transmet automatiquement les demandes à **Sonarr** (séries) et **Radarr** (films) — ou à **Overseerr** — avec notifications par email, Discord et Telegram.
+**Hub de gestion média self-hosted pour Plex dans un écosystème \*arr.** Plexarr collecte les demandes (watchlists Plex, Overseerr, ajout manuel), les orchestre vers **Sonarr** / **Radarr** / clients de téléchargement, suit la disponibilité et l'état de la bibliothèque Plex (dont le suivi VF/VFF), et notifie par email, Discord et Telegram.
+
+> [!NOTE]
+> Anciennement *Plex RSS Monitor*. Le projet a évolué d'un simple moniteur de watchlists RSS vers un hub complet de gestion média — le slug technique reste `plex-rss` (repo, image Docker).
 
 > [!TIP]
 > L'image Docker officielle est disponible sur Docker Hub : [mrcryllix/plex-rss](https://hub.docker.com/r/mrcryllix/plex-rss)
@@ -14,9 +17,12 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 
 ## Fonctionnalités
 
-### Intégrations *arr
+### Intégrations *arr & orchestration
 - **Sonarr & Radarr** — transmission directe via leur API v3 ; support du champ `minimumAvailability` de **Radarr v5**
-- **Overseerr** — mode alternatif : les demandes sont routées vers Overseerr plutôt que directement vers Sonarr/Radarr
+- **Multi-instances** — plusieurs instances Sonarr/Radarr, avec instance par défaut et routage par demande
+- **Overseerr / Jellyseerr** — mode alternatif : les demandes sont routées vers Overseerr plutôt que directement vers Sonarr/Radarr
+- **Prowlarr & clients de téléchargement** — recherche de releases, ajout direct de torrents (magnet / `.torrent`), suivi de progression
+- **Ajout manuel** — recherche de titres et création de demandes directement depuis l'interface
 
 ### Watchlist Plex
 - **Polling automatique** — API officielle Plex ou flux RSS, intervalle configurable (défaut 5 min)
@@ -28,12 +34,19 @@ Application web auto-hébergée qui surveille les watchlists Plex de vos amis et
 - **Webhooks entrants Sonarr & Radarr** — détection instantanée sur `OnDownload` / `OnImport`
 - **Webhook Plex** *(Plex Pass requis)* — détection instantanée sur `library.new` et `media.scrobble` ; correspondance prioritaire par TMDB/TVDB/IMDB ID
 
+### Gestion de bibliothèque Plex
+- **Synchronisation de bibliothèque** — import des médias déjà présents dans Plex, rapprochés avec Sonarr/Radarr (badges de suivi)
+- **Suivi VF / VFF** — détection des pistes audio françaises sur les médias disponibles ; distinction VO / VF / non analysé, relance de recherche automatique en VO
+- **Résolution de conflits & doublons** — détection des demandes en conflit, fusion des doublons, réconciliation des IDs manquants (TMDB/TVDB/IMDB)
+- **Espace disque** — visualisation de l'espace disponible sur les instances *arr
+
 ### Notifications
 - **File de notifications asynchrone** — worker asyncio non-bloquant, les envois n'impactent pas le scheduler
 - **Email SMTP** — templates Jinja2 HTML personnalisables, plusieurs adresses par utilisateur (virgule-séparées)
 - **Copie admin** — email admin configurable avec toggle par utilisateur Plex
-- **Discord** — webhook ; **Telegram** — bot token + chat ID
+- **Discord** — webhook ; **Telegram** — bot token + chat ID ; **Gotify** & **ntfy** — push self-hosted
 - Trois événements : nouvelle demande · disponible · échec de transmission
+- **Notification VF** — alerte dédiée lorsqu'un média suivi passe de VO à VF disponible
 
 ### Interface web
 - **Dashboard** — cartes stats cliquables (filtre par statut), affiches en arrière-plan, santé auto-rafraîchie
@@ -157,7 +170,7 @@ plex-rss/
 │   ├── routers/
 │   │   ├── auth.py              # Authentification (login, setup, logout)
 │   │   ├── api.py               # API REST JSON (/api/health, /api/metrics, /api/requests…)
-│   │   ├── pages.py             # Pages HTML (Jinja2)
+│   │   ├── pages.py             # Anciennes pages Jinja non montées (transition)
 │   │   ├── webhook.py           # Webhooks entrants (Sonarr, Radarr, Plex)
 │   │   ├── importexport.py      # Import / Export JSON
 │   │   └── email_templates.py   # Éditeur de templates email
@@ -171,10 +184,11 @@ plex-rss/
 │   │   ├── overseerr.py         # Client API Overseerr / Jellyseerr
 │   │   ├── email_service.py     # Envoi SMTP (aiosmtplib), templates Jinja2
 │   │   └── notifications.py     # Discord & Telegram
-│   └── templates/               # HTML Bootstrap 5 dark
+│   └── templates/               # Login/setup publics et anciens templates non montés
 │       ├── base.html
 │       ├── dashboard.html
-│       ├── requests.html
+│       ├── library.html
+│       ├── calendar.html
 │       ├── users.html
 │       ├── logs.html
 │       ├── settings.html
@@ -264,14 +278,14 @@ alembic upgrade head
 |---|---|
 | Framework web | FastAPI |
 | Sécurité / Session | Bcrypt, Starlette SessionMiddleware |
-| Base de données | SQLite + SQLAlchemy + Alembic |
-| Scheduler | APScheduler (AsyncIOScheduler) |
-| Notifications async | asyncio.Queue worker |
+| Base de données | PostgreSQL/SQLite + SQLAlchemy async + Alembic |
+| Tâches de fond | ARQ + Redis (APScheduler de secours) |
+| Notifications async | ARQ + Redis |
 | Client HTTP | httpx (async) |
 | Parseur RSS | feedparser |
 | Email | aiosmtplib |
-| Templates | Jinja2 + Bootstrap 5 dark |
-| Tests | pytest + pytest-asyncio (452 tests, SQLite in-memory) |
+| Interface | Vue 3 + Vue Router à la racine ; Jinja2 pour login/setup |
+| Tests | pytest + pytest-asyncio |
 | Lint | ruff (E, F, W, I) |
 | CI | GitHub Actions (tests, lint, Trivy, Docker Hub) |
 | Conteneurisation | Docker + Docker Compose |

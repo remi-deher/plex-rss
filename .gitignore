@@ -11,6 +11,9 @@ build/
 .eggs/
 *.whl
 
+# Frontend
+node_modules/
+
 # Virtual environments
 .venv/
 venv/
@@ -24,6 +27,7 @@ env/
 
 # Database (données persistantes montées via Docker volume)
 data/
+backups/
 *.db
 *.sqlite
 *.sqlite3
@@ -48,4 +52,8 @@ logs/
 .coverage
 .pytest_cache/
 htmlcov/
+playwright-report/
+test-results/
 
+# Codex local reports
+.codex/

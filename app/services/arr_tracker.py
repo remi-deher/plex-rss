@@ -1,0 +1,600 @@
+import asyncio
+import logging
+import time
+
+import sqlalchemy
+from sqlalchemy import and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from ..database import AsyncSessionLocal
+from ..models import (
+    ArrInstance,
+    DownloadClient,
+    MediaRequest,
+    PollHistory,
+    RequestSeasonStatus,
+    RequestStatus,
+    Settings,
+    VfEpisodeStatus,
+)
+from ..utils import now_utc_naive
+from . import notification_orchestrator
+from .availability_service import confirm_available_from_plex, note_arr_processed, should_confirm_available
+from .distributed_lock import acquire_distributed_lock, release_distributed_lock
+from .download_clients import delete_torrent, get_torrent_status
+from .request_lifecycle import transition_request
+from .arr_queue_service import fetch_queue_entity_ids
+from .notification_orchestrator import _handle_show_progress_notification
+from .radarr import get_all_movies, is_movie_available, movie_exists
+from .seer import is_request_available as seer_available
+from .seer import resolve_mode as seer_resolve_mode
+from .sonarr import get_all_series, get_series_episode_stats, series_exists
+from .vff_scanner import scan_and_notify_availability
+from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
+
+logger = logging.getLogger(__name__)
+
+
+async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
+    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines).
+
+    Doublon volontaire du helper de `app/routers/requests_api.py` : les deux modules
+    n'ont pas de dépendance commune vers les modèles sans risquer un import circulaire.
+    """
+    await db.execute(sqlalchemy.delete(VfEpisodeStatus).filter(
+        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
+    ))
+
+
+def _season_status_label(available: int, total: int) -> str:
+    if total and available >= total:
+        return "available"
+    if available > 0:
+        return "partially_available"
+    return "pending"
+
+
+async def _upsert_season_status(db: AsyncSession, request_id: int, seasons: list[dict]) -> None:
+    """Met à jour request_season_status à partir du détail par saison Sonarr.
+
+    Une saison absente du tableau `seasons` (série supprimée côté Sonarr entre deux
+    cycles, cas rare) n'est pas purgée ici : elle sera simplement ré-écrite au prochain
+    cycle où la série redevient trouvable, comme le reste du suivi de progression.
+    """
+    if not seasons:
+        return
+    existing = {
+        row.season_number: row
+        for row in (await db.execute(
+            select(RequestSeasonStatus).filter(RequestSeasonStatus.request_id == request_id)
+        )).scalars().all()
+    }
+    now = now_utc_naive()
+    for season in seasons:
+        season_number = season["season_number"]
+        available = season["episode_file_count"]
+        total = season["total_episode_count"]
+        status = _season_status_label(available, total)
+        row = existing.get(season_number)
+        if row is None:
+            db.add(RequestSeasonStatus(
+                request_id=request_id,
+                season_number=season_number,
+                episodes_available_count=available,
+                episodes_total_count=total,
+                status=status,
+                updated_at=now,
+            ))
+        elif (
+            row.episodes_available_count != available
+            or row.episodes_total_count != total
+            or row.status != status
+        ):
+            row.episodes_available_count = available
+            row.episodes_total_count = total
+            row.status = status
+            row.updated_at = now
+
+
+# Empêche un déclenchement manuel (/api/requests/poll) de tourner en même temps qu'un
+# cycle planifié (toutes les 15 min) sur les mêmes demandes DANS LE MÊME PROCESS.
+# Insuffisant seul en déploiement multi-conteneurs (APScheduler tourne dans le
+# conteneur API, le cron ARQ dans le conteneur worker, et /api/requests/poll peut
+# aussi être déclenché manuellement depuis l'API) — d'où le verrou Redis ci-dessous,
+# même schéma que poll_watchlists (voir distributed_lock.py).
+_arr_status_lock = asyncio.Lock()
+
+_DISTRIBUTED_ARR_STATUS_LOCK_KEY = "plexarr:lock:check_arr_statuses"
+_DISTRIBUTED_ARR_STATUS_LOCK_TTL = 300
+
+
+async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
+    """Vérifie si des demandes `sent_to_arr` sont désormais disponibles dans *arr.
+
+    `full_resync=True` (déclenché manuellement depuis l'onglet Maintenance) élargit le
+    filtre aux séries déjà "available" dont episodes_total_count est NULL — cas des
+    demandes passées "available" avant l'introduction du suivi par saison (ou par un
+    chemin qui ne renseigne pas ces compteurs, ex. Seer/webhook), à jamais exclues du
+    cycle normal (qui exige episodes_total_count non NULL pour re-vérifier une série
+    déjà "available"). Sans ce paramètre, ces demandes restent bloquées indéfiniment à
+    "available" même si elles ne sont en réalité que partiellement téléchargées.
+
+    `notify=False` corrige les statuts/compteurs sans déclencher la moindre notification
+    (mail "disponible"/jalon saison) — utile pour un resync manuel qui rattrape des mois
+    de données historiques sans spammer les utilisateurs. Un vrai nouveau progrès sera
+    de toute façon capté et notifié normalement dès le prochain cycle planifié (notify=True).
+
+    Stratégie de lookup (sans webhook) :
+    1. Si arr_id connu → GET /api/v3/series/{id} ou /api/v3/movie/{id}
+    2. Sinon → scan de la liste complète filtré par tvdb_id/tmdb_id/imdb_id
+       (cas des demandes créées avant la configuration de Sonarr/Radarr)
+
+    Disponibilité :
+    - Sonarr : statistics.episodeFileCount > 0
+    - Radarr : hasFile == true
+
+    En mode hybride (Seer + Sonarr/Radarr), Seer peut ne pas savoir qu'un média
+    est disponible si l'import a été fait sans qu'il le détecte. Si Seer répond
+    "non disponible", on retente directement Sonarr/Radarr en fallback (lookup
+    par tvdb_id/tmdb_id/imdb_id uniquement, car req.arr_id désigne alors l'ID
+    Seer et non l'ID Sonarr/Radarr).
+    """
+    if _arr_status_lock.locked():
+        logger.info("check_arr_statuses déjà en cours (verrou local), cycle ignoré")
+        return
+
+    await _arr_status_lock.acquire()
+    dist_lock_token = await acquire_distributed_lock(
+        _DISTRIBUTED_ARR_STATUS_LOCK_KEY, _DISTRIBUTED_ARR_STATUS_LOCK_TTL
+    )
+    if dist_lock_token is None:
+        logger.info("check_arr_statuses déjà en cours ailleurs (verrou Redis), cycle ignoré")
+        _arr_status_lock.release()
+        return
+
+    logger.info("Checking arr statuses...")
+    _check_start = time.monotonic()
+    started_at = now_utc_naive()
+    items_processed = 0
+    newly_available = 0
+    deleted_count = 0
+    errors_count = 0
+    error_details: list[str] = []
+    db: AsyncSession = AsyncSessionLocal()
+    try:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if not settings:
+            return
+
+        await _check_and_seed_instances_from_settings(db, settings)
+
+        availability_condition = (
+            # Resync manuel : toute série "available" est revérifiée, y compris celles
+            # dont episodes_total_count n'a jamais été renseigné (cas Ink Master).
+            and_(MediaRequest.status == RequestStatus.available, MediaRequest.media_type == "show")
+            if full_resync
+            else and_(
+                MediaRequest.status == RequestStatus.available,
+                MediaRequest.media_type == "show",
+                MediaRequest.episodes_total_count.isnot(None),
+                MediaRequest.episodes_available_count < MediaRequest.episodes_total_count,
+            )
+        )
+        candidates = (await db.execute(
+            select(MediaRequest).filter(
+                or_(
+                    MediaRequest.status == RequestStatus.sent_to_arr,
+                    # Séries en cours de diffusion (partiellement disponibles par définition,
+                    # voir RequestStatus.partially_available) : on continue de rafraîchir
+                    # leurs compteurs d'épisodes à chaque cycle, pour le badge et les notifs
+                    # de progression, jusqu'à disponibilité complète.
+                    MediaRequest.status == RequestStatus.partially_available,
+                    # Séries déjà "available" mais encore partiellement diffusées (nouveaux
+                    # épisodes chaque semaine) : on continue de rafraîchir leurs compteurs
+                    # tant qu'elles n'ont pas atteint episodes_total_count.
+                    availability_condition,
+                )
+            )
+        )).scalars().all()
+
+        # Exclut les demandes routées vers un client torrent (filet Prowlarr) : elles n'ont
+        # pas d'ID Sonarr/Radarr exploitable pour un lookup ici, leur disponibilité est
+        # suivie par check_torrent_statuses (progression du download) puis le scan Plex/VFF
+        # (confirmation finale). Le slug posé par _prowlarr_search_and_download est "torrent",
+        # pas "prowlarr:*" — l'ancien filtre ne matchait donc jamais aucune demande.
+        candidates = [c for c in candidates if not c.torrent_hash]
+
+        if not candidates:
+            return
+
+        logger.info(f"Checking {len(candidates)} sent_to_arr requests...")
+        items_processed = len(candidates)
+
+        # Load all enabled instances
+        instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled))).scalars().all()
+
+        for inst in instances:
+            if inst.arr_type not in ("sonarr", "radarr"):
+                continue
+
+            # Filter candidates for this instance
+            inst_candidates = []
+            for req in candidates:
+                if req.arr_instance_id == inst.id:
+                    inst_candidates.append(req)
+                elif req.arr_instance_id is None:
+                    # Legacy requests check on default instance of correct type
+                    if req.media_type == "show" and inst.arr_type == "sonarr" and inst.is_default:
+                        inst_candidates.append(req)
+                    elif req.media_type == "movie" and inst.arr_type == "radarr" and inst.is_default:
+                        inst_candidates.append(req)
+
+            if not inst_candidates:
+                continue
+
+            logger.info(f"Checking {len(inst_candidates)} requests on instance '{inst.name}'...")
+
+            # Prefetch list for the instance
+            series_list = None
+            movies_list = None
+            queue_ids: set[int] = set()
+            if inst.arr_type == "sonarr":
+                try:
+                    series_list = await get_all_series(inst.url, inst.api_key)
+                except Exception as e:
+                    logger.warning(f"Sonarr series prefetch failed for '{inst.name}': {e}")
+                    errors_count += 1
+                    error_details.append(f"[{inst.name}] prefetch Sonarr: {e}")
+                queue_ids = await fetch_queue_entity_ids(inst)
+            elif inst.arr_type == "radarr":
+                try:
+                    movies_list = await get_all_movies(inst.url, inst.api_key)
+                except Exception as e:
+                    logger.warning(f"Radarr movies prefetch failed for '{inst.name}': {e}")
+                    errors_count += 1
+                    error_details.append(f"[{inst.name}] prefetch Radarr: {e}")
+                queue_ids = await fetch_queue_entity_ids(inst)
+
+            seer_mode = seer_resolve_mode(settings)
+            for req in inst_candidates:
+                available = False
+                new_arr_id = None
+                new_slug = None
+                seer_checked = False
+                series_stats = None
+                # Pour une demande importée de Seer, req.arr_id est l'ID de demande SEER,
+                # pas l'ID Sonarr/Radarr : il ne doit jamais servir aux lookups *arr.
+                is_seer_req = req.source == "seer"
+                arr_lookup_id = None if is_seer_req else req.arr_id
+                try:
+                    if is_seer_req and seer_mode == "actor":
+                        seer_checked = True
+                        available, new_arr_id, new_slug = await seer_available(
+                            settings.seer_url,
+                            settings.seer_api_key,
+                            seer_request_id=req.arr_id,
+                        )
+                    elif req.media_type == "show" and inst.arr_type == "sonarr":
+                        series_stats = await get_series_episode_stats(
+                            inst.url,
+                            inst.api_key,
+                            arr_id=arr_lookup_id,
+                            tvdb_id=req.tvdb_id,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                            series_list=series_list,
+                        )
+                        if series_stats:
+                            available = series_stats["episode_file_count"] > 0
+                            new_arr_id = series_stats["arr_id"]
+                            new_slug = series_stats["title_slug"]
+                    elif req.media_type == "movie" and inst.arr_type == "radarr":
+                        available, new_arr_id, new_slug = await is_movie_available(
+                            inst.url,
+                            inst.api_key,
+                            arr_id=arr_lookup_id,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                            movies_list=movies_list,
+                        )
+
+                    # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
+                    # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
+                    if seer_checked and not available:
+                        if req.media_type == "show" and inst.arr_type == "sonarr":
+                            series_stats = await get_series_episode_stats(
+                                inst.url,
+                                inst.api_key,
+                                tvdb_id=req.tvdb_id,
+                                tmdb_id=req.tmdb_id,
+                                imdb_id=req.imdb_id,
+                                series_list=series_list,
+                            )
+                            if series_stats:
+                                available = series_stats["episode_file_count"] > 0
+                                new_arr_id = new_arr_id or series_stats["arr_id"]
+                                new_slug = new_slug or series_stats["title_slug"]
+                        elif req.media_type == "movie" and inst.arr_type == "radarr":
+                            available, arr_new_id, arr_new_slug = await is_movie_available(
+                                inst.url,
+                                inst.api_key,
+                                tmdb_id=req.tmdb_id,
+                                imdb_id=req.imdb_id,
+                                movies_list=movies_list,
+                            )
+                            new_arr_id = new_arr_id or arr_new_id
+                            new_slug = new_slug or arr_new_slug
+                    elif seer_checked and available and not await should_confirm_available(
+                        db, req, settings=settings
+                    ):
+                        logger.info(
+                            "Seer indique '%s' disponible, mais Plex ne confirme pas encore sa presence; "
+                            "la demande reste en attente.",
+                            req.title,
+                        )
+                        available = False
+                except Exception as e:
+                    logger.warning(f"Status check error for '{req.title}': {e}")
+                    errors_count += 1
+                    error_details.append(f"{req.title}: {e}")
+                    continue
+
+                # Détection "supprimé côté *arr" : id déjà connu, mais introuvable ce cycle
+                # (ni par id ni par tmdb/tvdb/imdb). is_movie_available/get_series_episode_stats
+                # avalent les erreurs réseau en "introuvable" en interne — ce None seul ne suffit
+                # donc PAS à distinguer un 404 confirmé d'un *arr injoignable. On vérifie
+                # explicitement via movie_exists/series_exists, qui eux ne catchent pas les
+                # erreurs réseau : toute exception ici est traitée comme "on ne sait pas",
+                # jamais comme une suppression.
+                if not is_seer_req and req.arr_id and new_arr_id is None:
+                    try:
+                        if req.media_type == "movie" and inst.arr_type == "radarr":
+                            still_exists = await movie_exists(inst.url, inst.api_key, req.arr_id)
+                        elif req.media_type == "show" and inst.arr_type == "sonarr":
+                            still_exists = await series_exists(inst.url, inst.api_key, req.arr_id)
+                        else:
+                            still_exists = True
+                    except Exception as e:
+                        logger.warning(f"Impossible de confirmer la suppression *arr pour '{req.title}': {e}")
+                        still_exists = True  # doute => on ne supprime jamais
+
+                    if not still_exists:
+                        logger.info(
+                            f"'{req.title}' n'existe plus dans {inst.arr_type} (id={req.arr_id}) — suppression de la demande"
+                        )
+                        await _delete_vf_episode_cache(db, req.id)
+                        await db.delete(req)
+                        await db.commit()
+                        deleted_count += 1
+                        continue
+
+                # Mettre à jour arr_id / arr_slug / arr_instance_id si on les découvre maintenant
+                if new_arr_id and not req.arr_id:
+                    req.arr_id = new_arr_id
+                if new_slug and not req.arr_slug:
+                    req.arr_slug = new_slug
+                if req.arr_instance_id is None:
+                    req.arr_instance_id = inst.id
+
+                if series_stats:
+                    req.episodes_available_count = series_stats["episode_file_count"]
+                    req.episodes_aired_count = series_stats["episode_count"]
+                    req.episodes_total_count = series_stats["total_episode_count"]
+                    await _upsert_season_status(db, req.id, series_stats.get("seasons") or [])
+
+                # Reflète la présence (ou non) d'un item actif dans la file de téléchargement
+                # *arr pour ce média. Permet de distinguer, côté UI, une vraie anomalie Plex
+                # (fichier importé mais introuvable dans Plex) d'un média encore en cours de
+                # téléchargement/import (ex: série avec d'autres épisodes en cours de téléchargement).
+                effective_arr_id = None if seer_checked else (new_arr_id or arr_lookup_id)
+                in_queue = bool(effective_arr_id and effective_arr_id in queue_ids)
+                if in_queue:
+                    await transition_request(db, req, "download_started", source=inst.arr_type)
+                elif req.is_downloading:
+                    await transition_request(db, req, "download_finished", source=inst.arr_type)
+
+                # Série en cours de diffusion : au moins un épisode a un fichier mais pas
+                # tous — statut distinct de `available` pour ne pas afficher un badge
+                # "Disponible" trompeur tant qu'il manque des épisodes (voir RequestStatus).
+                is_show_partial = (
+                    req.media_type == "show"
+                    and req.episodes_total_count
+                    and (req.episodes_available_count or 0) < req.episodes_total_count
+                )
+
+                was_already_available = req.status == RequestStatus.available
+                if available:
+                    if not await should_confirm_available(db, req, settings=settings):
+                        await note_arr_processed(
+                            db, req, arr_id=new_arr_id, arr_slug=new_slug, arr_instance_id=inst.id
+                        )
+                        logger.info(
+                            "'%s' est traite cote %s, en attente de confirmation Plex avant disponibilite.",
+                            req.title,
+                            inst.arr_type,
+                        )
+                        await db.commit()
+                        continue
+                    if is_show_partial:
+                        changed = await transition_request(
+                            db, req, "partially_available", source="plex_sync", instance_name=inst.name
+                        )
+                        if changed:
+                            logger.info(
+                                "'%s' est partiellement disponible (%s/%s episodes)",
+                                req.title, req.episodes_available_count, req.episodes_total_count,
+                            )
+                        await db.commit()
+                    elif not was_already_available:
+                        await transition_request(
+                            db, req, "available", source="plex_sync", instance_name=inst.name
+                        )
+                        newly_available += 1
+                        logger.info(f"'{req.title}' is now available")
+                        await db.commit()
+                    else:
+                        await db.commit()
+
+                    if not notify:
+                        # Resync manuel (voir full_resync) : corrige le statut/les compteurs
+                        # sans notifier — un simple rattrapage de donnee historique ne doit
+                        # pas declencher une rafale de mails "saison disponible" pour des
+                        # series suivies depuis des mois. Un vrai nouveau progres sera capte
+                        # et notifie normalement au prochain cycle planifie.
+                        pass
+                    elif req.media_type == "show":
+                        # Gère la disponibilité partielle (série en cours de diffusion) :
+                        # décide de la notif à envoyer (partielle / complète) selon la
+                        # progression et la fréquence choisie. Tourne à chaque cycle tant
+                        # que la série n'est pas intégralement disponible.
+                        await _handle_show_progress_notification(settings, req, db)
+                    elif not was_already_available:
+                        # Scan Plex immédiat avant d'envoyer le mail : propose directement
+                        # le bon mail (VF/VO) si VFF est actif, sans attendre le prochain
+                        # scan planifié. Repli sur le mail générique seulement si VFF est
+                        # désactivé (sinon check_vf_statuses rattrapera au cycle suivant).
+                        handled = await scan_and_notify_availability(req, settings, db)
+                        if not handled and not settings.vff_enabled:
+                            await notification_orchestrator._notify("available", settings, req, db)
+                else:
+                    await _refresh_next_release(
+                        req, settings, series_list=series_list, movies_list=movies_list, inst=inst
+                    )
+                    await db.commit()
+
+        # Analyse VF immédiate des nouvelles disponibilités (évite le délai jusqu'au
+        # prochain passage planifié pour l'envoi de la notification différée).
+        # Lancée en tâche de fond (pas de await) : un scan VFF sur un gros catalogue
+        # ne doit pas retarder la fin de ce job planifié.
+        if settings.vff_enabled and newly_available > 0:
+            from .vff_scanner import check_vf_statuses
+
+            asyncio.create_task(check_vf_statuses())
+
+        if deleted_count:
+            logger.info(f"{deleted_count} demande(s) supprimée(s) (média absent de *arr)")
+
+        logger.info("Arr status check complete")
+
+    except Exception as e:
+        logger.error(f"check_arr_statuses error: {e}")
+        error_details.append(str(e))
+        errors_count += 1
+    finally:
+        # Persist PollHistory (concatène toutes les erreurs du cycle, pas seulement la dernière)
+        duration_ms = int((time.monotonic() - _check_start) * 1000)
+        error_detail = "; ".join(error_details)[:2000] if error_details else None
+        poll_db: AsyncSession = AsyncSessionLocal()
+        try:
+            history = PollHistory(
+                job="arr_status",
+                started_at=started_at,
+                duration_ms=duration_ms,
+                items_processed=items_processed,
+                new_requests=0,
+                newly_available=newly_available,
+                errors=errors_count,
+                error_detail=error_detail,
+            )
+            poll_db.add(history)
+            await poll_db.commit()
+        except Exception as pe:
+            logger.error(f"Failed to persist arr_status PollHistory: {pe}")
+        finally:
+            if poll_db is not db:
+                await poll_db.close()
+        await db.close()
+        await release_distributed_lock(_DISTRIBUTED_ARR_STATUS_LOCK_KEY, dist_lock_token)
+        _arr_status_lock.release()
+
+
+async def check_torrent_statuses():
+    """Tâche périodique de suivi et nettoyage des torrents actifs."""
+    logger.info("Checking torrent statuses...")
+    db: AsyncSession = AsyncSessionLocal()
+    try:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if not settings:
+            return
+
+        requests = (await db.execute(
+            select(MediaRequest).filter(
+                MediaRequest.torrent_hash.isnot(None),
+                MediaRequest.status != RequestStatus.available,
+            )
+        )).scalars().all()
+
+        clients = {c.id: c for c in (await db.execute(select(DownloadClient))).scalars().all()}
+        for req in requests:
+            client = clients.get(req.download_client_id)
+            if not client or not client.enabled:
+                continue
+
+            status = await get_torrent_status(
+                client.client_type, client.url, client.username, client.password, req.torrent_hash
+            )
+            if not status:
+                logger.warning(f"Impossible de récupérer le statut du torrent {req.torrent_hash} pour '{req.title}'")
+                continue
+
+            logger.debug(
+                f"Torrent '{req.title}' status: {status['status']}, progress: {status['progress']:.1f}%, ratio: {status['ratio']:.2f}"
+            )
+            req.torrent_name = status.get("name") or req.torrent_name
+            req.torrent_content_path = status.get("content_path") or req.torrent_content_path
+
+            if status["progress"] < 100.0 and status["status"] not in ("completed", "seeding"):
+                event = "download_started" if status["status"] == "downloading" else "queued"
+                await transition_request(db, req, event, source="torrent")
+                await db.commit()
+
+            if status["progress"] >= 100.0 or status["status"] in ("completed", "seeding"):
+                req.torrent_completed_at = req.torrent_completed_at or now_utc_naive()
+                if req.status != RequestStatus.available:
+                    # Ces demandes n'ont pas d'ID Sonarr/Radarr (filet Prowlarr) : elles ne
+                    # sont jamais vues par check_arr_statuses. Sans ce contrôle, seule la
+                    # réconciliation VFF (si activée) pouvait les faire passer "available" —
+                    # une install sans VFF les laissait bloquées en sent_to_arr indéfiniment
+                    # malgré un torrent terminé et présent dans Plex.
+                    promoted = await confirm_available_from_plex(settings, req, db, source="torrent")
+                    if promoted:
+                        req.torrent_import_verified_at = req.torrent_import_verified_at or now_utc_naive()
+                        await db.commit()
+                        logger.info(f"'{req.title}' est desormais disponible (torrent termine + preuve Plex)")
+                    else:
+                        await transition_request(db, req, "plex_pending", source="torrent")
+                        await db.commit()
+                        logger.info(
+                            "Torrent '%s' termine; attente de confirmation Plex avant disponibilite.",
+                            req.title,
+                        )
+
+            # Nettoyage automatique
+            if status["status"] in ("seeding", "completed") or (status["progress"] >= 100.0):
+                ratio_reached = False
+                time_reached = False
+
+                if settings.torrent_ratio_limit is not None and status["ratio"] >= settings.torrent_ratio_limit:
+                    ratio_reached = True
+
+                if settings.torrent_seed_time_limit_hours is not None:
+                    seed_time_hours = status["seeding_time"] / 3600
+                    if seed_time_hours >= settings.torrent_seed_time_limit_hours:
+                        time_reached = True
+
+                if (ratio_reached or time_reached) and req.torrent_import_verified_at:
+                    delete_files = bool(settings.torrent_auto_delete_files)
+                    deleted = await delete_torrent(
+                        client.client_type, client.url, client.username, client.password, req.torrent_hash, delete_files
+                    )
+                    if deleted:
+                        logger.info(f"Torrent '{req.title}' nettoyé (suppression des fichiers={delete_files})")
+                        req.torrent_hash = None
+                        await db.commit()
+                    else:
+                        logger.error(f"Échec de suppression du torrent '{req.title}'")
+    except Exception as e:
+        logger.error(f"Erreur check_torrent_statuses : {e}")
+    finally:
+        await db.close()

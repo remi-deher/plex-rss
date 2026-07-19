@@ -9,6 +9,7 @@ Couvre :
 """
 
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,13 +17,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
+from app.models import Base, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings
 from app.scheduler import (
     _add_co_requester,
     _find_global_request,
     poll_watchlists,
     sync_seer_requests,
 )
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -38,7 +40,7 @@ def db():
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.close()
 
@@ -59,11 +61,41 @@ def _settings(**kwargs) -> Settings:
         seer_enabled=False,
         seer_url=None,
         seer_api_key=None,
+        # plex_url/plex_token configurés par défaut : has_plex_proof() bypasse en True
+        # (proof considérée acquise) si l'un des deux est absent — ce qui rendrait les
+        # tests de disponibilité muets. Voir _unmatched_library_item ci-dessous.
+        plex_url="http://plex.local",
+        plex_token="plex-token",
         email_on_request=False,
         email_on_available=False,
     )
     defaults.update(kwargs)
     return Settings(**defaults)
+
+
+def _unmatched_library_item(**kwargs) -> LibraryItem:
+    """LibraryItem qui ne correspond à aucune des demandes de test ci-dessous.
+
+    Force has_plex_proof() à effectuer une vraie recherche de correspondance
+    (count(LibraryItem) > 0) sans jamais matcher.
+    """
+    defaults = dict(
+        title="Some Other Movie",
+        year=1999,
+        media_type="movie",
+        tmdb_id="999999",
+        tvdb_id=None,
+        imdb_id=None,
+        plex_guid="plex://movie/unrelated",
+        poster_url=None,
+        overview="",
+        added_at=None,
+        arr_instance_id=None,
+        arr_id=None,
+        arr_slug=None,
+    )
+    defaults.update(kwargs)
+    return LibraryItem(**defaults)
 
 
 def _req(
@@ -90,37 +122,121 @@ def _req(
 # ---------------------------------------------------------------------------
 
 
-def test_find_global_request_by_tmdb_id(db):
+@pytest.mark.asyncio
+async def test_find_global_request_by_tmdb_id(db):
     """Trouve une demande existante par tmdb_id (tous utilisateurs)."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205"))
     db.commit()
 
-    result = _find_global_request(db, "movie", "27205", "Inception")
+    result = await _find_global_request(db, "movie", "27205", "Inception")
     assert result is not None
     assert result.plex_user_id == "alice"
 
 
-def test_find_global_request_by_title_fallback(db):
+@pytest.mark.asyncio
+async def test_find_global_request_by_title_fallback(db):
     """Sans tmdb_id, fallback sur le titre."""
     db.add(_req(plex_user_id="alice", tmdb_id=None, title="Inception"))
     db.commit()
 
-    result = _find_global_request(db, "movie", None, "Inception")
+    result = await _find_global_request(db, "movie", None, "Inception")
     assert result is not None
 
 
-def test_find_global_request_not_found(db):
+@pytest.mark.asyncio
+async def test_find_global_request_not_found(db):
     """Aucune demande correspondante → None."""
-    result = _find_global_request(db, "movie", "99999", "Inconnu")
+    result = await _find_global_request(db, "movie", "99999", "Inconnu")
     assert result is None
 
 
-def test_find_global_request_tmdb_takes_priority(db):
+@pytest.mark.asyncio
+async def test_find_global_request_tmdb_takes_priority(db):
     """Si tmdb_id fourni, cherche par tmdb même si le titre diffère."""
     db.add(_req(plex_user_id="alice", tmdb_id="27205", title="Inception (2010)"))
     db.commit()
 
-    result = _find_global_request(db, "movie", "27205", "Titre différent")
+    result = await _find_global_request(db, "movie", "27205", "Titre différent")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_by_imdb_id(db):
+    """Sans tmdb_id ni tvdb_id, matche par imdb_id."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, imdb_id="tt1375666", title="Inception"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Un autre titre", None, "tt1375666")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_ignores_punctuation_spacing(db):
+    """Régression production : Seer renvoie "Spider-Man : Across..." (espace avant le
+    ':', typographie FR) alors que le flux RSS Plex renvoie "Spider-Man: Across..."
+    (sans espace) pour le même film — une comparaison stricte créait un doublon quand
+    la résolution tmdb_id échouait (ex: Radarr injoignable). Le fallback titre doit
+    matcher malgré cette différence de ponctuation."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Spider-Man : Across the Spider-Verse"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Spider-Man: Across the Spider-Verse")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_case_insensitive(db):
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Dune"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "DUNE")
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_ignores_identified_homonym(db):
+    """Régression production : deux films distincts partagent le même titre anglais
+    "Lullaby" (2014, tmdb 261768, drame FR) et (2022, tmdb 702621, horreur US) — l'ancien
+    est déjà en base avec son propre tmdb_id confirmé. Une nouvelle demande pour l'autre
+    film, elle aussi résolue avec un tmdb_id (mais différent, donc pas de hit direct),
+    ne doit pas être bloquée par le fallback titre : celui-ci ne doit rattraper que les
+    anciennes entrées elles-mêmes sans identifiant, pas n'importe quel homonyme confirmé."""
+    db.add(_req(plex_user_id="alice", tmdb_id="261768", title="Lullaby"))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", "702621", "Lullaby")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_requires_matching_year(db):
+    """Le fallback titre (aucun identifiant, ni sur le candidat ni sur l'item courant)
+    ne doit pas matcher deux oeuvres homonymes d'annees differentes."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=2014))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2022)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_matches_same_year(db):
+    """Meme titre, meme annee, toujours sans identifiant : doit matcher normalement."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=2014))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2014)
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_find_global_request_title_fallback_year_missing_still_matches(db):
+    """Annee inconnue d'un cote (donnee RSS legacy incomplete) : on garde le fallback
+    large plutot que de bloquer un vrai doublon faute de donnee."""
+    db.add(_req(plex_user_id="alice", tmdb_id=None, title="Lullaby", year=None))
+    db.commit()
+
+    result = await _find_global_request(db, "movie", None, "Lullaby", year=2014)
     assert result is not None
 
 
@@ -185,20 +301,25 @@ def test_add_co_requester_multiple(db):
 # ---------------------------------------------------------------------------
 
 
+@contextmanager
 def _patch_session(db):
-    return patch("app.scheduler.SessionLocal", return_value=db)
+    with (
+        patch("app.services.watchlist_poller.AsyncSessionLocal", return_value=db),
+        patch("app.services.seer_sync.AsyncSessionLocal", return_value=db),
+    ):
+        yield
 
 
 def _patch_watchlist(items):
-    return patch("app.scheduler.fetch_watchlist", new=AsyncMock(return_value=items))
+    return patch("app.services.watchlist_poller.fetch_watchlist", new=AsyncMock(return_value=items))
 
 
 def _patch_submit(arr_id=42, existed=False, slug=None):
-    return patch("app.scheduler._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
+    return patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(return_value=(arr_id, existed, slug)))
 
 
 def _patch_enqueue():
-    return patch("app.scheduler.enqueue_notification")
+    return patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock)
 
 
 def _movie_item(user="alice", user_id="alice", tmdb_id="27205"):
@@ -258,6 +379,55 @@ async def test_poll_same_user_same_movie_no_duplicate(db):
 
 
 @pytest.mark.asyncio
+async def test_poll_no_duplicate_when_tmdb_resolution_fails_and_title_punctuation_differs(db):
+    """Régression production (Spider-Man: Across the Spider-Verse) : une demande Seer
+    existante ("Spider-Man : Across..." avec espace FR avant ':', déjà 'available')
+    ne doit pas être dupliquée par un item RSS ultérieur du même utilisateur portant
+    le même film avec un titre ponctué différemment et sans tmdb_id résolu (imdb_id
+    seul — simule un échec de résolution Radarr)."""
+    db.add(_settings())
+    db.add(PlexUser(plex_user_id="alice", enabled=True))
+    db.add(_req(
+        plex_user_id="alice",
+        title="Spider-Man : Across the Spider-Verse",
+        tmdb_id="569094",
+        tvdb_id="132814",
+        imdb_id=None,
+        status=RequestStatus.available,
+        source="seer",
+    ))
+    db.commit()
+
+    item = {
+        "title": "Spider-Man: Across the Spider-Verse",
+        "year": 2023,
+        "media_type": "movie",
+        "plex_user": "alice",
+        "plex_user_id": "alice",
+        "tmdb_id": None,
+        "tvdb_id": None,
+        "imdb_id": "tt9362722",
+        "plex_guid": None,
+        "poster_url": None,
+        "overview": "",
+        "source": "rss",
+    }
+
+    with (
+        _patch_session(db),
+        _patch_watchlist([item]),
+        _patch_submit(),
+        _patch_enqueue(),
+        patch("app.services.watchlist_poller.resolve_tmdb_id", new=AsyncMock(return_value=None)),
+    ):
+        await poll_watchlists()
+
+    rows = db.query(MediaRequest).all()
+    assert len(rows) == 1
+    assert rows[0].status == RequestStatus.available
+
+
+@pytest.mark.asyncio
 async def test_poll_different_movies_both_created(db):
     """Films différents → deux lignes distinctes."""
     db.add(_settings())
@@ -309,7 +479,7 @@ async def test_seer_sync_updates_placeholder_title(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -332,7 +502,7 @@ async def test_seer_sync_no_duplicate_when_rss_exists(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -355,7 +525,7 @@ async def test_seer_sync_adds_co_requester_for_other_user(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=SEER_REQUESTS)),
     ):
         await sync_seer_requests()
 
@@ -372,6 +542,7 @@ async def test_seer_sync_status_updated_to_available(db):
     alice = PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True)
     db.add(alice)
     db.add(_req(plex_user_id="alice", tmdb_id="27205", status=RequestStatus.sent_to_arr))
+    db.add(_unmatched_library_item())
     settings = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
     db.add(settings)
     db.commit()
@@ -380,12 +551,52 @@ async def test_seer_sync_status_updated_to_available(db):
 
     with (
         _patch_session(db),
-        patch("app.scheduler.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
     ):
         await sync_seer_requests()
 
     req = db.query(MediaRequest).first()
+    assert req.status == RequestStatus.sent_to_arr
+
+
+@pytest.mark.asyncio
+async def test_seer_sync_status_updated_to_available_when_plex_confirms(db):
+    """Seer available + Plex library match marks the request available."""
+    alice = PlexUser(plex_user_id="alice", seer_user_id=3, enabled=True)
+    db.add(alice)
+    db.add(_req(plex_user_id="alice", tmdb_id="27205", status=RequestStatus.sent_to_arr))
+    db.add(
+        LibraryItem(
+            title="Inception",
+            year=None,
+            media_type="movie",
+            tmdb_id="27205",
+            tvdb_id=None,
+            imdb_id=None,
+            plex_guid="plex://movie/inception",
+            poster_url=None,
+            overview="",
+            added_at=None,
+            arr_instance_id=None,
+            arr_id=None,
+            arr_slug=None,
+        )
+    )
+    settings = _settings(seer_enabled=True, seer_url="http://seer.local", seer_api_key="key")
+    db.add(settings)
+    db.commit()
+
+    available_req = [{**SEER_REQUESTS[0], "status": "available"}]
+
+    with (
+        _patch_session(db),
+        patch("app.services.seer_sync.seer_get_user_requests", new=AsyncMock(return_value=available_req)),
+    ):
+        await sync_seer_requests()
+
+    req = db.query(MediaRequest).filter(MediaRequest.title == "Inception").first()
     assert req.status == RequestStatus.available
+    assert req.library_item_id is not None
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +604,8 @@ async def test_seer_sync_status_updated_to_available(db):
 # ---------------------------------------------------------------------------
 
 
-def test_merge_duplicates_fuses_two_users(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_fuses_two_users(db):
     """Deux lignes même tmdb_id, utilisateurs différents → fusion en une seule."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -401,8 +613,8 @@ def test_merge_duplicates_fuses_two_users(db):
     db.add(_req(plex_user_id="bob", title="Inception", tmdb_id="27205"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     rows = db.query(MediaRequest).all()
     assert len(rows) == 1
@@ -410,7 +622,8 @@ def test_merge_duplicates_fuses_two_users(db):
     assert any(e["plex_user_id"] == "bob" for e in extras)
 
 
-def test_merge_duplicates_dry_run_no_change(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_dry_run_no_change(db):
     """Mode dry-run → aucune modification en base."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -418,14 +631,15 @@ def test_merge_duplicates_dry_run_no_change(db):
     db.add(_req(plex_user_id="bob", title="Inception", tmdb_id="27205"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=True)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=True)
 
     rows = db.query(MediaRequest).all()
     assert len(rows) == 2
 
 
-def test_merge_duplicates_no_duplicates(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_no_duplicates(db):
     """Sans doublons → aucune modification."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -433,13 +647,14 @@ def test_merge_duplicates_no_duplicates(db):
     db.add(_req(plex_user_id="alice", title="Dune", tmdb_id="438631"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     assert db.query(MediaRequest).count() == 2
 
 
-def test_merge_duplicates_keeps_best_status(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_keeps_best_status(db):
     """La ligne fusionnée conserve le meilleur statut (available > sent_to_arr)."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -447,14 +662,15 @@ def test_merge_duplicates_keeps_best_status(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", status=RequestStatus.available))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.status == RequestStatus.available
 
 
-def test_merge_duplicates_enriches_missing_poster(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_enriches_missing_poster(db):
     """La fusion copie le poster_url depuis un doublon si le primaire n'en a pas."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -462,14 +678,15 @@ def test_merge_duplicates_enriches_missing_poster(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", poster_url="https://img/poster.jpg"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.poster_url == "https://img/poster.jpg"
 
 
-def test_merge_duplicates_fixes_placeholder_title(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_fixes_placeholder_title(db):
     """Le placeholder [Seer #N] est remplacé par le vrai titre du doublon."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -477,14 +694,15 @@ def test_merge_duplicates_fixes_placeholder_title(db):
     db.add(_req(plex_user_id="bob", tmdb_id="27205", title="Inception"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     row = db.query(MediaRequest).one()
     assert row.title == "Inception"
 
 
-def test_merge_duplicates_ignores_no_tmdb(db):
+@pytest.mark.asyncio
+async def test_merge_duplicates_ignores_no_tmdb(db):
     """Les demandes sans tmdb_id ne sont pas fusionnées (risque faux positif)."""
     from scripts.merge_duplicate_requests import merge_duplicates
 
@@ -492,7 +710,7 @@ def test_merge_duplicates_ignores_no_tmdb(db):
     db.add(_req(plex_user_id="bob", tmdb_id=None, title="Film sans ID"))
     db.commit()
 
-    with patch("scripts.merge_duplicate_requests.SessionLocal", return_value=db):
-        merge_duplicates(dry_run=False)
+    with patch("scripts.merge_duplicate_requests.AsyncSessionLocal", return_value=db):
+        await merge_duplicates(dry_run=False)
 
     assert db.query(MediaRequest).count() == 2

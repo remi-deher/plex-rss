@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.plex_api import _parse_api_item, check_connection, get_friends_watchlist
+from app.services.plex_api import _get_user_watchlist, _parse_api_item, check_connection, get_friends_watchlist
 
 URL = "http://plex.local"
 TOKEN = "testplextoken"
@@ -25,8 +25,8 @@ def _resp(status_code: int, json_data=None) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_check_connection_success():
-    """Token valide → success=True avec le nom d'utilisateur."""
-    resp = _resp(200, {"username": "AdminPlex", "email": "admin@plex.tv"})
+    """Serveur Plex local joignable + token valide → success=True."""
+    resp = _resp(200, {"MediaContainer": {"machineIdentifier": "abc123"}})
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
@@ -36,22 +36,33 @@ async def test_check_connection_success():
         success, msg = await check_connection(URL, TOKEN)
 
     assert success is True
-    assert "AdminPlex" in msg
+    assert "abc123" in msg
+    # Doit interroger le serveur Plex local (plex_url), pas plex.tv.
+    called_url = client.get.call_args[0][0]
+    assert called_url.startswith(URL)
 
 
 @pytest.mark.asyncio
 async def test_check_connection_failure():
-    """Erreur réseau → success=False."""
+    """Erreur réseau (ex: mauvaise IP) → success=False, message explicite."""
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
-    client.get = AsyncMock(side_effect=Exception("Connection refused"))
+    client.get = AsyncMock(side_effect=Exception("All connection attempts failed"))
 
     with patch("app.services.plex_api.httpx.AsyncClient", return_value=client):
         success, msg = await check_connection(URL, TOKEN)
 
     assert success is False
-    assert "Connection refused" in msg
+    assert "All connection attempts failed" in msg
+
+
+@pytest.mark.asyncio
+async def test_check_connection_no_url_configured():
+    """URL Plex vide → échec immédiat, sans appel réseau."""
+    success, msg = await check_connection("", TOKEN)
+    assert success is False
+    assert "non configurée" in msg
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +71,7 @@ async def test_check_connection_failure():
 
 
 def test_parse_api_item_contains_plex_user():
-    """_parse_api_item retourne 'plex_user' (pas 'plex_user_id')."""
+    """_parse_api_item retourne 'plex_user' et 'plex_user_id' (support multi-utilisateur)."""
     raw = {
         "title": "Inception",
         "type": "movie",
@@ -69,10 +80,10 @@ def test_parse_api_item_contains_plex_user():
         "thumb": "/thumb/abc",
         "summary": "Un rêve dans un rêve",
     }
-    item = _parse_api_item(raw, username="Alice")
+    item = _parse_api_item(raw, "Alice", "Alice")
 
     assert item["plex_user"] == "Alice"
-    assert "plex_user_id" not in item
+    assert item["plex_user_id"] == "Alice"
     assert item["title"] == "Inception"
     assert item["media_type"] == "movie"
     assert item["tmdb_id"] == "27205"
@@ -82,7 +93,7 @@ def test_parse_api_item_contains_plex_user():
 def test_parse_api_item_show_type():
     """Type 'show' mappé correctement."""
     raw = {"title": "Breaking Bad", "type": "show", "guid": "plex://show/xyz", "Guid": []}
-    item = _parse_api_item(raw, username="Bob")
+    item = _parse_api_item(raw, "Bob", "Bob")
 
     assert item["media_type"] == "show"
     assert item["plex_user"] == "Bob"
@@ -91,7 +102,7 @@ def test_parse_api_item_show_type():
 def test_parse_api_item_thumb_prefixed_with_tmdb_cdn():
     """Thumb relatif préfixé avec le CDN TMDB."""
     raw = {"title": "Test", "type": "movie", "guid": "", "Guid": [], "thumb": "/images/poster.jpg"}
-    item = _parse_api_item(raw, username="User")
+    item = _parse_api_item(raw, "User", "User")
 
     assert item["poster_url"].startswith("https://image.tmdb.org/t/p/w300")
 
@@ -115,20 +126,23 @@ async def test_get_friends_watchlist_items_have_plex_user():
             }
         },
     )
+    # _get_account_username (résolution du username admin avant sa propre watchlist)
+    admin_user_resp = _resp(200, {"username": "admin"})
     # _get_user_watchlist pour admin (toujours inclus)
     admin_watchlist = _resp(200, {"MediaContainer": {"Metadata": []}})
 
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
-    # 1er appel : /api/v2/friends, 2e : watchlist Alice, 3e : watchlist admin
-    client.get = AsyncMock(side_effect=[friends_resp, alice_watchlist, admin_watchlist])
+    # 1er appel : /api/v2/friends, 2e : watchlist Alice, 3e : /api/v2/user (admin), 4e : watchlist admin
+    client.get = AsyncMock(side_effect=[friends_resp, alice_watchlist, admin_user_resp, admin_watchlist])
 
     with patch("app.services.plex_api.httpx.AsyncClient", return_value=client):
         items = await get_friends_watchlist(URL, TOKEN)
 
     assert len(items) == 1
     assert items[0]["plex_user"] == "Alice"
+    assert items[0]["plex_user_id"] == "Alice"
     assert items[0]["title"] == "Inception"
 
 
@@ -141,14 +155,36 @@ async def test_get_friends_watchlist_no_auth_token_friend_skipped():
             {"title": "NoToken", "username": "NoToken"}  # pas d'authToken
         ],
     )
+    admin_user_resp = _resp(200, {"username": "admin"})
     admin_watchlist = _resp(200, {"MediaContainer": {"Metadata": []}})
 
     client = AsyncMock()
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
-    client.get = AsyncMock(side_effect=[friends_resp, admin_watchlist])
+    client.get = AsyncMock(side_effect=[friends_resp, admin_user_resp, admin_watchlist])
 
     with patch("app.services.plex_api.httpx.AsyncClient", return_value=client):
         items = await get_friends_watchlist(URL, TOKEN)
 
     assert items == []
+
+
+@pytest.mark.asyncio
+async def test_get_user_watchlist_requests_sorted_and_unpaginated():
+    """Sans tri ni taille de page explicites, Plex applique sa pagination par défaut
+
+    (20 items, tri non garanti par date d'ajout) et un ajout récent peut ne jamais
+    apparaître dans la réponse si la watchlist dépasse cette taille (incident
+    production : un film ajouté 2h plus tôt n'était jamais repris par le poller).
+    On vérifie donc que la requête demande explicitement un tri par date d'ajout
+    décroissante et une page large.
+    """
+    watchlist_resp = _resp(200, {"MediaContainer": {"Metadata": []}})
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=watchlist_resp)
+
+    await _get_user_watchlist(client, TOKEN, "admin", "admin")
+
+    params = client.get.call_args.kwargs["params"]
+    assert params["sort"] == "watchlistedAt:desc"
+    assert params["X-Plex-Container-Size"] >= 300

@@ -31,6 +31,7 @@ import asyncio
 import logging
 
 import httpx
+from .arr_http_client import ArrClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,39 @@ MEDIA_STATUS_AVAILABLE = 5
 MEDIA_STATUS_PARTIALLY = 4
 
 
-def _headers(api_key: str) -> dict:
-    return {"X-Api-Key": api_key, "Content-Type": "application/json"}
+def resolve_mode(settings) -> str | None:
+    """Résout le rôle effectif de Seer depuis les Settings.
+
+    Returns:
+        None       : Seer désactivé ou non configuré — aucune API Seer ne doit être appelée.
+        "observer" : Seer est consulté en lecture seule (sync, statut affiché) mais la
+                     soumission et la disponibilité restent pilotées par *arr/Plex.
+        "actor"    : Seer est aussi la cible de soumission prioritaire et son statut
+                     participe à la détection de disponibilité.
+
+    Repli legacy : les installs pas encore migrées (seer_mode absent) retombent sur
+    l'ancien seer_send_requests.
+    """
+    if not settings or not getattr(settings, "seer_enabled", False):
+        return None
+    if not (getattr(settings, "seer_url", None) and getattr(settings, "seer_api_key", None)):
+        return None
+    mode = getattr(settings, "seer_mode", None)
+    if mode not in ("observer", "actor"):
+        mode = "actor" if getattr(settings, "seer_send_requests", False) else "observer"
+    return mode
+
+
+def _headers(api_key: str, base: str = "") -> dict:
+    headers = {
+        "X-Api-Key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if base:
+        headers["Origin"] = base
+        headers["Referer"] = base + "/"
+    return headers
 
 
 async def request_media(
@@ -56,11 +88,11 @@ async def request_media(
         (seer_request_id, already_existed, None)
         - already_existed=True si la demande existait déjà (statut non-PENDING)
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     media_type = "movie" if item["media_type"] == "movie" else "tv"
 
-    tmdb_id = await _resolve_tmdb_id(base, headers, item)
+    tmdb_id = await _resolve_tmdb_id(seer_url, api_key, item)
     if not tmdb_id:
         logger.warning(f"Seer: impossible de résoudre TMDB ID pour '{item['title']}'")
         raise ValueError(f"TMDB ID introuvable pour '{item['title']}'")
@@ -73,16 +105,16 @@ async def request_media(
         payload["seasons"] = "all"
 
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.post(f"{base}/api/v1/request", json=payload, headers=headers)
-            if resp.status_code == 409:
-                logger.info(f"Seer: '{item['title']}' déjà demandé")
-                return None, True, None
-            resp.raise_for_status()
-            data = resp.json()
-            req_id = data.get("id")
-            logger.info(f"Seer: demande créée #{req_id} pour '{item['title']}'")
-            return req_id, False, None
+        client = ArrClient(seer_url, api_key, timeout=20)
+        resp = await client.post("/api/v1/request", json=payload)
+        if resp.status_code == 409:
+            logger.info(f"Seer: '{item['title']}' déjà demandé")
+            return None, True, None
+        resp.raise_for_status()
+        data = resp.json()
+        req_id = data.get("id")
+        logger.info(f"Seer: demande créée #{req_id} pour '{item['title']}'")
+        return req_id, False, None
     except httpx.HTTPStatusError as e:
         logger.error(f"Seer erreur HTTP pour '{item['title']}': {e.response.status_code} {e.response.text[:200]}")
         raise
@@ -102,25 +134,25 @@ async def is_request_available(
     Returns:
         (is_available, seer_request_id, None)
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{base}/api/v1/request/{seer_request_id}", headers=headers)
-            if resp.status_code == 404:
-                return False, None, None
-            resp.raise_for_status()
-            data = resp.json()
-            media = data.get("media", {})
-            media_status = media.get("status", 1)
-            available = media_status in (MEDIA_STATUS_AVAILABLE, MEDIA_STATUS_PARTIALLY)
-            return available, seer_request_id, None
+        client = ArrClient(seer_url, api_key, timeout=15)
+        resp = await client.get(f"/api/v1/request/{seer_request_id}")
+        if resp.status_code == 404:
+            return False, None, None
+        resp.raise_for_status()
+        data = resp.json()
+        media = data.get("media", {})
+        media_status = media.get("status", 1)
+        available = media_status in (MEDIA_STATUS_AVAILABLE, MEDIA_STATUS_PARTIALLY)
+        return available, seer_request_id, None
     except Exception as e:
         logger.warning(f"Seer status check échoué pour request#{seer_request_id}: {e}")
         return False, None, None
 
 
-async def _resolve_tmdb_id(base: str, headers: dict, item: dict) -> str | None:
+async def _resolve_tmdb_id(seer_url: str, api_key: str, item: dict) -> str | None:
     """Résout un TMDB ID à partir des données de l'item.
 
     Ordre de priorité : tmdb_id direct → recherche par titre+année.
@@ -131,17 +163,16 @@ async def _resolve_tmdb_id(base: str, headers: dict, item: dict) -> str | None:
     term = item["title"]
     media_type = "movie" if item["media_type"] == "movie" else "tv"
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{base}/api/v1/search",
-                params={"query": term, "page": 1, "language": "fr"},
-                headers=headers,
+        client = ArrClient(seer_url, api_key, timeout=15)
+        resp = await client.get(
+            "/api/v1/search",
+            params={"query": term, "page": 1, "language": "fr"},
             )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-            for r in results:
-                if r.get("mediaType") == media_type:
-                    return str(r.get("id"))
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        for r in results:
+            if r.get("mediaType") == media_type:
+                return str(r.get("id"))
     except Exception as e:
         logger.warning(f"Seer search échoué pour '{term}': {e}")
     return None
@@ -156,37 +187,36 @@ async def get_users(seer_url: str, api_key: str) -> dict[str, dict]:
     - plex_id   : ID numérique Plex (entier), disponible si user_type=2
     - plex_username : nom d'utilisateur Plex
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     result: dict[str, dict] = {}
     skip = 0
     take = 100
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            while True:
-                resp = await client.get(
-                    f"{base}/api/v1/user",
-                    params={"take": take, "skip": skip},
-                    headers=headers,
+        client = ArrClient(seer_url, api_key, timeout=15)
+        while True:
+            resp = await client.get(
+                "/api/v1/user",
+                params={"take": take, "skip": skip},
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                users = data.get("results", [])
-                for u in users:
-                    email = (u.get("email") or "").lower().strip()
-                    if email:
-                        result[email] = {
-                            "id": u.get("id"),
-                            "request_count": u.get("requestCount", 0),
-                            "display_name": u.get("displayName") or u.get("username") or "",
-                            "plex_username": u.get("plexUsername") or "",
-                            "plex_id": u.get("plexId"),
-                            "user_type": u.get("userType", 1),
-                        }
-                if len(users) < take:
-                    break
-                skip += take
+            resp.raise_for_status()
+            data = resp.json()
+            users = data.get("results", [])
+            for u in users:
+                email = (u.get("email") or "").lower().strip()
+                if email:
+                    result[email] = {
+                        "id": u.get("id"),
+                        "request_count": u.get("requestCount", 0),
+                        "display_name": u.get("displayName") or u.get("username") or "",
+                        "plex_username": u.get("plexUsername") or "",
+                        "plex_id": u.get("plexId"),
+                        "user_type": u.get("userType", 1),
+                    }
+            if len(users) < take:
+                break
+            skip += take
     except Exception as e:
         logger.warning(f"Seer: impossible de récupérer les utilisateurs: {e}")
 
@@ -203,59 +233,58 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
     Une seconde vague de requêtes parallèles récupère les détails via /movie/{id}
     ou /tv/{id} pour chaque tmdbId unique.
     """
-    base = seer_url.rstrip("/")
-    headers = _headers(api_key)
+    seer_url.rstrip("/")
+    _headers(api_key)
     raw: list[dict] = []
     skip = 0
     take = 100
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            # 1. Pagination : collecte des demandes brutes
-            while True:
-                resp = await client.get(
-                    f"{base}/api/v1/user/{seer_user_id}/requests",
-                    params={"take": take, "skip": skip},
-                    headers=headers,
+        client = ArrClient(seer_url, api_key, timeout=30)
+        # 1. Pagination : collecte des demandes brutes
+        while True:
+            resp = await client.get(
+                f"/api/v1/user/{seer_user_id}/requests",
+                params={"take": take, "skip": skip},
                 )
-                if resp.status_code == 404:
-                    break
-                resp.raise_for_status()
-                items = resp.json().get("results", [])
-                raw.extend(items)
-                if len(items) < take:
-                    break
-                skip += take
+            if resp.status_code == 404:
+                break
+            resp.raise_for_status()
+            items = resp.json().get("results", [])
+            raw.extend(items)
+            if len(items) < take:
+                break
+            skip += take
 
-            # 2. Récupération parallèle des détails pour chaque (type, tmdbId) unique
-            unique: set[tuple[str, int]] = set()
-            for req in raw:
-                media = req.get("media") or {}
-                tmdb_id = media.get("tmdbId")
-                media_type = "movie" if media.get("mediaType") == "movie" else "tv"
-                if tmdb_id:
-                    unique.add((media_type, int(tmdb_id)))
+        # 2. Récupération parallèle des détails pour chaque (type, tmdbId) unique
+        unique: set[tuple[str, int]] = set()
+        for req in raw:
+            media = req.get("media") or {}
+            tmdb_id = media.get("tmdbId")
+            media_type = "movie" if media.get("mediaType") == "movie" else "tv"
+            if tmdb_id:
+                unique.add((media_type, int(tmdb_id)))
 
-            async def _fetch_details(media_type: str, tmdb_id: int) -> tuple[tuple, dict]:
-                try:
-                    r = await client.get(f"{base}/api/v1/{media_type}/{tmdb_id}", headers=headers)
-                    if r.status_code == 200:
-                        d = r.json()
-                        return (media_type, tmdb_id), {
-                            "title": (
-                                d.get("title") or d.get("name") or d.get("originalTitle") or d.get("originalName")
-                            ),
-                            "poster_url": (
-                                f"https://image.tmdb.org/t/p/w200{d['posterPath']}" if d.get("posterPath") else None
-                            ),
-                            "overview": d.get("overview"),
-                        }
-                except Exception:
-                    pass
-                return (media_type, tmdb_id), {}
+        async def _fetch_details(media_type: str, tmdb_id: int) -> tuple[tuple, dict]:
+            try:
+                r = await client.get(f"/api/v1/{media_type}/{tmdb_id}")
+                if r.status_code == 200:
+                    d = r.json()
+                    return (media_type, tmdb_id), {
+                        "title": (
+                            d.get("title") or d.get("name") or d.get("originalTitle") or d.get("originalName")
+                        ),
+                        "poster_url": (
+                            f"https://image.tmdb.org/t/p/w200{d['posterPath']}" if d.get("posterPath") else None
+                        ),
+                        "overview": d.get("overview"),
+                    }
+            except Exception:
+                pass
+            return (media_type, tmdb_id), {}
 
-            detail_results = await asyncio.gather(*[_fetch_details(mt, tid) for mt, tid in unique])
-            details: dict[tuple, dict] = dict(detail_results)
+        detail_results = await asyncio.gather(*[_fetch_details(mt, tid) for mt, tid in unique])
+        details: dict[tuple, dict] = dict(detail_results)
 
     except Exception as e:
         logger.warning(f"Seer: impossible de récupérer les demandes de l'utilisateur {seer_user_id}: {e}")
@@ -297,6 +326,56 @@ async def get_user_requests(seer_url: str, api_key: str, seer_user_id: int) -> l
     return results
 
 
+async def delete_request_by_tmdb(
+    seer_url: str,
+    api_key: str,
+    media_type: str,
+    tmdb_id: str | int,
+) -> tuple[bool, str]:
+    """Tente de supprimer toutes les demandes associées à ce média dans Seer.
+    
+    Args:
+        media_type: 'movie' ou 'tv'
+        tmdb_id: ID TMDB du média
+        
+    Returns:
+        (success, message)
+    """
+    seer_url.rstrip("/")
+    _headers(api_key)
+    seer_media_type = "movie" if media_type == "movie" else "tv"
+    
+    try:
+        client = ArrClient(seer_url, api_key, timeout=15)
+        # 1. Fetch media details to find Seer's internal request IDs
+        resp = await client.get(f"/api/v1/{seer_media_type}/{tmdb_id}")
+        if resp.status_code == 404:
+            return True, "Média introuvable dans Seer, rien à supprimer"
+        resp.raise_for_status()
+        data = resp.json()
+            
+        media_info = data.get("mediaInfo", {})
+        requests = media_info.get("requests", [])
+            
+        if not requests:
+            return True, "Aucune demande active dans Seer pour ce média"
+                
+        # 2. Delete all associated requests
+        deleted_count = 0
+        for req in requests:
+            req_id = req.get("id")
+            if req_id:
+                del_resp = await client.delete(f"/api/v1/request/{req_id}")
+                if del_resp.status_code in (200, 204, 404):
+                    deleted_count += 1
+                        
+        return True, f"{deleted_count} demande(s) supprimée(s) dans Seer"
+            
+    except Exception as e:
+        logger.error(f"Erreur lors de la suppression de la demande dans Seer: {e}")
+        return False, str(e)
+
+
 async def check_connection(seer_url: str, api_key: str) -> tuple[bool, str]:
     """Teste la connectivité avec l'instance Seer.
 
@@ -304,14 +383,14 @@ async def check_connection(seer_url: str, api_key: str) -> tuple[bool, str]:
         (success, message)
     """
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{seer_url.rstrip('/')}/api/v1/auth/me",
-                headers=_headers(api_key),
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            name = data.get("displayName") or data.get("email") or "?"
-            return True, f"Seer connecté en tant que {name}"
+        client = ArrClient(seer_url, api_key, timeout=10)
+        resp = await client.get(
+            "/api/v1/auth/me",
+            
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        name = data.get("displayName") or data.get("email") or "?"
+        return True, f"Seer connecté en tant que {name}"
     except Exception as e:
         return False, str(e)

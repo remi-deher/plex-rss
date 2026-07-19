@@ -2,6 +2,7 @@
 
 import io
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,10 +10,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
 from app.main import app
 from app.models import Base, MediaRequest, PlexUser, Settings
-from app.routers.importexport import require_auth as ie_require_auth
+from app.routers.importexport import require_admin as ie_require_auth
+from tests.async_support import TestSession
 
 # ---------------------------------------------------------------------------
 # Base de données en mémoire partagée entre les tests du module
@@ -36,7 +38,7 @@ def db_engine():
 @pytest.fixture()
 def db_session(db_engine):
     Session = sessionmaker(bind=db_engine)
-    session = Session()
+    session = TestSession(Session())
     yield session
     session.rollback()
     session.close()
@@ -61,7 +63,7 @@ def test_export_returns_json_with_version(client, db_session):
     r = client.get("/api/export")
     assert r.status_code == 200
     data = r.json()
-    assert data["version"] == 1
+    assert data["version"] == 2
     assert "exported_at" in data
     assert "settings" in data
     assert "users" in data
@@ -112,6 +114,39 @@ def test_import_wrong_version_returns_400(client):
     r = client.post("/api/import", files={"file": ("export.json", payload, "application/json")})
     assert r.status_code == 400
     assert "version" in r.json()["detail"].lower()
+
+
+def test_inspect_legacy_sqlite_upload(client, tmp_path):
+    path = tmp_path / "legacy.db"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE settings (id INTEGER PRIMARY KEY);
+            CREATE TABLE plex_users (id INTEGER PRIMARY KEY);
+            CREATE TABLE media_requests (id INTEGER PRIMARY KEY);
+            INSERT INTO settings VALUES (1);
+            INSERT INTO plex_users VALUES (1);
+            INSERT INTO media_requests VALUES (1);
+            """
+        )
+
+    r = client.post(
+        "/api/migration/sqlite/inspect",
+        files={"file": ("legacy.db", path.read_bytes(), "application/octet-stream")},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["integrity"] == "ok"
+    assert r.json()["total_rows"] == 3
+
+
+def test_inspect_legacy_rejects_wrong_extension(client):
+    r = client.post(
+        "/api/migration/sqlite/inspect",
+        files={"file": ("legacy.txt", b"not sqlite", "text/plain")},
+    )
+
+    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------

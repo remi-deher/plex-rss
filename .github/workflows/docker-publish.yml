@@ -1,13 +1,16 @@
 name: Build & Push Docker image
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
     paths:
       - "app/**"
+      - "frontend/**"
       - "Dockerfile"
       - "requirements.txt"
+      - ".github/workflows/docker-publish.yml"
     tags:
       - "v*"
 
@@ -15,18 +18,19 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -37,17 +41,17 @@ jobs:
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             mrcryllix/plex-rss
             ghcr.io/remi-deher/plex-rss
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true

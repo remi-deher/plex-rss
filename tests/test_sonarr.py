@@ -8,7 +8,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import pytest_asyncio
 
-from app.services.sonarr import add_series, check_connection, is_series_available, lookup_series
+from app.services.sonarr import (
+    add_series,
+    check_connection,
+    get_calendar,
+    get_series_episode_stats,
+    is_series_available,
+    lookup_series,
+)
 
 URL = "http://sonarr.local:8989"
 KEY = "testapikey"
@@ -51,12 +58,66 @@ async def test_add_series_new():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", ITEM)
 
     assert arr_id == 42
     assert already_existed is False
     assert slug == "breaking-bad"
+
+
+@pytest.mark.asyncio
+async def test_add_series_selected_seasons_payload():
+    """Selection de saisons -> Sonarr recoit uniquement ces saisons monitorees."""
+    existing_resp = _make_response(200, [])
+    add_resp = _make_response(201, {"id": 42, "titleSlug": "breaking-bad"})
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=existing_resp)
+    client_mock.post = AsyncMock(return_value=add_resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    item = {**ITEM, "seasons": [0, 3]}
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        await add_series(URL, KEY, 1, "/tv", item)
+
+    payload = client_mock.post.call_args.kwargs["json"]
+    assert payload["seasons"] == [
+        {"seasonNumber": 0, "monitored": True},
+        {"seasonNumber": 3, "monitored": True},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_add_series_without_selection_disables_specials():
+    """Un ajout par défaut surveille les saisons normales, pas les spéciaux."""
+    existing_resp = _make_response(200, [])
+    add_resp = _make_response(201, {
+        "id": 42,
+        "titleSlug": "breaking-bad",
+        "seasons": [
+            {"seasonNumber": 0, "monitored": True},
+            {"seasonNumber": 1, "monitored": True},
+        ],
+    })
+    update_resp = _make_response(200, add_resp.json.return_value)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=existing_resp)
+    client_mock.post = AsyncMock(return_value=add_resp)
+    client_mock.put = AsyncMock(return_value=update_resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        await add_series(URL, KEY, 1, "/tv", ITEM)
+
+    update_payload = client_mock.put.call_args.kwargs["json"]
+    assert update_payload["seasons"] == [
+        {"seasonNumber": 0, "monitored": False},
+        {"seasonNumber": 1, "monitored": True},
+    ]
 
 
 @pytest.mark.asyncio
@@ -70,7 +131,7 @@ async def test_add_series_already_exists():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", ITEM)
 
     assert arr_id == 7
@@ -84,7 +145,7 @@ async def test_add_series_no_tvdb_id_lookup_success():
     """Pas de TVDB ID dans l'item → lookup par titre → série ajoutée."""
     item = {"title": "Breaking Bad", "media_type": "show"}  # pas de tvdb_id
 
-    lookup_resp = _make_response(200, [{"tvdbId": 81189}])
+    lookup_resp = _make_response(200, [{"tvdbId": 81189, "title": "Breaking Bad"}])
     existing_resp = _make_response(200, [])
     add_resp = _make_response(201, {"id": 99, "titleSlug": "breaking-bad"})
 
@@ -96,7 +157,7 @@ async def test_add_series_no_tvdb_id_lookup_success():
     client_mock.get = AsyncMock(side_effect=[lookup_resp, existing_resp])
     client_mock.post = AsyncMock(return_value=add_resp)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", item)
 
     assert arr_id == 99
@@ -113,7 +174,7 @@ async def test_add_series_no_tvdb_id_lookup_fails():
     client_mock.__aexit__ = AsyncMock(return_value=False)
     client_mock.get = AsyncMock(side_effect=Exception("timeout"))
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         arr_id, already_existed, slug = await add_series(URL, KEY, 1, "/tv", item)
 
     assert arr_id is None
@@ -141,7 +202,7 @@ async def test_is_series_available_true():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=7)
 
     assert available is True
@@ -164,10 +225,46 @@ async def test_is_series_available_false():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=7)
 
     assert available is False
+
+
+@pytest.mark.asyncio
+async def test_get_series_episode_stats_includes_per_season_breakdown():
+    """Le tableau seasons[] deja present dans la reponse Sonarr (statistics par saison)
+    doit etre expose, pas jete comme avant -- saison 0 incluse si surveillee."""
+    series_data = {
+        "id": 7,
+        "titleSlug": "breaking-bad",
+        # Sonarr's global counters include the two downloaded specials. The
+        # Availability counters must be based on monitored seasons only.
+        "statistics": {"episodeFileCount": 8, "episodeCount": 8, "totalEpisodeCount": 15},
+        "seasons": [
+            {"seasonNumber": 0, "monitored": True, "statistics": {"episodeFileCount": 2, "episodeCount": 2, "totalEpisodeCount": 2}},
+            {"seasonNumber": 1, "monitored": True, "statistics": {"episodeFileCount": 6, "episodeCount": 6, "totalEpisodeCount": 6}},
+            {"seasonNumber": 2, "monitored": True, "statistics": {"episodeFileCount": 0, "episodeCount": 0, "totalEpisodeCount": 7}},
+            {"seasonNumber": 3, "monitored": False, "statistics": {"episodeFileCount": 4, "episodeCount": 4, "totalEpisodeCount": 4}},
+            {"seasonNumber": 4, "statistics": {"episodeFileCount": 99, "episodeCount": 99, "totalEpisodeCount": 99}},
+        ],
+    }
+    resp = _make_response(200, series_data)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        stats = await get_series_episode_stats(URL, KEY, arr_id=7)
+
+    assert stats["episode_file_count"] == 8
+    assert stats["seasons"] == [
+        {"season_number": 0, "episode_file_count": 2, "episode_count": 2, "total_episode_count": 2},
+        {"season_number": 1, "episode_file_count": 6, "episode_count": 6, "total_episode_count": 6},
+        {"season_number": 2, "episode_file_count": 0, "episode_count": 0, "total_episode_count": 7},
+    ]
 
 
 @pytest.mark.asyncio
@@ -181,7 +278,7 @@ async def test_is_series_available_not_found():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, arr_id=999)
 
     assert available is False
@@ -202,7 +299,7 @@ async def test_is_series_available_by_tvdb_id():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         available, arr_id, slug = await is_series_available(URL, KEY, tvdb_id="81189")
 
     assert available is True
@@ -223,7 +320,7 @@ async def test_connection_success():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         success, msg = await check_connection(URL, KEY)
 
     assert success is True
@@ -237,8 +334,55 @@ async def test_connection_failure():
     client_mock.__aenter__ = AsyncMock(return_value=client_mock)
     client_mock.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("app.services.sonarr.httpx.AsyncClient", return_value=client_mock):
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
         success, msg = await check_connection(URL, KEY)
 
     assert success is False
     assert "Connection refused" in msg
+
+
+# ---------------------------------------------------------------------------
+# get_calendar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_success():
+    episodes = [
+        {
+            "seasonNumber": 2,
+            "episodeNumber": 5,
+            "airDateUtc": "2026-07-10T00:00:00Z",
+            "title": "Episode Title",
+            "hasFile": False,
+            "monitored": True,
+            "series": {"title": "Breaking Bad", "tvdbId": 81189},
+        }
+    ]
+    resp = _make_response(200, episodes)
+
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(return_value=resp)
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        result = await get_calendar(URL, KEY, "2026-07-01T00:00:00", "2026-07-31T00:00:00")
+
+    assert len(result) == 1
+    assert result[0]["series"]["title"] == "Breaking Bad"
+    call_kwargs = client_mock.get.call_args
+    assert call_kwargs.kwargs["params"]["includeSeries"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_get_calendar_failure_returns_empty_list():
+    client_mock = AsyncMock()
+    client_mock.get = AsyncMock(side_effect=Exception("timeout"))
+    client_mock.__aenter__ = AsyncMock(return_value=client_mock)
+    client_mock.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.arr_http_client.httpx.AsyncClient", return_value=client_mock):
+        result = await get_calendar(URL, KEY, "2026-07-01", "2026-07-31")
+
+    assert result == []

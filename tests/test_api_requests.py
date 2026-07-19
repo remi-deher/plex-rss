@@ -8,10 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
+from app.database import get_db_async as get_db
+from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import Base, MediaRequest, PlexUser, RequestStatus, Settings
-from app.routers.api import require_auth
+from app.models import ArrInstance, Base, FulfillmentStatus, MediaRequest, PlexUser, RequestStatus, Settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -19,26 +19,19 @@ from app.routers.api import require_auth
 
 
 @pytest.fixture()
-def db():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+def db(async_db):
+    return async_db
 
 
 @pytest.fixture()
 def client(db):
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=False)
     yield c
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_admin, None)
     app.dependency_overrides.pop(get_db, None)
 
 
@@ -53,6 +46,27 @@ def _req(**kwargs) -> MediaRequest:
     )
     defaults.update(kwargs)
     return MediaRequest(**defaults)
+
+
+def test_approve_failure_transitions_and_dispatches_failure_notification(client, db):
+    settings = Settings(id=1)
+    user = PlexUser(plex_user_id="alice", enabled=True)
+    req = _req(status=RequestStatus.pending_approval, source="rss", arr_id=None)
+    db.add_all([settings, user, req])
+    db.commit()
+
+    with (
+        patch("app.services.watchlist_poller._submit_to_arr", new=AsyncMock(side_effect=RuntimeError("Radarr indisponible"))),
+        patch("app.services.notification_policy.dispatch_transition_notification", new=AsyncMock(return_value=True)) as dispatch,
+    ):
+        response = client.post(f"/api/requests/{req.id}/approve")
+
+    assert response.status_code == 502
+    db.refresh(req)
+    assert req.status == RequestStatus.failed
+    assert req.fulfillment_status == FulfillmentStatus.failed
+    assert req.fulfillment_error == "Radarr indisponible"
+    dispatch.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +109,312 @@ def test_list_requests_ordered_by_date_desc(client, db):
     titles = [r["title"] for r in resp.json()]
     assert titles[0] == "New Movie"
     assert titles[1] == "Old Movie"
+
+
+def test_list_requests_does_not_truncate_old_open_requests(client, db):
+    """Regression production : une demande encore ouverte (sent_to_arr) plus ancienne
+    que les 200 lignes les plus recentes ne doit pas disparaitre silencieusement de la
+    liste -- l'app charge tout cote client et filtre par statut, une limite trop basse
+    cachait des films toujours reellement en cours cote Radarr."""
+    from datetime import datetime, timedelta, timezone
+
+    very_old_open = _req(title="Very Old Still Pending", status="sent_to_arr")
+    very_old_open.requested_at = datetime.now(timezone.utc) - timedelta(days=365)
+    db.add(very_old_open)
+    for i in range(210):
+        recent = _req(title=f"Recent {i}", status="available")
+        recent.requested_at = datetime.now(timezone.utc) - timedelta(minutes=i)
+        db.add(recent)
+    db.commit()
+
+    resp = client.get("/api/requests")
+    titles = {r["title"] for r in resp.json()}
+    assert "Very Old Still Pending" in titles
+
+
+# ---------------------------------------------------------------------------
+# GET /api/requests/orphans, DELETE /api/requests/orphans/{arr_type}/{instance_id}/{arr_id}
+# ---------------------------------------------------------------------------
+
+
+def _sonarr_series(**kwargs) -> dict:
+    defaults = dict(
+        id=501, title="Orphan Show", year=2020, tvdbId=999, monitored=True,
+        images=[{"coverType": "poster", "remoteUrl": "https://example/poster.jpg"}],
+        seasons=[{"seasonNumber": 1, "monitored": True, "statistics": {
+            "episodeFileCount": 5, "episodeCount": 10, "totalEpisodeCount": 12,
+        }}],
+    )
+    defaults.update(kwargs)
+    return defaults
+
+
+def _radarr_movie(**kwargs) -> dict:
+    defaults = dict(
+        id=601, title="Orphan Movie", year=2021, tmdbId=777, imdbId=None, monitored=True, hasFile=False,
+        images=[{"coverType": "poster", "remoteUrl": "https://example/movie.jpg"}],
+    )
+    defaults.update(kwargs)
+    return defaults
+
+
+def test_list_orphan_requests_returns_sonarr_and_radarr(client, db):
+    """Les series/films surveilles sans MediaRequest associee remontent bien, avec
+    leur badge de source et leur progression."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True))
+    db.commit()
+
+    with (
+        patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])),
+        patch("app.services.arr_orphans.radarr.get_all_movies", new=AsyncMock(return_value=[_radarr_movie()])),
+    ):
+        resp = client.get("/api/requests/orphans")
+    assert resp.status_code == 200
+    data = resp.json()
+    by_title = {r["title"]: r for r in data}
+    assert by_title["Orphan Show"]["orphan"] is True
+    assert by_title["Orphan Show"]["orphan_source"] == "sonarr"
+    assert by_title["Orphan Show"]["episodes_available_count"] == 5
+    assert by_title["Orphan Movie"]["orphan_source"] == "radarr"
+
+
+def test_list_orphan_requests_excludes_known_show(client, db):
+    """Une serie deja liee a une demande (par tvdb_id) n'apparait pas comme orpheline."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(_req(title="Already Requested", media_type="show", tvdb_id="999", arr_id=None))
+    db.commit()
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series(tvdbId=999)])):
+        resp = client.get("/api/requests/orphans")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_list_orphan_requests_is_cached_between_calls(client, db):
+    """Deuxieme appel : ne doit pas retaper Sonarr/Radarr (cache court, voir
+    arr_orphans.py) -- c'est ce qui evite de recharger tout le catalogue *arr a
+    chaque affichage de la page Bibliotheque."""
+    from app.cache import cache
+    cache._memory.clear()
+    db.add(ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True))
+    db.add(ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True))
+    db.commit()
+
+    with (
+        patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])) as mock_series,
+        patch("app.services.arr_orphans.radarr.get_all_movies", new=AsyncMock(return_value=[_radarr_movie()])) as mock_movies,
+    ):
+        first = client.get("/api/requests/orphans")
+        second = client.get("/api/requests/orphans")
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json() == second.json()
+    mock_series.assert_awaited_once()
+    mock_movies.assert_awaited_once()
+
+
+def test_delete_orphan_invalidates_cache(client, db):
+    """Apres suppression, un item ne doit pas rester visible jusqu'a expiration du
+    cache -- la suppression doit forcer une resynchronisation immediate."""
+    from app.cache import cache
+    cache._memory.clear()
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[_sonarr_series()])) as mock_series:
+        resp = client.get("/api/requests/orphans")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 1
+        mock_series.assert_awaited_once()
+
+    with (
+        patch("app.routers.requests_api.sonarr.lookup_series", new=AsyncMock(return_value={"title": "Orphan Show", "tvdbId": 999})),
+        patch("app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))),
+    ):
+        del_resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert del_resp.status_code == 200
+
+    with patch("app.services.arr_orphans.sonarr.get_all_series", new=AsyncMock(return_value=[])) as mock_series_after:
+        resp2 = client.get("/api/requests/orphans")
+    assert resp2.status_code == 200
+    assert resp2.json() == []
+    mock_series_after.assert_awaited_once()
+
+
+def test_delete_orphan_calls_sonarr_delete_series(client, db):
+    """La suppression d'une serie orpheline appelle bien sonarr.delete_series avec
+    l'arr_id et l'instance corrects -- c'est ce qui retire reellement l'entree de Sonarr.
+    Elle laisse aussi une trace dans le journal des suppressions (tombstone)."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with (
+        patch(
+            "app.routers.requests_api.sonarr.lookup_series",
+            new=AsyncMock(return_value={"title": "Orphan Show", "tvdbId": 999}),
+        ),
+        patch(
+            "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(True, "Supprime de Sonarr"))
+        ) as mock_delete,
+    ):
+        resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    mock_delete.assert_awaited_once_with("http://sonarr", "x", 501, delete_files=False)
+
+    from app.models import DeletedMediaLog
+    log = db.query(DeletedMediaLog).filter(DeletedMediaLog.tvdb_id == "999").first()
+    assert log is not None
+    assert log.title == "Orphan Show"
+
+
+def test_delete_orphan_calls_radarr_delete_movie_with_files(client, db):
+    """delete_files=true est bien transmis a radarr.delete_movie."""
+    inst = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with (
+        patch(
+            "app.routers.requests_api.radarr.lookup_movie",
+            new=AsyncMock(return_value={"title": "Orphan Movie", "tmdbId": 777}),
+        ),
+        patch(
+            "app.routers.requests_api.radarr.delete_movie", new=AsyncMock(return_value=(True, "Supprime de Radarr"))
+        ) as mock_delete,
+    ):
+        resp = client.delete(f"/api/requests/orphans/radarr/{inst.id}/601?delete_files=true")
+    assert resp.status_code == 200
+    mock_delete.assert_awaited_once_with("http://radarr", "x", 601, delete_files=True)
+
+
+def test_open_orphan_creates_library_item(client, db):
+    """Ouvrir la fiche d'une serie "Suivi Sonarr" jamais vue en base cree un
+    LibraryItem -- c'est ce qui permet ensuite de reutiliser la page de detail /
+    suivi VF existante sans aucun code dedie aux orphelins."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with patch(
+        "app.services.arr_orphans.sonarr.lookup_series",
+        new=AsyncMock(return_value=_sonarr_series(overview="Un resume")),
+    ):
+        resp = client.post(f"/api/requests/orphans/sonarr/{inst.id}/501/open")
+    assert resp.status_code == 200
+    library_item_id = resp.json()["library_item_id"]
+
+    from app.models import LibraryItem
+    li = db.query(LibraryItem).filter(LibraryItem.id == library_item_id).first()
+    assert li is not None
+    assert li.title == "Orphan Show"
+    assert li.tvdb_id == "999"
+    assert li.plex_guid is None
+    assert li.arr_instance_id == inst.id
+    assert li.arr_id == 501
+
+
+def test_open_orphan_reuses_existing_library_item(client, db):
+    """Si un LibraryItem correspond deja (rapprochement par tmdb_id), on le retrouve
+    et on le complete -- pas de doublon cree."""
+    from app.models import LibraryItem
+
+    inst = ArrInstance(name="Radarr", arr_type="radarr", url="http://radarr", api_key="x", enabled=True)
+    existing = LibraryItem(title="Orphan Movie", year=2021, media_type="movie", tmdb_id="777")
+    db.add(inst)
+    db.add(existing)
+    db.commit()
+    db.refresh(inst)
+    db.refresh(existing)
+
+    with patch(
+        "app.services.arr_orphans.radarr.lookup_movie",
+        new=AsyncMock(return_value=_radarr_movie()),
+    ):
+        resp = client.post(f"/api/requests/orphans/radarr/{inst.id}/601/open")
+    assert resp.status_code == 200
+    assert resp.json()["library_item_id"] == existing.id
+    assert db.query(LibraryItem).count() == 1
+
+
+def test_open_orphan_bad_arr_type(client, db):
+    resp = client.post("/api/requests/orphans/plex/1/501/open")
+    assert resp.status_code == 400
+
+
+def test_delete_orphan_propagates_arr_failure(client, db):
+    """Si Sonarr/Radarr refuse la suppression, l'endpoint remonte une erreur -- il ne
+    doit jamais faire croire a un succes si le media est toujours present cote *arr."""
+    inst = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="x", enabled=True)
+    db.add(inst)
+    db.commit()
+    db.refresh(inst)
+
+    with (
+        patch("app.routers.requests_api.sonarr.lookup_series", new=AsyncMock(return_value=None)),
+        patch(
+            "app.routers.requests_api.sonarr.delete_series", new=AsyncMock(return_value=(False, "Sonarr indisponible"))
+        ),
+    ):
+        resp = client.delete(f"/api/requests/orphans/sonarr/{inst.id}/501")
+    assert resp.status_code == 502
+
+
+def test_delete_orphan_invalid_arr_type_rejected(client, db):
+    resp = client.delete("/api/requests/orphans/plex/1/501")
+    assert resp.status_code == 400
+
+
+def test_delete_orphan_unknown_instance_404(client, db):
+    resp = client.delete("/api/requests/orphans/sonarr/999/501")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# GET /api/requests/deleted-log, DELETE /api/requests/deleted-log/{id}
+# ---------------------------------------------------------------------------
+
+
+def test_list_deleted_media_log(client, db):
+    from app.models import DeletedMediaLog
+
+    db.add(DeletedMediaLog(media_type="movie", title="Removed Movie", tmdb_id="55"))
+    db.commit()
+
+    resp = client.get("/api/requests/deleted-log")
+    assert resp.status_code == 200
+    titles = {row["title"] for row in resp.json()}
+    assert "Removed Movie" in titles
+
+
+def test_forget_deleted_media_log_entry(client, db):
+    """Oublier une entree permet a une future demande pour ce media de ne plus etre
+    forcee en attente d'approbation."""
+    from app.models import DeletedMediaLog
+
+    entry = DeletedMediaLog(media_type="movie", title="Removed Movie", tmdb_id="55")
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    resp = client.delete(f"/api/requests/deleted-log/{entry.id}")
+    assert resp.status_code == 200
+    assert db.query(DeletedMediaLog).filter(DeletedMediaLog.id == entry.id).first() is None
+
+
+def test_forget_deleted_media_log_not_found(client, db):
+    resp = client.delete("/api/requests/deleted-log/9999")
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +470,7 @@ def test_retry_failed_request_sets_pending(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post(f"/api/requests/{req.id}/retry")
 
     assert resp.status_code == 200
@@ -166,7 +486,7 @@ def test_retry_calls_poll_watchlists(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll:
         client.post(f"/api/requests/{req.id}/retry")
 
     mock_poll.assert_called_once()
@@ -179,7 +499,7 @@ def test_retry_sent_to_arr_returns_400(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post(f"/api/requests/{req.id}/retry")
 
     assert resp.status_code == 400
@@ -187,7 +507,7 @@ def test_retry_sent_to_arr_returns_400(client, db):
 
 def test_retry_not_found_returns_404(client, db):
     """Retry sur id inexistant → 404."""
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()):
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()):
         resp = client.post("/api/requests/9999/retry")
     assert resp.status_code == 404
 
@@ -216,6 +536,38 @@ def test_delete_request_not_found(client, db):
     assert resp.status_code == 404
 
 
+def test_delete_request_records_tombstone(client, db):
+    """Une suppression admin (pas une annulation par l'utilisateur) laisse une trace
+    dans le journal des suppressions -- garde-fou contre le retour silencieux via
+    watchlist/redemande."""
+    req = _req(title="Inception", tmdb_id="27205")
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.delete(f"/api/requests/{req.id}")
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    log = db.query(DeletedMediaLog).filter(DeletedMediaLog.tmdb_id == "27205").first()
+    assert log is not None
+    assert log.title == "Inception"
+
+
+def test_delete_request_without_stable_id_skips_tombstone(client, db):
+    """Sans tmdb/tvdb/imdb_id, pas de trace ecrite (rien pour la retrouver plus tard)."""
+    req = _req(title="No Stable Id")
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.delete(f"/api/requests/{req.id}")
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    assert db.query(DeletedMediaLog).count() == 0
+
+
 # ---------------------------------------------------------------------------
 # POST /api/requests/poll
 # ---------------------------------------------------------------------------
@@ -224,8 +576,8 @@ def test_delete_request_not_found(client, db):
 def test_trigger_poll_calls_both_jobs(client, db):
     """POST /requests/poll déclenche poll_watchlists ET check_arr_statuses."""
     with (
-        patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll,
-        patch("app.routers.api.check_arr_statuses", new=AsyncMock()) as mock_check,
+        patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll,
+        patch("app.routers.requests_api.check_arr_statuses", new=AsyncMock()) as mock_check,
     ):
         resp = client.post("/api/requests/poll")
 
@@ -257,7 +609,7 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
     db.commit()
     db.refresh(req)
 
-    with patch("app.scheduler._notify") as mock_notify:
+    with patch("app.routers.requests_api._notify") as mock_notify:
         resp = client.post(f"/api/requests/{req.id}/mark-processed")
 
     assert resp.status_code == 200
@@ -268,20 +620,58 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
 
     db.refresh(req)
     assert req.status == RequestStatus.available
-    assert req.available_mail_sent is True
+    # Le flag est posé uniquement par le worker après livraison réelle, jamais par la route.
+    assert req.available_mail_sent is False
     assert req.available_at is not None
-    mock_notify.assert_called_once_with("available", settings, req, db, force=True)
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
+
+
+def test_mark_request_processed_stop_vf_tracking(client, db):
+    """stop_vf_tracking=true pose vf_tracking_disabled — la demande sort du scan VF."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.available, has_vf=False, available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify", new_callable=AsyncMock):
+        resp = client.post(
+            f"/api/requests/{req.id}/mark-processed?event=available&notify=false&stop_vf_tracking=true"
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["vf_tracking_disabled"] is True
+
+    db.refresh(req)
+    assert req.vf_tracking_disabled is True
+
+
+def test_mark_request_processed_without_stop_vf_tracking_leaves_it_enabled(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify", new_callable=AsyncMock):
+        resp = client.post(f"/api/requests/{req.id}/mark-processed")
+
+    assert resp.status_code == 200
+    assert resp.json()["vf_tracking_disabled"] is False
+    db.refresh(req)
+    assert req.vf_tracking_disabled is False
 
 
 def test_mark_request_processed_event_request_resends_without_closing(client, db):
     """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
     settings = Settings(id=1, smtp_host="smtp.example.com")
-    req = _req(status=RequestStatus.pending, request_mail_sent=True, available_mail_sent=False)
+    req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
     db.add_all([settings, req])
     db.commit()
     db.refresh(req)
 
-    with patch("app.scheduler._notify") as mock_notify:
+    with patch("app.routers.requests_api._notify") as mock_notify:
         resp = client.post(f"/api/requests/{req.id}/mark-processed?event=request")
 
     assert resp.status_code == 200
@@ -290,8 +680,174 @@ def test_mark_request_processed_event_request_resends_without_closing(client, db
 
     db.refresh(req)
     assert req.status == RequestStatus.pending  # Pas de clôture
-    assert req.request_mail_sent is True
-    mock_notify.assert_called_once_with("request", settings, req, db, force=True)
+    # `_notify` est simulé : aucun worker n'a confirmé la livraison.
+    assert req.request_mail_sent is False
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True, triggered_by="manual")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/requests/{id}/resend-mail
+# ---------------------------------------------------------------------------
+
+
+def test_resend_mail_available_does_not_change_status(client, db):
+    """resend-mail(event=available) renvoie le mail sans modifier le statut ni les flags."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.sent_to_arr, available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/resend-mail?event=available")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "queued"
+    assert data["event"] == "available"
+    mock_notify.assert_called_once_with("available", settings, req, db, force=True, triggered_by="manual")
+
+    db.refresh(req)
+    assert req.status == RequestStatus.sent_to_arr  # statut inchangé
+
+
+def test_resend_mail_request_event(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(status=RequestStatus.pending)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify:
+        resp = client.post(f"/api/requests/{req.id}/resend-mail?event=request")
+
+    assert resp.status_code == 200
+    assert resp.json()["event"] == "request"
+    mock_notify.assert_called_once_with("request", settings, req, db, force=True, triggered_by="manual")
+
+
+def test_resend_mail_invalid_event_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.post(f"/api/requests/{req.id}/resend-mail?event=bogus")
+    assert resp.status_code == 400
+
+
+def test_resend_mail_missing_request_404(client, db):
+    resp = client.post("/api/requests/999/resend-mail?event=request")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/requests/{id}/requesters
+# ---------------------------------------------------------------------------
+
+
+def test_update_requesters_sets_primary_and_extras(client, db):
+    req = _req(plex_user_id="alice", plex_user="Alice")
+    bob = PlexUser(plex_user_id="bob", display_name="Bob")
+    db.add_all([req, bob])
+    db.commit()
+    db.refresh(req)
+
+    resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["alice", "bob"]})
+    assert resp.status_code == 200
+    assert resp.json()["requester_ids"] == ["alice", "bob"]
+
+    db.refresh(req)
+    assert req.plex_user_id == "alice"
+    import json as _json
+    assert _json.loads(req.extra_requesters) == [{"plex_user_id": "bob", "display_name": "Bob"}]
+
+
+def test_update_requesters_does_not_send_any_mail(client, db):
+    """Modification silencieuse par design — voir notify-user pour le renvoi ciblé."""
+    req = _req(plex_user_id="alice", plex_user="Alice", request_mail_sent=True)
+    bob = PlexUser(plex_user_id="bob", display_name="Bob")
+    db.add_all([req, bob])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api._notify") as mock_notify, patch(
+        "app.routers.requests_api.notify_single_user"
+    ) as mock_notify_single:
+        resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["alice", "bob"]})
+
+    assert resp.status_code == 200
+    mock_notify.assert_not_called()
+    mock_notify_single.assert_not_called()
+
+
+def test_update_requesters_empty_list_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.put(f"/api/requests/{req.id}/requesters", json={"requester_ids": ["", "  "]})
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# POST /api/requests/{id}/notify-user
+# ---------------------------------------------------------------------------
+
+
+def test_notify_user_queues_requested_events(client, db):
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(plex_user_id="alice", available_mail_sent=True)
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api.notify_single_user", new=AsyncMock(side_effect=[True, True])) as mock_notify:
+        resp = client.post(
+            f"/api/requests/{req.id}/notify-user",
+            json={"plex_user_id": "bob", "events": ["request", "available"]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "queued": ["request", "available"]}
+    assert mock_notify.await_count == 2
+    mock_notify.assert_any_await("request", settings, req, db, "bob")
+    mock_notify.assert_any_await("available", settings, req, db, "bob")
+
+
+def test_notify_user_reports_which_events_actually_queued(client, db):
+    """Si un des deux events echoue (ex: utilisateur introuvable/desactive), seul celui
+    qui a reellement ete mis en queue doit apparaitre dans la reponse."""
+    settings = Settings(id=1, smtp_host="smtp.example.com")
+    req = _req(plex_user_id="alice")
+    db.add_all([settings, req])
+    db.commit()
+    db.refresh(req)
+
+    with patch("app.routers.requests_api.notify_single_user", new=AsyncMock(side_effect=[True, False])):
+        resp = client.post(
+            f"/api/requests/{req.id}/notify-user",
+            json={"plex_user_id": "bob", "events": ["request", "available"]},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["queued"] == ["request"]
+
+
+def test_notify_user_invalid_events_rejected(client, db):
+    req = _req()
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    resp = client.post(f"/api/requests/{req.id}/notify-user", json={"plex_user_id": "bob", "events": ["bogus"]})
+    assert resp.status_code == 400
+
+
+def test_notify_user_missing_request_404(client, db):
+    resp = client.post("/api/requests/999/notify-user", json={"plex_user_id": "bob", "events": ["request"]})
+    assert resp.status_code == 404
 
 
 def test_bulk_retry_requests(client, db):
@@ -305,7 +861,7 @@ def test_bulk_retry_requests(client, db):
     db.refresh(r2)
     db.refresh(r3)
 
-    with patch("app.routers.api.poll_watchlists", new=AsyncMock()) as mock_poll:
+    with patch("app.routers.requests_api.poll_watchlists", new=AsyncMock()) as mock_poll:
         resp = client.post("/api/requests/bulk/retry", json={"ids": [r1.id, r2.id, r3.id]})
     assert resp.status_code == 200
     assert resp.json()["count"] == 2
@@ -345,6 +901,26 @@ def test_bulk_mark_requests_processed(client, db):
     assert r2.available_at is not None
 
 
+def test_bulk_resolve_requests_uses_filters(client, db):
+    """POST /api/requests/bulk/resolve retourne toutes les demandes du filtre, pas seulement la page visible."""
+    r1 = _req(title="Dune", status=RequestStatus.sent_to_arr, media_type="movie", source="seer")
+    r2 = _req(title="Dune Part Two", status=RequestStatus.sent_to_arr, media_type="movie", source="seer")
+    r3 = _req(title="Dune Show", status=RequestStatus.sent_to_arr, media_type="show", source="seer")
+    r4 = _req(title="Inception", status=RequestStatus.failed, media_type="movie", source="rss")
+    db.add_all([r1, r2, r3, r4])
+    db.commit()
+
+    resp = client.post(
+        "/api/requests/bulk/resolve",
+        json={"type": "movie", "search": "Dune", "status": "sent_to_arr", "source": "seer"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["count"] == 2
+    assert set(data["ids"]) == {r1.id, r2.id}
+
+
 def test_bulk_delete_requests(client, db):
     """POST /api/requests/bulk/delete supprime plusieurs demandes."""
     r1 = _req()
@@ -360,3 +936,21 @@ def test_bulk_delete_requests(client, db):
 
     assert db.query(MediaRequest).filter(MediaRequest.id == r1.id).first() is None
     assert db.query(MediaRequest).filter(MediaRequest.id == r2.id).first() is None
+
+
+def test_bulk_delete_records_tombstones(client, db):
+    """La suppression groupee laisse une trace pour chaque demande ayant un
+    identifiant stable, meme comportement que la suppression individuelle."""
+    r1 = _req(title="Movie A", tmdb_id="111")
+    r2 = _req(title="Movie B", tmdb_id="222")
+    db.add_all([r1, r2])
+    db.commit()
+    db.refresh(r1)
+    db.refresh(r2)
+
+    resp = client.post("/api/requests/bulk/delete", json={"ids": [r1.id, r2.id]})
+    assert resp.status_code == 200
+
+    from app.models import DeletedMediaLog
+    tmdb_ids = {row.tmdb_id for row in db.query(DeletedMediaLog).all()}
+    assert tmdb_ids == {"111", "222"}

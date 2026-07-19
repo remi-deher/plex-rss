@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.notifications import (
+    ChannelNotConfigured,
     _build_discord_embed,
     _build_message,
     _post_discord_embed,
     _post_telegram_message,
-    send_all,
     send_discord,
     send_discord_to_webhook,
     send_telegram,
@@ -105,6 +105,13 @@ def test_build_message_unknown_event():
     assert "X" in title
 
 
+def test_build_message_failed_uses_context_reason_when_present():
+    """Le contexte structuré (cible réelle résolue par l'appelant) prime sur le texte générique."""
+    title, body = _build_message("failed", _req(media_type="movie"), context={"reason": "Impossible de transmettre a Seer."})
+    assert body == "Impossible de transmettre a Seer."
+    assert "Radarr" not in body
+
+
 # ---------------------------------------------------------------------------
 # _build_discord_embed
 # ---------------------------------------------------------------------------
@@ -195,11 +202,13 @@ async def test_post_telegram_message_raises_on_http_error():
 
 
 @pytest.mark.asyncio
-async def test_send_discord_no_url_returns_early():
+async def test_send_discord_no_url_raises_not_configured():
     s = _settings(discord_webhook_url=None)
-    # Pas d'appel httpx si pas de webhook URL
+    # Pas d'appel httpx si pas de webhook URL — mais l'appelant doit savoir qu'il n'y a
+    # rien à journaliser/retenter (ChannelNotConfigured), pas juste un retour silencieux.
     with patch("app.services.notifications._post_discord_embed", new_callable=AsyncMock) as mock_post:
-        await send_discord(s, _req(), "request")
+        with pytest.raises(ChannelNotConfigured):
+            await send_discord(s, _req(), "request")
     mock_post.assert_not_called()
 
 
@@ -214,13 +223,14 @@ async def test_send_discord_sends_embed():
 
 
 @pytest.mark.asyncio
-async def test_send_discord_logs_exception_on_failure():
+async def test_send_discord_propagates_exception_on_failure():
+    """L'exception remonte désormais (notification_queue.py centralise retry + log)."""
     s = _settings(discord_webhook_url="https://hook.example.com")
     with patch(
         "app.services.notifications._post_discord_embed", new_callable=AsyncMock, side_effect=Exception("Network error")
     ):
-        # Ne doit pas remonter l'exception
-        await send_discord(s, _req(), "request")
+        with pytest.raises(Exception, match="Network error"):
+            await send_discord(s, _req(), "request")
 
 
 # ---------------------------------------------------------------------------
@@ -236,9 +246,10 @@ async def test_send_discord_to_webhook_sends():
 
 
 @pytest.mark.asyncio
-async def test_send_discord_to_webhook_exception_logged():
+async def test_send_discord_to_webhook_propagates_exception():
     with patch("app.services.notifications._post_discord_embed", new_callable=AsyncMock, side_effect=Exception("err")):
-        await send_discord_to_webhook("https://hook.example.com", _req(), "request")
+        with pytest.raises(Exception, match="err"):
+            await send_discord_to_webhook("https://hook.example.com", _req(), "request")
 
 
 # ---------------------------------------------------------------------------
@@ -247,18 +258,20 @@ async def test_send_discord_to_webhook_exception_logged():
 
 
 @pytest.mark.asyncio
-async def test_send_telegram_no_token_returns_early():
+async def test_send_telegram_no_token_raises_not_configured():
     s = _settings(telegram_bot_token=None, telegram_chat_id="123")
     with patch("app.services.notifications._post_telegram_message", new_callable=AsyncMock) as mock_post:
-        await send_telegram(s, _req(), "request")
+        with pytest.raises(ChannelNotConfigured):
+            await send_telegram(s, _req(), "request")
     mock_post.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_send_telegram_no_chat_id_returns_early():
+async def test_send_telegram_no_chat_id_raises_not_configured():
     s = _settings(telegram_bot_token="tok", telegram_chat_id=None)
     with patch("app.services.notifications._post_telegram_message", new_callable=AsyncMock) as mock_post:
-        await send_telegram(s, _req(), "request")
+        with pytest.raises(ChannelNotConfigured):
+            await send_telegram(s, _req(), "request")
     mock_post.assert_not_called()
 
 
@@ -274,12 +287,13 @@ async def test_send_telegram_sends_message():
 
 
 @pytest.mark.asyncio
-async def test_send_telegram_logs_exception():
+async def test_send_telegram_propagates_exception():
     s = _settings(telegram_bot_token="tok", telegram_chat_id="chat")
     with patch(
         "app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("Timeout")
     ):
-        await send_telegram(s, _req(), "request")
+        with pytest.raises(Exception, match="Timeout"):
+            await send_telegram(s, _req(), "request")
 
 
 # ---------------------------------------------------------------------------
@@ -296,25 +310,9 @@ async def test_send_telegram_to_chat_sends():
 
 
 @pytest.mark.asyncio
-async def test_send_telegram_to_chat_exception_logged():
+async def test_send_telegram_to_chat_propagates_exception():
     with patch(
         "app.services.notifications._post_telegram_message", new_callable=AsyncMock, side_effect=Exception("err")
     ):
-        await send_telegram_to_chat("tok", "chat", _req(), "request")
-
-
-# ---------------------------------------------------------------------------
-# send_all
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_send_all_calls_both():
-    s = _settings()
-    with (
-        patch("app.services.notifications.send_discord", new_callable=AsyncMock) as mock_dc,
-        patch("app.services.notifications.send_telegram", new_callable=AsyncMock) as mock_tg,
-    ):
-        await send_all(s, _req(), "available")
-    mock_dc.assert_called_once_with(s, mock_dc.call_args[0][1], "available")
-    mock_tg.assert_called_once()
+        with pytest.raises(Exception, match="err"):
+            await send_telegram_to_chat("tok", "chat", _req(), "request")

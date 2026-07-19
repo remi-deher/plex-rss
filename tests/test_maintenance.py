@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.routers.api import require_auth
+from app.database import get_db_async
+from app.models import Settings
 from app.routers.maintenance import (
     ACTIONS_META,
     MaintenanceRun,
@@ -17,11 +19,13 @@ from app.routers.maintenance import (
     _run_check_arr_statuses,
     _run_discover_users,
     _run_recalculate_dates,
+    _run_resync_availability,
     _run_retry_failed,
     _run_seer_sync_requests,
     _run_seer_sync_users,
     _runs,
 )
+from tests.async_support import make_test_session
 
 # ---------------------------------------------------------------------------
 # Fixture : client avec auth bypassé
@@ -29,11 +33,15 @@ from app.routers.maintenance import (
 
 
 @pytest.fixture()
-def client():
+def client(async_db):
     app.dependency_overrides[require_auth] = lambda: None
-    c = TestClient(app, raise_server_exceptions=False)
+    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[get_db_async] = lambda: async_db
+    c = TestClient(app, raise_server_exceptions=True)
     yield c
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(get_db_async, None)
 
 
 # ---------------------------------------------------------------------------
@@ -242,18 +250,24 @@ async def test_run_discover_users_calls_poll():
 @pytest.mark.asyncio
 async def test_run_recalculate_dates_calls_sync():
     run = MaintenanceRun(action="recalculate-dates")
-    with patch("app.scheduler.sync_seer_requests", new_callable=AsyncMock):
+    db = make_test_session()
+    with (
+        patch("app.scheduler.sync_seer_requests", new_callable=AsyncMock) as mock_seer,
+        patch("app.services.watchlist_poller.sync_plex_dates", new_callable=AsyncMock) as mock_plex,
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
+    ):
         await _run_recalculate_dates(run)
     assert run.progress == 100
+    mock_seer.assert_awaited_once()
+    mock_plex.assert_awaited_once_with(db)
 
 
 @pytest.mark.asyncio
 async def test_run_retry_failed_no_failures():
     run = MaintenanceRun(action="retry-failed")
-    db = MagicMock()
-    db.query.return_value.filter.return_value.all.return_value = []
+    db = make_test_session()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_retry_failed(run)
 
     assert run.progress == 100
@@ -265,30 +279,27 @@ async def test_run_retry_failed_resets_status():
     from app.models import MediaRequest, RequestStatus
 
     run = MaintenanceRun(action="retry-failed")
-    req = MagicMock()
-    req.status = RequestStatus.failed
-
-    db = MagicMock()
-    db.query.return_value.filter.return_value.all.return_value = [req]
+    req = MediaRequest(plex_user_id="alice", title="Dune", media_type="movie", status=RequestStatus.failed)
+    db = make_test_session()
+    db.add(req)
+    db.commit()
 
     with (
-        patch("app.routers.maintenance.SessionLocal", return_value=db),
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
         patch("app.scheduler.poll_watchlists", new_callable=AsyncMock),
     ):
         await _run_retry_failed(run)
 
     assert req.status == RequestStatus.pending
-    db.commit.assert_called()
     assert run.progress == 100
 
 
 @pytest.mark.asyncio
 async def test_run_check_arr_statuses_no_settings():
     run = MaintenanceRun(action="check-arr-statuses")
-    db = MagicMock()
-    db.query.return_value.first.return_value = None
+    db = make_test_session()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_check_arr_statuses(run)
 
     assert any("paramètre" in log.lower() for log in run.logs)
@@ -297,13 +308,49 @@ async def test_run_check_arr_statuses_no_settings():
 @pytest.mark.asyncio
 async def test_run_check_arr_statuses_no_candidates():
     run = MaintenanceRun(action="check-arr-statuses")
-    db = MagicMock()
-    settings = MagicMock()
-    db.query.return_value.first.return_value = settings
-    db.query.return_value.filter.return_value.all.return_value = []
+    db = make_test_session()
+    db.add(Settings())
+    db.commit()
 
-    with patch("app.routers.maintenance.SessionLocal", return_value=db):
+    with patch("app.routers.maintenance.AsyncSessionLocal", return_value=db):
         await _run_check_arr_statuses(run)
 
     assert run.progress == 100
     assert any("aucune" in log.lower() for log in run.logs)
+
+
+@pytest.mark.asyncio
+async def test_run_resync_availability_calls_check_arr_statuses_full_resync():
+    """Le bouton Maintenance doit appeler check_arr_statuses(full_resync=True) --
+    sans ce flag, une serie 'Disponible' avec episodes_total_count NULL (cree avant
+    le suivi par saison, ex. incident production 'Ink Master') reste bloquee a jamais,
+    exclue du cycle normal (voir arr_tracker.check_arr_statuses)."""
+    from app.models import MediaRequest, RequestStatus
+
+    run = MaintenanceRun(action="resync-availability")
+    db = make_test_session()
+    db.add(Settings())
+    req = MediaRequest(
+        plex_user_id="alice", plex_user="alice", title="Ink Master", media_type="show",
+        status=RequestStatus.available, episodes_available_count=None, episodes_total_count=None,
+    )
+    db.add(req)
+    db.commit()
+
+    async def _fake_resync(full_resync=False, notify=True):
+        assert full_resync is True
+        assert notify is False, "le resync manuel ne doit pas notifier (voir demande utilisateur)"
+        req.status = RequestStatus.partially_available
+        req.episodes_available_count = 6
+        req.episodes_total_count = 13
+        db.commit()
+
+    with (
+        patch("app.routers.maintenance.AsyncSessionLocal", return_value=db),
+        patch("app.services.arr_tracker.check_arr_statuses", new=AsyncMock(side_effect=_fake_resync)),
+    ):
+        await _run_resync_availability(run)
+
+    assert run.progress == 100
+    assert any("ink master" in log.lower() and "partiellement" in log.lower() for log in run.logs)
+    assert any("1 série(s) corrigée(s)" in log for log in run.logs)
