@@ -348,7 +348,10 @@ button svg {
     background: #121216;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 20px 20px 0 0;
-    padding: 24px 24px max(24px, var(--safe-bottom));
+    padding-top: max(24px, var(--safe-top));
+    padding-right: max(24px, var(--safe-right));
+    padding-bottom: max(24px, var(--safe-bottom));
+    padding-left: max(24px, var(--safe-left));
     display: flex;
     flex-direction: column;
     gap: 20px;
@@ -442,6 +445,29 @@ button svg {
     width: 18px;
     height: 18px;
   }
+
+  .mobile-admin-groups details {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 9px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .mobile-admin-groups summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 10px 14px;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .mobile-admin-groups summary::-webkit-details-marker { display: none; }
+  .mobile-admin-groups summary svg { width: 18px; height: 18px; }
+  .mobile-admin-groups details[open] summary { color: #fff; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .mobile-admin-groups details a { margin: 4px 8px; min-height: 44px; padding-left: 44px; background: transparent; }
 
   .main {
     padding: 18px;

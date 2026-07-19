@@ -105,6 +105,33 @@ DEFAULT_AVAILABLE_TEMPLATE = """**{media_type_et_titre}** {details_saison_episod
 
 Amusez-vous bien !"""
 
+SERIES_AVAILABILITY_DEFAULTS = {
+    "episode_available": (
+        "**Un nouvel episode de {titre} est disponible {langue}.**\n\n{resume_disponibilite}",
+        "[Plexarr] Nouvel episode disponible : {titre} {details_saison_episode}",
+    ),
+    "season_started": (
+        "**Une nouvelle saison de {titre} commence a etre disponible {langue}.**\n\n{resume_disponibilite}",
+        "[Plexarr] Saison disponible : {titre} {details_saison_episode}",
+    ),
+    "season_partial": (
+        "**Une saison de {titre} est partiellement disponible {langue}.**\n\n{resume_disponibilite}",
+        "[Plexarr] Saison partiellement disponible : {titre}",
+    ),
+    "season_complete": (
+        "**Une saison complete de {titre} est disponible {langue}.**\n\n{resume_disponibilite}",
+        "[Plexarr] Saison complete disponible : {titre}",
+    ),
+    "series_partial": (
+        "**Plusieurs saisons de {titre} sont maintenant disponibles.**\n\n{resume_disponibilite}",
+        "[Plexarr] Nouvelles saisons disponibles : {titre}",
+    ),
+    "series_complete": (
+        "**La serie complete {titre} est disponible {langue}.**\n\n{resume_disponibilite}",
+        "[Plexarr] Serie complete disponible : {titre}",
+    ),
+}
+
 DEFAULT_UPGRADE_TEMPLATE = """**{media_type_et_titre}** {details_saison_episode} vient d'être mis à jour !
 La version **{langue}** est maintenant disponible sur Plex."""
 
@@ -336,6 +363,7 @@ def _build_tags(
     corrections: list[str] | tuple[str, ...] | None = None,
     correction_note: str = "",
     batch_summary: str = "",
+    availability_details: dict | None = None,
 ) -> dict:
     is_show = request.media_type == "show"
     diagnostic = request_context(request) if hasattr(request, "diagnostic_context") else {}
@@ -365,6 +393,12 @@ def _build_tags(
     elif language == "vf":
         langue_str = "en VF"
 
+    details = availability_details or {}
+
+    def season_list(key: str) -> str:
+        values = details.get(key) or []
+        return ", ".join(str(value) for value in values)
+
     return {
         "{titre}": request.title or "",
         "{type}": type_media,
@@ -381,6 +415,16 @@ def _build_tags(
         "{corrections}": _format_corrections(corrections) or "- Correction effectuée",
         "{note_correction}": correction_note.strip() if correction_note else "",
         "{media_type_et_titre}": f"{type_media} {request.title or ''}".strip(),
+        "{resume_disponibilite}": batch_summary or details_se,
+        "{statut_disponibilite}": details.get("availability_variant", scope),
+        "{saisons_disponibles}": season_list("available_seasons"),
+        "{saisons_completes}": season_list("complete_seasons"),
+        "{saisons_partielles}": season_list("partial_seasons"),
+        "{saisons_manquantes}": season_list("missing_seasons"),
+        "{nombre_saisons_disponibles}": str(len(details.get("available_seasons") or [])),
+        "{nombre_saisons_completes}": str(len(details.get("complete_seasons") or [])),
+        "{nombre_saisons_attendues}": str(len(details.get("expected_seasons") or [])),
+        "{nombre_episodes_disponibles}": str(details.get("episode_count") or ""),
         "{source_disponibilite}": diagnostic.get("availability_source", ""),
         "{evenement_arr}": diagnostic.get("arr_event", ""),
         "{statut_plex}": diagnostic.get("plex_match_status", ""),
@@ -509,23 +553,30 @@ async def send_available_notification(
     season_number: int | None = None,
     episode_number: int | None = None,
     batch_summary: str = "",
+    availability_variant: str | None = None,
+    availability_details: dict | None = None,
 ):
     template_field = "email_upgrade_template" if is_upgrade else "email_available_template"
     subject_field = "email_upgrade_subject" if is_upgrade else "email_available_subject"
     default_template = DEFAULT_UPGRADE_TEMPLATE if is_upgrade else DEFAULT_AVAILABLE_TEMPLATE
+    default_subject = "[Plexarr] Mise a jour VF : {titre}" if is_upgrade else "[Plexarr] Disponible : {titre}"
     event_type = "upgrade" if is_upgrade else "available"
 
-    if scope == "series_batch":
-        default_template = """**Mise a jour de {media_type_et_titre}**
-
-{details_saison_episode}
-
-Les statuts ont ete regroupes pour eviter plusieurs notifications successives."""
-
-    if is_upgrade:
-        default_subject = "[Plexarr] Mise à jour VF : {titre}"
-    else:
-        default_subject = "[Plexarr] Disponible : {titre}"
+    if not is_upgrade:
+        resolved_variant = availability_variant or {
+            "episode": "episode_available",
+            "season_start": "season_started",
+            "season_complete": "season_complete",
+            "series_complete": "series_complete",
+        }.get(scope)
+        if resolved_variant in SERIES_AVAILABILITY_DEFAULTS:
+            variant_template, variant_subject = SERIES_AVAILABILITY_DEFAULTS[resolved_variant]
+            template_field = f"email_{resolved_variant}_template"
+            subject_field = f"email_{resolved_variant}_subject"
+            # Compatibilite : tant que le nouveau modele n'est pas personnalise, une
+            # personnalisation historique de "Disponible" continue de s'appliquer.
+            default_template = _resolve_str_setting(settings, "email_available_template") or variant_template
+            default_subject = _resolve_str_setting(settings, "email_available_subject") or variant_subject
 
     tags = _build_tags(
         request,
@@ -536,6 +587,7 @@ Les statuts ont ete regroupes pour eviter plusieurs notifications successives.""
         season_number=season_number,
         episode_number=episode_number,
         batch_summary=batch_summary,
+        availability_details=availability_details,
     )
 
     extra_ctx = get_shared_email_parts(settings)

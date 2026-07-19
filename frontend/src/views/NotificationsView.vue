@@ -81,6 +81,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { CheckCheck, ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RefreshCw, Send, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
@@ -91,7 +92,8 @@ import { useConfirm } from '@/composables/useConfirm';
 
 const rows = ref([]);
 const users = ref([]);
-const tab = ref('history');
+const route=useRoute(),router=useRouter();
+const tab = ref(route.query.tab==='pending'?'pending':'history');
 const loading = ref(false);
 const error = ref('');
 const search = ref('');
@@ -119,6 +121,9 @@ let feedbackTimeout;
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const selectedIds = computed(() => tableRef.value?.selected || []);
+
+watch(tab,value=>router.replace({path:'/notifications',query:{...route.query,tab:value}}));
+watch(()=>route.query.tab,value=>{const next=value==='pending'?'pending':'history';if(tab.value!==next){tab.value=next;offset.value=0;load()}});
 
 async function loadUsers() {
   try {

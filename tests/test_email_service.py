@@ -295,6 +295,35 @@ async def test_send_available_episode_scope_details_tag():
     assert "Saison 1, Épisode 3" in body
 
 
+@pytest.mark.asyncio
+async def test_series_complete_uses_dedicated_template_and_variables():
+    settings = _settings(
+        email_series_complete_template="Serie terminee : {titre} ({nombre_saisons_completes}/{nombre_saisons_attendues})",
+        email_series_complete_subject="Serie complete : {titre}",
+    )
+    request = _req(media_type="show", title="Breaking Bad")
+    details = {
+        "availability_variant": "series_complete",
+        "available_seasons": [1, 2, 3, 4, 5],
+        "complete_seasons": [1, 2, 3, 4, 5],
+        "expected_seasons": [1, 2, 3, 4, 5],
+    }
+    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+        await send_available_notification(
+            settings,
+            request,
+            "dest@example.com",
+            scope="series_batch",
+            availability_variant="series_complete",
+            availability_details=details,
+        )
+
+    message = mock_send.call_args[0][0]
+    assert message["Subject"] == "Serie complete : Breaking Bad"
+    body = message.get_payload(0).get_payload(decode=True).decode()
+    assert "Serie terminee : Breaking Bad (5/5)" in body
+
+
 # ---------------------------------------------------------------------------
 # send_failure_notification
 # ---------------------------------------------------------------------------

@@ -69,6 +69,8 @@ async def _send_available(settings, req, recipient, context, display_name):
         season_number=context.get("season_number"),
         episode_number=context.get("episode_number"),
         batch_summary=context.get("batch_summary", ""),
+        availability_variant=context.get("availability_variant"),
+        availability_details=context,
     )
 
 

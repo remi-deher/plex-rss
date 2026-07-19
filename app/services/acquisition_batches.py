@@ -109,12 +109,58 @@ def build_batch_summary(
         for event in events
         if event.get("season_number") is not None
     }
+    complete_seasons = {
+        event.get("season_number")
+        for event in events
+        if event.get("scope") == "season_complete" and event.get("season_number") is not None
+    }
+    partial_seasons = reported_seasons - complete_seasons
+    if partial_seasons:
+        parts.append(f"{len(partial_seasons)} saison(s) partiellement disponible(s)")
     missing_seasons = set(expected_seasons or []) - reported_seasons
     if missing_seasons:
         parts.append(f"{len(missing_seasons)} saison(s) encore en attente")
     if blocked_count:
         parts.append(f"{blocked_count} import(s) encore en attente d'une intervention")
     return ". ".join(parts) + ("." if parts else "")
+
+
+def classify_batch_availability(events: list[dict], expected_seasons: list[int] | None = None) -> dict:
+    """Classe un lot selon le niveau le plus utile a annoncer a l'utilisateur."""
+    expected = {int(season) for season in (expected_seasons or []) if int(season) > 0}
+    reported = {e.get("season_number") for e in events if e.get("season_number") is not None}
+    complete = {
+        e.get("season_number")
+        for e in events
+        if e.get("scope") == "season_complete" and e.get("season_number") is not None
+    }
+    episode_events = [e for e in events if e.get("scope") == "episode"]
+    started = {
+        e.get("season_number")
+        for e in events
+        if e.get("scope") == "season_start" and e.get("season_number") is not None
+    }
+    if expected and expected.issubset(complete):
+        variant = "series_complete"
+    elif len(complete) >= 2 or (complete and (started or episode_events)):
+        variant = "series_partial"
+    elif len(complete) == 1:
+        variant = "season_complete"
+    elif len(episode_events) == 1 and not started:
+        variant = "episode_available"
+    elif len(episode_events) > 1:
+        variant = "season_partial"
+    else:
+        variant = "season_started"
+    return {
+        "availability_variant": variant,
+        "available_seasons": sorted(reported),
+        "complete_seasons": sorted(complete),
+        "partial_seasons": sorted((reported - complete)),
+        "missing_seasons": sorted(expected - reported),
+        "expected_seasons": sorted(expected),
+        "episode_count": len(episode_events),
+    }
 
 
 async def _summary_recipients(db, settings: Settings, req: MediaRequest, events: list[dict]) -> list[str]:
@@ -204,6 +250,7 @@ async def advance_acquisition_batches(db, settings: Settings | None, *, now=None
                 expected_seasons = json.loads(batch.expected_seasons or "[]")
             except (TypeError, ValueError):
                 expected_seasons = []
+            availability = classify_batch_availability(events, expected_seasons)
             await enqueue(
                 "available",
                 req.id,
@@ -215,6 +262,7 @@ async def advance_acquisition_batches(db, settings: Settings | None, *, now=None
                     # il utilise donc le visuel neutre "disponible", pas un mail VF pur.
                     "is_upgrade": False,
                     "batch_summary": build_batch_summary(events, len(blocked), expected_seasons),
+                    **availability,
                 },
                 db=db,
             )

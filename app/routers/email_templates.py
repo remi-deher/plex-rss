@@ -37,6 +37,7 @@ from ..services.email_service import (
     DEFAULT_SHOW_TMDB_LINK,
     DEFAULT_SYNOPSIS_FONT_SIZE_KEY,
     DEFAULT_UPGRADE_TEMPLATE,
+    SERIES_AVAILABILITY_DEFAULTS,
     FONT_FAMILY_PRESETS,
     SYNOPSIS_FONT_SIZE_PRESETS,
     _build_jinja_ctx,
@@ -53,7 +54,8 @@ from ..services.notification_catalog import get_event
 
 router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_admin)])
 
-_EVENT_TYPES = ("request", "available", "upgrade", "failure", "correction")
+_SERIES_EVENT_TYPES = tuple(SERIES_AVAILABILITY_DEFAULTS)
+_EVENT_TYPES = ("request", "available", *_SERIES_EVENT_TYPES, "upgrade", "failure", "correction")
 
 
 @router.get("/settings/email-templates")
@@ -93,6 +95,32 @@ def _create_dummy_request() -> MediaRequest:
 # d'entrée "upgrade" (qui est une variante d'"available") : traduction des 4 clés de l'éditeur
 # vers les clés du catalogue, pour le libellé/sujet par défaut uniquement.
 _CATALOG_EVENT_KEY = {"upgrade": "available", "failure": "failed"}
+_CATALOG_EVENT_KEY.update({key: "available" for key in _SERIES_EVENT_TYPES})
+
+
+def _preview_context(event_type: str, preview_variant: Optional[str]):
+    mapping = {
+        "episode_available": ("episode", None, 2, 4),
+        "season_started": ("season_start", None, 2, 1),
+        "season_partial": ("series_batch", None, None, None),
+        "season_complete": ("season_complete", None, 2, None),
+        "series_partial": ("series_batch", None, None, None),
+        "series_complete": ("series_complete", None, None, None),
+    }
+    parsed = _parse_preview_variant(preview_variant)
+    return parsed if preview_variant and preview_variant != "default" else mapping.get(event_type, parsed)
+
+
+def _preview_availability_details(event_type: str) -> tuple[str, dict]:
+    samples = {
+        "season_partial": ("La saison 2 est partiellement disponible : 6 episodes sont presents.", {"available_seasons": [2], "partial_seasons": [2], "expected_seasons": [1, 2, 3], "episode_count": 6}),
+        "season_complete": ("La saison 2 est disponible integralement.", {"available_seasons": [2], "complete_seasons": [2], "expected_seasons": [1, 2, 3]}),
+        "series_partial": ("3 saisons completes sont disponibles. 2 saisons restent attendues.", {"available_seasons": [1, 2, 3], "complete_seasons": [1, 2, 3], "missing_seasons": [4, 5], "expected_seasons": [1, 2, 3, 4, 5]}),
+        "series_complete": ("Les 5 saisons attendues sont disponibles integralement.", {"available_seasons": [1, 2, 3, 4, 5], "complete_seasons": [1, 2, 3, 4, 5], "expected_seasons": [1, 2, 3, 4, 5]}),
+    }
+    summary, details = samples.get(event_type, ("", {}))
+    details["availability_variant"] = event_type
+    return summary, details
 
 
 def _parse_preview_variant(preview_variant: Optional[str]):
@@ -103,6 +131,14 @@ def _parse_preview_variant(preview_variant: Optional[str]):
         return "movie", "vf", None, None
     if preview_variant == "episode":
         return "episode", None, 2, 1
+    if preview_variant == "episode_vo":
+        return "episode", "vo", 2, 4
+    if preview_variant == "episode_vf":
+        return "episode", "vf", 2, 4
+    if preview_variant == "season_start_vf":
+        return "season_start", "vf", 2, 1
+    if preview_variant == "season_complete_vf":
+        return "season_complete", "vf", 2, None
     if preview_variant == "season_complete":
         return "season_complete", None, 2, None
     return "movie", None, None, None
@@ -223,8 +259,8 @@ async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_
     display_name = "Jean Dupont"
 
     scope, language, season_number, episode_number = (
-        _parse_preview_variant(body.preview_variant)
-        if event_type in ("available", "upgrade")
+        _preview_context(event_type, body.preview_variant)
+        if event_type in ("available", "upgrade", *_SERIES_EVENT_TYPES)
         else ("movie", None, None, None)
     )
 
@@ -236,6 +272,7 @@ async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_
             display_name = user.custom_name or user.display_name or user.plex_user_id
             recipient_email = user.notification_email or user.plex_email or "utilisateur@plex.local"
 
+    batch_summary, availability_details = _preview_availability_details(event_type)
     tags = _build_tags(
         req,
         display_name=display_name,
@@ -244,6 +281,8 @@ async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_
         is_upgrade=is_upgrade,
         season_number=season_number,
         episode_number=episode_number,
+        batch_summary=batch_summary,
+        availability_details=availability_details,
         reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
         corrections=["Son corrigé", "Sous-titres resynchronisés"],
         correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
@@ -251,7 +290,8 @@ async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_
         else "",
     )
 
-    jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
+    visual_event_type = "available" if event_type in _SERIES_EVENT_TYPES else event_type
+    jinja_ctx = _build_preview_jinja_ctx(settings, visual_event_type, req, display_name, language, body)
     # Aperçu : jamais d'appel Plex réel (redéclenché à chaque frappe) — lien TMDB réel
     # (la demande factice a un vrai tmdb_id), lien Plex factice juste pour visualiser la mise en page.
     jinja_ctx["_tmdb_url"] = build_tmdb_url(req)
@@ -299,6 +339,18 @@ class SaveTemplates(BaseModel):
     email_correction_template: Optional[str] = None
     email_request_subject: Optional[str] = None
     email_available_subject: Optional[str] = None
+    email_episode_available_template: Optional[str] = None
+    email_episode_available_subject: Optional[str] = None
+    email_season_started_template: Optional[str] = None
+    email_season_started_subject: Optional[str] = None
+    email_season_partial_template: Optional[str] = None
+    email_season_partial_subject: Optional[str] = None
+    email_season_complete_template: Optional[str] = None
+    email_season_complete_subject: Optional[str] = None
+    email_series_partial_template: Optional[str] = None
+    email_series_partial_subject: Optional[str] = None
+    email_series_complete_template: Optional[str] = None
+    email_series_complete_subject: Optional[str] = None
     email_upgrade_subject: Optional[str] = None
     email_failure_subject: Optional[str] = None
     email_correction_subject: Optional[str] = None
@@ -351,6 +403,7 @@ TEMPLATE_FIELDS = [
     "email_correction_template",
     "email_request_subject",
     "email_available_subject",
+    *[f"email_{variant}_{suffix}" for variant in _SERIES_EVENT_TYPES for suffix in ("template", "subject")],
     "email_upgrade_subject",
     "email_failure_subject",
     "email_correction_subject",
@@ -405,12 +458,13 @@ def get_templates(s: Settings = Depends(get_settings_or_404)):
         "upgrade": DEFAULT_UPGRADE_TEMPLATE,
         "failure": DEFAULT_FAILURE_TEMPLATE,
         "correction": DEFAULT_CORRECTION_TEMPLATE,
+        **{variant: defaults[0] for variant, defaults in SERIES_AVAILABILITY_DEFAULTS.items()},
     }
     result = {}
     for event_type, default_template in template_defaults.items():
         result[f"email_{event_type}_template"] = getattr(s, f"email_{event_type}_template") or default_template
         result[f"email_{event_type}_subject"] = getattr(s, f"email_{event_type}_subject") or ""
-        visuals = get_event_visuals(s, event_type)
+        visuals = get_event_visuals(s, "available" if event_type in _SERIES_EVENT_TYPES else event_type)
         result[f"email_{event_type}_accent_color"] = visuals["_accent_color"]
         result[f"email_{event_type}_badge_text"] = visuals["_badge_text"]
         result[f"email_{event_type}_headline_text"] = visuals["_headline_text"]
@@ -448,6 +502,19 @@ def get_templates(s: Settings = Depends(get_settings_or_404)):
             if s.email_show_plex_button is None
             else s.email_show_plex_button,
             "has_previous_version": bool(s.email_templates_backup),
+            "simulation_settings": {
+                "email_enabled": bool(s.email_enabled),
+                "notification_hold_enabled": bool(s.notification_hold_enabled),
+                "email_on_request": bool(s.email_on_request),
+                "email_on_available": bool(s.email_on_available),
+                "email_on_vf_available": bool(s.email_on_vf_available),
+                "email_on_failure": bool(s.email_on_failure),
+                "series_notify_granularity": s.series_notify_granularity or "jalons",
+                "series_notify_language": s.series_notify_language is not False,
+                "movie_notify_language": s.movie_notify_language is not False,
+                "has_admin_recipient": bool((s.admin_notification_email or "").strip()),
+                "has_fallback_recipient": bool((s.smtp_from or "").strip()),
+            },
         }
     )
     return result
@@ -479,6 +546,9 @@ async def reset_templates(db: AsyncSession = Depends(get_db_async), s: Settings 
     s.email_templates_backup = json.dumps({field: getattr(s, field) for field in TEMPLATE_FIELDS})
     s.email_request_template = DEFAULT_REQUEST_TEMPLATE
     s.email_available_template = DEFAULT_AVAILABLE_TEMPLATE
+    for variant, defaults in SERIES_AVAILABILITY_DEFAULTS.items():
+        setattr(s, f"email_{variant}_template", defaults[0])
+        setattr(s, f"email_{variant}_subject", None)
     s.email_upgrade_template = DEFAULT_UPGRADE_TEMPLATE
     s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
     s.email_correction_template = DEFAULT_CORRECTION_TEMPLATE
@@ -539,19 +609,23 @@ class TestSendRequest(_EmailShellDraft):
     type: str = "request"
     user_id: Optional[int] = None
     preview_variant: Optional[str] = None
+    recipient_mode: str = "admin"
 
 
 @router.post("/api/email-templates/test-send")
 async def test_send_email(
     body: TestSendRequest, db: AsyncSession = Depends(get_db_async), settings: Settings = Depends(get_settings_or_404)
 ):
-    recipient = (settings.admin_notification_email or "").strip()
+    recipient = (settings.admin_notification_email or settings.smtp_from or "").strip()
     display_name = "Jean Dupont"
-    if body.user_id:
+    if body.recipient_mode == "user":
+        if not body.user_id:
+            raise HTTPException(status_code=400, detail="Selectionnez un utilisateur pour cet envoi de test")
         user = (await db.execute(select(PlexUser).filter(PlexUser.id == body.user_id))).scalars().first()
-        if user:
-            recipient = user.notification_email or user.plex_email
-            display_name = user.custom_name or user.display_name or user.plex_user_id
+        if not user:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        recipient = user.notification_email or user.plex_email
+        display_name = user.custom_name or user.display_name or user.plex_user_id
 
     if not recipient:
         recipient = settings.smtp_from
@@ -568,11 +642,12 @@ async def test_send_email(
     req = _create_dummy_request()
 
     scope, language, season_number, episode_number = (
-        _parse_preview_variant(body.preview_variant)
-        if event_type in ("available", "upgrade")
+        _preview_context(event_type, body.preview_variant)
+        if event_type in ("available", "upgrade", *_SERIES_EVENT_TYPES)
         else ("movie", None, None, None)
     )
 
+    batch_summary, availability_details = _preview_availability_details(event_type)
     tags = _build_tags(
         req,
         display_name=display_name,
@@ -581,6 +656,8 @@ async def test_send_email(
         is_upgrade=is_upgrade,
         season_number=season_number,
         episode_number=episode_number,
+        batch_summary=batch_summary,
+        availability_details=availability_details,
         reason="Impossible de contacter Sonarr." if event_type == "failure" else "",
         corrections=["Son corrigé", "Sous-titres resynchronisés"],
         correction_note="Note complémentaire : le fichier a été remplacé par une version corrigée."
@@ -588,7 +665,8 @@ async def test_send_email(
         else "",
     )
 
-    jinja_ctx = _build_preview_jinja_ctx(settings, event_type, req, display_name, language, body)
+    visual_event_type = "available" if event_type in _SERIES_EVENT_TYPES else event_type
+    jinja_ctx = _build_preview_jinja_ctx(settings, visual_event_type, req, display_name, language, body)
     # Envoi réel (contrairement à l'aperçu) : résolution effective du lien Plex, avec
     # fallback silencieux (None -> bouton omis) si le serveur est injoignable ou l'item introuvable.
     jinja_ctx["_tmdb_url"] = build_tmdb_url(req)

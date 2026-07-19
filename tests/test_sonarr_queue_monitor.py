@@ -15,7 +15,11 @@ from app.models import (
     PlexUser,
     Settings,
 )
-from app.services.acquisition_batches import advance_acquisition_batches, build_batch_summary
+from app.services.acquisition_batches import (
+    advance_acquisition_batches,
+    build_batch_summary,
+    classify_batch_availability,
+)
 from app.services.sonarr_queue_monitor import classify_queue_record, monitor_sonarr_queue
 from app.utils import now_utc_naive
 
@@ -168,6 +172,21 @@ def test_batch_summary_combines_vo_vf_and_blocked_imports():
     assert "1 saison(s) en VO" in summary
     assert "1 import(s)" in summary
     assert "1 saison(s) encore en attente" in summary
+
+
+@pytest.mark.parametrize(
+    ("events", "expected", "variant"),
+    [
+        ([{"scope": "episode", "season_number": 2, "episode_number": 4}], [1, 2], "episode_available"),
+        ([{"scope": "season_start", "season_number": 2, "episode_number": 1}], [1, 2], "season_started"),
+        ([{"scope": "episode", "season_number": 2, "episode_number": 1}, {"scope": "episode", "season_number": 2, "episode_number": 2}], [1, 2], "season_partial"),
+        ([{"scope": "season_complete", "season_number": 2}], [1, 2, 3], "season_complete"),
+        ([{"scope": "season_complete", "season_number": 1}, {"scope": "season_complete", "season_number": 2}], [1, 2, 3], "series_partial"),
+        ([{"scope": "season_complete", "season_number": 1}, {"scope": "season_complete", "season_number": 2}], [1, 2], "series_complete"),
+    ],
+)
+def test_batch_availability_classification(events, expected, variant):
+    assert classify_batch_availability(events, expected)["availability_variant"] == variant
 
 
 @pytest.mark.asyncio

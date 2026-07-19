@@ -6,11 +6,11 @@
         <Save/>{{ saving ? 'Enregistrement...' : 'Enregistrer' }}
       </button>
     </header>
-    <div class="segmented settings-tabs">
-      <button v-for="item in tabs" :key="item.key" :class="{active:tab===item.key}" @click="selectTab(item.key)">
-        <component :is="item.icon"/>{{ item.label }}
-      </button>
-    </div>
+    <label class="settings-section-select">Section des parametres
+      <select :value="tab" @change="selectTab($event.target.value)">
+        <optgroup v-for="group in tabGroups" :key="group.label" :label="group.label"><option v-for="item in group.items" :key="item.key" :value="item.key">{{ item.label }}</option></optgroup>
+      </select>
+    </label>
     <p v-if="error" class="notice error-text">{{ error }}</p>
     <p v-if="message" class="notice success-text">{{ message }}</p>
 
@@ -27,7 +27,8 @@
   </div>
 </template>
 <script setup>
-import { markRaw, onMounted, ref } from 'vue';
+import { computed, markRaw, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, ServerCog } from '@lucide/vue';
 import EmailTemplatesPanel from '@/components/EmailTemplatesPanel.vue';
 import SettingsOperationsPanel from '@/components/SettingsOperationsPanel.vue';
@@ -53,11 +54,21 @@ const tabs = [
   { key: 'templates', label: 'Emails', icon: markRaw(FileCode2) },
   { key: 'data', label: 'Donnees', icon: markRaw(DatabaseZap) },
 ];
-const tab = ref(new URLSearchParams(location.search).get('tab') || 'connections');
+const tabGroups=[
+  {label:'Parametres',items:tabs.filter(item=>['connections','webhooks','library','downloads'].includes(item.key))},
+  {label:'Notifications',items:tabs.filter(item=>['notifications-channels','notifications-rules','templates'].includes(item.key))},
+  {label:'Exploitation',items:tabs.filter(item=>['scheduled-tasks','operations','data'].includes(item.key))},
+];
+const route=useRoute(),router=useRouter();
+const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'connections');
 function selectTab(value) {
-  tab.value = value;
-  history.replaceState(null, '', `/settings?tab=${value}`);
+  router.replace({path:'/settings',query:{tab:value}});
 }
 
 onMounted(load);
 </script>
+<style scoped>
+.settings-section-select{display:none;gap:6px;color:var(--muted);font-size:12px}.settings-section-select select{width:100%}
+@media(max-width:1024px){.settings-section-select{display:grid}}
+@media(max-width:640px){.settings-section-select{position:sticky;top:8px;z-index:8;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px}}
+</style>

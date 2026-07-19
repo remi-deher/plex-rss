@@ -460,24 +460,6 @@ td {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
-.settings-tabs {
-  align-self: flex-start;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-.settings-tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-
-.settings-tabs svg {
-  width: 16px;
-  height: 16px;
-}
-
 .migration-panel {
   grid-column: span 2;
 }

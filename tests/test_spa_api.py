@@ -115,6 +115,30 @@ def test_spa_email_templates_resolve_defaults_and_header(async_db):
         assert data["email_show_header_subtitle"] is True
         assert data["email_media_layout"] == "left"
         assert data["has_previous_version"] is False
+        assert data["email_series_complete_template"]
+        assert data["simulation_settings"]["email_enabled"] is True
+        assert data["simulation_settings"]["series_notify_granularity"] == "jalons"
+    finally:
+        _cleanup()
+
+
+def test_spa_email_preview_supports_series_scenarios(async_db):
+    async_db.add(Settings(email_enabled=True, smtp_from="plex@example.com"))
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.post(
+            "/api/email-preview",
+            json={
+                "type": "series_partial",
+                "template": "{resume_disponibilite}",
+                "subject": "Saisons : {titre}",
+                "preview_variant": "default",
+            },
+        )
+        assert response.status_code == 200
+        assert "3 saisons completes" in response.text
+        assert "Saisons : Breaking Bad" in response.text
     finally:
         _cleanup()
 
