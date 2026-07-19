@@ -48,7 +48,7 @@ def _build_message(event: str, request: MediaRequest, context: dict | None = Non
         body = f"{type_label} demandé par {user}"
     elif event == "available":
         title = f"Disponible — {request.title}{year}"
-        body = f"{type_label} maintenant disponible sur Plex !"
+        body = (context or {}).get("batch_summary") or f"{type_label} maintenant disponible sur Plex !"
     else:
         title = f"Echec — {request.title}{year}"
         reason = (context or {}).get("reason")

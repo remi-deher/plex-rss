@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, MediaRequest, NotificationMilestone, PendingNotification, PlexUser, RequestSeasonStatus, RequestStatus, Settings
+from app.models import ArrInstance, Base, MediaRequest, NotificationMilestone, PendingNotification, PlexUser, RequestSeasonStatus, RequestStatus, SeriesAcquisitionBatch, Settings
 from app.services.notification_orchestrator import (
     AvailabilityCandidate,
     _handle_show_progress_notification,
@@ -68,6 +68,99 @@ async def test_resolve_and_notify_availability_sends_one_and_consumes_all_candid
         ("episode", 2, 5),
     }
     assert all(m.language is None and m.is_upgrade is False for m in milestones)
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_open_acquisition_batch_accumulates_candidates_without_immediate_email():
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True, email_on_vf_available=True)
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    instance = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="secret", enabled=True)
+    db.add_all([settings, user, instance])
+    await db.flush()
+    req = MediaRequest(
+        plex_user_id="alice",
+        title="Show",
+        media_type="show",
+        status=RequestStatus.available,
+        source="rss",
+        arr_instance_id=instance.id,
+        arr_id=42,
+        vf_category="series",
+    )
+    db.add(req)
+    await db.flush()
+    batch = SeriesAcquisitionBatch(
+        request_id=req.id,
+        arr_instance_id=instance.id,
+        arr_id=42,
+        source="rss",
+        expected_scope="all_seasons",
+        status="open",
+    )
+    db.add(batch)
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as immediate_enqueue:
+        accepted = await resolve_and_notify_availability(
+            settings,
+            req,
+            db,
+            candidates=[
+                AvailabilityCandidate(
+                    scope="season_start",
+                    language="vf",
+                    is_upgrade=True,
+                    season_number=1,
+                    episode_number=1,
+                ),
+                AvailabilityCandidate(
+                    scope="season_start",
+                    language="vo",
+                    is_upgrade=False,
+                    season_number=2,
+                    episode_number=1,
+                ),
+            ],
+        )
+
+    assert accepted is True
+    immediate_enqueue.assert_not_awaited()
+    await db.refresh(batch)
+    assert '"language": "vf"' in batch.pending_events
+    assert '"language": "vo"' in batch.pending_events
+    assert batch.last_plex_change_at is not None
+    milestones = (await db.execute(select(NotificationMilestone).filter_by(req_id=req.id))).scalars().all()
+    assert len(milestones) == 2
+    await db.close()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_complete_season_wins_over_start_when_detected_in_same_scan():
+    engine, db = await _make_db()
+    settings = Settings(id=1, smtp_from="alice@example.com", email_on_available=True)
+    user = PlexUser(plex_user_id="alice", enabled=True, notification_email="alice@example.com")
+    req = MediaRequest(plex_user_id="alice", title="Show", media_type="show", status=RequestStatus.available)
+    db.add_all([settings, user, req])
+    await db.commit()
+
+    with patch("app.services.notification_orchestrator.enqueue", new_callable=AsyncMock) as enqueue_mock:
+        await resolve_and_notify_availability(
+            settings,
+            req,
+            db,
+            candidates=[
+                AvailabilityCandidate(scope="season_start", season_number=1, episode_number=1),
+                AvailabilityCandidate(scope="season_complete", season_number=1),
+            ],
+        )
+
+    enqueue_mock.assert_awaited_once()
+    assert enqueue_mock.call_args.args[3]["scope"] == "season_complete"
+    assert enqueue_mock.call_args.args[3]["season_number"] == 1
     await db.close()
     await engine.dispose()
 

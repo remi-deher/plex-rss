@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import JobRunLog, Settings
+from app.models import (
+    ArrInstance,
+    JobRunLog,
+    MediaRequest,
+    SeriesAcquisitionBatch,
+    Settings,
+    SonarrQueueObservation,
+)
 
 
 @pytest.fixture()
@@ -38,11 +45,62 @@ def test_list_scheduled_tasks_without_settings(client, db):
     jobs = {row["job"] for row in data}
     assert "arr-statuses" in jobs
     assert "watchlist" in jobs
+    assert "sonarr-queue-monitor" in jobs
     arr_row = next(row for row in data if row["job"] == "arr-statuses")
     assert arr_row["interval_seconds"] == 900  # default : 15 min
     assert arr_row["configurable"] is True
     assert arr_row["settings_field"] == "arr_poll_interval_seconds"
     assert arr_row["state"] is None
+
+
+def test_acquisition_batches_exposes_active_and_blocked_imports(client, db):
+    instance = ArrInstance(name="Sonarr", arr_type="sonarr", url="http://sonarr", api_key="key")
+    request = MediaRequest(
+        plex_user_id="user-1",
+        plex_user="User",
+        title="Serie test",
+        media_type="show",
+        arr_id=42,
+        source="rss",
+    )
+    db.add_all([instance, request])
+    db.flush()
+    batch = SeriesAcquisitionBatch(
+        request_id=request.id,
+        arr_instance_id=instance.id,
+        arr_id=42,
+        source="rss",
+        expected_scope="all_seasons",
+        expected_seasons="[1, 2]",
+        pending_events='[{"scope": "season_complete", "season_number": 1, "language": "vf"}]',
+        status="stabilizing",
+    )
+    db.add(batch)
+    db.flush()
+    db.add(SonarrQueueObservation(
+        batch_id=batch.id,
+        request_id=request.id,
+        arr_instance_id=instance.id,
+        queue_id=99,
+        arr_media_id=42,
+        season_number=2,
+        title="Serie test S02",
+        state="import_blocked",
+        progress=100,
+        consecutive_blocked_checks=2,
+        error_message="Unable to match release",
+    ))
+    db.commit()
+
+    response = client.get("/api/acquisition-batches")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["counts"] == {"active_batches": 1, "active_queue": 0, "blocked_imports": 1}
+    assert data["items"][0]["title"] == "Serie test"
+    assert data["items"][0]["expected_seasons"] == [1, 2]
+    assert data["items"][0]["queue"][0]["state"] == "import_blocked"
+    assert data["items"][0]["queue"][0]["blocked_checks"] == 2
 
 
 def test_list_scheduled_tasks_uses_configured_arr_interval(client, db):

@@ -279,7 +279,9 @@ class AvailabilityCandidate:
 _AVAILABILITY_PRIORITY = {
     "episode": 50,
     "season_start": 40,
-    "season_complete": 40,
+    # Si le meme scan voit le debut ET la fin, annoncer la fin. A priorite egale,
+    # max() conservait le premier candidat (season_start), meme saison deja complete.
+    "season_complete": 45,
     "series_complete": 30,
     "movie": 20,
 }
@@ -470,6 +472,13 @@ async def resolve_and_notify_availability(
     if not new_candidates:
         return False
 
+    # Une vague Sonarr ouverte absorbe les jalons sans ralentir leur analyse. La file
+    # Sonarr cloturera le lot apres stabilisation et produira un seul recapitulatif.
+    from .acquisition_batches import accumulate_batch_candidates
+
+    if await accumulate_batch_candidates(db, req, new_candidates):
+        return True
+
     winner = max(new_candidates, key=_candidate_priority)
     email_flag = settings.email_on_vf_available if winner.is_upgrade else settings.email_on_available
     # Eligibilité (langue, granularité) tranchée sur les préférences du demandeur
@@ -544,6 +553,7 @@ async def _queue_show_milestones(
     episode_status: dict | None = None,
     has_vf_full: bool = False,
     season_aired_counts: dict[int, int] | None = None,
+    is_upgrade: bool | None = None,
 ) -> int:
     user_obj = (await db.execute(
         select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id)
@@ -555,7 +565,7 @@ async def _queue_show_milestones(
         AvailabilityCandidate(
             scope=scope,
             language=language,
-            is_upgrade=language == "vf",
+            is_upgrade=(language == "vf") if is_upgrade is None else is_upgrade,
             season_number=season,
             episode_number=episode,
         )

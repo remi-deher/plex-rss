@@ -594,6 +594,15 @@ def _normalize_queue_record(r: dict, title: str, *, series: dict | None = None, 
         "indexer": r.get("indexer"),
         "protocol": r.get("protocol"),
         "error": r.get("errorMessage"),
+        "status_messages": r.get("statusMessages") or [],
+        "series_seasons": [
+            {
+                "season_number": season.get("seasonNumber"),
+                "monitored": bool(season.get("monitored")),
+            }
+            for season in (series.get("seasons") or [])
+            if season.get("seasonNumber") is not None
+        ],
         # Métadonnées portées par la file (déjà connues de Sonarr) — utilisées pour
         # pré-remplir l'import manuel quand le lien vers une MediaRequest est absent.
         "series_title": series.get("title"),
@@ -705,7 +714,7 @@ async def trigger_import(
         return False, str(e)
 
 
-async def get_queue(url: str, api_key: str) -> list[dict]:
+async def get_queue(url: str, api_key: str, *, raise_on_error: bool = False) -> list[dict]:
     """File d'attente de téléchargement Sonarr (GET /queue), format compact."""
     base = url.rstrip("/")
     try:
@@ -718,6 +727,8 @@ async def get_queue(url: str, api_key: str) -> list[dict]:
         records = resp.json().get("records", [])
     except Exception as e:
         logger.warning(f"Sonarr get_queue échec: {e}")
+        if raise_on_error:
+            raise
         return []
     out = []
     for r in records:

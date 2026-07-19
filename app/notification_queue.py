@@ -24,7 +24,12 @@ from . import metrics as app_metrics
 from .database import AsyncSessionLocal
 from .job_queue import availability_notification_is_historical, notification_hold_enabled
 from .models import MediaRequest, NotificationLog, PendingNotification, PlexUser, Settings
-from .services.email_service import send_available_notification, send_failure_notification, send_request_notification
+from .services.email_service import (
+    send_available_notification,
+    send_failure_notification,
+    send_import_blocked_notification,
+    send_request_notification,
+)
 from .services.diagnostics import record_event
 from .services.notification_catalog import event_mail_flags
 from .services.notifications import ChannelNotConfigured
@@ -63,11 +68,17 @@ async def _send_available(settings, req, recipient, context, display_name):
         is_upgrade=bool(context.get("is_upgrade")),
         season_number=context.get("season_number"),
         episode_number=context.get("episode_number"),
+        batch_summary=context.get("batch_summary", ""),
     )
 
 
 async def _send_failed(settings, req, recipient, context, display_name):
     context = context if isinstance(context, dict) else {"reason": str(context or "")}
+    if context.get("scope") == "import_blocked":
+        await send_import_blocked_notification(
+            settings, req, recipient, context.get("reason", ""), display_name
+        )
+        return
     await send_failure_notification(settings, req, recipient, context.get("reason", ""), display_name)
 
 
@@ -497,7 +508,7 @@ async def _process(
                 message=f"Notification {event} traitée.",
                 details={"event": event, "channel": "email", "recipients": recipients, "success": all_ok},
             )
-            if all_ok:
+            if all_ok and not context.get("admin_only"):
                 for attr in event_mail_flags(event):
                     setattr(req, attr, True)
                 if event == "available" and context.get("scope") == "episode" and req.episodes_available_count is not None:
@@ -511,15 +522,16 @@ async def _process(
             # en a un côté appelant — un retry ARQ du job entier renverrait le même email une
             # deuxième fois si un push échoue après que l'email a déjà réussi.
             push_targets: list[tuple[str, str, object]] = []
-            if _push_allowed(settings, "discord", event):
+            suppress_push = bool(context.get("admin_only"))
+            if not suppress_push and _push_allowed(settings, "discord", event):
                 push_targets.append(("discord", "discord (global)", lambda: send_discord(settings, req, event, context)))
-            if _push_allowed(settings, "telegram", event):
+            if not suppress_push and _push_allowed(settings, "telegram", event):
                 push_targets.append(("telegram", "telegram (global)", lambda: send_telegram(settings, req, event, context)))
-            if _push_allowed(settings, "ntfy", event):
+            if not suppress_push and _push_allowed(settings, "ntfy", event):
                 push_targets.append(("ntfy", "ntfy", lambda: send_ntfy_notif(settings, req, event, context)))
-            if _push_allowed(settings, "gotify", event):
+            if not suppress_push and _push_allowed(settings, "gotify", event):
                 push_targets.append(("gotify", "gotify", lambda: send_gotify_notif(settings, req, event, context)))
-            if user_obj:
+            if user_obj and not suppress_push:
                 if user_obj.discord_webhook_url and _push_allowed(settings, "discord", event):
                     webhook_url = user_obj.discord_webhook_url
                     push_targets.append((

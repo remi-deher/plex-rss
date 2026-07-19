@@ -335,6 +335,7 @@ def _build_tags(
     reason: str = "",
     corrections: list[str] | tuple[str, ...] | None = None,
     correction_note: str = "",
+    batch_summary: str = "",
 ) -> dict:
     is_show = request.media_type == "show"
     diagnostic = request_context(request) if hasattr(request, "diagnostic_context") else {}
@@ -344,7 +345,9 @@ def _build_tags(
         type_media = "La série"
 
     details_se = ""
-    if is_show and season_number is not None:
+    if scope == "series_batch" and batch_summary:
+        details_se = batch_summary
+    elif is_show and season_number is not None:
         if scope == "episode" and episode_number is not None:
             details_se = f"(Saison {season_number}, Épisode {episode_number})"
         elif scope == "season":
@@ -505,11 +508,19 @@ async def send_available_notification(
     is_upgrade: bool = False,
     season_number: int | None = None,
     episode_number: int | None = None,
+    batch_summary: str = "",
 ):
     template_field = "email_upgrade_template" if is_upgrade else "email_available_template"
     subject_field = "email_upgrade_subject" if is_upgrade else "email_available_subject"
     default_template = DEFAULT_UPGRADE_TEMPLATE if is_upgrade else DEFAULT_AVAILABLE_TEMPLATE
     event_type = "upgrade" if is_upgrade else "available"
+
+    if scope == "series_batch":
+        default_template = """**Mise a jour de {media_type_et_titre}**
+
+{details_saison_episode}
+
+Les statuts ont ete regroupes pour eviter plusieurs notifications successives."""
 
     if is_upgrade:
         default_subject = "[Plexarr] Mise à jour VF : {titre}"
@@ -524,6 +535,7 @@ async def send_available_notification(
         is_upgrade=is_upgrade,
         season_number=season_number,
         episode_number=episode_number,
+        batch_summary=batch_summary,
     )
 
     extra_ctx = get_shared_email_parts(settings)
@@ -600,6 +612,38 @@ async def send_failure_notification(
         subject_field="email_failure_subject",
         default_subject="[Plexarr] Échec de transmission : {titre}",
         subject_fallback=f"[Plexarr] Échec de transmission : {request.title}",
+        tags=tags,
+        extra_jinja_ctx=extra_ctx,
+    )
+
+
+async def send_import_blocked_notification(
+    settings: Settings,
+    request: MediaRequest,
+    recipient: str,
+    reason: str = "",
+    display_name: str | None = None,
+):
+    """Alerte admin dediee, distincte d'un echec de transmission de demande."""
+    tags = _build_tags(request, display_name, reason=reason)
+    extra_ctx = get_shared_email_parts(settings)
+    extra_ctx.update(get_event_visuals(settings, "failure"))
+    extra_ctx["_badge_text"] = "Intervention Sonarr"
+    extra_ctx["_headline_text"] = "Import bloque"
+    extra_ctx["_tmdb_url"] = build_tmdb_url(request)
+    await _send_templated(
+        settings,
+        request,
+        recipient,
+        display_name,
+        template_field="_import_blocked_template",
+        default_template="""Le telechargement est termine, mais Sonarr ne peut pas l'importer automatiquement.
+
+**Intervention manuelle requise :**
+{raison}""",
+        subject_field="_import_blocked_subject",
+        default_subject="[Plexarr] Import Sonarr bloque : {titre}",
+        subject_fallback=f"[Plexarr] Import Sonarr bloque : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
     )

@@ -55,6 +55,7 @@ from .services.seer_sync import (
     sync_seer_users,
 )
 from .services.sonarr import get_all_series, get_series_episode_stats, is_series_available
+from .services.sonarr_queue_monitor import monitor_sonarr_queue
 from .services.vff_scanner import (
     _invalidate_vf_cache,
     _load_known_vf_episodes,
@@ -114,6 +115,15 @@ async def start_scheduler(poll_seconds: int = 300):
     )
     scheduler.add_job(check_arr_statuses, "interval", minutes=15, id="arr_status_check", replace_existing=True)
     scheduler.add_job(check_torrent_statuses, "interval", minutes=2, id="torrent_status_check", replace_existing=True)
+    scheduler.add_job(
+        monitor_sonarr_queue,
+        "interval",
+        minutes=1,
+        id="sonarr_queue_monitor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.add_job(check_vf_statuses, "interval", minutes=vff_interval, id="vf_status_check", replace_existing=True)
     scheduler.add_job(
         check_episode_tracking, "interval", minutes=vff_interval, id="episode_tracking_check", replace_existing=True

@@ -143,6 +143,17 @@ async def test_job_arr_statuses_falls_back_to_default_without_settings():
 
 
 @pytest.mark.asyncio
+async def test_sonarr_queue_monitor_runs_every_minute():
+    with patch("app.jobs._run", new=AsyncMock(return_value={"status": "not_due"})) as run_mock:
+        await jobs.job_sonarr_queue_monitor({"redis": FakeRedis()})
+
+    assert run_mock.call_args.args[1] == "sonarr-queue-monitor"
+    assert run_mock.call_args.kwargs["interval_seconds"] == 60
+    assert jobs.job_sonarr_queue_monitor in jobs.WorkerSettings.functions
+    assert jobs.cron_sonarr_queue_monitor in {entry.coroutine for entry in jobs.WorkerSettings.cron_jobs}
+
+
+@pytest.mark.asyncio
 async def test_job_digest_compares_against_local_hour_not_utc():
     """Regression : digest_hour est une heure murale (reglee "8h" dans les reglages) —
     la comparer a now_utc().hour la decale de 1h/2h selon CET/CEST (incident reel :

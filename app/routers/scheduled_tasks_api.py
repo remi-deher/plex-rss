@@ -14,7 +14,13 @@ from sqlalchemy.future import select
 
 from ..database import get_db_async
 from ..dependencies import require_admin
-from ..models import JobRunLog, Settings
+from ..models import (
+    JobRunLog,
+    MediaRequest,
+    SeriesAcquisitionBatch,
+    Settings,
+    SonarrQueueObservation,
+)
 from ..serializers import format_datetime
 
 router = APIRouter(prefix="/api", tags=["scheduled-tasks"], dependencies=[Depends(require_admin)])
@@ -25,6 +31,15 @@ router = APIRouter(prefix="/api", tags=["scheduled-tasks"], dependencies=[Depend
 # intervalle periodique) qui ont, en plus de l'heure, une minute de declenchement
 # (digest_minute).
 JOB_CATALOG = [
+    {
+        "job": "sonarr-queue-monitor",
+        "label": "File d'acquisition Sonarr",
+        "description": "Suit chaque minute les telechargements, imports et blocages afin de regrouper les notifications de serie.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 60,
+        "fixed_schedule": "Toutes les minutes",
+    },
     {
         "job": "watchlist",
         "label": "Watchlist Plex",
@@ -135,6 +150,85 @@ JOB_CATALOG = [
         "fixed_schedule": None,
     },
 ]
+
+
+def _json_list(value: str | None) -> list:
+    try:
+        parsed = json.loads(value or "[]")
+        return parsed if isinstance(parsed, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+@router.get("/acquisition-batches")
+async def list_acquisition_batches(limit: int = 50, db: AsyncSession = Depends(get_db_async)):
+    """Etat exploitable des lots actifs et des imports Sonarr recents/bloques."""
+    batches = (
+        await db.execute(
+            select(SeriesAcquisitionBatch, MediaRequest)
+            .outerjoin(MediaRequest, MediaRequest.id == SeriesAcquisitionBatch.request_id)
+            .filter(SeriesAcquisitionBatch.status.in_(("open", "stabilizing")))
+            .order_by(SeriesAcquisitionBatch.opened_at.desc())
+            .limit(min(max(limit, 1), 200))
+        )
+    ).all()
+    batch_ids = [batch.id for batch, _request in batches]
+    observations = []
+    if batch_ids:
+        observations = (
+            await db.execute(
+                select(SonarrQueueObservation)
+                .filter(
+                    SonarrQueueObservation.batch_id.in_(batch_ids),
+                    SonarrQueueObservation.resolved_at.is_(None),
+                )
+                .order_by(SonarrQueueObservation.last_seen_at.desc())
+            )
+        ).scalars().all()
+    by_batch: dict[int, list[SonarrQueueObservation]] = {}
+    for observation in observations:
+        by_batch.setdefault(observation.batch_id, []).append(observation)
+
+    items = []
+    for batch, request in batches:
+        queue = by_batch.get(batch.id, [])
+        items.append({
+            "id": batch.id,
+            "request_id": batch.request_id,
+            "title": request.title if request else f"Serie Sonarr #{batch.arr_id}",
+            "source": batch.source,
+            "status": batch.status,
+            "expected_scope": batch.expected_scope,
+            "expected_seasons": _json_list(batch.expected_seasons),
+            "pending_events": _json_list(batch.pending_events),
+            "opened_at": format_datetime(batch.opened_at),
+            "last_sonarr_activity_at": format_datetime(batch.last_sonarr_activity_at),
+            "last_plex_change_at": format_datetime(batch.last_plex_change_at),
+            "stabilization_started_at": format_datetime(batch.stabilization_started_at),
+            "queue": [
+                {
+                    "id": observation.id,
+                    "title": observation.title,
+                    "season_number": observation.season_number,
+                    "episode_number": observation.episode_number,
+                    "state": observation.state,
+                    "progress": observation.progress,
+                    "blocked_checks": observation.consecutive_blocked_checks,
+                    "error": observation.error_message,
+                    "blocked_at": format_datetime(observation.blocked_at),
+                    "last_seen_at": format_datetime(observation.last_seen_at),
+                }
+                for observation in queue
+            ],
+        })
+    return {
+        "items": items,
+        "counts": {
+            "active_batches": len(items),
+            "active_queue": sum(1 for item in items for row in item["queue"] if row["state"] != "import_blocked"),
+            "blocked_imports": sum(1 for item in items for row in item["queue"] if row["state"] == "import_blocked"),
+        },
+    }
 
 
 async def _job_states() -> dict[str, dict]:

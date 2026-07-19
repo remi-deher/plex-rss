@@ -446,6 +446,7 @@ async def _queue_availability_progress(
         episode_status=episode_status,
         has_vf_full=has_vf_full,
         season_aired_counts=season_aired_counts,
+        is_upgrade=is_upgrade,
     )
 
 
