@@ -52,6 +52,8 @@ logs/
 .coverage
 .pytest_cache/
 htmlcov/
+playwright-report/
+test-results/
 
 # Codex local reports
 .codex/
