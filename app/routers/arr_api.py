@@ -301,6 +301,10 @@ async def prowlarr_grab_release(body: ProwlarrGrabRequest, db: AsyncSession = De
         if req and req.status not in (RequestStatus.available,):
             await transition_request(db, req, "submitted", source="prowlarr_manual")
             await db.commit()
+            from ..services.notification_policy import dispatch_transition_notification
+
+            settings = (await db.execute(select(Settings))).scalars().first()
+            await dispatch_transition_notification(settings, req, db, "submitted")
     return {"success": True, "message": msg}
 
 
@@ -434,6 +438,10 @@ async def download_release(body: DownloadReleaseRequest, db: AsyncSession = Depe
             req.torrent_hash = info_hash
             await transition_request(db, req, "submitted", source="torrent_manual")
             await db.commit()
+            from ..services.notification_policy import dispatch_transition_notification
+
+            settings = (await db.execute(select(Settings))).scalars().first()
+            await dispatch_transition_notification(settings, req, db, "submitted")
 
     return {"success": True, "message": msg, "info_hash": info_hash}
 
@@ -469,6 +477,10 @@ async def download_torrent_file(
             req.torrent_hash = info_hash
             await transition_request(db, req, "submitted", source="torrent_file_manual")
             await db.commit()
+            from ..services.notification_policy import dispatch_transition_notification
+
+            settings = (await db.execute(select(Settings))).scalars().first()
+            await dispatch_transition_notification(settings, req, db, "submitted")
     return {"success": True, "message": msg, "info_hash": info_hash}
 
 
@@ -546,6 +558,10 @@ async def arr_grab_release(body: ArrGrabRequest, db: AsyncSession = Depends(get_
         if req and req.status not in (RequestStatus.available,):
             await transition_request(db, req, "submitted", source=arr_type)
             await db.commit()
+            from ..services.notification_policy import dispatch_transition_notification
+
+            settings = (await db.execute(select(Settings))).scalars().first()
+            await dispatch_transition_notification(settings, req, db, "submitted")
     return {"success": True, "message": msg}
 
 

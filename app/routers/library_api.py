@@ -31,7 +31,6 @@ from ..services import seer as seer_service
 from ..services.request_lifecycle import transition_request
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..services.diagnostics import record_event, update_request_context
-from ..services.notification_orchestrator import _notify
 from ..utils import async_get_or_404, identity_keys, now_utc_naive, wrap_image_proxy
 from .arr_api import _resolve_arr_instance
 
@@ -1011,7 +1010,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
             tmdb_id=tmdb_str,
             tvdb_id=tvdb_str,
             imdb_id=body.imdb_id,
-            status=RequestStatus.sent_to_arr,
+            status=RequestStatus.pending,
             source=source_val,
             arr_id=arr_id if isinstance(arr_id, int) else None,
             arr_slug=chosen_slug,
@@ -1020,6 +1019,8 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
             overview=body.overview,
         )
         db.add(req)
+        await db.flush()
+        await transition_request(db, req, "submitted", source=via)
         await db.commit()
         update_request_context(req, request_source=source_val)
         await record_event(
@@ -1031,8 +1032,9 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
             details={"source": source_val, "tmdb_id": tmdb_str, "tvdb_id": tvdb_str, "imdb_id": body.imdb_id},
         )
         await db.commit()
-        if s:
-            await _notify("request", s, req, db)
+        from ..services.notification_policy import dispatch_transition_notification
+
+        await dispatch_transition_notification(s, req, db, "submitted")
     else:
         # Ré-attache le contexte de suivi à une demande existante qui n'en avait pas
         # (ancienne demande manuelle, ou média re-demandé), pour que le statut repasse.
@@ -1056,7 +1058,8 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
         if existing.status in (RequestStatus.failed, RequestStatus.pending):
             await transition_request(db, existing, "submitted", source=via)
         await db.commit()
-        if s:
-            await _notify("request", s, existing, db)
+        from ..services.notification_policy import dispatch_transition_notification
+
+        await dispatch_transition_notification(s, existing, db, "submitted")
 
     return {"ok": True, "via": via, "already_existed": already, "id": arr_id, "search_triggered": search_triggered}

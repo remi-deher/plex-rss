@@ -558,6 +558,13 @@ async def approve_request(request_id: int, request: Request, db: AsyncSession = 
     try:
         arr_id, _already, arr_slug = await _submit_to_arr(settings, item, user_obj, db=db)
     except Exception as e:
+        await transition_request(db, req, "failed", source=item.get("_attempted_target") or "manual", error=str(e))
+        await db.commit()
+        from ..services.notification_policy import dispatch_transition_notification
+
+        await dispatch_transition_notification(
+            settings, req, db, "failed", reason=f"Impossible de transmettre a *ARR : {e}"
+        )
         raise HTTPException(502, f"Échec de transmission à *arr : {e}")
 
     # Source de suivi : Seer si l'envoi n'a pas transité par une instance *arr ni un torrent.
@@ -576,8 +583,9 @@ async def approve_request(request_id: int, request: Request, db: AsyncSession = 
     req.rejected_reason = None
     await db.commit()
 
-    if settings:
-        await _notify("request", settings, req, db)
+    from ..services.notification_policy import dispatch_transition_notification
+
+    await dispatch_transition_notification(settings, req, db, "submitted")
     return {"ok": True, "status": "sent_to_arr", "id": req.id}
 
 

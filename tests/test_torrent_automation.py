@@ -130,7 +130,7 @@ async def test_watchlist_torrent_automation_fallback(db):
             new=AsyncMock(return_value=(True, "Added", "inception_hash")),
         ),
         patch(
-            "app.services.watchlist_poller.notification_orchestrator._notify",
+                "app.services.notification_orchestrator._notify",
             new=AsyncMock(return_value=True),
         ) as mock_notify,
     ):

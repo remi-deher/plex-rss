@@ -14,7 +14,7 @@ from .. import metrics as app_metrics
 from ..database import AsyncSessionLocal
 from ..models import ArrInstance, DownloadClient, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
 from ..utils import now_utc, now_utc_naive
-from . import deleted_media, notification_orchestrator, prowlarr
+from . import deleted_media, prowlarr
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from .diagnostics import record_event, update_request_context
 from .download_clients import add_torrent_to_client
@@ -722,10 +722,10 @@ async def _process_watchlist_item(
             await db.commit()
             return "skip"
 
-    was_failed = existing and existing.status == RequestStatus.failed
-
     already_existed = False
     result = "sent"
+    transition_event = "submitted"
+    failure_reason = ""
     try:
         arr_id, already_existed, arr_slug = await _submit_to_arr(settings, item, user_obj, db=db)
         
@@ -763,33 +763,22 @@ async def _process_watchlist_item(
             error=str(e),
         )
         result = "failed"
-
-    await db.commit()
-
-    if req.status == RequestStatus.sent_to_arr:
-        # `already_existed` signifie seulement que le tmdb_id était déjà catalogué côté
-        # Radarr/Sonarr (ajouté par un autre biais, ou lors d'un cycle de poll précédent) —
-        # ça ne veut pas dire que CETTE demande a déjà été notifiée. La garde anti-spam
-        # correcte est `req.request_mail_sent` (vérifiée par `_notify` lui-même) : se fier
-        # à `already_existed` ici a fait sauter le mail de confirmation pour toute demande
-        # dont le média était déjà présent dans Radarr (ex: film déjà ajouté avant que ce
-        # suivi n'existe), même pour un utilisateur jamais notifié.
-        if already_existed:
-            logger.info(f"'{item['title']}' already in arr — no new arr add, but notifying requester")
-        await notification_orchestrator._notify("request", settings, req, db)
-    elif req.status == RequestStatus.failed and not was_failed:
+        transition_event = "failed"
         target_labels = {
-            "seer": "Seer",
-            "sonarr": "Sonarr",
-            "radarr": "Radarr",
-            "prowlarr": "Prowlarr",
-            "torrent": "Prowlarr/client torrent",
+            "seer": "Seer", "sonarr": "Sonarr", "radarr": "Radarr",
+            "prowlarr": "Prowlarr", "torrent": "Prowlarr/client torrent",
         }
         default_target = "Sonarr" if item["media_type"] == "show" else "Radarr"
         target_name = target_labels.get(item.get("_attempted_target"), default_target)
-        await notification_orchestrator._notify(
-            "failed", settings, req, db, f"Impossible de transmettre a {target_name}. Verifiez la configuration."
-        )
+        failure_reason = f"Impossible de transmettre a {target_name}. Verifiez la configuration."
+
+    await db.commit()
+
+    from .notification_policy import dispatch_transition_notification
+
+    await dispatch_transition_notification(
+        settings, req, db, transition_event, reason=failure_reason
+    )
 
     return result
 

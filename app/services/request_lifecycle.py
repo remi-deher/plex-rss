@@ -15,6 +15,7 @@ from ..models import FulfillmentStatus, MediaRequest, RequestStatus
 from ..utils import now_utc_naive
 from .diagnostics import record_event, update_request_context
 from .download_history import record_completed
+from .notification_policy import register_transition_notification_intent
 
 
 async def transition_request(
@@ -86,6 +87,8 @@ async def transition_request(
     changed = old_business != new_business or old_fulfillment != new_fulfillment
     if not changed:
         return False
+
+    register_transition_notification_intent(req, event)
 
     context = {
         "lifecycle_event": event,
