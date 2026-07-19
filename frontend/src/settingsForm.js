@@ -5,7 +5,7 @@
 // Singleton de module (pas une factory par composant) : chaque `import` de ce
 // fichier reçoit exactement le même `form`/`error`/`message`, comme le ferait un
 // store Pinia — plus léger ici vu la taille de l'état.
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { api } from '@/api';
 
 export const secretFields = ['plex_token', 'seer_api_key', 'tmdb_api_key', 'smtp_password', 'telegram_bot_token', 'ntfy_token', 'gotify_token'];
@@ -34,6 +34,9 @@ export const form = reactive({
 export const saving = ref(false);
 export const error = ref('');
 export const message = ref('');
+const savedSnapshot = ref('');
+const snapshot = () => JSON.stringify(form);
+export const isDirty = computed(() => Boolean(savedSnapshot.value) && snapshot() !== savedSnapshot.value);
 
 // `form[secretField]` est toujours vide juste apres load() (voir ci-dessous) : un badge
 // de statut qui se fie a la valeur du champ secret (ex: Plex, sans autre indicateur
@@ -52,6 +55,7 @@ export async function load() {
       secretsPresent[key] = Boolean(form[key]);
       form[key] = '';
     }
+    savedSnapshot.value = snapshot();
   } catch (e) {
     fail(e);
   }
@@ -63,6 +67,7 @@ export async function save() {
   for (const key of secretFields) if (!payload[key]) delete payload[key];
   try {
     await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    savedSnapshot.value = snapshot();
     success('Configuration enregistree.');
   } catch (e) {
     fail(e);

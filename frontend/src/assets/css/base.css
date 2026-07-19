@@ -30,6 +30,16 @@
   box-sizing: border-box;
 }
 
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline-offset: 3px;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) { outline: none; }
+
+::selection { color: #151515; background: var(--accent); }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -73,3 +83,6 @@ td strong,
 td small {
   display: block;
 }
+
+button, input, select, textarea { font: inherit; }
+button:disabled { cursor: not-allowed; }

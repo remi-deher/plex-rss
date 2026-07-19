@@ -1,20 +1,18 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div>
-        <h1>Dashboard</h1>
-        <p>Etat des services et activite recente.</p>
-      </div>
+    <PageHeader title="Tableau de bord" description="État des services et activité récente.">
       <button class="primary" :disabled="polling" @click="pollNow">
-        <RefreshCw :class="{ spin: polling }" />Verifier maintenant
+        <RefreshCw :class="{ spin: polling }" />Vérifier maintenant
       </button>
-    </header>
-
-    <HealthGrid />
+    </PageHeader>
 
     <OnboardingChecklist :onboarding="onboarding" :show="showOnboarding" @dismiss="dismissOnboarding" />
 
-    <section class="metric-grid">
+    <DashboardActionCenter :pending="pending" :queue="downloadQueue" :failed-count="failedCount" @action="action"/>
+
+    <section class="dashboard-section">
+      <header class="dashboard-section-head"><div><span>Activité</span><h2>En cours</h2><p>Demandes, acquisitions et analyses actuellement actives.</p></div></header>
+      <div class="metric-grid">
       <component
         v-for="card in statCards"
         :key="card.label"
@@ -26,31 +24,35 @@
         <span>{{ card.label }}</span>
         <strong>{{ card.value }}</strong>
       </component>
+      </div>
+      <div class="dashboard-focus-grid">
+        <DownloadQueuePanel :queue="downloadQueue.slice(0,5)" :loading="loadingQueue" />
+        <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
+        <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />
+      </div>
     </section>
 
-    <div class="dashboard-grid">
-      <PendingRequestsPanel :pending="pending" @action="action" />
-      <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
-      <RequestsBreakdownPanel :counts="counts" />
-      <DownloadQueuePanel :queue="downloadQueue" :loading="loadingQueue" />
-      <ActivityChartPanel :timeline="timeline" />
-      <UpcomingReleasesPanel :items="upcoming" />
+    <section class="dashboard-section">
+      <header class="dashboard-section-head"><div><span>Bibliothèque</span><h2>Nouveautés</h2><p>Contenus disponibles et prochaines sorties.</p></div></header>
+      <div class="dashboard-focus-grid">
       <RecentlyAvailablePanel :items="recentlyAvailable" />
-      <DiskSpacePanel :volumes="diskSpace" />
-      <TopRequestedPanel :items="topRequested" />
-      <ActiveUsersPanel :users="byUser" />
-      <RecentNotificationsPanel :notifications="recentNotifs" />
-      <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />
-    </div>
+        <UpcomingReleasesPanel :items="upcoming" />
+      </div>
+    </section>
+
+    <details class="dashboard-secondary" open>
+      <summary><div><span>Supervision</span><strong>Vue d’ensemble</strong></div><ChevronDown/></summary>
+      <div class="dashboard-secondary-content"><HealthGrid/><div class="dashboard-grid"><RequestsBreakdownPanel :counts="counts"/><ActivityChartPanel :timeline="timeline"/><DiskSpacePanel :volumes="diskSpace"/><TopRequestedPanel :items="topRequested"/><ActiveUsersPanel :users="byUser"/><RecentNotificationsPanel :notifications="recentNotifs"/></div></div>
+    </details>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { RefreshCw } from '@lucide/vue';
+import { ChevronDown, RefreshCw } from '@lucide/vue';
 import HealthGrid from '@/components/HealthGrid.vue';
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist.vue';
-import PendingRequestsPanel from '@/components/dashboard/PendingRequestsPanel.vue';
+import DashboardActionCenter from '@/components/dashboard/DashboardActionCenter.vue';
 import RecentJobsPanel from '@/components/dashboard/RecentJobsPanel.vue';
 import RequestsBreakdownPanel from '@/components/dashboard/RequestsBreakdownPanel.vue';
 import DownloadQueuePanel from '@/components/dashboard/DownloadQueuePanel.vue';
@@ -98,6 +100,7 @@ function dismissOnboarding() {
 // dans LibraryView.vue). Ne passer que "sent_to_arr" ici excluait a tort les series
 // comme Face Off/New York police judiciaire (statut partially_available, vrai manque).
 const IN_PROGRESS_STATUSES = ['sent_to_arr', 'partially_available'];
+const failedCount = computed(() => Number(counts.value.failed || 0));
 
 const statCards = computed(() => [
   { label: 'Demandes en cours', value: counts.value.sent_to_arr || '-', route: { path: '/library', query: { status: IN_PROGRESS_STATUSES } } },
@@ -112,7 +115,7 @@ async function loadDownloadQueue() {
   loadingQueue.value = true;
   try {
     const data = await api('/api/arr/queue').catch(() => []);
-    downloadQueue.value = (Array.isArray(data) ? data : []).slice(0, 5);
+    downloadQueue.value = Array.isArray(data) ? data : [];
   } finally {
     loadingQueue.value = false;
   }

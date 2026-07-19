@@ -1,9 +1,12 @@
 <template>
   <div class="shell">
     <!-- Desktop Sidebar -->
-    <aside class="sidebar desktop-only">
+    <aside class="sidebar desktop-only" :class="{'tablet-expanded':isTabletNavOpen}" :aria-expanded="isTabletNavOpen" @click="handleSidebarClick">
       <div class="brand">
-        Plexarr
+        <span class="brand-name">Plexarr</span>
+        <button class="tablet-nav-toggle" type="button" :aria-label="isTabletNavOpen ? 'Réduire le menu' : 'Ouvrir le menu'" :title="isTabletNavOpen ? 'Réduire le menu' : 'Ouvrir le menu'" @click.stop="toggleTabletNav">
+          <PanelLeftClose v-if="isTabletNavOpen"/><PanelLeftOpen v-else/>
+        </button>
       </div>
       
       <div class="menu-section">
@@ -44,6 +47,10 @@
         <a href="/logout" title="Deconnexion"><LogOut />Deconnexion</a>
       </div>
     </aside>
+
+    <Transition name="tablet-fade">
+      <button v-if="isTabletNavOpen" class="tablet-nav-backdrop" type="button" aria-label="Fermer le menu" @click="closeTabletNav" />
+    </Transition>
 
     <!-- Mobile Navigation Bar -->
     <nav class="mobile-nav-bar mobile-only">
@@ -97,9 +104,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-import { Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, ScrollText, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 const session=ref(null);
@@ -111,12 +118,19 @@ const isNotificationsRoute=computed(()=>route.path==='/notifications'||(route.pa
 const isOperationsRoute=computed(()=>['/logs','/maintenance'].includes(route.path)||(route.path==='/settings'&&['operations','scheduled-tasks','data'].includes(route.query.tab)));
 const settingsSections=[{key:'connections',label:'Connexions'},{key:'webhooks',label:'Webhooks'},{key:'library',label:'Bibliotheque'},{key:'downloads',label:'Telechargements'}];
 const isMoreOpen=ref(false);
+const isTabletNavOpen=ref(false);
 function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
-onMounted(async()=>{session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
+function toggleTabletNav(){isTabletNavOpen.value=!isTabletNavOpen.value}
+function closeTabletNav(){isTabletNavOpen.value=false}
+function handleSidebarClick(event){if(event.target.closest('a'))closeTabletNav()}
+function handleEscape(event){if(event.key==='Escape'){closeTabletNav();closeMoreMenu()}}
+watch(()=>route.fullPath,()=>{closeTabletNav();closeMoreMenu()});
+onMounted(async()=>{window.addEventListener('keydown',handleEscape);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
+onUnmounted(()=>window.removeEventListener('keydown',handleEscape));
 </script>
 
 <style scoped>
 .context-nav-group{display:grid}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;margin:3px 0 2px 28px;padding-left:10px;border-left:1px solid var(--border)}.context-sidebar-menu a{min-height:30px;padding:6px 9px;font-size:11px;color:var(--muted);border-radius:5px}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.1)}
-@media(max-width:1024px){.context-sidebar-menu,.context-chevron,.settings-chevron{display:none}}
+@media(max-width:1024px){.context-sidebar-menu,.context-chevron,.settings-chevron{display:none}.sidebar.tablet-expanded .context-sidebar-menu{display:grid}.sidebar.tablet-expanded .context-chevron,.sidebar.tablet-expanded .settings-chevron{display:block}}
 </style>

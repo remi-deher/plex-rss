@@ -1,22 +1,21 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div><h1>Journaux</h1><p>Diagnostic applicatif, parcours des demandes et tâches planifiées.</p></div>
+    <PageHeader title="Journaux" description="Diagnostic applicatif, parcours des demandes et tâches planifiées." eyebrow="Exploitation">
       <button class="icon-button" :disabled="loading" title="Actualiser" @click="load"><RefreshCw :class="{spin: loading}" /></button>
-    </header>
+    </PageHeader>
     <nav class="detail-tabs">
       <button v-for="item in tabs" :key="item.id" :class="{active: tab === item.id}" @click="tab = item.id; load()">{{ item.label }}</button>
     </nav>
-    <div class="toolbar wrap">
-      <input v-model="search" class="search" type="search" placeholder="Filtrer les journaux" @keyup.enter="load">
-      <select v-if="tab === 'diagnostic'" v-model="category" @change="load">
+    <FilterBar :active-count="activeFilterCount" :result-count="filtered.length" @reset="resetFilters">
+      <template #primary><input v-model="search" class="search" type="search" placeholder="Filtrer les journaux" aria-label="Filtrer les journaux" @keyup.enter="load"></template>
+      <template #filters><select v-if="tab === 'diagnostic'" v-model="category" @change="load">
         <option value="">Toutes les sections</option><option value="request">Demande</option><option value="arr">Arr</option><option value="plex">Plex</option><option value="vf_vo">VF / VO</option><option value="notification">Notification</option>
       </select>
       <select v-if="tab === 'app'" v-model="level"><option value="">Tous les niveaux</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option></select>
       <select v-if="tab === 'polls'" v-model="job" @change="load"><option value="">Toutes les tâches</option><option v-for="name in jobs" :key="name">{{ name }}</option></select>
-      <button v-if="tab === 'pending' && rows.length" class="secondary danger" @click="purge"><Trash2 />Purger la file</button>
-    </div>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+      <button v-if="tab === 'pending' && rows.length" class="secondary danger" @click="purge"><Trash2 />Purger la file</button></template>
+    </FilterBar>
+    <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
     <section class="panel table-wrap table-cards rich">
       <table><thead><tr><th>Date</th><th>Section</th><th>Description</th><th>Résultat</th></tr></thead>
         <tbody><tr v-for="row in filtered" :key="keyOf(row)"><td data-label="Date">{{ dateOf(row) }}</td><td data-label="Section"><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td class="card-title"><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td data-label="Résultat">{{ resultOf(row) }}</td></tr></tbody>
@@ -39,6 +38,8 @@ const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 const tabs = [{ id: 'diagnostic', label: 'Parcours demandes' }, { id: 'app', label: 'Application' }, { id: 'polls', label: 'Tâches planifiées' }, { id: 'audit', label: 'Audit admin' }, { id: 'pending', label: 'File notifications' }];
 const jobs = computed(() => [...new Set(rows.value.map(x => x.job).filter(Boolean))]);
 const filtered = computed(() => rows.value.filter(row => (!level.value || row.level === level.value) && (!search.value || JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase()))));
+const activeFilterCount = computed(() => [search.value, level.value, category.value, job.value].filter(Boolean).length);
+function resetFilters() { search.value = ''; level.value = ''; category.value = ''; job.value = ''; load(); }
 
 function endpoint() {
   if (tab.value === 'diagnostic') return `/api/diagnostic-logs?limit=300${category.value ? `&category=${encodeURIComponent(category.value)}` : ''}${search.value ? `&search=${encodeURIComponent(search.value)}` : ''}`;

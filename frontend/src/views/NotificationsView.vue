@@ -1,11 +1,7 @@
 <template>
 <div class="page">
-  <header class="page-head">
-    <div>
-      <h1>Notifications</h1>
-      <p>Historique des envois et file de distribution.</p>
-    </div>
-    <div class="actions">
+  <PageHeader title="Notifications" description="Historique des envois et file de distribution." eyebrow="Administration">
+    <template #status><StatusBadge :status="holdEnabled ? 'paused' : 'active'" :label="holdEnabled ? 'Envoi suspendu' : 'Envoi actif'" /></template>
       <div class="notification-control" :class="{paused: holdEnabled}">
         <div class="notification-control-icon"><PauseCircle v-if="holdEnabled"/><PlayCircle v-else/></div>
         <div class="notification-control-copy">
@@ -30,13 +26,10 @@
     <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
       <RefreshCw :class="{spin:loading}"/>
     </button>
-    </div>
-  </header>
+  </PageHeader>
 
   <Transition name="notification-feedback">
-    <p v-if="feedback.text" class="notification-feedback" :class="feedback.type">
-      <CheckCheck v-if="feedback.type === 'success'"/><span>{{ feedback.text }}</span>
-    </p>
+    <UiFeedback v-if="feedback.text" :type="feedback.type" :message="feedback.text" />
   </Transition>
 
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
@@ -46,26 +39,15 @@
     <button :class="{active:tab==='pending'}" @click="tab='pending';offset=0;load()">En attente <span v-if="pendingTotal" class="badge">{{ pendingTotal }}</span></button>
   </nav>
 
-  <div class="toolbar wrap">
-    <input v-model="search" class="search" type="search" placeholder="Media, destinataire ou evenement">
-
-    <!-- Actions "En attente" -->
-    <div v-if="tab==='pending'&&rows.length" class="actions">
+  <FilterBar :active-count="activeFilterCount" :result-count="tab==='history'?total:rows.length" @reset="resetFilters">
+    <template #primary><input v-model="search" class="search" type="search" placeholder="Média, destinataire ou événement" aria-label="Rechercher dans les notifications"></template>
+    <template #filters><div v-if="tab==='pending'&&rows.length" class="actions">
       <button class="secondary" :disabled="!selectedIds.length" @click="sendSelected"><Send/>Envoyer la sélection</button>
       <button class="secondary danger" :disabled="!selectedIds.length" @click="deleteSelected"><Trash2/>Supprimer la sélection</button>
       <button class="secondary" @click="purge(true)"><CheckCheck/>Purger et marquer traitees</button>
       <button class="secondary danger" @click="purge(false)"><Trash2/>Purger</button>
-    </div>
-  </div>
-
-  <NotificationsFiltersBar
-    v-if="tab==='history'"
-    v-model:state="state"
-    v-model:selected-types="selectedTypes"
-    v-model:selected-users="selectedUsers"
-    :users="users"
-    :type-options="typeOptions"
-  />
+    </div><NotificationsFiltersBar v-if="tab==='history'" v-model:state="state" v-model:selected-types="selectedTypes" v-model:selected-users="selectedUsers" :users="users" :type-options="typeOptions" /></template>
+  </FilterBar>
 
   <p v-if="error" class="notice error-text">{{ error }}</p>
 
@@ -121,6 +103,8 @@ let feedbackTimeout;
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const selectedIds = computed(() => tableRef.value?.selected || []);
+const activeFilterCount = computed(() => Number(Boolean(search.value)) + Number(Boolean(state.value)) + selectedTypes.value.length + selectedUsers.value.length);
+function resetFilters(){search.value='';state.value='';selectedTypes.value=[];selectedUsers.value=[];offset.value=0;load()}
 
 watch(tab,value=>router.replace({path:'/notifications',query:{...route.query,tab:value}}));
 watch(()=>route.query.tab,value=>{const next=value==='pending'?'pending':'history';if(tab.value!==next){tab.value=next;offset.value=0;load()}});

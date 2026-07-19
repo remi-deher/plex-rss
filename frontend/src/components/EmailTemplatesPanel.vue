@@ -5,12 +5,12 @@
       <div class="actions">
         <button v-if="hasPrevious" class="secondary" :disabled="busy" @click="restorePrevious"><Undo2/>Version precedente</button>
         <button class="secondary" :disabled="busy" @click="reset"><RotateCcw/>Valeurs par defaut</button>
-        <button class="primary" :disabled="busy" @click="save"><Save/>Enregistrer</button>
+        <button class="primary" :disabled="busy||!isDirty" @click="save"><Save/>Enregistrer</button>
       </div>
     </div>
 
-    <p v-if="error" class="notice error-text">{{ error }}</p>
-    <p v-if="message" class="notice success-text">{{ message }}</p>
+    <UiFeedback v-if="error" type="error" :message="error" />
+    <UiFeedback v-if="message" type="success" :message="message" dismissible @dismiss="message=''" />
 
     <div class="simulation-bar">
       <label>Utilisateur simule
@@ -73,13 +73,14 @@
           <button class="secondary" :disabled="previewing" @click="preview"><Eye/>Actualiser l'apercu</button>
           <button class="secondary" :disabled="busy" @click="testSend('admin')"><Send/>Tester vers l'admin</button>
           <button v-if="selectedUser" class="secondary" :disabled="busy" @click="testSend('user')"><UserRoundCheck/>Tester vers cet utilisateur</button>
-          <button class="primary" :disabled="busy" @click="save"><Save/>Enregistrer</button>
+          <button class="primary" :disabled="busy||!isDirty" @click="save"><Save/>Enregistrer</button>
         </div>
       </main>
 
       <EmailPreviewPanel v-if="viewMode!=='edit'" :preview-html="previewHtml" :event-label="showAppearance?'Apparence':currentEvent.label" :device-mode="deviceMode" />
     </div>
   </section>
+  <FormSaveBar :dirty="isDirty" :saving="busy" @save="save"/>
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
@@ -132,6 +133,7 @@ const variableTags={request:['{titre}','{type}','{annee}','{nom_utilisateur}','{
 const viewModes=[{key:'edit',label:'Edition',icon:markRaw(Monitor)},{key:'split',label:'Partagee',icon:markRaw(LayoutPanelLeft)},{key:'preview',label:'Apercu',icon:markRaw(Eye)}];
 const eventType=ref('request'),showAppearance=ref(false),viewMode=ref('split'),deviceMode=ref('desktop'),users=ref([]),previewHtml=ref(''),previewVariant=ref('default'),previewUser=ref('');
 const error=ref(''),message=ref(''),busy=ref(false),previewing=ref(false),hasPrevious=ref(false),simulationSettings=ref({});
+const savedSnapshot=ref('');
 let timer;
 const models=reactive(Object.fromEntries(eventTypes.map(entry=>[entry.key,{template:'',subject:'',accent_color:'#e5a00d',badge_text:'',headline_text:'',show_synopsis:true,initialTemplate:'',initialSubject:''}])));
 const shared=reactive({email_header_brand:'PLEXARR',email_header_subtitle:'Notification Plex',email_footer_template:'',email_brand_color:'#e5a00d',email_show_poster:true,email_show_genres:true,email_show_requester:true,email_show_header_subtitle:true,email_requester_label:'Demande par',email_poster_width:100,email_media_layout:'left',email_bg_color:'#0d0d0d',email_card_bg_color:'#141414',email_font_family:'arial',email_card_width:600,email_card_border_radius:10,email_synopsis_font_size:'normal',email_show_tmdb_link:true,email_show_plex_button:true});
@@ -141,6 +143,7 @@ const currentEvent=computed(()=>eventTypes.find(entry=>entry.key===eventType.val
 const scenarios=computed(()=>scenarioMap[eventType.value]||scenarioMap.request);
 const selectedUser=computed(()=>users.value.find(user=>String(user.id)===String(previewUser.value))||null);
 const modelState=computed(()=>current.value.template!==current.value.initialTemplate||current.value.subject!==current.value.initialSubject?'Modifie':'Enregistre');
+const isDirty=computed(()=>Boolean(savedSnapshot.value)&&JSON.stringify(payload())!==savedSnapshot.value);
 const currentVariables=computed(()=>{const tags=variableTags[eventType.value];if(!tags)return variables;return variables.filter(item=>tags.includes(item.tag))});
 const eligibility=computed(()=>simulateEligibility(selectedUser.value));
 
@@ -172,15 +175,16 @@ function selectEvent(key){eventType.value=key;showAppearance.value=false;preview
 function selectMobile(key){if(key==='appearance')showAppearance.value=true;else selectEvent(key)}
 function payload(){const data={...shared};for(const entry of eventTypes){const model=models[entry.key];data[`email_${entry.key}_template`]=model.template;data[`email_${entry.key}_subject`]=model.subject||null;data[`email_${entry.key}_accent_color`]=model.accent_color||null;data[`email_${entry.key}_badge_text`]=model.badge_text||null;data[`email_${entry.key}_headline_text`]=model.headline_text||null;data[`email_${entry.key}_show_synopsis`]=model.show_synopsis}return data}
 function previewPayload(extra={}){return{template:current.value.template,subject:current.value.subject,type:eventType.value,user_id:previewUser.value||null,preview_variant:previewVariant.value,header_brand:shared.email_header_brand,header_subtitle:shared.email_header_subtitle,footer_template:shared.email_footer_template,brand_color:shared.email_brand_color,show_header_subtitle:shared.email_show_header_subtitle,show_poster:shared.email_show_poster,show_genres:shared.email_show_genres,show_requester:shared.email_show_requester,requester_label:shared.email_requester_label,poster_width:shared.email_poster_width,media_layout:shared.email_media_layout,bg_color:shared.email_bg_color,card_bg_color:shared.email_card_bg_color,font_family:shared.email_font_family,card_width:shared.email_card_width,card_border_radius:shared.email_card_border_radius,synopsis_font_size:shared.email_synopsis_font_size,show_tmdb_link:shared.email_show_tmdb_link,show_plex_button:shared.email_show_plex_button,accent_color:current.value.accent_color,badge_text:current.value.badge_text,headline_text:current.value.headline_text,show_synopsis:current.value.show_synopsis,...extra}}
-function fill(data){for(const entry of eventTypes){const model=models[entry.key];model.template=data[`email_${entry.key}_template`]||'';model.subject=data[`email_${entry.key}_subject`]||'';model.initialTemplate=model.template;model.initialSubject=model.subject;model.accent_color=data[`email_${entry.key}_accent_color`]||data.email_available_accent_color||'#e5a00d';model.badge_text=data[`email_${entry.key}_badge_text`]||data.email_available_badge_text||'';model.headline_text=data[`email_${entry.key}_headline_text`]||data.email_available_headline_text||'';model.show_synopsis=data[`email_${entry.key}_show_synopsis`]!==false}for(const key of Object.keys(shared))if(data[key]!=null)shared[key]=data[key];hasPrevious.value=Boolean(data.has_previous_version);simulationSettings.value=data.simulation_settings||{}}
+function fill(data){for(const entry of eventTypes){const model=models[entry.key];model.template=data[`email_${entry.key}_template`]||'';model.subject=data[`email_${entry.key}_subject`]||'';model.initialTemplate=model.template;model.initialSubject=model.subject;model.accent_color=data[`email_${entry.key}_accent_color`]||data.email_available_accent_color||'#e5a00d';model.badge_text=data[`email_${entry.key}_badge_text`]||data.email_available_badge_text||'';model.headline_text=data[`email_${entry.key}_headline_text`]||data.email_available_headline_text||'';model.show_synopsis=data[`email_${entry.key}_show_synopsis`]!==false}for(const key of Object.keys(shared))if(data[key]!=null)shared[key]=data[key];hasPrevious.value=Boolean(data.has_previous_version);simulationSettings.value=data.simulation_settings||{};savedSnapshot.value=JSON.stringify(payload())}
 async function load(){error.value='';try{const[templates,userRows]=await Promise.all([api('/api/email-templates'),api('/api/users')]);users.value=userRows;fill(templates);await preview()}catch(e){error.value=e.message}}
-async function save(){busy.value=true;error.value='';try{await api('/api/email-templates',{method:'PUT',body:JSON.stringify(payload())});message.value='Modeles enregistres.';hasPrevious.value=true;for(const model of Object.values(models)){model.initialTemplate=model.template;model.initialSubject=model.subject}await preview()}catch(e){error.value=e.message}finally{busy.value=false}}
+async function save(){busy.value=true;error.value='';try{await api('/api/email-templates',{method:'PUT',body:JSON.stringify(payload())});savedSnapshot.value=JSON.stringify(payload());message.value='Modèles enregistrés.';hasPrevious.value=true;for(const model of Object.values(models)){model.initialTemplate=model.template;model.initialSubject=model.subject}await preview()}catch(e){error.value=e.message}finally{busy.value=false}}
 async function reset(){if(!await askConfirm({title:'Retablir tous les modeles ?',message:'Tous les contenus et reglages visuels seront remplaces par leurs valeurs par defaut.',confirmLabel:'Retablir',danger:true}))return;busy.value=true;try{await api('/api/email-templates/reset',{method:'POST'});await load();message.value='Modeles retablis.'}catch(e){error.value=e.message}finally{busy.value=false}}
 async function restorePrevious(){busy.value=true;try{await api('/api/email-templates/restore-previous',{method:'POST'});await load();message.value='Version precedente restauree.'}catch(e){error.value=e.message}finally{busy.value=false}}
 async function preview(){clearTimeout(timer);previewing.value=true;try{const response=await fetch('/api/email-preview',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(previewPayload())});if(!response.ok)throw new Error((await response.json()).detail);previewHtml.value=await response.text()}catch(e){error.value=e.message}finally{previewing.value=false}}
 function schedulePreview(){clearTimeout(timer);timer=setTimeout(preview,500)}
 async function testSend(mode){if(mode==='user'&&!await askConfirm({title:'Envoyer le test a cet utilisateur ?',message:`Un email reel sera envoye a ${userName(selectedUser.value)}.`,confirmLabel:'Envoyer'}))return;busy.value=true;try{const data=await api('/api/email-templates/test-send',{method:'POST',body:JSON.stringify(previewPayload({recipient_mode:mode}))});message.value=data.message}catch(e){error.value=e.message}finally{busy.value=false}}
-watch([eventType,previewVariant,previewUser],schedulePreview);watch(shared,schedulePreview,{deep:true});watch(models,schedulePreview,{deep:true});onMounted(load);onBeforeUnmount(()=>clearTimeout(timer));
+function warnUnsaved(event){if(!isDirty.value)return;event.preventDefault();event.returnValue=''}
+watch([eventType,previewVariant,previewUser],schedulePreview);watch(shared,schedulePreview,{deep:true});watch(models,schedulePreview,{deep:true});onMounted(()=>{window.addEventListener('beforeunload',warnUnsaved);load()});onBeforeUnmount(()=>{clearTimeout(timer);window.removeEventListener('beforeunload',warnUnsaved)});
 </script>
 
 <style scoped>

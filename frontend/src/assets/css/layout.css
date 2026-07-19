@@ -10,6 +10,11 @@
   display: none !important;
 }
 
+.tablet-nav-toggle,
+.tablet-nav-backdrop {
+  display: none;
+}
+
 .sidebar {
   position: sticky;
   top: 12px;
@@ -210,14 +215,38 @@ button svg {
   .sidebar {
     padding: 16px 8px;
     align-items: stretch;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 42;
+    transition: width .22s ease, padding .22s ease, box-shadow .22s ease;
   }
 
   /* On masque les libellés textuels, on ne garde que les icones */
   .sidebar .brand {
     justify-content: center;
     padding: 4px 0 10px;
-    font-size: 0; /* masque le texte "Plexarr" */
+    min-height: 44px;
   }
+
+  .sidebar .brand-name { display: none; }
+
+  .tablet-nav-toggle {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .tablet-nav-toggle:hover,
+  .tablet-nav-toggle:focus-visible { color: var(--text); background: rgba(255,255,255,.06); }
+  .tablet-nav-toggle svg { width: 21px; height: 21px; }
 
   .sidebar .menu-label {
     display: none;
@@ -228,12 +257,47 @@ button svg {
     gap: 0;
     padding: 0 8px;
     font-size: 0; /* masque le libellé, garde l'icone */
+    min-height: 44px;
   }
 
   .sidebar a svg {
     width: 20px;
     height: 20px;
+    flex: none;
   }
+
+  .sidebar.tablet-expanded {
+    position: fixed;
+    top: max(12px, var(--safe-top));
+    bottom: 12px;
+    left: max(12px, var(--safe-left));
+    width: min(292px, calc(100vw - 40px));
+    height: auto;
+    margin: 0;
+    padding: 16px 12px;
+    box-shadow: 18px 0 45px rgba(0,0,0,.48);
+  }
+
+  .sidebar.tablet-expanded .brand { justify-content: space-between; padding: 4px 8px 10px; }
+  .sidebar.tablet-expanded .brand-name { display: inline; font-size: 18px; }
+  .sidebar.tablet-expanded .menu-label { display: block; }
+  .sidebar.tablet-expanded a { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: .8125rem; }
+  .sidebar.tablet-expanded .context-sidebar-menu a { min-height: 38px; font-size: .75rem; }
+
+  .tablet-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 41;
+    border: 0;
+    background: rgba(5,5,8,.58);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    cursor: default;
+  }
+
+  .tablet-fade-enter-active,.tablet-fade-leave-active { transition: opacity .2s ease; }
+  .tablet-fade-enter-from,.tablet-fade-leave-to { opacity: 0; }
 
   /* Les grilles denses passent en 2 colonnes au lieu de 1 ou 4 */
   .dashboard-grid,

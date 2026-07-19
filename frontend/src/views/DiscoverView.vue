@@ -1,10 +1,10 @@
 <template>
   <div class="page">
-    <header class="page-head"><div><h1>Decouvrir</h1><p>Catalogue TMDB, recommandations et nouvelles demandes.</p></div><input v-model="query" class="search" type="search" placeholder="Rechercher un film ou une serie" @input="scheduleSearch"></header>
+    <PageHeader title="Découvrir" description="Catalogue TMDB, recommandations et nouvelles demandes."><input v-model="query" class="search" type="search" placeholder="Rechercher un film ou une série" aria-label="Rechercher un film ou une série" @input="scheduleSearch"></PageHeader>
     <div class="toolbar wrap"><div class="segmented"><button v-for="entry in mediaTypes" :key="entry.value" :class="{active:mediaType===entry.value}" @click="setMediaType(entry.value)">{{ entry.label }}</button></div><div class="segmented"><button v-for="entry in sections" :key="entry.value" :class="{active:section===entry.value}" @click="setSection(entry.value)">{{ entry.label }}</button></div><select v-if="section==='genres'" v-model="genre" @change="load"><option value="">Tous les genres</option><option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select></div>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+    <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
     <section class="media-grid"><button v-for="item in items" :key="`${item.media_type}:${item.tmdb_id||item.id}`" class="media-card interactive" @click="openDetail(item)"><div class="poster-shell"><img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy"><div v-else class="poster-fallback"><Film /></div><span v-if="item.available||item.in_library" class="language-tag vf">Disponible</span><span v-else-if="item.requested" class="language-tag unknown">{{ statusLabel(item.request_status) }}</span></div><div><strong>{{ item.title||item.name }}</strong><span>{{ item.media_type==='show'?'Serie':'Film' }}<template v-if="item.year"> · {{ item.year }}</template></span></div></button></section>
-    <p v-if="loading" class="empty"><LoaderCircle class="spin"/> Chargement du catalogue</p><p v-else-if="!items.length" class="empty">Aucun resultat.</p>
+    <UiFeedback v-if="loading" type="loading" message="Chargement du catalogue…"/><p v-else-if="!items.length" class="empty">Aucun résultat.</p>
   </div>
 </template>
 <script setup>

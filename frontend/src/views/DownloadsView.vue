@@ -1,9 +1,8 @@
 <template>
   <div class="page downloads-page">
-    <header class="page-head">
-      <div><h1>Telechargements</h1><p>Files Sonarr/Radarr, clients directs et historique.</p></div>
+    <PageHeader title="Téléchargements" description="Files Sonarr/Radarr, clients directs et historique.">
       <button class="icon-button" :disabled="loading" title="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
-    </header>
+    </PageHeader>
     <section class="metric-grid compact-metrics">
       <article v-for="entry in summary" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article>
     </section>
@@ -22,12 +21,11 @@
       </button>
       <button :class="{active:tab==='history'}" @click="tab='history'">Historique</button>
     </nav>
-    <div class="toolbar wrap">
-      <input v-model="query" class="search" type="search" placeholder="Filtrer les titres">
-      <select v-if="tab==='queue'" v-model="instance"><option value="">Toutes les instances</option><option v-for="value in instances" :key="value">{{ value }}</option></select>
-      <select v-if="tab==='queue'" v-model="status"><option value="">Tous les statuts</option><option value="downloading">En cours</option><option value="queued">En file</option><option value="paused">En pause</option><option value="error">En erreur</option><option value="unmatched">Non associés</option></select>
-    </div>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+    <FilterBar :active-count="activeFilterCount" :result-count="tab==='queue'?filteredQueue.length:filteredHistory.length" @reset="resetFilters">
+      <template #primary><input v-model="query" class="search" type="search" placeholder="Filtrer les titres" aria-label="Filtrer les téléchargements"></template>
+      <template #filters><select v-if="tab==='queue'" v-model="instance"><option value="">Toutes les instances</option><option v-for="value in instances" :key="value">{{ value }}</option></select><select v-if="tab==='queue'" v-model="status"><option value="">Tous les statuts</option><option value="downloading">En cours</option><option value="queued">En file</option><option value="paused">En pause</option><option value="error">En erreur</option><option value="unmatched">Non associés</option></select></template>
+    </FilterBar>
+    <UiFeedback v-if="error" type="error" title="Chargement impossible" :message="error" retry @retry="loadAll" />
 
     <section v-if="tab==='queue'" class="panel table-wrap table-cards rich">
       <table>
@@ -141,6 +139,8 @@ const filteredQueue=computed(()=>{
 });
 const filteredHistory=computed(()=>history.value.filter(row=>!query.value||row.title?.toLowerCase().includes(query.value.toLowerCase())));
 const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'En erreur',value:errorItems.value.length},{label:'Termines recents',value:history.value.length}]);
+const activeFilterCount=computed(()=>[query.value,instance.value,status.value||statusFilter.value].filter(Boolean).length);
+function resetFilters(){query.value='';instance.value='';status.value='';statusFilter.value=''}
 
 async function loadAll(){loading.value=true;error.value='';try{const [arr,direct,done]=await Promise.all([api('/api/arr/queue').catch(()=>[]),api('/api/downloads/direct').catch(()=>[]),api('/api/downloads/history?limit=100').catch(()=>[])]);queue.value=[...arr,...direct].filter(x=>!hiddenItems.value.has(rowKey(x))).sort((a,b)=>(a.progress||0)-(b.progress||0));history.value=done}catch(e){error.value=e.message}finally{loading.value=false}}
 async function queueAction(row,blocklist,search){if(!await askConfirm({title:blocklist?'Blocklister ce téléchargement ?':'Retirer ce téléchargement ?',message:blocklist?'Le fichier sera blocklisté et une nouvelle recherche sera lancée.':'Le téléchargement sera retiré de la file.',confirmLabel:blocklist?'Blocklister et rechercher':'Retirer',danger:true}))return;try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}}

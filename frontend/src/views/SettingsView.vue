@@ -1,18 +1,17 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div><h1>Parametres</h1><p>Connexions, notifications, automatisation et exploitation.</p></div>
+    <PageHeader title="Paramètres" description="Connexions, notifications, automatisation et exploitation." :eyebrow="currentTabLabel">
       <button v-if="['connections','webhooks','notifications-channels','notifications-rules','library','downloads','scheduled-tasks'].includes(tab)" class="primary" :disabled="saving" @click="save">
         <Save/>{{ saving ? 'Enregistrement...' : 'Enregistrer' }}
       </button>
-    </header>
+    </PageHeader>
     <label class="settings-section-select">Section des parametres
       <select :value="tab" @change="selectTab($event.target.value)">
         <optgroup v-for="group in tabGroups" :key="group.label" :label="group.label"><option v-for="item in group.items" :key="item.key" :value="item.key">{{ item.label }}</option></optgroup>
       </select>
     </label>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
-    <p v-if="message" class="notice success-text">{{ message }}</p>
+    <UiFeedback v-if="error" type="error" title="Enregistrement impossible" :message="error" />
+    <UiFeedback v-if="message" type="success" :message="message" />
 
     <ConnectionsTab v-if="tab==='connections'"/>
     <WebhooksTab v-else-if="tab==='webhooks'"/>
@@ -24,11 +23,12 @@
     <SettingsOperationsPanel v-else-if="tab==='operations'"/>
     <EmailTemplatesPanel v-else-if="tab==='templates'"/>
     <DataTab v-else/>
+    <FormSaveBar v-if="tab!=='templates'" :dirty="isDirty" :saving="saving" @save="save"/>
   </div>
 </template>
 <script setup>
-import { computed, markRaw, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, markRaw, onMounted, onUnmounted } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, ServerCog } from '@lucide/vue';
 import EmailTemplatesPanel from '@/components/EmailTemplatesPanel.vue';
 import SettingsOperationsPanel from '@/components/SettingsOperationsPanel.vue';
@@ -40,7 +40,7 @@ import LibraryTab from '@/components/settings/LibraryTab.vue';
 import DownloadsTab from '@/components/settings/DownloadsTab.vue';
 import ScheduledTasksTab from '@/components/settings/ScheduledTasksTab.vue';
 import DataTab from '@/components/settings/DataTab.vue';
-import { load, save, saving, error, message } from '@/settingsForm';
+import { load, save, saving, error, message, isDirty } from '@/settingsForm';
 
 const tabs = [
   { key: 'connections', label: 'Connexions', icon: markRaw(Plug) },
@@ -61,9 +61,15 @@ const tabGroups=[
 ];
 const route=useRoute(),router=useRouter();
 const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'connections');
+const currentTabLabel = computed(() => tabs.find(item => item.key === tab.value)?.label || 'Connexions');
 function selectTab(value) {
   router.replace({path:'/settings',query:{tab:value}});
 }
+function warnUnsaved(event){if(!isDirty.value)return;event.preventDefault();event.returnValue=''}
+onBeforeRouteLeave(()=>!isDirty.value||window.confirm('Des modifications ne sont pas enregistrées. Quitter cette page ?'));
+onBeforeRouteUpdate(()=>!isDirty.value||window.confirm('Des modifications ne sont pas enregistrées. Changer de section ?'));
+onMounted(()=>window.addEventListener('beforeunload',warnUnsaved));
+onUnmounted(()=>window.removeEventListener('beforeunload',warnUnsaved));
 
 onMounted(load);
 </script>

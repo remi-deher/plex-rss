@@ -1,8 +1,8 @@
 <template>
   <div class="page">
-    <header class="page-head"><div><h1>Utilisateurs</h1><p>Comptes Plex, Seer, roles et preferences de notification.</p></div><div class="actions"><button class="secondary" :disabled="busy" @click="syncSeer"><RefreshCw/>Synchroniser Seer</button><button class="primary" @click="openCreate"><UserPlus/>Ajouter</button></div></header>
-    <div class="toolbar wrap"><input v-model="query" class="search" type="search" placeholder="Rechercher un utilisateur"><select v-model="status"><option value="">Tous les statuts</option><option value="enabled">Actifs</option><option value="disabled">Desactives</option></select><select v-model="source"><option value="">Toutes les sources</option><option v-for="value in sources" :key="value">{{ value }}</option></select><select v-model="sort"><option value="name">Nom</option><option value="requests">Demandes</option></select></div>
-    <p v-if="error" class="notice error-text">{{ error }}</p><p v-if="message" class="notice success-text">{{ message }}</p>
+    <PageHeader title="Utilisateurs" description="Comptes Plex, Seer, rôles et préférences de notification." eyebrow="Administration"><button class="secondary" :disabled="busy" @click="syncSeer"><RefreshCw/>Synchroniser Seer</button><button class="primary" @click="openCreate"><UserPlus/>Ajouter</button></PageHeader>
+    <FilterBar :active-count="activeFilterCount" :result-count="filtered.length" @reset="resetFilters"><template #primary><input v-model="query" class="search" type="search" placeholder="Rechercher un utilisateur" aria-label="Rechercher un utilisateur"></template><template #filters><select v-model="status"><option value="">Tous les statuts</option><option value="enabled">Actifs</option><option value="disabled">Désactivés</option></select><select v-model="source"><option value="">Toutes les sources</option><option v-for="value in sources" :key="value">{{ value }}</option></select><select v-model="sort"><option value="name">Nom</option><option value="requests">Demandes</option></select></template></FilterBar>
+    <UiFeedback v-if="error" type="error" :message="error" retry @retry="load"/><UiFeedback v-if="message" type="success" :message="message" dismissible @dismiss="message=''"/>
 
     <UsersTable ref="tableRef" :rows="filtered" :loading="loading" @open="openUser" @toggle="toggle" @bulk-status="bulkStatus" @bulk-notify="bulkNotify" @bulk-delete="bulkDelete"/>
 
@@ -51,6 +51,8 @@ const filtered = computed(() => users.value.filter(user =>
   (!status.value || (status.value === 'enabled') === Boolean(user.enabled)) &&
   (!source.value || user.source === source.value)
 ).sort((a, b) => sort.value === 'requests' ? (b.stats?.total || 0) - (a.stats?.total || 0) : displayName(a).localeCompare(displayName(b), 'fr')));
+const activeFilterCount = computed(() => [query.value, status.value, source.value, sort.value !== 'name' ? sort.value : ''].filter(Boolean).length);
+function resetFilters() { query.value = ''; status.value = ''; source.value = ''; sort.value = 'name'; }
 
 function displayName(user) { return user?.custom_name || user?.display_name || user?.plex_user_id || ''; }
 function fillForm(user) { Object.assign(form, defaults, Object.fromEntries(Object.keys(defaults).map(key => [key, user?.[key] ?? defaults[key]]))); }

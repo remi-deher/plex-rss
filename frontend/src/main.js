@@ -1,6 +1,11 @@
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import App from "./App.vue";
+import PageHeader from "./components/ui/PageHeader.vue";
+import StatusBadge from "./components/ui/StatusBadge.vue";
+import UiFeedback from "./components/ui/UiFeedback.vue";
+import FilterBar from "./components/ui/FilterBar.vue";
+import FormSaveBar from "./components/ui/FormSaveBar.vue";
 const DashboardView = () => import("./views/DashboardView.vue");
 const DiscoverView = () => import("./views/DiscoverView.vue");
 const DownloadsView = () => import("./views/DownloadsView.vue");
@@ -46,4 +51,11 @@ const router = createRouter({
   routes,
 });
 
-createApp(App).use(router).mount("#app");
+createApp(App)
+  .component('PageHeader', PageHeader)
+  .component('StatusBadge', StatusBadge)
+  .component('UiFeedback', UiFeedback)
+  .component('FilterBar', FilterBar)
+  .component('FormSaveBar', FormSaveBar)
+  .use(router)
+  .mount("#app");

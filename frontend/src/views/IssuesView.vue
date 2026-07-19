@@ -1,27 +1,21 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div>
-        <h1>Problèmes</h1>
-        <p>Gestion des signalements utilisateur et problèmes remontés.</p>
-      </div>
-      <div class="actions">
+    <PageHeader title="Problèmes signalés" description="Gestion des signalements utilisateur et problèmes remontés." eyebrow="Administration">
         <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
           <RefreshCw :class="{ spin: loading }" />
         </button>
-      </div>
-    </header>
+    </PageHeader>
 
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+    <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
 
-    <div class="toolbar wrap">
-      <select v-model="statusFilter" @change="load">
+    <FilterBar :active-count="statusFilter ? 1 : 0" :result-count="issues.length" @reset="resetFilters">
+      <template #filters><select v-model="statusFilter" @change="load">
         <option value="">Tous les statuts</option>
         <option value="open">Ouverts</option>
         <option value="investigating">En cours</option>
         <option value="closed">Clos</option>
-      </select>
-    </div>
+      </select></template>
+    </FilterBar>
 
     <section class="panel table-wrap table-cards rich">
       <table>
@@ -41,7 +35,7 @@
             </td>
             <td data-label="Message">{{ issue.message || 'Sans commentaire' }}</td>
             <td data-label="Statut">
-              <span class="badge" :class="issue.status">{{ issue.status }}</span>
+              <StatusBadge :status="issue.status" />
             </td>
             <td data-label="Date">{{ formatDate(issue.created_at) }}</td>
             <td class="actions card-actions">
@@ -66,6 +60,7 @@ const issues = ref([]);
 const loading = ref(false);
 const error = ref('');
 const statusFilter = ref('open');
+function resetFilters() { statusFilter.value = ''; load(); }
 
 function formatDate(value) {
   return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';

@@ -1,19 +1,13 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div>
-        <h1>Bibliotheque</h1>
-        <p>Catalogue Plex, demandes en cours et suivi des versions.</p>
-      </div>
-      <div class="actions">
+    <PageHeader title="Bibliothèque" description="Catalogue Plex, demandes en cours et suivi des versions.">
         <button v-if="isAdmin" class="secondary" :disabled="busy" @click="runUtility('/api/requests/poll')">
-          <RefreshCw/>Verifier maintenant
+          <RefreshCw/>Vérifier maintenant
         </button>
         <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
           <RefreshCw :class="{spin:loading}"/>
         </button>
-      </div>
-    </header>
+    </PageHeader>
 
     <section class="metric-grid compact-metrics">
       <article v-for="entry in metrics" :key="entry.label" class="metric-card">
@@ -46,7 +40,7 @@
       </div>
     </div>
 
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+    <UiFeedback v-if="error" type="error" title="Impossible de charger la bibliothèque" :message="error" retry @retry="load" />
 
     <section :class="view==='grid'?'media-grid library-grid':'panel media-list'">
       <LibraryCard

@@ -1,15 +1,11 @@
 <template>
   <div class="page">
-    <header class="page-head">
-      <div>
-        <h1>Maintenance</h1>
-        <p>Operations controlees et progression en direct.</p>
-      </div>
+    <PageHeader title="Maintenance" description="Opérations contrôlées et progression en direct." eyebrow="Exploitation">
       <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
         <RefreshCw :class="{spin:loading}"/>
       </button>
-    </header>
-    <p v-if="error" class="notice error-text">{{ error }}</p>
+    </PageHeader>
+    <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
     <section class="action-grid">
       <article v-for="(meta, key) in actions" :key="key" class="panel action-card">
         <div>
@@ -27,9 +23,7 @@
     <section v-if="current" class="panel run-panel">
       <div class="panel-head">
         <h2>{{ current.action }}</h2>
-        <span class="badge" :class="current.status === 'error' ? 'failed' : 'available'">
-          {{ current.status }}
-        </span>
+        <StatusBadge :status="current.status" />
       </div>
       <progress :value="current.progress" max="100"></progress>
       <pre>{{ (current.logs || []).join('\n') }}</pre>
