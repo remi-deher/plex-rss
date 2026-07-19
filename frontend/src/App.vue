@@ -1,11 +1,11 @@
 <template>
-  <div class="shell">
+  <div class="shell" :class="{'sidebar-collapsed':isSidebarCollapsed}">
     <!-- Desktop Sidebar -->
-    <aside class="sidebar desktop-only" :class="{'tablet-expanded':isTabletNavOpen}" :aria-expanded="isTabletNavOpen" @click="handleSidebarClick">
+    <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" :aria-expanded="!isSidebarCollapsed">
       <div class="brand">
         <span class="brand-name">Plexarr</span>
-        <button class="tablet-nav-toggle" type="button" :aria-label="isTabletNavOpen ? 'Réduire le menu' : 'Ouvrir le menu'" :title="isTabletNavOpen ? 'Réduire le menu' : 'Ouvrir le menu'" @click.stop="toggleTabletNav">
-          <PanelLeftClose v-if="isTabletNavOpen"/><PanelLeftOpen v-else/>
+        <button class="sidebar-toggle" type="button" :aria-label="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" :title="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" @click="toggleSidebar">
+          <PanelLeftOpen v-if="isSidebarCollapsed"/><PanelLeftClose v-else/>
         </button>
       </div>
       
@@ -47,10 +47,6 @@
         <a href="/logout" title="Deconnexion"><LogOut />Deconnexion</a>
       </div>
     </aside>
-
-    <Transition name="tablet-fade">
-      <button v-if="isTabletNavOpen" class="tablet-nav-backdrop" type="button" aria-label="Fermer le menu" @click="closeTabletNav" />
-    </Transition>
 
     <!-- Mobile Navigation Bar -->
     <nav class="mobile-nav-bar mobile-only">
@@ -112,25 +108,22 @@ import { connectRealtime } from "@/events";
 const session=ref(null);
 const route=useRoute();
 const isAdmin=computed(()=>session.value?.is_owner||session.value?.role==='admin');
-const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['connections','webhooks','library','downloads'].includes(route.query.tab)));
+const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
 const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));
 const isNotificationsRoute=computed(()=>route.path==='/notifications'||(route.path==='/settings'&&['notifications-channels','notifications-rules','templates'].includes(route.query.tab)));
 const isOperationsRoute=computed(()=>['/logs','/maintenance'].includes(route.path)||(route.path==='/settings'&&['operations','scheduled-tasks','data'].includes(route.query.tab)));
-const settingsSections=[{key:'connections',label:'Connexions'},{key:'webhooks',label:'Webhooks'},{key:'library',label:'Bibliotheque'},{key:'downloads',label:'Telechargements'}];
+const settingsSections=[{key:'overview',label:'Vue d’ensemble'},{key:'connections',label:'Connexions'},{key:'webhooks',label:'Webhooks'},{key:'library',label:'Bibliotheque'},{key:'downloads',label:'Telechargements'}];
 const isMoreOpen=ref(false);
-const isTabletNavOpen=ref(false);
+const isSidebarCollapsed=ref(false);
 function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
-function toggleTabletNav(){isTabletNavOpen.value=!isTabletNavOpen.value}
-function closeTabletNav(){isTabletNavOpen.value=false}
-function handleSidebarClick(event){if(event.target.closest('a'))closeTabletNav()}
-function handleEscape(event){if(event.key==='Escape'){closeTabletNav();closeMoreMenu()}}
-watch(()=>route.fullPath,()=>{closeTabletNav();closeMoreMenu()});
-onMounted(async()=>{window.addEventListener('keydown',handleEscape);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
+function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;localStorage.setItem('plexarr.sidebarCollapsed',String(isSidebarCollapsed.value))}
+function handleEscape(event){if(event.key==='Escape'){if(window.innerWidth>640)isSidebarCollapsed.value=true;closeMoreMenu()}}
+watch(()=>route.fullPath,closeMoreMenu);
+onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('keydown',handleEscape);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
 onUnmounted(()=>window.removeEventListener('keydown',handleEscape));
 </script>
 
 <style scoped>
-.context-nav-group{display:grid}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;margin:3px 0 2px 28px;padding-left:10px;border-left:1px solid var(--border)}.context-sidebar-menu a{min-height:30px;padding:6px 9px;font-size:11px;color:var(--muted);border-radius:5px}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.1)}
-@media(max-width:1024px){.context-sidebar-menu,.context-chevron,.settings-chevron{display:none}.sidebar.tablet-expanded .context-sidebar-menu{display:grid}.sidebar.tablet-expanded .context-chevron,.sidebar.tablet-expanded .settings-chevron{display:block}}
+.context-nav-group{display:grid;gap:3px}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;gap:2px;margin:2px 0 6px 22px;padding:5px 5px 5px 12px;border-left:2px solid rgba(229,160,13,.28);border-radius:0 8px 8px 0;background:linear-gradient(90deg,rgba(229,160,13,.055),transparent)}.context-sidebar-menu a{min-height:32px;padding:6px 10px 6px 16px;font-size:11.5px;color:color-mix(in srgb,var(--muted) 88%,white);border-radius:6px}.context-sidebar-menu a::after{content:'';position:absolute;left:5px;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}.context-sidebar-menu a:hover{color:var(--text);background:rgba(255,255,255,.045)}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.13);box-shadow:inset 0 0 0 1px rgba(229,160,13,.12)}.context-sidebar-menu a.router-link-exact-active::after{opacity:1;box-shadow:0 0 6px currentColor}.sidebar.collapsed .context-sidebar-menu,.sidebar.collapsed .context-chevron,.sidebar.collapsed .settings-chevron{display:none}
 </style>

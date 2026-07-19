@@ -1,6 +1,7 @@
 <template>
   <section class="drawer-section">
     <MediaWorkflowTimeline :steps="detail.workflow_timeline" />
+    <MediaInformationGrid :detail="detail" :vf-detail="vfDetail" />
 
     <div class="action-grid compact-actions">
       <button class="secondary" :disabled="busy" @click="$emit('recheck-plex')"><RefreshCw />Verifier dans Plex</button>
@@ -49,6 +50,7 @@ import MediaIssueForm from './MediaIssueForm.vue';
 import MediaCorrectionForm from './MediaCorrectionForm.vue';
 import MediaAudioSection from './MediaAudioSection.vue';
 import MediaWorkflowTimeline from './MediaWorkflowTimeline.vue';
+import MediaInformationGrid from './MediaInformationGrid.vue';
 
 defineProps({
   detail: { type: Object, required: true },

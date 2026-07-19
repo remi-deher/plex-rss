@@ -27,47 +27,19 @@
     </FilterBar>
     <UiFeedback v-if="error" type="error" title="Chargement impossible" :message="error" retry @retry="loadAll" />
 
-    <section v-if="tab==='queue'" class="panel table-wrap table-cards rich">
-      <table>
-        <thead>
-          <tr>
-            <th>Titre</th>
-            <th>Instance</th>
-            <th>Progression</th>
-            <th>Restant</th>
-            <th>Etat</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in filteredQueue" :key="rowKey(row)" :class="{'row-unmatched': isUnmatched(row)}">
-            <td class="card-title">
-              <div class="inline-row gap-10">
-                <span v-if="isUnmatched(row)" class="unmatched-dot" title="Non associé"></span>
-                <div>
-                  <strong>{{ row.title }}</strong>
-                  <small>{{ row.download_client||row.indexer||'' }}</small>
-                  <small v-if="row.origin_label">{{ row.origin_label }} · {{ row.operational_status_label }}</small>
-                  <small v-if="row.waiting_reason" class="muted">{{ row.waiting_reason }}</small>
-                  <small v-if="row.error" class="error-text">{{ row.error }}</small>
-                </div>
-              </div>
-            </td>
-            <td data-label="Instance">{{ row.instance||row.download_client||'-' }}</td>
-            <td data-label="Progression">
-              <progress :value="row.progress||0" max="100"></progress>
-              <small>{{ Math.round(row.progress||0) }}%</small>
-            </td>
-            <td data-label="Restant">{{ row.timeleft||'-' }}</td>
-            <td data-label="Etat"><span class="badge" :class="statusKey(row)==='error'?'failed':'pending'">{{ statusLabel(row) }}</span></td>
-            <td class="actions card-actions">
-              <button v-if="isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)" class="icon-button import-btn" title="Associer / Importer manuellement" @click="openManual(row)"><Link/></button>
-              <button v-if="canAct(row)" class="icon-button" title="Blocklister et relancer" @click="queueAction(row,true,true)"><RotateCcw/></button>
-              <button v-if="canAct(row)" class="icon-button danger" title="Retirer de la file" @click="queueAction(row,false,false)"><X/></button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <section v-if="tab==='queue'" class="download-groups">
+      <section v-for="group in queueGroups" :key="group.key" class="download-group" :class="group.key">
+        <header class="download-group-head"><div><component :is="group.icon"/><div><h2>{{ group.title }}</h2><p>{{ group.description }}</p></div></div><span>{{ group.items.length }}</span></header>
+        <div class="download-card-grid">
+          <article v-for="row in group.items" :key="rowKey(row)" class="download-card">
+            <header><div><strong>{{ row.title }}</strong><small>{{ row.instance||row.download_client||'Téléchargement direct' }}</small></div><span class="badge" :class="group.key==='intervention'?'failed':'pending'">{{ statusLabel(row) }}</span></header>
+            <div class="download-progress"><div><span>Progression</span><strong>{{ Math.round(row.progress||0) }}%</strong></div><progress :value="row.progress||0" max="100"></progress><small>{{ row.timeleft||'Temps restant indisponible' }}</small></div>
+            <div v-if="row.waiting_reason||row.error" class="download-callout" :class="{error:row.error}">{{ row.error||row.waiting_reason }}</div>
+            <div v-if="row.origin_label||row.operational_status_label" class="download-meta">{{ row.origin_label }}<template v-if="row.operational_status_label"> · {{ row.operational_status_label }}</template></div>
+            <footer><button v-if="requiresIntervention(row)" class="secondary" @click="openManual(row)"><Link/>Associer / importer</button><button v-if="canAct(row)" class="secondary" @click="queueAction(row,true,true)"><RotateCcw/>Relancer</button><button v-if="canAct(row)" class="secondary danger" @click="queueAction(row,false,false)"><X/>Retirer</button></footer>
+          </article>
+        </div>
+      </section>
       <p v-if="!loading&&!filteredQueue.length" class="empty">Aucun telechargement actif.</p>
     </section>
 
@@ -101,7 +73,7 @@
 
 <script setup>
 import { computed,onMounted,onUnmounted,ref } from 'vue';
-import { RefreshCw,RotateCcw,X } from '@lucide/vue';
+import { AlertTriangle,Clock3,Download,Link,RefreshCw,RotateCcw,X } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import UnmatchedImportsBanner from '@/components/downloads/UnmatchedImportsBanner.vue';
@@ -119,6 +91,7 @@ function canAct(row){return row.instance_id!=null&&row.queue_id!=null}
 function isImportPending(row){return (row.tracked_state||'').toLowerCase()==='importpending'&&row.instance_id!=null&&row.queue_id!=null}
 function isUnmatched(row){return row.request_id==null&&row.library_id==null&&['sonarr','radarr'].includes(row.arr_type)}
 function needsEpisodeImport(row){return row.arr_type==='sonarr'&&statusKey(row)==='error'&&row.arr_media_id!=null}
+function requiresIntervention(row){return isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)||statusKey(row)==='error'}
 function statusKey(row){const value=(row.status||'').toLowerCase();if(row.error||value.includes('error')||value.includes('warning')||value.includes('failed'))return'error';if(value.includes('pause'))return'paused';if(value.includes('queue'))return'queued';if((row.progress||0)>=100)return'completed';return'downloading'}
 function statusLabel(row){return ({error:'Erreur',paused:'En pause',queued:'En file',completed:'Termine',downloading:'En cours'})[statusKey(row)]}
 function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'}
@@ -138,7 +111,16 @@ const filteredQueue=computed(()=>{
   });
 });
 const filteredHistory=computed(()=>history.value.filter(row=>!query.value||row.title?.toLowerCase().includes(query.value.toLowerCase())));
-const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'En erreur',value:errorItems.value.length},{label:'Termines recents',value:history.value.length}]);
+const queueGroups=computed(()=>{
+  const intervention=filteredQueue.value.filter(requiresIntervention),ids=new Set(intervention.map(rowKey));
+  const remaining=filteredQueue.value.filter(row=>!ids.has(rowKey(row)));
+  return [
+    {key:'intervention',title:'Intervention requise',description:'Import bloqué, erreur ou média à associer',icon:AlertTriangle,items:intervention},
+    {key:'active',title:'En téléchargement',description:'Transferts actuellement en progression',icon:Download,items:remaining.filter(row=>statusKey(row)==='downloading')},
+    {key:'waiting',title:'En attente',description:'Éléments en file ou temporairement en pause',icon:Clock3,items:remaining.filter(row=>['queued','paused','completed'].includes(statusKey(row)))},
+  ].filter(group=>group.items.length)
+});
+const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'Interventions',value:queue.value.filter(requiresIntervention).length},{label:'Termines recents',value:history.value.length}]);
 const activeFilterCount=computed(()=>[query.value,instance.value,status.value||statusFilter.value].filter(Boolean).length);
 function resetFilters(){query.value='';instance.value='';status.value='';statusFilter.value=''}
 
@@ -151,3 +133,7 @@ useRealtime(['download.updated'],loadAll);
 onMounted(()=>{loadAll();fallback=setInterval(loadAll,15000)});
 onUnmounted(()=>clearInterval(fallback));
 </script>
+
+<style scoped>
+.download-groups{display:grid;gap:18px}.download-group{display:grid;gap:10px}.download-group-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px}.download-group-head>div{display:flex;align-items:center;gap:10px}.download-group-head svg{width:19px;color:var(--accent)}.download-group.intervention .download-group-head svg{color:var(--danger)}.download-group-head h2{margin:0;font-size:15px}.download-group-head p{margin:2px 0 0;color:var(--muted);font-size:11px}.download-group-head>span{min-width:27px;padding:5px 8px;border:1px solid var(--border);border-radius:999px;text-align:center;font-size:11px;font-weight:700}.download-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.download-card{display:grid;gap:13px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}.intervention .download-card{border-color:rgba(239,68,68,.3)}.download-card>header,.download-progress>div,.download-card footer{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.download-card>header>div{display:grid;gap:3px;min-width:0}.download-card>header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.download-card>header small,.download-progress small,.download-meta{color:var(--muted);font-size:10px}.download-progress{display:grid;gap:6px}.download-progress span{color:var(--muted);font-size:10px}.download-progress strong{font-size:12px}.download-progress progress{width:100%;height:7px}.download-callout{padding:8px 10px;border-radius:7px;background:rgba(229,160,13,.09);color:var(--accent);font-size:11px}.download-callout.error{background:rgba(239,68,68,.09);color:var(--danger)}.download-card footer{justify-content:flex-end;margin-top:auto}.download-card footer button{display:inline-flex;align-items:center;gap:6px;padding:7px 9px;font-size:10px}.download-card footer svg{width:14px;height:14px}@media(max-width:800px){.download-card-grid{grid-template-columns:1fr}}@media(max-width:520px){.download-group-head p{display:none}.download-card{padding:12px}.download-card footer{display:grid;grid-template-columns:1fr 1fr}.download-card footer button:first-child:last-child{grid-column:1/-1}.download-card footer button{justify-content:center}}
+</style>

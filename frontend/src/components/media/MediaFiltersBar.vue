@@ -6,9 +6,15 @@
         <button :class="{active:view==='grid'}" title="Grille" @click="$emit('update:view','grid')"><Grid2X2/></button>
         <button :class="{active:view==='list'}" title="Liste" @click="$emit('update:view','list')"><List/></button>
       </div>
+      <button class="compact-filter-toggle secondary" type="button" :aria-expanded="expanded" @click="toggleExpanded">
+        <SlidersHorizontal/>
+        <span>{{ expanded ? 'Replier' : 'Filtres' }}</span>
+        <strong v-if="activeFilterCount">{{ activeFilterCount }}</strong>
+        <ChevronUp v-if="expanded"/><ChevronDown v-else/>
+      </button>
     </div>
 
-    <div class="filter-pills-scroll">
+    <div v-show="expanded" class="filter-pills-scroll">
       <span class="filter-label">Type:</span>
       <button class="filter-pill" :class="{active:!typeFilters.length}" @click="$emit('update:typeFilters',[])">Tout</button>
       <button class="filter-pill" :class="{active:typeFilters.includes('movie')}" @click="$emit('update:typeFilters',['movie'])">Films</button>
@@ -77,7 +83,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { ChevronDown, Grid2X2, List } from '@lucide/vue';
+import { ChevronDown, ChevronUp, Grid2X2, List, SlidersHorizontal } from '@lucide/vue';
 import { STATUSES, statusLabel } from './mediaListHelpers';
 
 const props = defineProps({
@@ -106,11 +112,25 @@ const isInProgressFilter = computed(() => {
   return current.length === IN_PROGRESS_STATUSES.length
     && current.every((v, i) => v === [...IN_PROGRESS_STATUSES].sort()[i]);
 });
+const activeFilterCount = computed(() =>
+  props.statusFilters.length + props.typeFilters.length + (props.vf ? 1 : 0)
+  + props.sourceFilters.length + props.requesterFilters.length
+);
 
 const openMenu = ref(null);
+const expanded = ref(true);
 function toggle(name) { openMenu.value = openMenu.value === name ? null : name; }
+function toggleExpanded() {
+  expanded.value = !expanded.value;
+  if (!expanded.value) openMenu.value = null;
+  localStorage.setItem('library.filtersExpanded', String(expanded.value));
+}
 function handleOutsideClick(event) { if (!event.target.closest('.multi-select')) openMenu.value = null; }
-onMounted(() => document.addEventListener('click', handleOutsideClick));
+onMounted(() => {
+  const saved = localStorage.getItem('library.filtersExpanded');
+  expanded.value = saved === null ? !window.matchMedia('(max-width:640px)').matches : saved === 'true';
+  document.addEventListener('click', handleOutsideClick);
+});
 onUnmounted(() => document.removeEventListener('click', handleOutsideClick));
 
 const requesterLabels = computed(() => {
@@ -123,3 +143,8 @@ function toggleValue(event, list, value) {
   emit(event, next);
 }
 </script>
+
+<style scoped>
+.compact-filter-toggle{display:inline-flex;align-items:center;gap:7px;flex:none;min-height:38px;padding:0 10px}.compact-filter-toggle svg{width:15px;height:15px}.compact-filter-toggle strong{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent);color:#17130a;font-size:10px}.compact-filter-toggle span{font-size:12px}
+@media(max-width:640px){.filter-row{display:flex}.filter-row .search{flex:1 0 100%;width:100%;min-width:0}.filter-row .segmented{margin-right:auto}.compact-filter-toggle{margin-left:auto;min-height:44px}.filter-pills-scroll{max-height:44px}.filters-panel:has(.filter-pills-scroll[style*="display: none"]){padding-bottom:10px}}
+</style>

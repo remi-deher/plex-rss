@@ -24,8 +24,13 @@ test("navigation remains usable at the configured viewport", async ({ page }, te
     await expect(mobileNavigation).toBeHidden();
 
     if (testInfo.project.name === "tablet") {
-      await page.getByRole("button", { name: "Ouvrir le menu" }).click();
+      await page.getByRole("button", { name: "Afficher le menu" }).click();
       await expect(desktopSidebar).toHaveAttribute("aria-expanded", "true");
+    } else {
+      await page.getByRole("button", { name: "Réduire le menu" }).click();
+      await expect(desktopSidebar).toHaveAttribute("aria-expanded", "false");
+      await page.reload();
+      await expect(desktopSidebar).toHaveAttribute("aria-expanded", "false");
     }
   }
 
@@ -33,4 +38,21 @@ test("navigation remains usable at the configured viewport", async ({ page }, te
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
   expect(horizontalOverflow).toBe(false);
+});
+
+test("library filters can be compacted", async ({ page }, testInfo) => {
+  await page.goto("/library");
+  const trigger = page.locator(".compact-filter-toggle");
+  const filters = page.locator(".filter-pills-scroll");
+
+  if (testInfo.project.name === "mobile") {
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(filters).toBeHidden();
+    await trigger.click();
+    await expect(filters).toBeVisible();
+  } else {
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await trigger.click();
+    await expect(filters).toBeHidden();
+  }
 });

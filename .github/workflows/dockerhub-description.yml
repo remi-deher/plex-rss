@@ -19,4 +19,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: mrcryllix/plex-rss
           readme-filepath: ./DOCKER_HUB.md
-          short-description: "Self-hosted Plex watchlist monitor — auto-forward to Sonarr & Radarr with email/Discord/Telegram notifications"
+          short-description: "Self-hosted Plex request and availability hub for Sonarr, Radarr, downloads, VO/VF tracking and grouped notifications"

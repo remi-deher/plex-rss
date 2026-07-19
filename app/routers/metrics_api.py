@@ -15,7 +15,7 @@ from .. import metrics as app_metrics
 from ..cache import cache
 from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_admin
-from ..models import ArrInstance, MediaRequest, PlexUser, PollHistory, RequestStatus, Settings
+from ..models import ArrInstance, MediaRequest, NotificationLog, PlexUser, PollHistory, RequestStatus, Settings
 from ..services import arr_orphans, prowlarr, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
 from ..services.seer import check_connection as seer_test
@@ -335,27 +335,41 @@ async def prometheus_metrics(db: AsyncSession = Depends(get_db_async)):
 
 @router.get("/stats/timeline")
 async def stats_timeline(db: AsyncSession = Depends(get_db_async)):
-    """Retourne le nombre de demandes par jour sur les 30 derniers jours."""
+    """Retourne les demandes, disponibilites et notifications des 30 derniers jours."""
     from sqlalchemy import func
 
     days = 30
     start = now_utc_naive() - timedelta(days=days)
-    rows = (await db.execute(select(func.date(MediaRequest.requested_at).label("day"), func.count().label("count")).filter(MediaRequest.requested_at >= start).group_by(func.date(MediaRequest.requested_at)))).all()
-    data = {}
-    for r in rows:
-        if r.day is None:
-            continue
-        if hasattr(r.day, "strftime"):
-            day_str = r.day.strftime("%Y-%m-%d")
-        else:
-            day_str = str(r.day).split(" ")[0]
-        data[day_str] = r.count
-    labels, values = [], []
-    for i in range(days):
-        d = (start + timedelta(days=i + 1)).strftime("%Y-%m-%d")
-        labels.append(d)
-        values.append(data.get(d, 0))
-    return {"labels": labels, "values": values}
+    async def daily_counts(column, *filters):
+        rows = (
+            await db.execute(
+                select(func.date(column).label("day"), func.count().label("count"))
+                .filter(column >= start, *filters)
+                .group_by(func.date(column))
+            )
+        ).all()
+        result = {}
+        for row in rows:
+            if row.day is None:
+                continue
+            key = row.day.strftime("%Y-%m-%d") if hasattr(row.day, "strftime") else str(row.day).split(" ")[0]
+            result[key] = row.count
+        return result
+
+    requests = await daily_counts(MediaRequest.requested_at)
+    availability = await daily_counts(MediaRequest.available_at, MediaRequest.available_at.is_not(None))
+    notifications = await daily_counts(NotificationLog.sent_at, NotificationLog.success.is_(True))
+    labels = [(start + timedelta(days=i + 1)).strftime("%Y-%m-%d") for i in range(days)]
+    request_values = [requests.get(day, 0) for day in labels]
+    return {
+        "labels": labels,
+        "values": request_values,
+        "series": {
+            "requests": request_values,
+            "availability": [availability.get(day, 0) for day in labels],
+            "notifications": [notifications.get(day, 0) for day in labels],
+        },
+    }
 
 
 @router.get("/stats/by-user")

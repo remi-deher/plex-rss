@@ -1,5 +1,6 @@
 import sqlalchemy
 import json
+from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,12 +11,12 @@ from sqlalchemy import func
 
 from ..database import get_db_async
 from ..dependencies import require_admin
-from ..models import MediaIssue, MediaRequest, NotificationMilestone, PasskeyCredential, PlexUser, Settings
+from ..models import MediaIssue, MediaRequest, NotificationLog, NotificationMilestone, PasskeyCredential, PlexUser, Settings
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
 from ..services.seer import get_user_requests as seer_get_user_requests
 from ..services.seer import get_users as seer_get_users
-from ..utils import async_get_or_404, wrap_image_proxy
+from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
 
 # Réutilise la validation du mode de notification définie dans settings_api
 from .settings_api import _validate_notify_settings
@@ -77,6 +78,7 @@ class BulkPermissionsUpdate(BaseModel):
     user_ids: list[int]
     can_login: Optional[bool] = None
     auto_approve: Optional[bool] = None
+    role: Optional[str] = None
 
 
 class BulkDeleteUpdate(BaseModel):
@@ -241,15 +243,35 @@ async def _build_user_activity(user: PlexUser, db: AsyncSession, limit: int = 12
 @router.get("/users")
 async def list_users(db: AsyncSession = Depends(get_db_async)):
     users = (await db.execute(select(PlexUser))).scalars().all()
-    counts = dict(
-        (await db.execute(
-            select(MediaRequest.plex_user_id, func.count()).group_by(MediaRequest.plex_user_id)
-        )).all()
-    )
-    return [
-        serialize_plex_user(user, {"total": counts.get(user.plex_user_id, 0)})
-        for user in users
-    ]
+    request_rows = (await db.execute(
+        select(MediaRequest.plex_user_id, MediaRequest.status, func.count(), func.max(MediaRequest.requested_at))
+        .group_by(MediaRequest.plex_user_id, MediaRequest.status)
+    )).all()
+    stats_by_user: dict[str, dict] = {}
+    for plex_user_id, status, count, last_requested_at in request_rows:
+        stats = stats_by_user.setdefault(plex_user_id, {"total": 0, "available": 0, "failed": 0, "sent": 0, "pending": 0, "pending_approval": 0, "last_requested_at": None})
+        value = request_status_value(status)
+        stats["total"] += count
+        key = "sent" if value == "sent_to_arr" else value
+        if key in stats:
+            stats[key] += count
+        if last_requested_at and (stats["last_requested_at"] is None or last_requested_at > stats["last_requested_at"]):
+            stats["last_requested_at"] = last_requested_at
+
+    failed_recipients = {(recipient or "").strip().lower() for recipient in (await db.execute(
+        select(NotificationLog.recipient).filter(
+            NotificationLog.success.is_(False),
+            NotificationLog.sent_at >= now_utc_naive() - timedelta(days=30),
+        )
+    )).scalars().all()}
+    payload = []
+    for user in users:
+        stats = stats_by_user.get(user.plex_user_id, {"total": 0, "available": 0, "failed": 0, "sent": 0, "pending": 0, "pending_approval": 0, "last_requested_at": None})
+        data = serialize_plex_user(user, stats.copy())
+        emails = {value.strip().lower() for raw in (user.notification_email, user.plex_email) for value in (raw or "").split(",") if value.strip()}
+        data["has_notification_error"] = any((recipient or "").strip().lower() in emails for recipient in failed_recipients)
+        payload.append(data)
+    return payload
 
 
 @router.get("/users/{user_id}")
@@ -274,6 +296,22 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     data = serialize_plex_user(user, stats)
     data["diagnostic"] = diagnostic
     data["activity"] = activity
+    emails = {value.strip().lower() for raw in (user.notification_email, user.plex_email) for value in (raw or "").split(",") if value.strip()}
+    notification_logs = []
+    if emails:
+        logs = (await db.execute(
+            select(NotificationLog)
+            .filter(func.lower(NotificationLog.recipient).in_(emails))
+            .order_by(NotificationLog.sent_at.desc())
+            .limit(30)
+        )).scalars().all()
+        notification_logs = [{
+            "id": log.id, "event": log.event, "channel": log.channel,
+            "recipient": log.recipient, "sent_at": format_datetime(log.sent_at),
+            "success": log.success, "error_msg": log.error_msg,
+            "media_title": log.media_title, "req_id": log.req_id,
+        } for log in logs]
+    data["notification_history"] = notification_logs
     return data
 
 
@@ -765,6 +803,10 @@ async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSessi
         update_fields["can_login"] = payload.can_login
     if payload.auto_approve is not None:
         update_fields["auto_approve"] = payload.auto_approve
+    if payload.role is not None:
+        if payload.role not in ("admin", "user"):
+            raise HTTPException(400, "Role utilisateur invalide.")
+        update_fields["role"] = payload.role
         
     if not update_fields:
         return {"updated": 0}

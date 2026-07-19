@@ -1,297 +1,397 @@
 # Plexarr
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/mrcryllix/plex-rss?style=flat&color=e5a00d&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
-[![Docker Image Size](https://img.shields.io/docker/image-size/mrcryllix/plex-rss/latest?style=flat&color=1f1f1f&logo=docker&logoColor=white)](https://hub.docker.com/r/mrcryllix/plex-rss)
-[![License](https://img.shields.io/github/license/remi-deher/plex-rss?color=198754&style=flat)](LICENSE)
+[![Unit Tests](https://github.com/remi-deher/plex-rss/actions/workflows/tests.yml/badge.svg)](https://github.com/remi-deher/plex-rss/actions/workflows/tests.yml)
+[![Responsive E2E](https://github.com/remi-deher/plex-rss/actions/workflows/e2e.yml/badge.svg)](https://github.com/remi-deher/plex-rss/actions/workflows/e2e.yml)
+[![Docker](https://github.com/remi-deher/plex-rss/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/remi-deher/plex-rss/actions/workflows/docker-publish.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/mrcryllix/plex-rss?logo=docker&color=e5a00d)](https://hub.docker.com/r/mrcryllix/plex-rss)
+[![License](https://img.shields.io/github/license/remi-deher/plex-rss)](LICENSE)
 
-**Hub de gestion média self-hosted pour Plex dans un écosystème \*arr.** Plexarr collecte les demandes (watchlists Plex, Overseerr, ajout manuel), les orchestre vers **Sonarr** / **Radarr** / clients de téléchargement, suit la disponibilité et l'état de la bibliothèque Plex (dont le suivi VF/VFF), et notifie par email, Discord et Telegram.
+**Plexarr est un hub self-hosted de demandes, d’acquisition et de disponibilité pour Plex et l’écosystème \*arr.**
+
+Il collecte les demandes provenant des watchlists Plex, de l’API, de l’interface ou de Seerr, les transmet à Sonarr/Radarr, surveille les téléchargements et les imports, confirme la disponibilité dans Plex, analyse les versions VO/VF puis notifie les utilisateurs sans multiplier les messages.
 
 > [!NOTE]
-> Anciennement *Plex RSS Monitor*. Le projet a évolué d'un simple moniteur de watchlists RSS vers un hub complet de gestion média — le slug technique reste `plex-rss` (repo, image Docker).
+> Le projet s’appelait auparavant *Plex RSS Monitor*. Le dépôt et l’image conservent le nom technique `plex-rss`, mais l’application s’appelle désormais **Plexarr**.
 
-> [!TIP]
-> L'image Docker officielle est disponible sur Docker Hub : [mrcryllix/plex-rss](https://hub.docker.com/r/mrcryllix/plex-rss)
-> et sur GitHub Container Registry : `ghcr.io/remi-deher/plex-rss`
+## Sommaire
 
----
+- [Ce que fait Plexarr](#ce-que-fait-plexarr)
+- [Workflow média](#workflow-média)
+- [Architecture](#architecture)
+- [Installation Docker](#installation-docker)
+- [Premier démarrage](#premier-démarrage)
+- [Configuration des intégrations](#configuration-des-intégrations)
+- [Exploitation](#exploitation)
+- [Sauvegarde et restauration](#sauvegarde-et-restauration)
+- [Mise à jour](#mise-à-jour)
+- [Développement](#développement)
 
-## Fonctionnalités
+## Ce que fait Plexarr
 
-### Intégrations *arr & orchestration
-- **Sonarr & Radarr** — transmission directe via leur API v3 ; support du champ `minimumAvailability` de **Radarr v5**
-- **Multi-instances** — plusieurs instances Sonarr/Radarr, avec instance par défaut et routage par demande
-- **Overseerr / Jellyseerr** — mode alternatif : les demandes sont routées vers Overseerr plutôt que directement vers Sonarr/Radarr
-- **Prowlarr & clients de téléchargement** — recherche de releases, ajout direct de torrents (magnet / `.torrent`), suivi de progression
-- **Ajout manuel** — recherche de titres et création de demandes directement depuis l'interface
+### Demandes et orchestration
 
-### Watchlist Plex
-- **Polling automatique** — API officielle Plex ou flux RSS, intervalle configurable (défaut 5 min)
-- **Authentification Plex SSO** — connexion OAuth pour récupérer le token admin sans le saisir manuellement
-- **Source prioritaire + fallback** — bascule automatique entre API et RSS si l'une est indisponible
+- Entrées depuis la **Watchlist Plex API**, un flux **RSS Plex**, l’API Plexarr, l’interface Découvrir ou **Overseerr/Jellyseerr**.
+- Routage direct vers plusieurs instances **Sonarr** et **Radarr**.
+- Approbation facultative, co-demandeurs et historique de la provenance.
+- Recherche de releases via Prowlarr et ajout direct à un client compatible.
+- Prise en charge des séries complètes, de quelques saisons ou d’un épisode unique.
 
-### Détection de disponibilité
-- **Polling périodique** — vérification toutes les 15 min via Sonarr / Radarr / Overseerr
-- **Webhooks entrants Sonarr & Radarr** — détection instantanée sur `OnDownload` / `OnImport`
-- **Webhook Plex** *(Plex Pass requis)* — détection instantanée sur `library.new` et `media.scrobble` ; correspondance prioritaire par TMDB/TVDB/IMDB ID
+### Téléchargements et imports
 
-### Gestion de bibliothèque Plex
-- **Synchronisation de bibliothèque** — import des médias déjà présents dans Plex, rapprochés avec Sonarr/Radarr (badges de suivi)
-- **Suivi VF / VFF** — détection des pistes audio françaises sur les médias disponibles ; distinction VO / VF / non analysé, relance de recherche automatique en VO
-- **Résolution de conflits & doublons** — détection des demandes en conflit, fusion des doublons, réconciliation des IDs manquants (TMDB/TVDB/IMDB)
-- **Espace disque** — visualisation de l'espace disponible sur les instances *arr
+- File unifiée Sonarr/Radarr et clients directs.
+- Progression, temps restant, état opérationnel et raison d’attente.
+- Détection d’un téléchargement terminé mais bloqué à l’import.
+- Confirmation après deux contrôles consécutifs pour limiter les faux blocages.
+- Association et import manuels depuis l’interface.
+
+### Disponibilité Plex et langues
+
+- Séparation claire entre demande, transmission \*arr, téléchargement, import et disponibilité Plex.
+- Synchronisation des médias déjà présents dans Plex.
+- Couverture par saison et épisode.
+- Analyse VO, VF, VF secondaire et disponibilité partielle.
+- Gestion des films, séries complètes, saisons complètes et épisodes isolés.
 
 ### Notifications
-- **File de notifications asynchrone** — worker asyncio non-bloquant, les envois n'impactent pas le scheduler
-- **Email SMTP** — templates Jinja2 HTML personnalisables, plusieurs adresses par utilisateur (virgule-séparées)
-- **Copie admin** — email admin configurable avec toggle par utilisateur Plex
-- **Discord** — webhook ; **Telegram** — bot token + chat ID ; **Gotify** & **ntfy** — push self-hosted
-- Trois événements : nouvelle demande · disponible · échec de transmission
-- **Notification VF** — alerte dédiée lorsqu'un média suivi passe de VO à VF disponible
 
-### Interface web
-- **Dashboard** — cartes stats cliquables (filtre par statut), affiches en arrière-plan, santé auto-rafraîchie
-- **Demandes** — vue grille et tableau, filtrage AJAX sans rechargement, chips de filtres actifs, sélection multiple en grille, suppression avec annulation (undo 5 s), auto-rafraîchissement des statuts en cours, modal enrichi, retry inline
-- **Utilisateurs** — gestion des comptes Plex, emails multiples, toggle admin, toggle actif/inactif
-- **Logs** — vue en temps réel avec filtre par niveau, recherche textuelle, filtre temporel
-- **Paramètres** — navigation par onglets (Connexions / Notifications / Avancé), bouton Enregistrer sticky, badges de connexion persistants, avertissements de configuration incomplète, chargement automatique des profils/dossiers Sonarr/Radarr
-- **Import / Export** JSON pour sauvegarde et restauration complète
+- Email SMTP, Discord, Telegram, ntfy et Gotify.
+- Modèles personnalisables avec aperçu et simulation par utilisateur.
+- Jalons regroupés pour éviter un email par saison lors de l’ajout d’une série complète.
+- Notifications de demande, disponibilité, amélioration VF, correction et échec.
+- Historique par média et par utilisateur, avec canal, destinataire et résultat.
+- Bascule globale permettant de bloquer les envois sans interrompre l’analyse.
 
-### Observabilité
-- **`/api/health`** — état structuré de chaque service (Sonarr, Radarr, Overseerr, Plex) avec latence en ms, statut global `healthy / degraded / down` et horodatage ISO 8601
-- **`/api/metrics`** — compteurs runtime (polls, soumissions *arr, notifications, taux d'erreur, latences moyennes) + agrégats DB par statut en temps réel
-- **Métriques in-memory** — réinitialisées au redémarrage, fenêtre glissante de 50 échantillons pour les latences
+### Interface responsive
 
-### Sécurité & Gestion
-- **Authentification** — bcrypt + session cookie, wizard de premier démarrage
-- **Clé secrète** — générée aléatoirement au premier lancement, persistée dans `data/.secret_key`
-- **Multi-utilisateurs** — filtrage par ID Plex, activation/désactivation individuelle
+- Sidebar repliable sur ordinateur et tablette, navigation mobile avec safe areas.
+- Dashboard et activité sur 30 jours par demandes, disponibilités ou notifications.
+- Bibliothèque avec filtres compacts.
+- Calendrier Agenda/Mois et téléchargements regroupés par action requise.
+- Fiches média avec timeline, couverture, prochaines sorties, demandes et notifications.
+- Paramètres avec vue d’ensemble et recherche.
+- Centre d’exploitation, maintenance, journaux et incidents.
+- Gestion des utilisateurs, permissions, notifications et activité.
 
----
+## Workflow média
 
-## Démarrage rapide
+```mermaid
+flowchart LR
+    A["Watchlist Plex<br/>API / RSS"] --> D["Demande Plexarr"]
+    B["Découvrir<br/>Ajout manuel"] --> D
+    C["API / Seerr"] --> D
+    D --> E{"Approbation<br/>requise ?"}
+    E -->|Oui| F["Validation admin"]
+    E -->|Non| G["Sonarr / Radarr"]
+    F --> G
+    G --> H["Client de téléchargement"]
+    H --> I{"Import réussi ?"}
+    I -->|Non| J["Intervention requise"]
+    J --> I
+    I -->|Oui| K["Plex détecte le média"]
+    K --> L["Analyse VO / VF<br/>et couverture"]
+    L --> M["Notification regroupée"]
+```
+
+Le point d’entrée est conservé pendant tout le parcours. Une demande API ou Watchlist portant sur une série implique toutes les saisons hors saison 0, tandis qu’une demande manuelle peut cibler seulement certaines saisons ou un épisode.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    UI["Vue 3 responsive"] --> API["FastAPI"]
+    API --> PG[("PostgreSQL")]
+    API --> REDIS[("Redis")]
+    REDIS --> WORKER["Worker ARQ"]
+    WORKER --> PLEX["Plex"]
+    WORKER --> ARR["Sonarr / Radarr"]
+    WORKER --> CLIENTS["Clients de téléchargement"]
+    WORKER --> CHANNELS["Email / Discord / Telegram<br/>ntfy / Gotify"]
+    PLEX -->|Webhooks / synchronisation| API
+    ARR -->|Webhooks / état de file| API
+```
+
+| Composant | Rôle |
+|---|---|
+| `plex-rss` | API FastAPI, interface Vue, webhooks et événements temps réel |
+| `worker` | Jobs ARQ, polling, analyse, notifications et traitements longs |
+| `db` | PostgreSQL 15 et données métier |
+| `redis` | File ARQ, heartbeat, cache et signaux temps réel |
+| `backup` / `restore` | Outils PostgreSQL activés par le profil Compose `operations` |
+
+## Installation Docker
 
 ### Prérequis
 
-- Docker et Docker Compose
+- Docker Engine 24+ ou Docker Desktop récent.
+- Docker Compose v2.
+- Un répertoire persistant pour `data/` et `backups/`.
 
-### `docker-compose.yml`
+### 1. Récupérer la configuration
+
+```bash
+git clone https://github.com/remi-deher/plex-rss.git
+cd plex-rss
+cp .env.example .env
+```
+
+Sous PowerShell :
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### 2. Générer les secrets
+
+Définissez dans `.env` un mot de passe PostgreSQL long, puis générez la clé de chiffrement :
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+```dotenv
+TZ=Europe/Paris
+POSTGRES_DB=plexrss
+POSTGRES_PASSWORD=remplacer-par-un-secret-long
+PLEXARR_ENCRYPTION_KEY=coller-la-cle-fernet
+ARQ_MAX_JOBS=4
+ARQ_JOB_TIMEOUT=3600
+BACKUP_RETENTION_DAYS=14
+```
+
+> [!CAUTION]
+> Conservez `PLEXARR_ENCRYPTION_KEY`. La perdre empêche de déchiffrer les secrets déjà enregistrés. Ne publiez jamais votre fichier `.env`.
+
+### 3. Démarrer
+
+Le fichier du dépôt construit l’image locale :
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+L’application est ensuite disponible sur [http://localhost:8000](http://localhost:8000).
+
+Pour utiliser uniquement l’image publiée, remplacez `build: .` par :
+
+```yaml
+image: mrcryllix/plex-rss:latest
+```
+
+dans les services `plex-rss` et `worker`.
+
+### Déploiement minimal complet
 
 ```yaml
 services:
   plex-rss:
     image: mrcryllix/plex-rss:latest
-    container_name: plex-rss
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
+    ports: ["8000:8000"]
+    volumes: ["./data:/app/data"]
+    env_file: [.env]
     environment:
-      - TZ=Europe/Paris
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_ARQ: "1"
+      ENABLE_LEGACY_SCHEDULER: "0"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
     restart: unless-stopped
+
+  worker:
+    image: mrcryllix/plex-rss:latest
+    command: ["arq", "app.jobs.WorkerSettings"]
+    volumes: ["./data:/app/data"]
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      REDIS_URL: redis://redis:6379/0
+      ENABLE_ARQ: "1"
+    depends_on:
+      plex-rss: { condition: service_healthy }
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: plexrss
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-plexrss}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plexrss -d ${POSTGRES_DB:-plexrss}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
 ```
+
+## Premier démarrage
+
+1. Ouvrez l’application et créez le compte propriétaire.
+2. Dans **Paramètres → Vue d’ensemble**, vérifiez les sections incomplètes.
+3. Configurez Plex, puis Sonarr/Radarr et leurs dossiers racines.
+4. Synchronisez les utilisateurs Plex.
+5. Configurez au moins un canal de notification.
+6. Lancez les tests de connexion depuis l’interface.
+7. Ajoutez les webhooks pour réduire le délai de détection.
+
+## Configuration des intégrations
+
+### Webhooks
+
+Utilisez une URL Plexarr accessible depuis les conteneurs ou serveurs sources :
+
+| Source | URL | Événements utiles |
+|---|---|---|
+| Sonarr | `https://plexarr.example.com/webhook/sonarr` | Download / Import / Upgrade |
+| Radarr | `https://plexarr.example.com/webhook/radarr` | Download / Import / Upgrade |
+| Plex | `https://plexarr.example.com/webhook/plex` | `library.new`, événements média |
+
+Le polling reste actif comme mécanisme de rattrapage. Le webhook Plex nécessite un abonnement Plex Pass.
+
+### Reverse proxy
+
+Le proxy doit transmettre `Host`, `X-Forwarded-For` et `X-Forwarded-Proto`, autoriser les webhooks et ne pas mettre en cache `/api/events`, qui utilise SSE.
+
+### Stockage et permissions
+
+- `pgdata` contient la base PostgreSQL.
+- `redisdata` conserve Redis en mode AOF.
+- `./data` conserve la clé de session et les éventuelles données de migration SQLite.
+- `./backups` reçoit les dumps PostgreSQL.
+
+## Exploitation
+
+### Vérifications rapides
 
 ```bash
+docker compose ps
+docker compose logs --tail=100 plex-rss
+docker compose logs --tail=100 worker
+docker compose exec worker arq --check app.jobs.WorkerSettings
+docker compose exec redis redis-cli ping
+docker compose exec db pg_isready -U plexrss -d plexrss
+```
+
+| Endpoint | Usage |
+|---|---|
+| `/api/health` | Santé de Plex, des instances \*arr et de l’infrastructure |
+| `/api/metrics/prometheus` | Métriques Prometheus, Redis, worker et files |
+| `/api/events` | Flux SSE authentifié pour le rafraîchissement temps réel |
+
+Dans l’interface, consultez **Exploitation → Vue d’ensemble** avant les logs : les imports bloqués, conflits et actions recommandées y sont regroupés.
+
+### États attendus
+
+```text
+plex-rss   healthy
+worker     healthy
+db         healthy
+redis      healthy
+```
+
+Si le worker est indisponible, l’interface peut rester accessible mais le polling, les analyses et les notifications différées ne progresseront plus.
+
+## Sauvegarde et restauration
+
+Créer et vérifier un dump :
+
+```bash
+docker compose --profile operations run --rm backup
+```
+
+Restaurer un dump nécessite d’arrêter les services qui écrivent :
+
+```bash
+docker compose stop plex-rss worker
+RESTORE_FILE=plexarr-YYYYMMDDTHHMMSSZ.dump CONFIRM_RESTORE=YES \
+  docker compose --profile operations run --rm restore
+docker compose up -d plex-rss worker
+```
+
+Testez régulièrement une restauration. Un fichier de sauvegarde qui n’a jamais été restauré ne constitue pas une sauvegarde vérifiée.
+
+## Mise à jour
+
+### Image publiée
+
+```bash
+docker compose --profile operations run --rm backup
+docker compose pull
 docker compose up -d
+docker compose ps
 ```
 
-L'application est accessible sur **http://localhost:8000**.
+### Construction locale
 
-### Premier démarrage
-
-1. L'assistant de configuration détecte l'absence de compte et vous guide pour créer le compte administrateur.
-2. **Paramètres → Connexions** : configurez Plex (URL + token ou RSS), puis Sonarr + Radarr (ou Overseerr).
-3. **Utilisateurs → Synchroniser** : détecte automatiquement les comptes utilisateurs Plex.
-4. Le polling démarre automatiquement.
-5. *(Optionnel)* **Paramètres → Avancé → Webhooks** : copiez les URLs dans Sonarr / Radarr / Plex pour une détection instantanée.
-
----
-
-## Configuration
-
-Toute la configuration se fait via l'interface web (aucun fichier `.env` requis).
-
-### Connexions
-
-| Paramètre | Description |
-|---|---|
-| Plex URL | URL locale de votre serveur Plex |
-| Plex Token | Token d'authentification (ou via SSO) |
-| Plex RSS URL | URL du flux RSS watchlist admin (Plex Pass) |
-| Source prioritaire | `api` ou `rss` avec fallback automatique |
-| Intervalle de polling | En minutes (défaut : 5) |
-| Sonarr / Radarr | URL, clé API, profil de qualité, dossier racine |
-| Radarr minimumAvailability | `announced` / `inCinemas` / `released` / `tba` (v5) |
-| Overseerr | URL + clé API (mode alternatif à Sonarr/Radarr) |
-
-### Notifications
-
-| Paramètre | Description |
-|---|---|
-| SMTP | Hôte, port, identifiants, STARTTLS |
-| Email admin | Adresse(s) recevant une copie (virgule-séparées) |
-| Discord | URL du webhook |
-| Telegram | Token du bot + Chat ID |
-
-### Événements de notification
-
-| Événement | Email | Discord | Telegram |
-|---|:---:|:---:|:---:|
-| Nouvelle demande | ✓ | ✓ | ✓ |
-| Contenu disponible | ✓ | ✓ | ✓ |
-| Échec de transmission | ✓ | ✓ | ✓ |
-
-### Webhooks entrants
-
-Configurez ces URLs dans les interfaces respectives pour une détection instantanée (sans attendre le polling) :
-
-| Source | URL | Événement |
-|---|---|---|
-| Sonarr | `http://<host>:8000/webhook/sonarr` | OnDownload / OnImport |
-| Radarr | `http://<host>:8000/webhook/radarr` | OnDownload / OnImport |
-| Plex | `http://<host>:8000/webhook/plex` | library.new · media.scrobble |
-
-> [!NOTE]
-> Le webhook Plex nécessite **Plex Pass**. La correspondance se fait en priorité par TMDB/TVDB/IMDB ID, puis par titre.
-
----
-
-## Architecture
-
-```
-plex-rss/
-├── app/
-│   ├── main.py                  # Point d'entrée FastAPI + lifespan
-│   ├── models.py                # Modèles SQLAlchemy (Settings, PlexUser, MediaRequest)
-│   ├── database.py              # Moteur SQLite, session
-│   ├── scheduler.py             # Jobs APScheduler (poll_watchlists, check_arr_statuses)
-│   ├── notification_queue.py    # Worker asyncio pour les notifications
-│   ├── metrics.py               # Compteurs in-memory (latences, taux d'erreur runtime)
-│   ├── log_buffer.py            # Handler logging en mémoire (500 entrées)
-│   ├── routers/
-│   │   ├── auth.py              # Authentification (login, setup, logout)
-│   │   ├── api.py               # API REST JSON (/api/health, /api/metrics, /api/requests…)
-│   │   ├── pages.py             # Anciennes pages Jinja non montées (transition)
-│   │   ├── webhook.py           # Webhooks entrants (Sonarr, Radarr, Plex)
-│   │   ├── importexport.py      # Import / Export JSON
-│   │   └── email_templates.py   # Éditeur de templates email
-│   ├── services/
-│   │   ├── auth.py              # Bcrypt + clés de session
-│   │   ├── watchlist.py         # Agrégateur API + RSS avec fallback automatique
-│   │   ├── plex_api.py          # Client API Plex officielle + SSO OAuth
-│   │   ├── plex_rss.py          # Parseur flux RSS Plex
-│   │   ├── sonarr.py            # Client API Sonarr v3
-│   │   ├── radarr.py            # Client API Radarr v3/v5
-│   │   ├── overseerr.py         # Client API Overseerr / Jellyseerr
-│   │   ├── email_service.py     # Envoi SMTP (aiosmtplib), templates Jinja2
-│   │   └── notifications.py     # Discord & Telegram
-│   └── templates/               # Login/setup publics et anciens templates non montés
-│       ├── base.html
-│       ├── dashboard.html
-│       ├── library.html
-│       ├── calendar.html
-│       ├── users.html
-│       ├── logs.html
-│       ├── settings.html
-│       ├── email_templates.html
-│       ├── login.html
-│       └── setup.html
-├── tests/                       # Suite de tests (452 tests, pytest + pytest-asyncio)
-│   ├── test_sonarr.py
-│   ├── test_radarr.py
-│   ├── test_overseerr.py
-│   ├── test_plex_api.py
-│   ├── test_scheduler.py
-│   ├── test_notification_queue.py
-│   ├── test_watchlist.py
-│   ├── test_email_service.py
-│   ├── test_metrics.py
-│   ├── test_api_settings.py
-│   ├── test_api_requests.py
-│   ├── test_api_health_metrics.py
-│   └── test_pages.py
-├── alembic/                     # Migrations SQLite
-├── data/                        # Base SQLite + clé secrète (volume, non versionné)
-├── .github/workflows/
-│   ├── tests.yml                # CI : pytest sur chaque push / PR
-│   ├── lint.yml                 # CI : ruff check
-│   ├── docker-publish.yml       # Publication Docker Hub sur tag
-│   ├── release.yml              # Création de release GitHub sur tag
-│   ├── trivy.yml                # Scan de sécurité CVE (Trivy)
-│   └── dependabot-auto-merge.yml
-├── Dockerfile
-├── docker-compose.yml
-├── pytest.ini
-├── ruff.toml
-├── CONTRIBUTING.md
-├── DOCKER_HUB.md
-└── requirements.txt
+```bash
+git pull --ff-only
+docker compose --profile operations run --rm backup
+docker compose up -d --build
 ```
 
----
+Les migrations Alembic sont appliquées au démarrage de l’API. Consultez les logs avant de considérer la mise à jour terminée.
+
+### Migration d’une ancienne base SQLite
+
+Le compose conserve `AUTO_MIGRATE_LEGACY_SQLITE=1` et `LEGACY_SQLITE_PATH=/app/data/plex_rss.db`. L’import n’a lieu que si PostgreSQL est vide. Conservez une copie du fichier SQLite avant le premier démarrage et consultez [la documentation de migration](docs/LEGACY_DATABASE_MIGRATION.md).
 
 ## Développement
 
-### Lancement local sans Docker
+### Backend
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux/macOS
-
-pip install -r requirements.txt
+# Linux/macOS : source .venv/bin/activate
+# PowerShell   : .venv\Scripts\Activate.ps1
+pip install -r requirements.txt -r requirements-dev.txt
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-### Tests
+### Frontend
 
 ```bash
-# Lancer tous les tests
-python -m pytest -v
-
-# Lancer un fichier spécifique
-python -m pytest tests/test_scheduler.py -v
-
-# Lancer un test précis
-python -m pytest tests/test_scheduler.py::test_poll_new_item_creates_request_and_notifies -v
+npm ci
+npm run dev
+npm run build
+npm run test:e2e
 ```
 
-### Rebuild Docker après modification
+### Tests et qualité
 
 ```bash
-docker compose up --build -d
-docker logs plex-rss -f
+python -m pytest -q -p no:xonsh -p no:xonsh.pytest.plugin
+python -m ruff check .
 ```
 
-### Ajouter une migration Alembic
+Les contributions sont décrites dans [CONTRIBUTING.md](CONTRIBUTING.md). Pour l’exploitation détaillée, consultez [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-```bash
-alembic revision --autogenerate -m "description_du_changement"
-alembic upgrade head
-```
+## Sécurité
 
----
-
-## Stack technique
-
-| Composant | Technologie |
-|---|---|
-| Framework web | FastAPI |
-| Sécurité / Session | Bcrypt, Starlette SessionMiddleware |
-| Base de données | PostgreSQL/SQLite + SQLAlchemy async + Alembic |
-| Tâches de fond | ARQ + Redis (APScheduler de secours) |
-| Notifications async | ARQ + Redis |
-| Client HTTP | httpx (async) |
-| Parseur RSS | feedparser |
-| Email | aiosmtplib |
-| Interface | Vue 3 + Vue Router à la racine ; Jinja2 pour login/setup |
-| Tests | pytest + pytest-asyncio |
-| Lint | ruff (E, F, W, I) |
-| CI | GitHub Actions (tests, lint, Trivy, Docker Hub) |
-| Conteneurisation | Docker + Docker Compose |
-
----
+- Ne publiez jamais `.env`, les tokens Plex/\*arr ou les clés de notification.
+- Placez Plexarr derrière HTTPS pour un accès distant.
+- Limitez l’exposition directe de PostgreSQL et Redis : aucun port hôte n’est nécessaire.
+- Sauvegardez `PLEXARR_ENCRYPTION_KEY` séparément des dumps PostgreSQL.
+- Consultez les alertes Dependabot, CodeQL et Trivy avant une mise à jour majeure.
 
 ## Licence
 
-[MIT](LICENSE) — Copyright (c) 2026 DEHER Rémi
+[MIT](LICENSE) — Copyright © 2026 Rémi DEHER.

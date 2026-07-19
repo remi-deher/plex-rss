@@ -34,6 +34,52 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.sidebar-toggle {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+}
+
+.sidebar-toggle:hover,
+.sidebar-toggle:focus-visible {
+  color: var(--text);
+  border-color: rgba(229, 160, 13, 0.25);
+  background: rgba(229, 160, 13, 0.09);
+}
+
+.sidebar-toggle svg { width: 19px; height: 19px; }
+
+.shell.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.sidebar.collapsed {
+  padding: 16px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.sidebar.collapsed .brand {
+  justify-content: center;
+  min-height: 44px;
+  padding: 4px 0 10px;
+}
+
+.sidebar.collapsed .brand-name,
+.sidebar.collapsed .menu-label { display: none; }
+.sidebar.collapsed .sidebar-toggle { width: 44px; height: 44px; margin: 0; border-color: transparent; }
+.sidebar.collapsed a { justify-content: center; gap: 0; min-height: 44px; padding: 0 8px; font-size: 0; }
+.sidebar.collapsed a svg { width: 20px; height: 20px; flex: none; }
+
 .brand {
   display: flex;
   align-items: center;
@@ -298,6 +344,16 @@ button svg {
 
   .tablet-fade-enter-active,.tablet-fade-leave-active { transition: opacity .2s ease; }
   .tablet-fade-enter-from,.tablet-fade-leave-to { opacity: 0; }
+
+  /* Le même bouton pilote désormais le rail compact sur tablette et ordinateur. */
+  .shell:not(.sidebar-collapsed) { grid-template-columns: 248px minmax(0, 1fr); }
+  .sidebar:not(.collapsed) { padding: 16px 12px; overflow-y: auto; }
+  .sidebar:not(.collapsed) .brand { justify-content: flex-start; padding: 4px 10px 10px; }
+  .sidebar:not(.collapsed) .brand-name,
+  .sidebar:not(.collapsed) .menu-label { display: block; }
+  .sidebar:not(.collapsed) a { justify-content: flex-start; gap: 10px; min-height: 38px; padding: 0 12px; font-size: .8125rem; }
+  .sidebar:not(.collapsed) a svg { width: 18px; height: 18px; }
+  .sidebar:not(.collapsed) .sidebar-toggle { display: inline-grid; }
 
   /* Les grilles denses passent en 2 colonnes au lieu de 1 ou 4 */
   .dashboard-grid,

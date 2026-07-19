@@ -43,10 +43,11 @@ function formatDate(value) {
 .workflow-heading h2 { margin: 0; font-size: 16px; }
 .workflow-heading span { color: var(--muted); font-size: 12px; text-align: right; }
 .workflow-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 0; padding: 0; list-style: none; }
-.workflow-timeline li { position: relative; display: flex; gap: 9px; min-width: 0; padding: 0 12px 12px 0; color: var(--muted); }
-.workflow-timeline li::after { content: ''; position: absolute; top: 12px; left: 24px; right: 0; height: 2px; background: var(--border); }
+.workflow-timeline li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; padding: 0 8px 12px; color: var(--muted); text-align: center; }
+.workflow-timeline li::after { content: ''; position: absolute; z-index: 0; top: 11px; left: calc(50% + 12px); right: calc(-50% + 12px); height: 2px; background: var(--border); }
 .workflow-timeline li:last-child::after { display: none; }
-.workflow-marker { z-index: 1; flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--border); }
+.workflow-marker { position: relative; z-index: 1; flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--border); }
+.workflow-timeline li > div { width: 100%; min-width: 0; }
 .workflow-marker :deep(svg) { width: 13px; height: 13px; }
 .workflow-timeline strong, .workflow-timeline small { display: block; }
 .workflow-timeline strong { color: inherit; font-size: 13px; line-height: 1.25; }
@@ -59,7 +60,8 @@ function formatDate(value) {
 .workflow-timeline .is-error .workflow-marker { border-color: currentColor; }
 @media (max-width: 720px) {
   .workflow-timeline { display: block; }
-  .workflow-timeline li { padding-bottom: 18px; }
+  .workflow-timeline li { flex-direction: row; align-items: flex-start; gap: 9px; padding: 0 0 18px; text-align: left; }
+  .workflow-timeline li > div { width: auto; padding-top: 3px; }
   .workflow-timeline li::after { top: 24px; bottom: 0; left: 11px; right: auto; width: 2px; height: auto; }
 }
 </style>

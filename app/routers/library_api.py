@@ -360,20 +360,41 @@ async def media_detail(
 
     request_ids_for_mail = [req.id for req in related_requests]
     last_mail_by_req: dict[int, dict] = {}
+    notification_history: list[dict] = []
     # (req_id, event) -> adresses ayant reçu ce mail avec succès — sert à savoir, PAR
     # PERSONNE (pas juste globalement), si un demandeur/co-demandeur a déjà été notifié
     # (voir "Rattraper tout le monde" et l'indicateur par ligne dans MediaDetailDrawer).
     mail_recipients_by_req: dict[tuple[int, str], set[str]] = {}
     if request_ids_for_mail:
-        mail_logs = (await db.execute(
+        all_notification_logs = (await db.execute(
             select(NotificationLog)
             .filter(
                 NotificationLog.req_id.in_(request_ids_for_mail),
-                NotificationLog.channel == "email",
-                NotificationLog.event.in_(("request", "available")),
             )
             .order_by(NotificationLog.sent_at.desc())
+            .limit(50)
         )).scalars().all()
+        notification_history = [
+            {
+                "id": log.id,
+                "event": log.event,
+                "channel": log.channel,
+                "recipient": log.recipient,
+                "sent_at": format_datetime(log.sent_at),
+                "success": log.success,
+                "error_msg": log.error_msg,
+                "triggered_by": log.triggered_by,
+                "scope": log.scope,
+                "language": log.language,
+                "season_number": log.season_number,
+                "episode_number": log.episode_number,
+            }
+            for log in all_notification_logs
+        ]
+        mail_logs = [
+            log for log in all_notification_logs
+            if log.channel == "email" and log.event in ("request", "available")
+        ]
         for log in mail_logs:
             key = (log.req_id, log.event)
             if key not in last_mail_by_req:
@@ -502,6 +523,7 @@ async def media_detail(
         "issues": [_serialize_issue(issue) for issue in open_issues],
         "timeline": schedule["timeline"],
         "calendar": schedule["events"],
+        "notification_history": notification_history,
     }
 
 

@@ -1,5 +1,12 @@
 <template>
   <div class="settings-grid">
+    <section class="operations-summary span-two">
+      <RouterLink to="/downloads" class="operation-summary-card" :class="{alert:acquisitions.counts.blocked_imports}"><Download/><div><span>Interventions</span><strong>{{ acquisitions.counts.blocked_imports }}</strong><small>Imports bloqués</small></div></RouterLink>
+      <RouterLink to="/issues" class="operation-summary-card"><CircleAlert/><div><span>Signalements</span><strong>À traiter</strong><small>Ouvrir le centre d’incidents</small></div></RouterLink>
+      <RouterLink to="/logs" class="operation-summary-card"><ScrollText/><div><span>Diagnostic</span><strong>Journaux</strong><small>Analyser l’activité récente</small></div></RouterLink>
+      <RouterLink to="/maintenance" class="operation-summary-card"><Wrench/><div><span>Opérations</span><strong>Maintenance</strong><small>Lancer une tâche contrôlée</small></div></RouterLink>
+    </section>
+    <nav class="operations-links span-two" aria-label="Navigation d'exploitation"><RouterLink to="/downloads">Téléchargements</RouterLink><RouterLink to="/issues">Incidents</RouterLink><RouterLink to="/settings?tab=scheduled-tasks">Planification</RouterLink><RouterLink to="/logs">Journaux</RouterLink><RouterLink to="/maintenance">Maintenance</RouterLink></nav>
     <div class="settings-cards span-two">
       <SettingsCard title="Secrets" subtitle="Token API et secret webhook" :icon="KeyRound" status="neutral" :collapsible="false">
         <template #actions>
@@ -79,7 +86,7 @@
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 <script setup>
-import { computed,onMounted,ref } from 'vue';import { Check,KeyRound,ListRestart,RefreshCw,Trash2,WandSparkles } from '@lucide/vue';import { api } from '@/api';import SettingsCard from './settings/SettingsCard.vue';import ConfirmModal from './ConfirmModal.vue';import { useConfirm } from '@/composables/useConfirm';
+import { computed,onMounted,ref } from 'vue';import { Check,CircleAlert,Download,KeyRound,ListRestart,RefreshCw,ScrollText,Trash2,WandSparkles,Wrench } from '@lucide/vue';import { api } from '@/api';import SettingsCard from './settings/SettingsCard.vue';import ConfirmModal from './ConfirmModal.vue';import { useConfirm } from '@/composables/useConfirm';
 const conflicts=ref([]),apiToken=ref(''),webhookSecret=ref(''),tokenActive=ref(false),webhookActive=ref(false);
 const acquisitions=ref({items:[],counts:{active_batches:0,active_queue:0,blocked_imports:0}});
 const acquisitionSubtitle=computed(()=>acquisitions.value.counts.blocked_imports ? 'Intervention requise dans Sonarr' : acquisitions.value.counts.active_batches ? 'Telechargements et stabilisation en cours' : 'Aucun lot actif');
@@ -96,5 +103,7 @@ function episodeLabel(row){const season=row.season_number!=null?`S${String(row.s
 onMounted(()=>Promise.all([loadSecrets(),loadConflicts(),loadAcquisitions()]));
 </script>
 <style scoped>
+.operations-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.operation-summary-card{display:flex;align-items:flex-start;gap:10px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);text-decoration:none}.operation-summary-card:hover{border-color:var(--accent)}.operation-summary-card.alert{border-color:rgba(239,68,68,.35)}.operation-summary-card>svg{width:19px;color:var(--accent)}.operation-summary-card.alert>svg{color:var(--danger)}.operation-summary-card>div{display:grid;gap:2px}.operation-summary-card span{color:var(--muted);font-size:9px;text-transform:uppercase}.operation-summary-card strong{font-size:14px}.operation-summary-card small{color:var(--muted);font-size:9px}.operations-links{display:flex;gap:6px;overflow-x:auto}.operations-links a{padding:7px 10px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:10px;text-decoration:none;white-space:nowrap}.operations-links a.router-link-active{color:var(--accent);border-color:var(--accent)}
 .acquisition-counters,.acquisition-events{display:flex;gap:8px;flex-wrap:wrap}.acquisition-batch{border-top:1px solid var(--border);padding:14px 0;display:grid;gap:8px}.acquisition-head,.queue-observation{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.acquisition-head div,.queue-observation div{display:grid;gap:3px}.queue-observation{padding:10px;border-radius:8px;background:var(--surface-2)}.queue-observation.blocked{border:1px solid var(--danger)}.badge.danger{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
+@media(max-width:900px){.operations-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.operations-summary{grid-template-columns:1fr}.operations-links{position:sticky;top:8px;z-index:8;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px}}
 </style>

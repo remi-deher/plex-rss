@@ -1,5 +1,6 @@
 services:
   plex-rss:
+    image: ${PLEXARR_IMAGE:-mrcryllix/plex-rss:latest}
     build: .
     container_name: plex-rss
     ports:
@@ -14,13 +15,14 @@ services:
     stop_grace_period: 30s
     environment:
       TZ: ${TZ:-Europe/Paris}
-      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-plexrss}
       REDIS_URL: redis://redis:6379/0
       ENABLE_ARQ: "1"
       ENABLE_LEGACY_SCHEDULER: "0"
-      AUTO_MIGRATE_LEGACY_SQLITE: "1"
-      LEGACY_SQLITE_PATH: /app/data/plex_rss.db
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
+      AUTO_MIGRATE_LEGACY_SQLITE: ${AUTO_MIGRATE_LEGACY_SQLITE:-1}
+      LEGACY_SQLITE_PATH: ${LEGACY_SQLITE_PATH:-/app/data/plex_rss.db}
+      LEGACY_IMPORT_MAX_BYTES: ${LEGACY_IMPORT_MAX_BYTES:-268435456}
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:?PLEXARR_ENCRYPTION_KEY must be set}
     depends_on:
       db:
         condition: service_healthy
@@ -34,6 +36,7 @@ services:
       start_period: 30s
 
   worker:
+    image: ${PLEXARR_IMAGE:-mrcryllix/plex-rss:latest}
     build: .
     container_name: plex-rss-worker
     command: ["arq", "app.jobs.WorkerSettings"]
@@ -43,11 +46,11 @@ services:
     stop_grace_period: 45s
     environment:
       TZ: ${TZ:-Europe/Paris}
-      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
+      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-plexrss}
       REDIS_URL: redis://redis:6379/0
       ENABLE_ARQ: "1"
       AUTO_MIGRATE_LEGACY_SQLITE: "0"
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:?PLEXARR_ENCRYPTION_KEY must be set}
       ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-15}
       ARQ_JOB_TIMEOUT: ${ARQ_JOB_TIMEOUT:-3600}
     depends_on:
@@ -67,7 +70,7 @@ services:
     container_name: plex-rss-db
     environment:
       POSTGRES_USER: plexrss
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       POSTGRES_DB: ${POSTGRES_DB:-plexrss}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -97,7 +100,7 @@ services:
     environment:
       PGHOST: db
       PGUSER: plexrss
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       PGDATABASE: ${POSTGRES_DB:-plexrss}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
@@ -114,7 +117,7 @@ services:
     environment:
       PGHOST: db
       PGUSER: plexrss
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       PGDATABASE: ${POSTGRES_DB:-plexrss}
       RESTORE_FILE: ${RESTORE_FILE:-}
       CONFIRM_RESTORE: ${CONFIRM_RESTORE:-}
