@@ -366,9 +366,16 @@ button svg {
 }
 
 @media (max-width: 640px) {
-  .shell {
-    grid-template-columns: 1fr;
+  .shell,
+  .shell.sidebar-collapsed {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
     padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
+  }
+
+  .main {
+    width: 100%;
+    max-width: 100vw;
   }
 
   /* Desktop / Mobile Visibility Helpers */
