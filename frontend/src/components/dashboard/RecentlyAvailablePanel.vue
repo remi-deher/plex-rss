@@ -1,5 +1,5 @@
 <template>
-  <section v-if="items.length" class="panel span-two">
+  <section class="panel span-two">
     <div class="panel-head">
       <h2>Recemment disponibles dans la bibliotheque</h2>
     </div>
@@ -14,6 +14,7 @@
         <span>{{ formatRelativeDate(item.available_at) }}</span>
       </div>
     </div>
+    <p v-if="!items.length" class="empty">Aucun média disponible récemment.</p>
   </section>
 </template>
 

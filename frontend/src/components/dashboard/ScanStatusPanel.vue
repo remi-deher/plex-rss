@@ -1,5 +1,5 @@
 <template>
-  <section class="panel span-two">
+  <section class="panel scan-status-panel">
     <div class="panel-head">
       <h2>Etat des scans</h2>
       <div class="actions">

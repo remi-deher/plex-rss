@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <PageHeader title="Tableau de bord" description="État des services et activité récente.">
+    <PageHeader title="Tableau de bord" :description="lastUpdatedLabel">
       <button class="primary" :disabled="polling" @click="pollNow">
         <RefreshCw :class="{ spin: polling }" />Vérifier maintenant
       </button>
@@ -11,8 +11,8 @@
     <DashboardActionCenter :pending="pending" :queue="downloadQueue" :failed-count="failedCount" @action="action"/>
 
     <section class="dashboard-section">
-      <header class="dashboard-section-head"><div><span>Activité</span><h2>En cours</h2><p>Demandes, acquisitions et analyses actuellement actives.</p></div></header>
-      <div class="metric-grid">
+      <header class="dashboard-section-head"><div><span>Activité</span><h2>Situation actuelle</h2><p>Les éléments utiles pour piloter les demandes et les acquisitions.</p></div></header>
+      <div class="metric-grid dashboard-metrics">
       <component
         v-for="card in statCards"
         :key="card.label"
@@ -21,8 +21,8 @@
         class="metric-card"
         :style="card.route ? 'text-decoration: none; color: inherit;' : ''"
       >
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
+        <component :is="card.icon" class="metric-icon" />
+        <div><span>{{ card.label }}</span><strong>{{ card.value }}</strong><small>{{ card.detail }}</small></div>
       </component>
       </div>
       <div class="dashboard-focus-grid">
@@ -33,23 +33,36 @@
     </section>
 
     <section class="dashboard-section">
-      <header class="dashboard-section-head"><div><span>Bibliothèque</span><h2>Nouveautés</h2><p>Contenus disponibles et prochaines sorties.</p></div></header>
-      <div class="dashboard-focus-grid">
-      <RecentlyAvailablePanel :items="recentlyAvailable" />
-        <UpcomingReleasesPanel :items="upcoming" />
-      </div>
+      <header class="dashboard-section-head"><div><span>Tendance</span><h2>Activité</h2><p>Demandes, disponibilités et notifications sur la période.</p></div></header>
+      <ActivityChartPanel :timeline="timeline" />
+    </section>
+
+    <section class="dashboard-section">
+      <header class="dashboard-section-head">
+        <div><span>Bibliothèque</span><h2>Nouveautés et sorties</h2><p>Ce qui vient d'arriver et ce qui est attendu prochainement.</p></div>
+        <nav class="dashboard-view-tabs" aria-label="Vue des nouveautés">
+          <button :class="{active:mediaView==='recent'}" @click="mediaView='recent'">Disponibles <span>{{ recentlyAvailable.length }}</span></button>
+          <button :class="{active:mediaView==='upcoming'}" @click="mediaView='upcoming'">À venir <span>{{ upcoming.length }}</span></button>
+        </nav>
+      </header>
+      <RecentlyAvailablePanel v-if="mediaView==='recent'" :items="recentlyAvailable" />
+      <UpcomingReleasesPanel v-else :items="upcoming" />
     </section>
 
     <details class="dashboard-secondary" open>
       <summary><div><span>Supervision</span><strong>Vue d’ensemble</strong></div><ChevronDown/></summary>
-      <div class="dashboard-secondary-content"><HealthGrid/><div class="dashboard-grid"><RequestsBreakdownPanel :counts="counts"/><ActivityChartPanel :timeline="timeline"/><DiskSpacePanel :volumes="diskSpace"/><TopRequestedPanel :items="topRequested"/><ActiveUsersPanel :users="byUser"/><RecentNotificationsPanel :notifications="recentNotifs"/></div></div>
+      <div class="dashboard-secondary-content dashboard-supervision-groups">
+        <section><header><span>Santé</span><h3>Infrastructure</h3></header><div class="dashboard-grid"><HealthGrid/><DiskSpacePanel :volumes="diskSpace"/></div></section>
+        <section><header><span>Usage</span><h3>Bibliothèque et utilisateurs</h3></header><div class="dashboard-grid"><RequestsBreakdownPanel :counts="counts"/><TopRequestedPanel :items="topRequested"/><ActiveUsersPanel :users="byUser"/></div></section>
+        <section><header><span>Communication</span><h3>Derniers envois</h3></header><div class="dashboard-grid"><RecentNotificationsPanel :notifications="recentNotifs"/></div></section>
+      </div>
     </details>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { ChevronDown, RefreshCw } from '@lucide/vue';
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Download, RefreshCw } from '@lucide/vue';
 import HealthGrid from '@/components/HealthGrid.vue';
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist.vue';
 import DashboardActionCenter from '@/components/dashboard/DashboardActionCenter.vue';
@@ -83,6 +96,9 @@ const upcoming = ref([]);
 const recentNotifs = ref([]);
 const downloadQueue = ref([]);
 const loadingQueue = ref(false);
+const mediaView = ref('recent');
+const updatedAt = ref(null);
+const clock = ref(Date.now());
 const vffScan = ref({ status: 'idle', items_scanned: 0, total_items: 0, finished_at: null });
 const plexSync = ref({ status: 'idle', items_synced: 0, total_items: 0, finished_at: null });
 const vffCounts = ref({});
@@ -101,13 +117,25 @@ function dismissOnboarding() {
 // comme Face Off/New York police judiciaire (statut partially_available, vrai manque).
 const IN_PROGRESS_STATUSES = ['sent_to_arr', 'partially_available'];
 const failedCount = computed(() => Number(counts.value.failed || 0));
+const queueState = row => `${row.status || ''} ${row.tracked_state || ''}`.toLowerCase();
+const downloadingCount = computed(() => downloadQueue.value.filter(row => queueState(row).includes('download')).length);
+const importingCount = computed(() => downloadQueue.value.filter(row => queueState(row).includes('import')).length);
+const blockedCount = computed(() => downloadQueue.value.filter(row => Boolean(row.error) || ['error','warning','failed','importpending'].some(key => queueState(row).includes(key))).length);
 
 const statCards = computed(() => [
-  { label: 'Demandes en cours', value: counts.value.sent_to_arr || '-', route: { path: '/library', query: { status: IN_PROGRESS_STATUSES } } },
-  { label: 'En attente approbation', value: counts.value.pending_approval ?? pending.value.length, route: { path: '/library', query: { status: 'pending_approval' } } },
-  { label: 'Chez Sonarr', value: counts.value.by_type?.show?.sent_to_arr ?? '-', route: { path: '/library', query: { status: IN_PROGRESS_STATUSES, type: 'show' } } },
-  { label: 'Chez Radarr', value: counts.value.by_type?.movie?.sent_to_arr ?? '-', route: { path: '/library', query: { status: IN_PROGRESS_STATUSES, type: 'movie' } } },
+  { label: 'À approuver', value: counts.value.pending_approval ?? pending.value.length, detail: 'Demandes en attente', icon: Clock3, route: { path: '/library', query: { status: 'pending_approval' } } },
+  { label: 'En téléchargement', value: downloadingCount.value, detail: 'Acquisitions actives', icon: Download, route: '/downloads' },
+  { label: 'En attente d’import', value: importingCount.value, detail: 'Traitement par *arr', icon: RefreshCw, route: '/downloads' },
+  { label: 'Bloqués', value: blockedCount.value + failedCount.value, detail: 'Intervention nécessaire', icon: AlertTriangle, route: '/downloads' },
+  { label: 'Disponibles', value: counts.value.available ?? '-', detail: 'Dans la bibliothèque', icon: CheckCircle2, route: { path: '/library', query: { status: 'available' } } },
 ]);
+
+const lastUpdatedLabel = computed(() => {
+  if (!updatedAt.value) return 'Chargement de l’état des services et de l’activité récente…';
+  const elapsed = Math.max(0, Math.floor((clock.value - updatedAt.value) / 1000));
+  const age = elapsed < 5 ? 'à l’instant' : elapsed < 60 ? `il y a ${elapsed} s` : `il y a ${Math.floor(elapsed / 60)} min`;
+  return `Mis à jour ${age} · actualisation automatique`;
+});
 
 const countdown = computed(() => seconds.value == null ? '-' : seconds.value < 60 ? `${seconds.value}s` : `${Math.floor(seconds.value / 60)} min`);
 
@@ -169,6 +197,7 @@ async function load() {
   api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
 
   await loadDownloadQueue();
+  updatedAt.value = Date.now();
 }
 
 async function pollNow() {
@@ -199,6 +228,7 @@ onMounted(async () => {
   await loadVffStatus();
   timer = setInterval(() => {
     if (seconds.value > 0) seconds.value--;
+    clock.value = Date.now();
   }, 1000);
   vffTimer = setInterval(loadVffStatus, 5000);
 });

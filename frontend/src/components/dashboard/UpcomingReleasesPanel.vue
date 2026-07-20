@@ -1,5 +1,5 @@
 <template>
-  <section v-if="items.length" class="panel span-two">
+  <section class="panel span-two">
     <div class="panel-head">
       <h2>Prochaines sorties</h2>
       <RouterLink to="/calendar" class="panel-link">Voir le calendrier</RouterLink>
@@ -18,6 +18,7 @@
         </div>
       </div>
     </div>
+    <p v-if="!items.length" class="empty">Aucune sortie à venir.</p>
   </section>
 </template>
 
