@@ -75,6 +75,7 @@
         <p v-if="vfStatusError" class="notice error-text">Statut VF/VO indisponible pour l'instant.</p>
       </div>
       <div v-else>
+        <h2 style="margin: 0 0 0.75rem;">Pistes audio et sous-titres</h2>
         <details class="season-details" style="margin-bottom: 0.5rem;" v-if="vfDetail.tracks?.length">
           <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: 8px; font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
             <span>Audio ({{ vfDetail.tracks.length }})</span>
@@ -109,7 +110,7 @@
         </details>
       </div>
     </div>
-    <p v-else-if="envelopeError" class="notice error-text">Échec du chargement des saisons/épisodes.</p>
+    <p v-else-if="envelopeError" class="notice error-text">Échec du chargement de l'analyse VF.</p>
     <p v-else class="empty">Chargement de l'analyse VF...</p>
   </div>
 </template>

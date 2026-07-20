@@ -26,6 +26,7 @@
     />
 
     <MediaAudioSection
+      v-if="detail.media_type !== 'show'"
       :vf-detail="vfDetail"
       :busy="busy"
       :available="Boolean(detail?.in_library)"

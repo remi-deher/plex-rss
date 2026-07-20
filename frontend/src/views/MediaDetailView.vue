@@ -53,6 +53,19 @@
 
           <MediaCalendarTab v-else-if="tab === 'calendar'" :events="detail.calendar" />
 
+          <MediaAudioSection
+            v-else-if="tab === 'audio'"
+            :vf-detail="mergedVfDetail"
+            :busy="busy"
+            :available="Boolean(detail?.in_library)"
+            :envelope-error="envelopeError"
+            :availability-error="availabilityError"
+            :vf-status-error="vfStatusError"
+            @scan="scanVff"
+            @correction="openCorrection"
+            @expand-season="loadSeasonEpisodes"
+          />
+
           <MediaSummaryTab
             v-else
             :detail="detail"
@@ -98,6 +111,7 @@ import MediaDetailHero from "@/components/media/MediaDetailHero.vue";
 import MediaSummaryTab from "@/components/media/MediaSummaryTab.vue";
 import MediaRequestsTab from "@/components/media/MediaRequestsTab.vue";
 import MediaCalendarTab from "@/components/media/MediaCalendarTab.vue";
+import MediaAudioSection from "@/components/media/MediaAudioSection.vue";
 import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
@@ -120,7 +134,9 @@ const envelopeError = ref(false);
 const seasonEpisodes = ref({}), seasonLoading = ref({}), seasonErrors = ref({});
 const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
-const tabs = ['summary', 'requests', 'calendar'];
+const tabs = computed(() => detail.value?.media_type === 'show'
+  ? ['summary', 'audio', 'requests', 'calendar']
+  : ['summary', 'requests', 'calendar']);
 const admin = ref(false);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
@@ -188,7 +204,7 @@ const mergedVfDetail = computed(() => {
   return { enabled: true, media_type: 'show', vf_available: true, seasons };
 });
 
-function tabLabel(value) { return ({ summary: 'Resume', requests: 'Demandes', calendar: 'Calendrier' })[value]; }
+function tabLabel(value) { return ({ summary: 'Resume', audio: 'Saisons & épisodes', requests: 'Demandes', calendar: 'Calendrier' })[value]; }
 
 function mediaPath() {
   const id = route.params.id;
@@ -238,7 +254,13 @@ async function load() {
     // Chaque appel se resout independamment -- l'enveloppe (rapide, TMDB) affiche
     // l'accordeon des qu'elle arrive, sans attendre disponibilite/VF (Sonarr/BDD),
     // qui completent ensuite les badges au fil de l'eau (voir mergedVfDetail).
-    Promise.all([loadEpisodesEnvelope(), loadAvailability(), loadVfStatus(), loadUsers(), loadSession()]).catch(() => {});
+    if (detail.value?.media_type === 'show') {
+      Promise.all([loadEpisodesEnvelope(), loadAvailability(), loadVfStatus(), loadUsers(), loadSession()]).catch(() => {});
+    } else {
+      loadVf().catch(() => { envelopeError.value = true; });
+      loadUsers().catch(() => {});
+      loadSession().catch(() => {});
+    }
   } else {
     loadSession().catch(() => {});
   }
