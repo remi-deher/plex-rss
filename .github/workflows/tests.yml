@@ -84,6 +84,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - name: Run frontend unit tests
+        run: npm run test:unit
       - run: npm run build
 
   docker-smoke:

@@ -5,11 +5,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.download_clients import (
+    _sanitized_watch_folder_path,
     add_torrent_to_client,
     check_client_connection,
     delete_torrent,
     get_torrent_status,
 )
+
+
+def test_sanitized_watch_folder_path_rejects_relative_path():
+    """Regression CodeQL py/path-injection : un chemin relatif ne doit jamais atteindre
+    os.path.isdir/open/os.remove tel quel."""
+    assert _sanitized_watch_folder_path("relative/folder") is None
+    assert _sanitized_watch_folder_path("") is None
+    assert _sanitized_watch_folder_path(None) is None
+
+
+def test_sanitized_watch_folder_path_resolves_traversal_segments(tmp_path):
+    """`os.path.normpath` resout les segments ".." avant que la fonction ne les inspecte
+    (aucune notion de repertoire racine autorise ici -- c'est un chemin admin arbitraire,
+    pas un acces sandboxe) : le resultat est le chemin final canonique, pas un rejet."""
+    traversal = str(tmp_path / "sub" / ".." / "escaped")
+    assert _sanitized_watch_folder_path(traversal) == os.path.normpath(str(tmp_path / "escaped"))
+
+
+def test_sanitized_watch_folder_path_accepts_normalized_absolute_path(tmp_path):
+    assert _sanitized_watch_folder_path(str(tmp_path)) == os.path.normpath(str(tmp_path))
 
 
 @pytest.mark.asyncio

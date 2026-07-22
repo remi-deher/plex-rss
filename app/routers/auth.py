@@ -133,10 +133,31 @@ async def login_get(request: Request, next: str = "/", db: AsyncSession = Depend
 
 
 @router.get("/privacy", response_class=HTMLResponse)
-async def privacy_policy(request: Request):
+async def privacy_policy(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Page publique, sans authentification -- liee depuis la connexion, la barre
-    laterale et le pied de page des emails."""
-    return templates.TemplateResponse(request, "privacy.html", {})
+    laterale et le pied de page des emails.
+
+    Rendue avec les reglages reels de l'instance (retention, canaux actifs) plutot
+    qu'un texte generique fige, pour que le contenu reste vrai sans maintenance manuelle."""
+    s = (await db.execute(select(Settings))).scalars().first()
+    channels = []
+    if s:
+        if s.email_enabled:
+            channels.append("Email")
+        if s.discord_enabled and s.discord_webhook_url:
+            channels.append("Discord")
+        if s.telegram_enabled and s.telegram_bot_token:
+            channels.append("Telegram")
+        if s.ntfy_enabled and s.ntfy_url:
+            channels.append("ntfy")
+        if s.gotify_enabled and s.gotify_url:
+            channels.append("Gotify")
+    context = {
+        "notification_retention_days": s.notification_log_retention_days if s else None,
+        "poll_history_retention_days": s.poll_history_retention_days if s else None,
+        "active_channels": channels,
+    }
+    return templates.TemplateResponse(request, "privacy.html", context)
 
 
 @router.post("/login", response_class=HTMLResponse)

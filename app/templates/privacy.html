@@ -124,10 +124,29 @@
     vous notifier quand un contenu devient disponible, et diagnostiquer les problèmes techniques.
     Aucune donnée n'est vendue, partagée avec un tiers à des fins commerciales, ou utilisée pour de la publicité.</p>
 
+    <h2>Services tiers sollicités</h2>
+    <p>Pour fonctionner, cette instance échange des données avec :</p>
+    <ul>
+      <li><strong>Plex.tv</strong> — authentification de votre compte et lecture de votre liste de suivi</li>
+      <li><strong>TMDB</strong> (The Movie Database) — affiches, synopsis et informations des films/séries</li>
+      <li><strong>Sonarr / Radarr / Prowlarr</strong> de cette instance — transmission de vos demandes</li>
+      {% if active_channels %}<li><strong>{{ active_channels|join(', ') }}</strong> — canal(aux) de notification activé(s) sur cette instance</li>{% endif %}
+    </ul>
+    <p>Ces échanges se font uniquement avec les services que l'administrateur de cette instance a
+    configurés ci-dessus — aucune donnée n'est envoyée ailleurs.</p>
+
     <h2>Combien de temps</h2>
-    <p>Les journaux de notification et l'historique technique sont conservés pour une durée
-    limitée, réglée par l'administrateur de cette instance (visible dans les paramètres de
-    l'application). Vos données de compte et vos demandes sont conservées tant que votre compte existe.</p>
+    <p>Sur cette instance, les journaux de notification sont conservés
+    {% if notification_retention_days %}<strong>{{ notification_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %},
+    et l'historique des tâches planifiées
+    {% if poll_history_retention_days %}<strong>{{ poll_history_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %}
+    (réglages visibles et modifiables par l'administrateur dans les paramètres de l'application).
+    Vos données de compte et vos demandes sont conservées tant que votre compte existe.</p>
+
+    <h2>Sécurité</h2>
+    <p>Les jetons d'accès et clés API stockés par cette instance (Plex, Sonarr/Radarr, services de
+    notification...) sont chiffrés au repos en base de données. Votre mot de passe (si vous en
+    utilisez un) est haché, jamais stocké en clair.</p>
 
     <h2>Vos droits</h2>
     <p>Vous pouvez demander à tout moment la suppression de votre compte et de vos données

@@ -900,19 +900,22 @@ class LibraryItem(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     title: Mapped[str]
     year: Mapped[Optional[int]]
-    media_type: Mapped[str]
+    media_type: Mapped[str] = mapped_column(index=True)
 
-    tmdb_id: Mapped[Optional[str]]
-    tvdb_id: Mapped[Optional[str]]
-    imdb_id: Mapped[Optional[str]]
-    plex_guid: Mapped[Optional[str]]
+    # Rapprochement demande <-> media Plex (plex_sync._find_library_item_by_ids) : sans
+    # index, chaque lookup scanne la table entiere (le seul filtre disponible avant ces
+    # colonnes est l'id auto-increment, inutile ici).
+    tmdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    tvdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    imdb_id: Mapped[Optional[str]] = mapped_column(index=True)
+    plex_guid: Mapped[Optional[str]] = mapped_column(index=True)
 
     poster_url: Mapped[Optional[str]]
     overview: Mapped[Optional[str]] = mapped_column(Text)
     added_at: Mapped[Optional[datetime]]
 
     # Rapprochement Sonarr / Radarr (badges de suivi)
-    arr_instance_id: Mapped[Optional[int]]
+    arr_instance_id: Mapped[Optional[int]] = mapped_column(index=True)
     arr_id: Mapped[Optional[int]]
     arr_slug: Mapped[Optional[str]]
 

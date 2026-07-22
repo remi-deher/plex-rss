@@ -22,4 +22,9 @@ export default defineConfig({
     outDir: "app/static/vue",
     emptyOutDir: true,
   },
+  test: {
+    environment: "jsdom",
+    include: ["frontend/src/**/*.{test,spec}.js"],
+    globals: false,
+  },
 });
