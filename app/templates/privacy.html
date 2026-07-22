@@ -102,7 +102,7 @@
     </div>
 
     <h1>Politique de confidentialité</h1>
-    <p class="updated-note">Ce document décrit simplement, en langage clair, quelles données sont traitées par cette instance et pourquoi.</p>
+    <p class="updated-note">Ce document décrit simplement, en langage clair, quelles données sont traitées par cette instance et pourquoi. Dernière mise à jour : 22 juillet 2026.</p>
 
     <div class="notice-box">
       Plexarr est un logiciel auto-hébergé, développé et utilisé à titre strictement personnel,
@@ -111,13 +111,34 @@
       ni à TMDB.
     </div>
 
+    <h2>Responsable de traitement</h2>
+    {% if gdpr_contact_email %}
+    <p>Le responsable du traitement des données sur cette instance est
+    {% if gdpr_contact_name %}<strong>{{ gdpr_contact_name }}</strong>{% else %}l'administrateur de cette instance{% endif %},
+    joignable à l'adresse <a href="mailto:{{ gdpr_contact_email }}">{{ gdpr_contact_email }}</a> pour toute question
+    relative à vos données ou pour exercer les droits décrits plus bas.</p>
+    {% else %}
+    <div class="notice-box">
+      Aucun contact n'a été renseigné par l'administrateur de cette instance (réglages → RGPD).
+      Rapprochez-vous de la personne qui vous a invité·e sur ce service pour exercer vos droits.
+    </div>
+    {% endif %}
+
     <h2>Quelles données sont traitées</h2>
     <ul>
       <li>Identifiant et adresse email Plex (pour créer votre compte et vous envoyer les notifications que vous avez demandées)</li>
       <li>Historique de vos demandes de films/séries et leur statut</li>
       <li>Préférences de notification (canaux activés, granularité VF/VO)</li>
       <li>Journaux techniques (connexions, erreurs) à des fins de diagnostic, avec une durée de conservation limitée et configurable</li>
+      <li>Adresse IP et horodatage de vos tentatives de connexion, à des fins de sécurité (protection contre les tentatives d'accès abusives)</li>
     </ul>
+
+    <h2>Base légale</h2>
+    <p>Le traitement repose sur l'exécution du service que vous avez explicitement demandé à
+    rejoindre (créer un compte pour suivre vos demandes de films/séries) et, à défaut, sur
+    l'intérêt légitime de l'administrateur à faire fonctionner correctement et de manière sécurisée
+    un service partagé entre proches. Aucune décision automatisée ni profilage n'est réalisé sur
+    vos données.</p>
 
     <h2>Pourquoi</h2>
     <p>Uniquement pour faire fonctionner le service : transmettre vos demandes à Sonarr/Radarr,
@@ -134,6 +155,14 @@
     </ul>
     <p>Ces échanges se font uniquement avec les services que l'administrateur de cette instance a
     configurés ci-dessus — aucune donnée n'est envoyée ailleurs.</p>
+    <p>Plex Inc. et TMDB (The Movie Database) sont des sociétés basées aux États-Unis : les données
+    échangées avec ces services (identifiant Plex, recherche d'affiches/synopsis) peuvent donc être
+    traitées hors de l'Union européenne, dans le cadre de leur propre politique de confidentialité.</p>
+
+    <h2>Cookies</h2>
+    <p>Cette instance dépose un unique cookie de session, strictement nécessaire pour vous garder
+    connecté·e (aucun cookie de mesure d'audience ou de publicité). Il expire à la déconnexion ou
+    après une période d'inactivité et n'est jamais transmis à un tiers.</p>
 
     <h2>Combien de temps</h2>
     <p>Sur cette instance, les journaux de notification sont conservés
@@ -149,8 +178,26 @@
     utilisez un) est haché, jamais stocké en clair.</p>
 
     <h2>Vos droits</h2>
-    <p>Vous pouvez demander à tout moment la suppression de votre compte et de vos données
-    à l'administrateur de cette instance.</p>
+    <p>Conformément au RGPD, vous disposez à tout moment des droits suivants sur vos données :</p>
+    <ul>
+      <li><strong>Accès</strong> — obtenir une copie des données vous concernant</li>
+      <li><strong>Rectification</strong> — corriger une information inexacte ou incomplète</li>
+      <li><strong>Effacement</strong> — demander la suppression de votre compte et de vos données</li>
+      <li><strong>Limitation</strong> — demander la suspension temporaire d'un traitement</li>
+      <li><strong>Portabilité</strong> — récupérer vos données dans un format réutilisable</li>
+      <li><strong>Opposition</strong> — vous opposer à un traitement fondé sur l'intérêt légitime</li>
+    </ul>
+    <p>
+      {% if gdpr_contact_email %}
+      Pour exercer l'un de ces droits, contactez <a href="mailto:{{ gdpr_contact_email }}">{{ gdpr_contact_email }}</a>.
+      {% else %}
+      Pour exercer l'un de ces droits, contactez l'administrateur de cette instance.
+      {% endif %}
+      Si vous estimez, après nous avoir contactés, que vos droits ne sont pas respectés, vous
+      pouvez introduire une réclamation auprès de la
+      <a href="https://www.cnil.fr/fr/plaintes" target="_blank" rel="noopener noreferrer">CNIL</a>
+      (Commission Nationale de l'Informatique et des Libertés).
+    </p>
 
     <a class="back-link" href="/login">&larr; Retour à la connexion</a>
   </div>

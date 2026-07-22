@@ -15,6 +15,7 @@ export const form = reactive({
   seer_enabled: false, seer_url: '', seer_api_key: '', seer_mode: 'observer', seer_send_requests: false, seer_fallback_arr: false, seer_suppress_notifications: true,
   tmdb_api_key: '', tmdb_enabled: true,
   webhook_secret: '', public_base_url: '',
+  gdpr_contact_name: '', gdpr_contact_email: '',
   email_enabled: false, smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', smtp_from: '', smtp_tls: true, admin_notification_email: '', notify_import_blocked: true,
   email_on_request: true, email_on_available: true, email_on_failure: true, email_on_vf_available: true,
   discord_enabled: false, discord_webhook_url: '', discord_send_request: true, discord_send_available: true, discord_send_failure: true,

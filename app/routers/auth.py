@@ -156,6 +156,8 @@ async def privacy_policy(request: Request, db: AsyncSession = Depends(get_db_asy
         "notification_retention_days": s.notification_log_retention_days if s else None,
         "poll_history_retention_days": s.poll_history_retention_days if s else None,
         "active_channels": channels,
+        "gdpr_contact_name": (s.gdpr_contact_name if s else None) or None,
+        "gdpr_contact_email": (s.gdpr_contact_email if s else None) or None,
     }
     return templates.TemplateResponse(request, "privacy.html", context)
 

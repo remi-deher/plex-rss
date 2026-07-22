@@ -19,10 +19,14 @@ _INDEXED_COLUMNS = ("media_type", "tmdb_id", "tvdb_id", "imdb_id", "plex_guid", 
 
 
 def upgrade() -> None:
+    # IF NOT EXISTS (SQL brut, pas op.create_index) : rend la migration re-executable sans
+    # erreur si un index a deja ete cree par une tentative precedente avortee -- vecu en
+    # production (DuplicateTable sur ix_library_items_plex_guid apres un redemarrage
+    # concurrent, alembic_version jamais avance faute de commit complet).
     for column in _INDEXED_COLUMNS:
-        op.create_index(f"ix_library_items_{column}", "library_items", [column])
+        op.execute(f"CREATE INDEX IF NOT EXISTS ix_library_items_{column} ON library_items ({column})")
 
 
 def downgrade() -> None:
     for column in reversed(_INDEXED_COLUMNS):
-        op.drop_index(f"ix_library_items_{column}", table_name="library_items")
+        op.execute(f"DROP INDEX IF EXISTS ix_library_items_{column}")

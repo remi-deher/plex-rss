@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <PageHeader title="Paramètres" description="Connexions, notifications, automatisation et exploitation." :eyebrow="currentTabLabel">
-      <button v-if="['connections','webhooks','notifications-channels','notifications-rules','library','downloads','scheduled-tasks'].includes(tab)" class="primary" :disabled="saving" @click="save">
+      <button v-if="['connections','webhooks','notifications-channels','notifications-rules','library','downloads','scheduled-tasks','privacy'].includes(tab)" class="primary" :disabled="saving" @click="save">
         <Save/>{{ saving ? 'Enregistrement...' : 'Enregistrer' }}
       </button>
     </PageHeader>
@@ -24,6 +24,7 @@
     <ScheduledTasksTab v-else-if="tab==='scheduled-tasks'"/>
     <SettingsOperationsPanel v-else-if="tab==='operations'"/>
     <EmailTemplatesPanel v-else-if="tab==='templates'"/>
+    <GdprTab v-else-if="tab==='privacy'"/>
     <DataTab v-else/>
     <FormSaveBar v-if="tab!=='templates'" :dirty="isDirty" :saving="saving" @save="save"/>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
@@ -32,7 +33,7 @@
 <script setup>
 import { computed, markRaw, onMounted, onUnmounted, ref } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
-import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, Search, ServerCog } from '@lucide/vue';
+import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, Search, ServerCog, ShieldCheck } from '@lucide/vue';
 import SettingsOverview from '@/components/settings/SettingsOverview.vue';
 import EmailTemplatesPanel from '@/components/EmailTemplatesPanel.vue';
 import SettingsOperationsPanel from '@/components/SettingsOperationsPanel.vue';
@@ -44,6 +45,7 @@ import LibraryTab from '@/components/settings/LibraryTab.vue';
 import DownloadsTab from '@/components/settings/DownloadsTab.vue';
 import ScheduledTasksTab from '@/components/settings/ScheduledTasksTab.vue';
 import DataTab from '@/components/settings/DataTab.vue';
+import GdprTab from '@/components/settings/GdprTab.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
 import { load, save, saving, error, message, isDirty } from '@/settingsForm';
@@ -62,11 +64,12 @@ const tabs = [
   { key: 'operations', label: 'Exploitation', icon: markRaw(ServerCog) },
   { key: 'templates', label: 'Emails', icon: markRaw(FileCode2) },
   { key: 'data', label: 'Donnees', icon: markRaw(DatabaseZap) },
+  { key: 'privacy', label: 'RGPD', icon: markRaw(ShieldCheck) },
 ];
 const tabGroups=[
   {label:'Parametres',items:tabs.filter(item=>['overview','connections','webhooks','library','downloads'].includes(item.key))},
   {label:'Notifications',items:tabs.filter(item=>['notifications-channels','notifications-rules','templates'].includes(item.key))},
-  {label:'Exploitation',items:tabs.filter(item=>['scheduled-tasks','operations','data'].includes(item.key))},
+  {label:'Exploitation',items:tabs.filter(item=>['scheduled-tasks','operations','data','privacy'].includes(item.key))},
 ];
 const route=useRoute(),router=useRouter();
 const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'overview');

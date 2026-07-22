@@ -143,3 +143,31 @@ def test_logout_returns_to_login(client, db):
     response = client.get("/logout")
     assert response.status_code == 302
     assert response.headers["location"] == "/login"
+
+
+def test_privacy_page_is_public_without_gdpr_contact(client):
+    """Sans contact RGPD configure, la page reste accessible et invite a se rapprocher
+    de l'administrateur plutot que d'afficher un contact vide/casse."""
+    response = client.get("/privacy")
+    assert response.status_code == 200
+    assert "Rapprochez-vous" in response.text
+    assert "CNIL" in response.text
+
+
+def test_privacy_page_shows_configured_gdpr_contact_and_live_settings(client, db):
+    db.add(Settings(
+        id=1,
+        gdpr_contact_name="Jean Dupont",
+        gdpr_contact_email="jean@example.fr",
+        notification_log_retention_days=30,
+        email_enabled=True,
+    ))
+    db.commit()
+
+    response = client.get("/privacy")
+
+    assert response.status_code == 200
+    assert "Jean Dupont" in response.text
+    assert "jean@example.fr" in response.text
+    assert "30 jour(s)" in response.text
+    assert "Email" in response.text

@@ -65,6 +65,8 @@ class SettingsUpdate(BaseModel):
     smtp_tls: Optional[bool] = None
     admin_notification_email: Optional[str] = None
     public_base_url: Optional[str] = None
+    gdpr_contact_name: Optional[str] = None
+    gdpr_contact_email: Optional[str] = None
     email_on_request: Optional[bool] = None
     email_on_available: Optional[bool] = None
     email_on_failure: Optional[bool] = None

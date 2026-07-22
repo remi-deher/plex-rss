@@ -270,6 +270,12 @@ class Settings(Base):
     # une URL) -- typiquement le lien vers /privacy dans le pied de page des emails.
     public_base_url: Mapped[Optional[str]] = mapped_column(default=None)
 
+    # --- RGPD / confidentialite (page /privacy) ---
+    # Identite du responsable de traitement -- sans ca, les sections "droits" et "base
+    # legale" de la page de confidentialite n'ont personne a qui s'adresser concretement.
+    gdpr_contact_name: Mapped[Optional[str]] = mapped_column(default=None)
+    gdpr_contact_email: Mapped[Optional[str]] = mapped_column(default=None)
+
     # --- Approbation des demandes ---
     # Si True, une demande d'un utilisateur 'user' non auto-approuvé attend la validation
     # d'un admin (statut pending_approval) avant d'être envoyée à *arr. Les admins et les
