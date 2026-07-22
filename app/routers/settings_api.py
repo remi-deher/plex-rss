@@ -22,6 +22,7 @@ from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
 from ..services.seer import check_connection as seer_test
 from ..services.totp import generate_secret, provisioning_uri, verify_code
+from ..utils import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -440,7 +441,8 @@ async def test_discord(db: AsyncSession = Depends(get_db_async)):
             r.raise_for_status()
         return {"success": True, "message": "Message Discord envoyé !"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception("Test Discord échoué")
+        return {"success": False, "message": safe_error_message(e)}
 
 
 @router.post("/test/telegram")
@@ -458,7 +460,8 @@ async def test_telegram(db: AsyncSession = Depends(get_db_async)):
             r.raise_for_status()
         return {"success": True, "message": "Message Telegram envoyé !"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception("Test Telegram échoué")
+        return {"success": False, "message": safe_error_message(e)}
 
 
 @router.post("/test/ntfy")
@@ -471,7 +474,8 @@ async def test_ntfy(db: AsyncSession = Depends(get_db_async)):
         await send_ntfy(s.ntfy_url, s.ntfy_token, "Test Plexarr", "Test de notification ntfy OK !")
         return {"success": True, "message": "Notification ntfy envoyée !"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception("Test ntfy échoué")
+        return {"success": False, "message": safe_error_message(e)}
 
 
 @router.post("/test/gotify")
@@ -484,7 +488,8 @@ async def test_gotify(db: AsyncSession = Depends(get_db_async)):
         await send_gotify(s.gotify_url, s.gotify_token, "Test Plexarr", "Test de notification Gotify OK !")
         return {"success": True, "message": "Notification Gotify envoyée !"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception("Test Gotify échoué")
+        return {"success": False, "message": safe_error_message(e)}
 
 
 @router.post("/test/tmdb")

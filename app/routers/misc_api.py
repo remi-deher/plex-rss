@@ -6,7 +6,7 @@ import os as _os
 import time
 from collections import defaultdict
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -20,7 +20,7 @@ from ..dependencies import get_current_plex_user, require_admin, require_auth
 from ..i18n import SUPPORTED_LOCALES, catalog, normalize_locale
 from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeStatus
 from ..serializers import format_datetime
-from ..utils import now_utc_naive, wrap_image_proxy
+from ..utils import now_utc_naive, safe_error_message, wrap_image_proxy
 
 # Hôtes d'images externes connus et de confiance (CDN TMDB) — voir _allowed_image_hosts
 # pour les hôtes internes (Plex, instances *arr), résolus dynamiquement depuis la config.
@@ -113,8 +113,13 @@ async def image_proxy(url: str, db: AsyncSession = Depends(get_db_async)):
     allowed_hosts = await _allowed_image_hosts(db)
     if not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
         raise HTTPException(400, "Hôte d'image non autorisé")
+    # La requête HTTP réelle part de l'URL reconstruite depuis les composants déjà
+    # validés (parsed.scheme/netloc/...), jamais de la valeur brute reçue en entrée :
+    # exclut par construction toute confusion d'hôte (ex. userinfo `http://ok@evil`)
+    # qui aurait pu échapper à la seule comparaison sur `parsed.hostname`.
+    safe_url = urlunparse(parsed)
 
-    cached = await asyncio.to_thread(_read_image_cache, url)
+    cached = await asyncio.to_thread(_read_image_cache, safe_url)
     if cached:
         content, content_type, cached_at = cached
         if time.time() - cached_at < _IMAGE_CACHE_TTL:
@@ -124,19 +129,19 @@ async def image_proxy(url: str, db: AsyncSession = Depends(get_db_async)):
         # follow_redirects=False : une redirection vers un hôte non autorisé contournerait
         # sinon le contrôle ci-dessus.
         async with httpx.AsyncClient(timeout=15, follow_redirects=False, verify=False) as client:
-            resp = await client.get(url)
+            resp = await client.get(safe_url)
             resp.raise_for_status()
     except Exception as e:
         if cached:
             content, content_type, _ = cached
-            logger.warning(f"Image inaccessible, repli sur le cache périmé pour {url}: {e}")
+            logger.warning(f"Image inaccessible, repli sur le cache périmé pour {safe_url}: {e}")
             return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, max-age=86400"})
-        raise HTTPException(502, f"Image inaccessible: {e}") from e
+        raise HTTPException(502, f"Image inaccessible: {safe_error_message(e)}") from e
 
     content_type = resp.headers.get("content-type", "application/octet-stream").split(";")[0].strip().lower()
     if not content_type.startswith("image/"):
         raise HTTPException(415, "La ressource n'est pas une image")
-    await asyncio.to_thread(_write_image_cache, url, resp.content, content_type)
+    await asyncio.to_thread(_write_image_cache, safe_url, resp.content, content_type)
     return Response(
         content=resp.content,
         media_type=content_type,

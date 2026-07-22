@@ -33,7 +33,7 @@ from ..models import LoginAttempt, PasskeyCredential, PlexUser, Settings
 from ..services.auth import hash_password, verify_password
 from ..services.plex_api import get_auth_pin, get_plex_account, has_server_access
 from ..services.totp import verify_code
-from ..utils import now_utc_naive
+from ..utils import now_utc_naive, safe_redirect_path
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ async def login_get(request: Request, next: str = "/", db: AsyncSession = Depend
     if not s or not s.auth_username:
         return RedirectResponse("/setup", status_code=302)
     if request.session.get("authenticated"):
-        return RedirectResponse(next or "/", status_code=302)
+        return RedirectResponse(safe_redirect_path(next), status_code=302)
     return templates.TemplateResponse(request, "login.html", {"next": next, "error": None})
 
 
@@ -183,8 +183,7 @@ async def login_post(
         request.session["user_id"] = user.id
         await _record_login_attempt(db, ip, username, True)
 
-        safe_next = next if next and next.startswith("/") else "/"
-        return RedirectResponse(safe_next, status_code=302)
+        return RedirectResponse(safe_redirect_path(next), status_code=302)
 
     # 2. Repli historique (Settings global admin)
     if not hmac.compare_digest(username, s.auth_username) or not verify_password(password, s.auth_password_hash):
@@ -205,8 +204,7 @@ async def login_post(
     request.session["user_id"] = user_id
     await _record_login_attempt(db, ip, username, True)
 
-    safe_next = next if next and next.startswith("/") else "/"
-    return RedirectResponse(safe_next, status_code=302)
+    return RedirectResponse(safe_redirect_path(next), status_code=302)
 
 
 @router.post("/login/plex/pin")

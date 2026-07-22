@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 import tempfile
@@ -40,7 +41,9 @@ from ..models import (
     Settings,
     VfEpisodeStatus,
 )
-from ..utils import now_utc
+from ..utils import now_utc, safe_error_message
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["import-export"], dependencies=[Depends(require_admin)])
 
@@ -350,7 +353,8 @@ async def import_data(
                 await fn()
             return True
         except Exception as e:
-            errors.append({"table": table, "item": label, "error": str(e)})
+            logger.exception("Import échoué pour %s / %s", table, label)
+            errors.append({"table": table, "item": label, "error": safe_error_message(e)})
             return False
 
     # Settings — merge sur la ligne unique

@@ -4,10 +4,30 @@ import os
 import re
 import uuid
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
+from ..utils import safe_error_message
+
 logger = logging.getLogger(__name__)
+
+
+def _sanitized_watch_folder_path(path: str) -> str | None:
+    """Chemin de dossier surveillé canonicalisé, ou None si suspect.
+
+    `path` vient d'un champ admin (Settings/DownloadClient) mais reste une valeur
+    utilisateur du point de vue d'une analyse statique (CodeQL py/path-injection) :
+    on exige un chemin absolu, sans segment ".." après normalisation, plutôt que de
+    passer la chaîne brute telle quelle à os.path.isdir/open/os.remove.
+    """
+    if not path or not os.path.isabs(path):
+        return None
+    normalized = os.path.normpath(path)
+    if ".." in normalized.split(os.sep):
+        return None
+    return normalized
+
 
 _QB_STATE_MAP: dict[str, str] = {
     "downloading": "downloading",
@@ -345,17 +365,21 @@ async def delete_transmission_torrent(
 
 async def check_watch_folder(path: str) -> tuple[bool, str]:
     """Vérifie l'accessibilité du Watch Folder."""
-    if not os.path.isdir(path):
-        return False, f"Le dossier n'existe pas ou n'est pas un répertoire : {path}"
+    safe_path = _sanitized_watch_folder_path(path)
+    if safe_path is None:
+        return False, "Chemin de dossier surveillé invalide (doit être un chemin absolu, sans « .. »)"
+    if not os.path.isdir(safe_path):
+        return False, f"Le dossier n'existe pas ou n'est pas un répertoire : {safe_path}"
     try:
         # Test de création/suppression de fichier temporaire
-        test_file = os.path.join(path, f".test_{uuid.uuid4().hex}")
+        test_file = os.path.join(safe_path, f".test_{uuid.uuid4().hex}")
         with open(test_file, "w") as f:
             f.write("test")
         os.remove(test_file)
         return True, "Dossier surveillé accessible en écriture"
     except Exception as e:
-        return False, f"Erreur d'accès en écriture : {str(e)}"
+        logger.warning(f"check_watch_folder échec ({safe_path}): {e}")
+        return False, f"Erreur d'accès en écriture : {safe_error_message(e)}"
 
 
 async def add_watch_folder_torrent(path: str, torrent_url_or_magnet: str) -> tuple[bool, str, str | None]:
@@ -363,12 +387,24 @@ async def add_watch_folder_torrent(path: str, torrent_url_or_magnet: str) -> tup
     if torrent_url_or_magnet.startswith("magnet:"):
         return False, "Le mode dossier surveillé ne supporte pas les liens magnet", None
 
-    if not os.path.isdir(path):
-        return False, f"Le dossier surveillé n'existe pas : {path}", None
+    safe_path = _sanitized_watch_folder_path(path)
+    if safe_path is None:
+        return False, "Chemin de dossier surveillé invalide (doit être un chemin absolu, sans « .. »)", None
+    if not os.path.isdir(safe_path):
+        return False, f"Le dossier surveillé n'existe pas : {safe_path}", None
+
+    # Le déploiement type de cette fonctionnalité place Prowlarr/le client de
+    # téléchargement sur le même réseau privé/docker que l'app (voir docker-compose.yml)
+    # : une cible interne est donc le cas normal, pas un signal d'attaque, et cette route
+    # est de toute façon réservée aux administrateurs (dependencies=[Depends(require_admin)]
+    # sur tout le routeur arr_api.py). On se limite donc à rejeter les schémas non-HTTP.
+    parsed = urlparse(torrent_url_or_magnet)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return False, "URL de torrent invalide", None
 
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.get(torrent_url_or_magnet, follow_redirects=True, timeout=30)
+            r = await client.get(torrent_url_or_magnet, follow_redirects=False, timeout=30)
             r.raise_for_status()
 
             filename = f"torrent_{uuid.uuid4().hex}.torrent"
@@ -376,12 +412,12 @@ async def add_watch_folder_torrent(path: str, torrent_url_or_magnet: str) -> tup
             if "filename=" in cd:
                 for part in cd.split(";"):
                     if "filename=" in part:
-                        fn = part.split("=")[1].strip("\"'")
-                        if fn.endswith(".torrent"):
+                        fn = os.path.basename(part.split("=")[1].strip("\"'"))
+                        if fn.endswith(".torrent") and fn not in ("", ".", ".."):
                             filename = fn
                             break
 
-            filepath = os.path.join(path, filename)
+            filepath = os.path.join(safe_path, filename)
             with open(filepath, "wb") as f:
                 f.write(r.content)
 
@@ -389,7 +425,8 @@ async def add_watch_folder_torrent(path: str, torrent_url_or_magnet: str) -> tup
             info_hash = hashlib.sha1(torrent_url_or_magnet.encode("utf-8")).hexdigest()
             return True, f"Fichier torrent écrit avec succès : {filename}", info_hash
     except Exception as e:
-        return False, f"Erreur lors de l'écriture dans le dossier surveillé : {str(e)}", None
+        logger.warning(f"add_watch_folder_torrent échec ({safe_path}): {e}")
+        return False, f"Erreur lors de l'écriture dans le dossier surveillé : {safe_error_message(e)}", None
 
 
 async def check_client_connection(

@@ -13,6 +13,8 @@ from typing import Optional
 
 import httpx
 
+from ..utils import safe_error_message
+
 logger = logging.getLogger(__name__)
 
 PLEX_TV_BASE = "https://plex.tv"
@@ -244,7 +246,8 @@ async def check_connection(plex_url: str, plex_token: str, verify_ssl: bool = Tr
         machine_id = (data.get("MediaContainer") or {}).get("machineIdentifier")
         return True, "Serveur Plex joignable" + (f" ({machine_id})" if machine_id else "")
     except Exception as e:
-        return False, f"Connexion au serveur Plex impossible : {e}"
+        logger.warning(f"Plex check_connection échec ({plex_url}): {e}")
+        return False, f"Connexion au serveur Plex impossible : {safe_error_message(e)}"
 
 
 async def get_auth_pin(forward_url: str = "") -> dict:

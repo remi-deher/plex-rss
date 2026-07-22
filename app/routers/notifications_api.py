@@ -1,5 +1,6 @@
 import json as _json
 import time
+from html import escape
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -277,11 +278,14 @@ async def preview_email_template(event: str = "request", user_id: Optional[int] 
     jinja_ctx.update(get_event_visuals(settings, event if event == "available" else "request"))
     html = render_template(tpl, tags, jinja_ctx)
 
+    # Bandeau meta uniquement (objet/expéditeur/destinataire) : `html` ci-dessus reste
+    # volontairement non échappé (aperçu WYSIWYG du template en cours d'édition), mais
+    # ces champs n'en font pas partie et peuvent l'être sans rien casser.
     header_html = f"""
     <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">
-      <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{rendered_subject}</span></div>
-      <div style="margin-bottom:4px;"><strong>De :</strong> {(settings.smtp_from if settings else None) or "plex-rss@monitor.local"}</div>
-      <div><strong>À :</strong> {recipient_email}</div>
+      <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{escape(rendered_subject)}</span></div>
+      <div style="margin-bottom:4px;"><strong>De :</strong> {escape((settings.smtp_from if settings else None) or "plex-rss@monitor.local")}</div>
+      <div><strong>À :</strong> {escape(recipient_email)}</div>
     </div>
     """
 

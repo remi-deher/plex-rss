@@ -32,6 +32,7 @@ import logging
 
 import httpx
 from .arr_http_client import ArrClient
+from ..utils import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -373,7 +374,7 @@ async def delete_request_by_tmdb(
             
     except Exception as e:
         logger.error(f"Erreur lors de la suppression de la demande dans Seer: {e}")
-        return False, str(e)
+        return False, safe_error_message(e)
 
 
 async def check_connection(seer_url: str, api_key: str) -> tuple[bool, str]:
@@ -393,4 +394,5 @@ async def check_connection(seer_url: str, api_key: str) -> tuple[bool, str]:
         name = data.get("displayName") or data.get("email") or "?"
         return True, f"Seer connecté en tant que {name}"
     except Exception as e:
-        return False, str(e)
+        logger.warning(f"Seer check_connection échec ({seer_url}): {e}")
+        return False, safe_error_message(e)

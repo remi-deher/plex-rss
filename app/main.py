@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import quote
 from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 
@@ -62,6 +63,7 @@ from .routers import (
 )
 from .scheduler import scheduler, start_scheduler
 from .services.auth import get_secret_key
+from .utils import safe_redirect_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -330,7 +332,7 @@ SPA_ROOTS = {
 @app.get("/app/{legacy_path:path}", include_in_schema=False)
 async def redirect_legacy_spa(legacy_path: str = ""):
     destination = f"/{legacy_path}" if legacy_path else "/dashboard"
-    return RedirectResponse(destination, status_code=308)
+    return RedirectResponse(safe_redirect_path(destination, default="/dashboard"), status_code=308)
 
 
 @app.get("/templates", include_in_schema=False)
@@ -351,7 +353,10 @@ async def serve_spa(request: Request, spa_path: str = ""):
     if root and root not in SPA_ROOTS:
         raise HTTPException(404, "Route introuvable")
     if not request.session.get("authenticated"):
-        return RedirectResponse(f"/login?next=/{spa_path}" if spa_path else "/login", status_code=302)
+        if spa_path:
+            next_value = quote(safe_redirect_path(f"/{spa_path}"), safe="")
+            return RedirectResponse(f"/login?next={next_value}", status_code=302)
+        return RedirectResponse("/login", status_code=302)
     if not os.path.exists(SPA_INDEX):
         raise HTTPException(503, "Build Vue introuvable")
     return FileResponse(SPA_INDEX)

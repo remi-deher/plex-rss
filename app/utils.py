@@ -2,7 +2,9 @@
 
 from datetime import datetime
 from typing import Any, Protocol, TypeVar
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -13,6 +15,47 @@ class _HasId(Protocol):
 
 
 _T = TypeVar("_T", bound=_HasId)
+
+
+def safe_error_message(exc: Exception) -> str:
+    """Message d'erreur sûr à renvoyer au client (API/UI) suite à une exception.
+
+    Le message brut d'une exception (str(exc)) peut porter un chemin de fichier, une
+    URL interne, un fragment de requête SQL ou tout autre détail d'implémentation —
+    CodeQL le signale à raison comme une fuite d'information (py/stack-trace-exposure).
+    On ne renvoie donc jamais `str(exc)` directement : seulement le type d'exception
+    (et le code HTTP le cas échéant), le détail complet restant dans les journaux
+    serveur via `logger.exception(...)` côté appelant.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"Erreur HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Délai d'attente dépassé"
+    if isinstance(exc, httpx.ConnectError):
+        return "Connexion impossible (hôte injoignable)"
+    return type(exc).__name__
+
+
+def safe_redirect_path(value: str | None, default: str = "/") -> str:
+    """Ne renvoie qu'un chemin relatif interne sûr, jamais une valeur utilisable pour
+    rediriger vers un autre hôte.
+
+    Un simple `value.startswith("/")` (pattern historique de ce fichier) ne suffit pas :
+    `//evil.com` ou `/\\evil.com` commencent aussi par `/` mais sont interprétés par les
+    navigateurs comme des URLs "protocol-relative" vers un hôte externe — c'est
+    exactement ce que CodeQL signale (py/url-redirection) sur toute valeur utilisateur
+    utilisée telle quelle dans une redirection. `urlsplit` détecte ce cas (scheme/netloc
+    non vides) même quand le préfixe `/` seul ne le révèle pas.
+    """
+    if not value:
+        return default
+    value = value.strip()
+    if not value.startswith("/") or value.startswith("//") or value.startswith("/\\"):
+        return default
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc:
+        return default
+    return value
 
 
 async def async_get_or_404(

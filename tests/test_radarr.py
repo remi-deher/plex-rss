@@ -279,7 +279,7 @@ async def test_connection_failure():
         success, msg = await check_connection(URL, KEY)
 
     assert success is False
-    assert "Connection refused" in msg
+    assert msg == "Exception"
 
 
 # ---------------------------------------------------------------------------

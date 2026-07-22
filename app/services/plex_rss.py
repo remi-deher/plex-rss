@@ -16,6 +16,8 @@ import re
 import feedparser
 import httpx
 
+from ..utils import safe_error_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,4 +151,5 @@ async def test_rss(rss_url: str) -> tuple[bool, str]:
         user_ids = {i["plex_user_id"] for i in items}
         return True, f"{len(items)} éléments, {len(user_ids)} utilisateur(s) trouvés dans le flux RSS"
     except Exception as e:
-        return False, str(e)
+        logger.warning(f"test_rss échec ({rss_url}): {e}")
+        return False, safe_error_message(e)

@@ -496,8 +496,8 @@ def render_template(template_str: str, tags: dict, jinja_ctx: dict) -> str:
         html = _EMAIL_SHELL.replace("__CONTENT__", html_content)
         return _jinja_env.from_string(html).render(**jinja_ctx)
     except TemplateError as e:
-        logger.error(f"Template render error: {e}")
-        return f"<p>Erreur de template shell : {e}</p>"
+        logger.exception("Template render error")
+        return "<p>Erreur de rendu du template — voir les journaux serveur pour le détail.</p>"
 
 
 def render_subject(template_str: str, tags: dict, fallback: str) -> str:

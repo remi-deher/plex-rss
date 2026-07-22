@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 import httpx
 from .arr_http_client import ArrClient
+from ..utils import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -803,7 +804,8 @@ async def check_connection(url: str, api_key: str) -> tuple[bool, str]:
         data = resp.json()
         return True, f"Sonarr v{data.get('version', '?')} connecté"
     except Exception as e:
-        return False, str(e)
+        logger.warning(f"Sonarr check_connection échec ({url}): {e}")
+        return False, safe_error_message(e)
 
 
 async def get_notifications(url: str, api_key: str) -> list[dict]:

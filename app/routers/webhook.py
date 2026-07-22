@@ -30,7 +30,7 @@ from ..services.notification_orchestrator import (
     resolve_and_notify_availability,
 )
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
-from ..utils import now_utc_naive
+from ..utils import now_utc_naive, safe_error_message
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = logging.getLogger(__name__)
@@ -578,7 +578,7 @@ async def plex_webhook(request: Request):
             data = json.loads(raw)
     except Exception as e:
         logger.warning(f"Plex webhook parse error: {e}")
-        return {"status": "error", "reason": str(e)}
+        return {"status": "error", "reason": safe_error_message(e)}
 
     event = data.get("event", "")
     logger.info(f"Plex webhook: {event}")

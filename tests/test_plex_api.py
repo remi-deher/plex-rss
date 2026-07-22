@@ -54,7 +54,8 @@ async def test_check_connection_failure():
         success, msg = await check_connection(URL, TOKEN)
 
     assert success is False
-    assert "All connection attempts failed" in msg
+    assert "Connexion au serveur Plex impossible" in msg
+    assert "Exception" in msg
 
 
 @pytest.mark.asyncio

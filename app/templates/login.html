@@ -373,6 +373,21 @@
 
     // Connexion Plex SSO : ouvre une popup vers Plex, puis interroge le backend.
     const NEXT = new URLSearchParams(location.search).get('next') || '/';
+    // `NEXT.startsWith('/')` seul ne suffit pas : "//evil.com" ou "/\\evil.com" passent
+    // aussi ce test mais sont interprétés par le navigateur comme une redirection vers
+    // un autre hôte (URL "protocol-relative") — CodeQL (js/xss, js/client-side-
+    // unvalidated-url-redirection) le signale à raison sur `location.href = NEXT`.
+    function safeNext(value) {
+      if (!value || typeof value !== 'string') return '/';
+      if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return '/';
+      try {
+        const resolved = new URL(value, location.origin);
+        if (resolved.origin !== location.origin) return '/';
+      } catch (e) {
+        return '/';
+      }
+      return value;
+    }
     const plexBtn = document.getElementById('btn-plex');
     const plexStatus = document.getElementById('plex-status');
     let _pollTimer = null;
@@ -409,7 +424,7 @@
               clearInterval(_pollTimer);
               if (popup && !popup.closed) popup.close();
               plexStatus.textContent = 'Connecté ! Redirection…';
-              location.href = NEXT.startsWith('/') ? NEXT : '/';
+              location.href = safeNext(NEXT);
             }
           } catch (e) { /* réseau transitoire, on réessaie */ }
         }, 2000);
@@ -454,7 +469,7 @@
         if (!verifyResp.ok) throw new Error(result.detail || "Validation échouée");
 
         plexStatus.textContent = 'Connecté ! Redirection…';
-        location.href = NEXT.startsWith('/') ? NEXT : '/';
+        location.href = safeNext(NEXT);
       } catch (e) {
         plexStatus.textContent = 'Erreur Passkey : ' + e.message;
       } finally {

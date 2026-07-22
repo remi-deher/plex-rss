@@ -70,7 +70,7 @@ def test_render_template_invalid_jinja_returns_error_html():
     # Jinja2 le traite comme une variable indéfinie (chaîne vide), donc pas d'erreur ici.
     # Pour provoquer une véritable erreur de syntaxe, on injecte un tag corrompant le Jinja.
     result = render_template("{{{invalid", {}, {})
-    assert "Erreur de template" in result
+    assert "Erreur de rendu du template" in result
 
 
 def test_render_subject_substitutes_tags():

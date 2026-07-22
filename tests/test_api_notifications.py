@@ -454,7 +454,9 @@ def test_preview_uses_custom_subject_and_user(async_db):
     try:
         r = client.get("/api/email/preview?event=request&user_id=12")
         assert r.status_code == 200
-        assert "Alerte pour Bob L'Eponge - Dune" in r.text
+        # Le bandeau meta (objet/destinataire) est échappé HTML (voir email/preview) —
+        # l'apostrophe devient une entité, toujours affichée normalement par le navigateur.
+        assert "Alerte pour Bob L&#x27;Eponge - Dune" in r.text
         assert "bob@bikini.bottom" in r.text
     finally:
         _cleanup()

@@ -12,7 +12,7 @@ from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
 from ..models import LibraryItem, MediaRequest, PlexUser, Settings, NotificationLog
 from ..services.email_service import build_correction_email, send_correction_notification
-from ..utils import async_get_or_404, now_utc_naive
+from ..utils import async_get_or_404, now_utc_naive, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +192,8 @@ async def send_media_correction(body: MediaCorrectionRequest, db: AsyncSession =
                 is_admin=True
             ))
         except Exception as exc:
-            errors.append({"user_id": user_id, "recipient": recipient, "name": display_name, "error": str(exc)})
+            logger.exception("Envoi de correction échoué pour %s", recipient)
+            errors.append({"user_id": user_id, "recipient": recipient, "name": display_name, "error": safe_error_message(exc)})
             db.add(NotificationLog(
                 sent_at=now_utc_naive(),
                 event="correction",
