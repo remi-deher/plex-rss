@@ -48,7 +48,18 @@ The same image is used for both the web/API service and the ARQ worker. A produc
 - PostgreSQL 15;
 - Redis 7 with persistence.
 
+## Image tags
+
+| Tag | Meaning |
+|---|---|
+| `latest` | Last successful build from `main`. Moves on every merge — fine for personal instances, riskier for production since a bad merge ships immediately. |
+| `vX.Y.Z` | Built from a Git tag (`git tag vX.Y.Z`), immutable. Pin to one of these for a production deployment so an update is a deliberate `docker compose pull` after you've read the [changelog](https://github.com/remi-deher/plex-rss/blob/main/CHANGELOG.md), not an automatic drift. |
+
+Images are published to both Docker Hub (`mrcryllix/plex-rss`) and GitHub Container Registry (`ghcr.io/remi-deher/plex-rss`) for the same tags. Only `linux/amd64` is built at the moment — no `arm64` image yet.
+
 ## Docker Compose
+
+The full, up-to-date Compose file — including the `backup`/`restore` profile, environment variables and volume layout — lives in the [GitHub README](https://github.com/remi-deher/plex-rss#installation-docker). Rather than duplicate it here (and risk it drifting out of sync), the short version below covers just enough to get running; follow the README link for anything beyond the basics.
 
 Create `.env`:
 
@@ -67,94 +78,10 @@ Generate the encryption key with:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Create `docker-compose.yml`:
+Grab `docker-compose.yml` from the repo (it targets the published image out of the box once you swap `build: .` for `image: mrcryllix/plex-rss:latest`, or pin it to a `vX.Y.Z` tag per the table above):
 
-```yaml
-services:
-  plex-rss:
-    image: mrcryllix/plex-rss:latest
-    container_name: plex-rss
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./data:/app/data
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
-      REDIS_URL: redis://redis:6379/0
-      ENABLE_ARQ: "1"
-      ENABLE_LEGACY_SCHEDULER: "0"
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY}
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/favicon.ico')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  worker:
-    image: mrcryllix/plex-rss:latest
-    container_name: plex-rss-worker
-    command: ["arq", "app.jobs.WorkerSettings"]
-    volumes:
-      - ./data:/app/data
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://plexrss:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-plexrss}
-      REDIS_URL: redis://redis:6379/0
-      ENABLE_ARQ: "1"
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY}
-      ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-4}
-      ARQ_JOB_TIMEOUT: ${ARQ_JOB_TIMEOUT:-3600}
-    depends_on:
-      plex-rss:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "arq", "--check", "app.jobs.WorkerSettings"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
-  db:
-    image: postgres:15-alpine
-    container_name: plex-rss-db
-    environment:
-      POSTGRES_USER: plexrss
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-plexrss}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U plexrss -d ${POSTGRES_DB:-plexrss}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: plex-rss-redis
-    command: redis-server --appendonly yes
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-volumes:
-  pgdata:
-  redisdata:
+```bash
+curl -O https://raw.githubusercontent.com/remi-deher/plex-rss/main/docker-compose.yml
 ```
 
 Start the stack:
@@ -205,6 +132,12 @@ docker compose exec db pg_isready -U plexrss -d plexrss
 
 - Health: `GET /api/health`
 - Prometheus metrics: `GET /api/metrics/prometheus`
+
+## Troubleshooting
+
+- **`plex-rss` stuck "unhealthy" after an update, worker never starts**: almost always a failed Alembic migration on container start. Check `docker compose logs plex-rss` for the migration error before anything else — the worker's `depends_on: service_healthy` means it won't even attempt to start while the API container is unhealthy.
+- **Migration fails with "already exists" / `DuplicateTable` on a retry**: a previous start was interrupted mid-migration, leaving a partially-applied schema change without the migration being marked complete in `alembic_version`. See the full [GitHub README troubleshooting section](https://github.com/remi-deher/plex-rss#dépannage) for the recovery steps.
+- **Worker healthy but nothing processes**: confirm `ENABLE_ARQ=1` on both services and that `redis-cli ping` succeeds — a worker container with no queue connection reports healthy on its own check but silently drops jobs.
 
 ## Documentation
 

@@ -22,6 +22,7 @@ Il collecte les demandes provenant des watchlists Plex, de l’API, de l’inter
 - [Premier démarrage](#premier-démarrage)
 - [Configuration des intégrations](#configuration-des-intégrations)
 - [Exploitation](#exploitation)
+- [Dépannage](#dépannage)
 - [Sauvegarde et restauration](#sauvegarde-et-restauration)
 - [Mise à jour](#mise-à-jour)
 - [Développement](#développement)
@@ -180,6 +181,9 @@ image: mrcryllix/plex-rss:latest
 
 dans les services `plex-rss` et `worker`.
 
+> [!TIP]
+> `latest` suit `main` et change à chaque merge : pratique pour un usage personnel, plus risqué en production car une régression est livrée dès le prochain `docker compose pull`. Pour un déploiement stable, préférez épingler une version taguée (`vX.Y.Z`, construite depuis un tag Git) et ne montez de version qu’après avoir lu le [changelog](CHANGELOG.md). Les images sont publiées à la fois sur Docker Hub (`mrcryllix/plex-rss`) et GitHub Container Registry (`ghcr.io/remi-deher/plex-rss`), seule l’architecture `linux/amd64` est construite pour le moment.
+
 ### Déploiement minimal complet
 
 ```yaml
@@ -308,6 +312,37 @@ redis      healthy
 ```
 
 Si le worker est indisponible, l’interface peut rester accessible mais le polling, les analyses et les notifications différées ne progresseront plus.
+
+## Dépannage
+
+### `plex-rss` reste "unhealthy", le worker ne démarre jamais
+
+Le worker dépend de `plex-rss: { condition: service_healthy }` : tant que l’API n’est pas saine, il ne tente même pas de démarrer. Commencez toujours par les logs de l’API :
+
+```bash
+docker compose logs --tail=200 plex-rss
+```
+
+La cause la plus fréquente est une migration Alembic qui échoue au démarrage (les migrations s’appliquent avant que l’API n’écoute).
+
+### La migration échoue avec `DuplicateTable` / "already exists" à chaque nouvelle tentative
+
+Signe qu’une tentative de migration précédente a été interrompue (redémarrage concurrent, arrêt brutal) après avoir partiellement appliqué un changement de schéma, mais sans que `alembic_version` n’ait avancé — chaque redémarrage rejoue donc la même migration et échoue de la même façon puisque l’objet existe déjà.
+
+1. Identifiez l’objet en doublon dans le message d’erreur (index, colonne, contrainte…).
+2. Connectez-vous à PostgreSQL et vérifiez l’état réel :
+   ```bash
+   docker compose exec db psql -U plexrss -d plexrss -c "\d nom_de_la_table"
+   docker compose exec db psql -U plexrss -d plexrss -c "SELECT version_num FROM alembic_version;"
+   ```
+3. Si l’objet listé dans l’erreur existe déjà mais que `alembic_version` n’a pas avancé jusqu’à la révision qui le crée, supprimez uniquement cet objet en doublon (`DROP INDEX ...`, jamais `DROP TABLE`) pour laisser la migration le recréer proprement au prochain démarrage.
+4. Relancez `docker compose up -d plex-rss` : la boucle de retry du conteneur doit alors passer la migration et repasser "healthy".
+
+Les migrations ajoutées depuis juillet 2026 utilisent `CREATE INDEX IF NOT EXISTS` / `DROP INDEX IF EXISTS` pour rester rejouables sans intervention manuelle ; ce scénario ne devrait plus se reproduire pour les futures migrations d’index.
+
+### Le worker est "healthy" mais rien ne se traite
+
+Vérifiez que `ENABLE_ARQ=1` est bien défini sur les deux services et que Redis répond (`docker compose exec redis redis-cli ping`). Un worker qui ne peut pas joindre Redis au démarrage peut rester marqué sain par son propre healthcheck tout en ne consommant aucune tâche.
 
 ## Sauvegarde et restauration
 
