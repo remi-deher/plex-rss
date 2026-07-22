@@ -60,11 +60,8 @@
 
     <p v-if="!loading&&!filtered.length" class="empty">Aucun media.</p>
 
-    <div v-if="hasMoreLibrary" class="load-more-row">
-      <button class="secondary" :disabled="loadingMore" @click="loadMore">
-        <RefreshCw v-if="loadingMore" class="spin"/>
-        {{ loadingMore ? 'Chargement...' : 'Charger plus' }}
-      </button>
+    <div v-if="hasMoreLibrary" ref="loadMoreSentinel" class="load-more-row">
+      <RefreshCw v-if="loadingMore" class="spin"/>
     </div>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
@@ -85,6 +82,19 @@ import ConfirmModal from '@/components/ConfirmModal.vue';
 const route = useRoute();
 const router = useRouter();
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
+
+const loadMoreSentinel = ref(null);
+let loadMoreObserver = null;
+// v-if démonte/remonte la sentinelle avec hasMoreLibrary : on la ré-observe à chaque
+// apparition plutôt que de créer un seul IntersectionObserver au montage du composant.
+watch(loadMoreSentinel, (el) => {
+  loadMoreObserver?.disconnect();
+  if (!el) return;
+  loadMoreObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting) loadMore();
+  }, { rootMargin: '400px' });
+  loadMoreObserver.observe(el);
+});
 
 function openDetail(item) {
   router.push(mediaDetailPath(item, item._kind));
@@ -379,6 +389,7 @@ onMounted(async () => {
 onUnmounted(() => {
   clearTimeout(timer);
   clearInterval(fallback);
+  loadMoreObserver?.disconnect();
 });
 </script>
 
@@ -392,6 +403,8 @@ onUnmounted(() => {
 .load-more-row {
   display: flex;
   justify-content: center;
+  align-items: center;
+  min-height: 40px;
   margin-top: 1rem;
 }
 
