@@ -10,7 +10,7 @@
     <div class="settings-cards span-two">
       <SettingsCard title="Secrets" subtitle="Token API et secret webhook" :icon="KeyRound" status="neutral" :collapsible="false">
         <template #actions>
-          <button class="icon-button" title="Actualiser" @click.stop="loadSecrets"><RefreshCw/></button>
+          <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadSecrets"><RefreshCw/></button>
         </template>
         <div>
           <strong style="display:block;margin-bottom:8px;font-size:13px">Token API</strong>
@@ -33,14 +33,14 @@
       <SettingsCard :title="`Conflits de deduplication`" :subtitle="`${conflicts.length} element(s) a examiner`" :icon="WandSparkles" :status="conflicts.length ? 'error' : 'active'" :collapsible="false">
         <template #actions>
           <button class="secondary" @click.stop="autoResolve"><WandSparkles/>Resolution automatique</button>
-          <button class="icon-button" title="Actualiser" @click.stop="loadConflicts"><RefreshCw/></button>
+          <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadConflicts"><RefreshCw/></button>
         </template>
         <article v-for="group in conflicts" :key="group.key||group.tmdb_id" class="detail-row">
           <div><strong>{{ group.title||group.key||`TMDB ${group.tmdb_id}` }}</strong><span>{{ (group.entries||[]).length || 1 }} entree(s) · {{ group.type||'' }}</span></div>
           <div class="actions">
             <button v-if="group.entries?.length" class="secondary" @click="resolve(group)">Fusionner</button>
             <button v-if="group.type==='orphan'" class="secondary danger" @click="removeOrphan(group)"><Trash2/>Supprimer</button>
-            <button class="icon-button" title="Ignorer" @click="ignore(group)"><Check/></button>
+            <button class="icon-button" title="Ignorer" aria-label="Ignorer" @click="ignore(group)"><Check/></button>
           </div>
         </article>
         <p v-if="!conflicts.length" class="empty">Aucun conflit detecte.</p>
@@ -48,7 +48,7 @@
 
       <SettingsCard title="Acquisitions de series" :subtitle="acquisitionSubtitle" :icon="ListRestart" :status="acquisitions.counts.blocked_imports ? 'error' : acquisitions.counts.active_batches ? 'neutral' : 'active'" :collapsible="false">
         <template #actions>
-          <button class="icon-button" title="Actualiser" @click.stop="loadAcquisitions"><RefreshCw/></button>
+          <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadAcquisitions"><RefreshCw/></button>
         </template>
         <div class="acquisition-counters">
           <span class="badge">{{ acquisitions.counts.active_batches }} lot(s)</span>

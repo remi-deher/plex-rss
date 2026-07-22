@@ -29,7 +29,7 @@
             <small v-if="row.error_msg" class="table-detail error-text">{{ row.error_msg }}</small>
           </td>
           <td class="card-actions">
-            <button v-if="tab==='history'&&!row.success" class="icon-button" title="Renvoyer" @click="$emit('resend',row)"><Send/></button>
+            <button v-if="tab==='history'&&!row.success" class="icon-button" title="Renvoyer" aria-label="Renvoyer" @click="$emit('resend',row)"><Send/></button>
           </td>
         </tr>
       </tbody>

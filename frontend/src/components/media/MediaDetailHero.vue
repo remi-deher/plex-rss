@@ -2,7 +2,7 @@
   <div class="mdh-backdrop" :style="detail.backdrop_url ? { backgroundImage: `url(${detail.backdrop_url})` } : {}">
     <div class="mdh-scrim"></div>
     <div class="mdh-content">
-      <button class="mdh-back icon-button" title="Retour" @click="$emit('back')"><ArrowLeft /></button>
+      <button class="mdh-back icon-button" title="Retour" aria-label="Retour" @click="$emit('back')"><ArrowLeft /></button>
       <div class="mdh-row">
         <div class="mdh-poster">
           <img v-if="detail.poster_url" :src="detail.poster_url" alt="">

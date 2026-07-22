@@ -1,7 +1,7 @@
 <template>
   <div class="page downloads-page">
     <PageHeader title="Téléchargements" description="Files Sonarr/Radarr, clients directs et historique.">
-      <button class="icon-button" :disabled="loading" title="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
+      <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
     </PageHeader>
     <section class="metric-grid compact-metrics">
       <article v-for="entry in summary" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article>

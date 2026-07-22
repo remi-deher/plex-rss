@@ -21,10 +21,10 @@
             <td class="url-cell" data-label="Adresse">{{ client.url }}</td>
             <td data-label="Statut"><span class="badge" :class="client.enabled?'available':'failed'">{{ client.enabled?'Actif':'Inactif' }}</span></td>
             <td class="actions card-actions">
-              <button class="icon-button" title="Tester" @click="testClient(client)"><PlugZap/></button>
-              <button class="icon-button" title="Modifier" @click="openClientModal(client)"><Pencil/></button>
-              <button class="icon-button" :title="client.enabled?'Desactiver':'Activer'" @click="toggleClient(client)"><Power/></button>
-              <button class="icon-button danger" title="Supprimer" @click="removeClient(client)"><Trash2/></button>
+              <button class="icon-button" title="Tester" aria-label="Tester" @click="testClient(client)"><PlugZap/></button>
+              <button class="icon-button" title="Modifier" aria-label="Modifier" @click="openClientModal(client)"><Pencil/></button>
+              <button class="icon-button" :title="client.enabled?'Desactiver':'Activer'" :aria-label="client.enabled?'Desactiver':'Activer'" @click="toggleClient(client)"><Power/></button>
+              <button class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="removeClient(client)"><Trash2/></button>
             </td>
           </tr>
         </tbody>
@@ -34,10 +34,10 @@
   </SettingsCard>
 
   <div v-if="showClientModal" class="drawer-backdrop" @click.self="closeClientModal">
-    <aside class="modal-panel arr-instance-modal">
+    <aside ref="clientPanelRef" tabindex="-1" class="modal-panel arr-instance-modal" role="dialog" aria-modal="true" :aria-label="editingClientId?'Modifier le client':'Ajouter un client'">
       <div class="panel-head">
         <h2>{{ editingClientId?'Modifier le client':'Ajouter un client' }}</h2>
-        <button class="icon-button" title="Fermer" @click="closeClientModal"><X/></button>
+        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="closeClientModal"><X/></button>
       </div>
       <div class="compact-form">
         <label>Nom<input v-model="clientForm.name"></label>
@@ -64,11 +64,14 @@ import { Download, Pencil, Plus, PlugZap, Power, Save, Trash2, X } from '@lucide
 import { api } from '@/api';
 import ConfirmModal from '../../ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
+import { useModalA11y } from '@/composables/useModalA11y';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
 
 const clients = ref([]), editingClientId = ref(null);
 const showClientModal = ref(false);
+const clientPanelRef = ref(null);
+useModalA11y(clientPanelRef, showClientModal, closeClientModal);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 const clientDefaults = { name: '', client_type: 'qbittorrent', url: '', username: '', password: '', category: '', tags: '', is_default: false, enabled: true };
 const clientForm = reactive({ ...clientDefaults });

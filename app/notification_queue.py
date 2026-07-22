@@ -76,21 +76,24 @@ async def _send_available(settings, req, recipient, context, display_name):
 
 async def _send_failed(settings, req, recipient, context, display_name):
     context = context if isinstance(context, dict) else {"reason": str(context or "")}
-    if context.get("scope") == "import_blocked":
-        await send_import_blocked_notification(
-            settings, req, recipient, context.get("reason", ""), display_name
-        )
-        return
     await send_failure_notification(settings, req, recipient, context.get("reason", ""), display_name)
 
 
-# Catalogue réduit à 3 évènements réels (voir notification_catalog.py) : toutes les
+async def _send_import_blocked(settings, req, recipient, context, display_name):
+    context = context if isinstance(context, dict) else {"reason": str(context or "")}
+    await send_import_blocked_notification(settings, req, recipient, context.get("reason", ""), display_name)
+
+
+# Catalogue réduit à 4 évènements réels (voir notification_catalog.py) : toutes les
 # variantes de disponibilité passent par "available" avec un contexte structuré
 # (scope/language/is_upgrade/season/episode), plutôt qu'une fonction d'envoi dédiée.
+# "import_blocked" est distinct de "failed" : un import Sonarr bloqué n'a rien à voir
+# avec un échec de transmission de la demande (voir acquisition_batches.py).
 EMAIL_SENDERS = {
     "request": _send_request,
     "available": _send_available,
     "failed": _send_failed,
+    "import_blocked": _send_import_blocked,
 }
 
 

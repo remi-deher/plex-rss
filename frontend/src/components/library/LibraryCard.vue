@@ -22,12 +22,12 @@
       </template>
       <div v-if="item._kind==='request'" class="card-actions" @click.stop>
         <template v-if="item.orphan">
-          <button v-if="isAdmin" class="icon-button danger" title="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
+          <button v-if="isAdmin" class="icon-button danger" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
         </template>
         <template v-else>
-          <button v-if="item.arr_id" class="icon-button" title="Rechercher une release" @click="router.push(`/releases/${item.id}`)"><Search/></button>
-          <button v-if="item.status==='failed' && isAdmin" class="icon-button" title="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
-          <button v-if="item.status!=='available'" class="icon-button danger" title="Annuler" @click="$emit('act',item,'cancel')"><X/></button>
+          <button v-if="item.arr_id" class="icon-button" title="Rechercher une release" aria-label="Rechercher une release" @click="router.push(`/releases/${item.id}`)"><Search/></button>
+          <button v-if="item.status==='failed' && isAdmin" class="icon-button" title="Relancer" aria-label="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
+          <button v-if="item.status!=='available'" class="icon-button danger" title="Annuler" aria-label="Annuler" @click="$emit('act',item,'cancel')"><X/></button>
         </template>
       </div>
     </div>
@@ -49,7 +49,7 @@ const props = defineProps({
   isAdmin: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 });
-const emit = defineEmits(['open', 'toggle-select', 'act', 'delete-orphan']);
+const emit = defineEmits(['open', 'toggle-select', 'act', 'delete-orphan', 'error']);
 
 const router = useRouter();
 const opening = ref(false);
@@ -72,7 +72,7 @@ async function handleOpen() {
     );
     router.push(mediaDetailPath({ library_id: library_item_id }, 'library'));
   } catch (e) {
-    alert(e.message || "Impossible d'ouvrir la fiche detaillee");
+    emit('error', e.message || "Impossible d'ouvrir la fiche detaillee");
   } finally {
     opening.value = false;
   }

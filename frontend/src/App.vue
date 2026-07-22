@@ -118,7 +118,7 @@ const isSidebarCollapsed=ref(false);
 function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
 function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;localStorage.setItem('plexarr.sidebarCollapsed',String(isSidebarCollapsed.value))}
-function handleEscape(event){if(event.key==='Escape'){if(window.innerWidth>640)isSidebarCollapsed.value=true;closeMoreMenu()}}
+function handleEscape(event){if(event.key==='Escape'&&isMoreOpen.value)closeMoreMenu()}
 watch(()=>route.fullPath,closeMoreMenu);
 onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('keydown',handleEscape);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
 onUnmounted(()=>window.removeEventListener('keydown',handleEscape));

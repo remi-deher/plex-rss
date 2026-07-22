@@ -105,6 +105,10 @@ class Settings(Base):
     email_on_request: Mapped[bool] = mapped_column(default=True)
     email_on_available: Mapped[bool] = mapped_column(default=True)
     email_on_failure: Mapped[bool] = mapped_column(default=True)
+    # Alerte admin distincte d'un echec de transmission : un import Sonarr reste bloque
+    # (fichier telecharge mais non importable). Frequent avec les episodes "TBA" -- bascule
+    # dediee pour pouvoir la couper sans desactiver les vraies alertes d'echec de transmission.
+    notify_import_blocked: Mapped[bool] = mapped_column(default=True)
     # 3 templates (un par évènement du catalogue simplifié — voir notification_catalog.py) :
     # "available" fusionne les 10 anciens templates de disponibilité (available_vf,
     # available_vo_tracking, vo_only, vf_available, language_*, partially_available) en un
@@ -838,6 +842,43 @@ class SonarrQueueObservation(Base):
     tracked_status: Mapped[Optional[str]]
     error_message: Mapped[Optional[str]] = mapped_column(Text)
     status_messages: Mapped[Optional[str]] = mapped_column(Text)
+    consecutive_blocked_checks: Mapped[int] = mapped_column(default=0)
+    first_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    blocked_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    admin_alert_queued_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(default=None)
+
+
+class RadarrQueueObservation(Base):
+    """Dernier etat durable d'un element de queue Radarr observe chaque minute.
+
+    Un film est un item unique (pas de vague multi-episodes comme les series) : pas de
+    SeriesAcquisitionBatch associe, l'alerte "import bloque" part directement d'ici une
+    fois le blocage confirme (voir services/radarr_queue_monitor.py).
+    """
+
+    __tablename__ = "radarr_queue_observations"
+    __table_args__ = (
+        UniqueConstraint("arr_instance_id", "queue_id", name="uq_radarr_queue_observation"),
+        Index("ix_radarr_queue_observation_state", "state", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    request_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("media_requests.id", ondelete="SET NULL"), index=True
+    )
+    arr_instance_id: Mapped[int] = mapped_column(
+        ForeignKey("arr_instances.id", ondelete="CASCADE"), index=True
+    )
+    queue_id: Mapped[int]
+    arr_media_id: Mapped[Optional[int]] = mapped_column(index=True)
+    title: Mapped[Optional[str]]
+    state: Mapped[str] = mapped_column(default="queued", index=True)
+    progress: Mapped[float] = mapped_column(default=0.0)
+    tracked_state: Mapped[Optional[str]]
+    tracked_status: Mapped[Optional[str]]
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
     consecutive_blocked_checks: Mapped[int] = mapped_column(default=0)
     first_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)

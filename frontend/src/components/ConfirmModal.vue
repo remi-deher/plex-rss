@@ -1,12 +1,12 @@
 <template>
   <div v-if="open" class="drawer-backdrop" @click.self="!busy && $emit('cancel')">
-    <aside class="modal-panel confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <aside ref="panelRef" tabindex="-1" class="modal-panel confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
       <div class="panel-head">
         <div>
           <h2 id="confirm-modal-title">{{ title }}</h2>
           <p v-if="message">{{ message }}</p>
         </div>
-        <button class="icon-button" title="Fermer" :disabled="busy" @click="$emit('cancel')">×</button>
+        <button class="icon-button" title="Fermer" aria-label="Fermer" :disabled="busy" @click="$emit('cancel')">×</button>
       </div>
       <div class="form-actions">
         <button class="secondary" :disabled="busy" @click="$emit('cancel')">Annuler</button>
@@ -19,7 +19,10 @@
 </template>
 
 <script setup>
-defineProps({
+import { ref, toRef } from 'vue';
+import { useModalA11y } from '@/composables/useModalA11y';
+
+const props = defineProps({
   open: Boolean,
   title: { type: String, default: 'Confirmer l’action' },
   message: { type: String, default: '' },
@@ -27,7 +30,10 @@ defineProps({
   danger: Boolean,
   busy: Boolean,
 });
-defineEmits(['cancel', 'confirm']);
+const emit = defineEmits(['cancel', 'confirm']);
+
+const panelRef = ref(null);
+useModalA11y(panelRef, toRef(props, 'open'), () => { if (!props.busy) emit('cancel'); });
 </script>
 
 <style scoped>

@@ -1,9 +1,10 @@
-"""Helpers for optional at-rest encryption of sensitive database fields."""
+"""Helpers for at-rest encryption of sensitive database fields."""
 
 import base64
 import hashlib
 import logging
 import os
+import secrets
 from typing import Optional
 
 from sqlalchemy.types import Text, TypeDecorator
@@ -11,12 +12,40 @@ from sqlalchemy.types import Text, TypeDecorator
 logger = logging.getLogger(__name__)
 
 _PREFIX = "enc:v1:"
+_ENCRYPTION_KEY_FILE = "data/.encryption_key"
+
+
+def _get_or_create_encryption_key() -> str:
+    """Lit ou génère la clé de chiffrement au repos (persistée dans data/.encryption_key).
+
+    PLEXARR_ENCRYPTION_KEY / PLEXARR_SECRET_KEY restent prioritaires si définies (utile
+    pour fixer la clé explicitement, ex. pour la partager entre plusieurs instances).
+    Sans elles, une clé est générée au premier démarrage et persistée sur le volume
+    data/ : le chiffrement des secrets (tokens Plex/*arr, mots de passe SMTP, etc.) est
+    ainsi toujours actif, jamais silencieusement désactivé faute de variable d'env.
+    """
+    env_secret = os.getenv("PLEXARR_ENCRYPTION_KEY") or os.getenv("PLEXARR_SECRET_KEY")
+    if env_secret:
+        return env_secret
+    os.makedirs("data", exist_ok=True)
+    if os.path.exists(_ENCRYPTION_KEY_FILE):
+        with open(_ENCRYPTION_KEY_FILE) as f:
+            key = f.read().strip()
+            if key:
+                return key
+    key = secrets.token_hex(32)
+    with open(_ENCRYPTION_KEY_FILE, "w") as f:
+        f.write(key)
+    try:
+        os.chmod(_ENCRYPTION_KEY_FILE, 0o600)
+    except OSError:
+        # Système de fichiers ne supportant pas les permissions Unix (ex: certains volumes Windows).
+        pass
+    return key
 
 
 def _fernet():
-    secret = os.getenv("PLEXARR_ENCRYPTION_KEY") or os.getenv("PLEXARR_SECRET_KEY")
-    if not secret:
-        return None
+    secret = _get_or_create_encryption_key()
     try:
         from cryptography.fernet import Fernet
     except Exception:

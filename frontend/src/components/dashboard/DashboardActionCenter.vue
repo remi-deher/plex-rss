@@ -10,7 +10,7 @@
         <div class="action-stack-head"><div><strong>Approbations</strong><span>{{ pending.length }} demande{{ pending.length>1?'s':'' }}</span></div><RouterLink to="/library?status=pending_approval">Tout voir</RouterLink></div>
         <article v-for="row in pending.slice(0,3)" :key="row.id" class="dashboard-action-row">
           <div><strong>{{ row.title }}</strong><span>{{ row.requested_by || row.plex_user || row.plex_user_id || 'Utilisateur Plex' }}</span></div>
-          <div class="actions"><button class="icon-button success" title="Approuver" @click="$emit('action',row,'approve')"><Check/></button><button class="icon-button danger" title="Refuser" @click="$emit('action',row,'reject')"><X/></button></div>
+          <div class="actions"><button class="icon-button success" title="Approuver" aria-label="Approuver" @click="$emit('action',row,'approve')"><Check/></button><button class="icon-button danger" title="Refuser" aria-label="Refuser" @click="$emit('action',row,'reject')"><X/></button></div>
         </article>
       </section>
 

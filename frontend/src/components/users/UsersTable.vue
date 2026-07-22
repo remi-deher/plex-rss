@@ -11,7 +11,7 @@
     <button class="secondary" @click="$emit('bulk-permissions',{can_login:true})"><LogIn/>Autoriser la connexion</button>
     <button class="secondary" @click="$emit('bulk-permissions',{can_login:false})"><LogOut/>Bloquer la connexion</button>
     <button class="secondary danger" @click="$emit('bulk-delete')"><Trash2/>Supprimer</button>
-    <button class="icon-button" @click="selectedIds=[]"><X/></button>
+    <button class="icon-button" title="Désélectionner" aria-label="Désélectionner" @click="selectedIds=[]"><X/></button>
   </div>
 
   <section class="panel table-wrap table-cards rich">
@@ -28,7 +28,7 @@
           <td data-label="Role"><span class="badge" :class="user.role==='admin'?'available':'pending'">{{ user.role }}</span></td>
           <td data-label="Demandes"><strong>{{ user.stats?.total??user.request_count??0 }}</strong><small v-if="user.stats?.pending_approval" class="pending-copy">{{ user.stats.pending_approval }} à approuver</small></td>
           <td data-label="Dernière activité">{{ formatDate(user.last_requested_at) }}<small>{{ user.can_login?'Connexion autorisée':'Connexion bloquée' }}</small></td>
-          <td class="card-actions"><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" @click="$emit('toggle',user)"><Power/></button></td>
+          <td class="card-actions"><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" :aria-label="user.enabled?'Desactiver':'Activer'" @click="$emit('toggle',user)"><Power/></button></td>
         </tr>
       </tbody>
     </table>

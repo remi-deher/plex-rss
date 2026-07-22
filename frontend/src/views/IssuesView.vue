@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <PageHeader title="Problèmes signalés" description="Gestion des signalements utilisateur et problèmes remontés." eyebrow="Administration">
-        <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+        <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
           <RefreshCw :class="{ spin: loading }" />
         </button>
     </PageHeader>
@@ -39,9 +39,9 @@
             </td>
             <td data-label="Date">{{ formatDate(issue.created_at) }}</td>
             <td class="actions card-actions">
-              <button class="icon-button" title="Prendre en charge" v-if="issue.status !== 'investigating' && issue.status !== 'closed'" @click="updateIssue(issue, 'investigating')"><ScanSearch /></button>
-              <button class="icon-button" title="Relancer" v-if="issue.status !== 'closed'" @click="retryIssue(issue)"><RotateCcw /></button>
-              <button class="icon-button success" title="Clore" v-if="issue.status !== 'closed'" @click="updateIssue(issue, 'closed')"><Check /></button>
+              <button class="icon-button" title="Prendre en charge" aria-label="Prendre en charge" v-if="issue.status !== 'investigating' && issue.status !== 'closed'" @click="updateIssue(issue, 'investigating')"><ScanSearch /></button>
+              <button class="icon-button" title="Relancer" aria-label="Relancer" v-if="issue.status !== 'closed'" @click="retryIssue(issue)"><RotateCcw /></button>
+              <button class="icon-button success" title="Clore" aria-label="Clore" v-if="issue.status !== 'closed'" @click="updateIssue(issue, 'closed')"><Check /></button>
             </td>
           </tr>
         </tbody>

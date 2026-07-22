@@ -4,7 +4,7 @@
         <button v-if="isAdmin" class="secondary" :disabled="busy" @click="runUtility('/api/requests/poll')">
           <RefreshCw/>Vérifier maintenant
         </button>
-        <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+        <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
           <RefreshCw :class="{spin:loading}"/>
         </button>
     </PageHeader>
@@ -36,7 +36,7 @@
         <button class="secondary" @click="bulk('retry')"><RotateCcw/>Relancer</button>
         <button class="secondary" @click="bulk('mark-processed')"><CheckCheck/>Traiter</button>
         <button class="secondary danger" @click="bulk('delete')"><Trash2/>Supprimer</button>
-        <button class="icon-button" title="Annuler" @click="selectedIds=[]"><X/></button>
+        <button class="icon-button" title="Annuler" aria-label="Annuler" @click="selectedIds=[]"><X/></button>
       </div>
     </div>
 
@@ -54,6 +54,7 @@
         @toggle-select="toggleSelect"
         @act="act"
         @delete-orphan="deleteOrphan"
+        @error="error = $event"
       />
     </section>
 

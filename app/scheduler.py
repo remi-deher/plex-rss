@@ -54,6 +54,7 @@ from .services.seer_sync import (
     sync_seer_requests,
     sync_seer_users,
 )
+from .services.radarr_queue_monitor import monitor_radarr_queue
 from .services.sonarr import get_all_series, get_series_episode_stats, is_series_available
 from .services.sonarr_queue_monitor import monitor_sonarr_queue
 from .services.vff_scanner import (
@@ -120,6 +121,15 @@ async def start_scheduler(poll_seconds: int = 300):
         "interval",
         minutes=1,
         id="sonarr_queue_monitor",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        monitor_radarr_queue,
+        "interval",
+        minutes=1,
+        id="radarr_queue_monitor",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

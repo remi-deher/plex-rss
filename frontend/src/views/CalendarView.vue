@@ -2,10 +2,10 @@
   <div class="page calendar-page">
     <PageHeader title="Calendrier" :description="`Sorties de ${periodLabel}`">
       <div class="calendar-navigation">
-        <button class="icon-button" title="Mois precedent" @click="move(-1)"><ChevronLeft/></button>
+        <button class="icon-button" title="Mois precedent" aria-label="Mois precedent" @click="move(-1)"><ChevronLeft/></button>
         <button class="secondary" @click="today">Aujourd'hui</button>
-        <button class="icon-button" title="Mois suivant" @click="move(1)"><ChevronRight/></button>
-        <button class="icon-button" :disabled="loading" title="Actualiser" @click="load"><RefreshCw :class="{spin:loading}"/></button>
+        <button class="icon-button" title="Mois suivant" aria-label="Mois suivant" @click="move(1)"><ChevronRight/></button>
+        <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load"><RefreshCw :class="{spin:loading}"/></button>
       </div>
     </PageHeader>
 

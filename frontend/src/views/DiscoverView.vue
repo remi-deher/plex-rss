@@ -9,13 +9,16 @@
 
     <div class="discover-heading"><div><span class="eyebrow">{{ query ? 'Résultats' : sectionLabel }}</span><h2>{{ query ? `Recherche « ${query} »` : sectionDescription }}</h2></div><span>{{ displayedItems.length }} média{{ displayedItems.length>1?'s':'' }}</span></div>
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
-    <section class="media-grid discover-grid">
-      <article v-for="item in displayedItems" :key="`${item.media_type}:${item.tmdb_id||item.id}`" class="media-card discover-card" tabindex="0" @click="openDetail(item)" @keydown.enter="openDetail(item)">
-        <div class="poster-shell"><img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy"><div v-else class="poster-fallback"><Film/></div><div class="poster-badges"><span v-if="item.available||item.in_library" class="language-tag vf">Dans Plex</span><span v-else-if="item.requested" class="language-tag unknown">{{ statusLabel(item.request_status) }}</span><span v-else class="language-tag new-media">À découvrir</span></div><div class="poster-action">{{ item.available||item.in_library?'Voir la fiche':item.requested?'Suivre la demande':'Demander' }}</div></div>
-        <div class="discover-card-info"><strong>{{ item.title||item.name }}</strong><span>{{ item.media_type==='show'?'Série':'Film' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.vote_average||item.vote"> · <Star/>{{ Number(item.vote_average||item.vote).toFixed(1) }}</template></span></div>
-      </article>
-    </section>
-    <UiFeedback v-if="loading" type="loading" message="Chargement du catalogue…"/><p v-else-if="!displayedItems.length" class="empty">Aucun média ne correspond à ces filtres.</p>
+    <UiFeedback v-if="loading" type="loading" message="Chargement du catalogue…"/>
+    <template v-else>
+      <section class="media-grid discover-grid">
+        <article v-for="item in displayedItems" :key="`${item.media_type}:${item.tmdb_id||item.id}`" class="media-card discover-card" tabindex="0" @click="openDetail(item)" @keydown.enter="openDetail(item)">
+          <div class="poster-shell"><img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy"><div v-else class="poster-fallback"><Film/></div><div class="poster-badges"><span v-if="item.available||item.in_library" class="language-tag vf">Dans Plex</span><span v-else-if="item.requested" class="language-tag unknown">{{ statusLabel(item.request_status) }}</span><span v-else class="language-tag new-media">À découvrir</span></div><div class="poster-action">{{ item.available||item.in_library?'Voir la fiche':item.requested?'Suivre la demande':'Demander' }}</div></div>
+          <div class="discover-card-info"><strong>{{ item.title||item.name }}</strong><span>{{ item.media_type==='show'?'Série':'Film' }}<template v-if="item.year"> · {{ item.year }}</template><template v-if="item.vote_average||item.vote"> · <Star/>{{ Number(item.vote_average||item.vote).toFixed(1) }}</template></span></div>
+        </article>
+      </section>
+      <p v-if="!displayedItems.length" class="empty">Aucun média ne correspond à ces filtres.</p>
+    </template>
   </div>
 </template>
 <script setup>

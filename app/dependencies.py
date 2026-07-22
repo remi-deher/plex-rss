@@ -71,11 +71,17 @@ async def require_auth(request: Request, db: AsyncSession = Depends(get_db_async
 
 
 def require_api_scope(scope: str) -> Callable:
+    """Dépendance : accès nécessitant une session authentifiée ou un token API avec le scope requis.
+
+    Échoue fermé (401) en l'absence de tout justificatif — ne dépend pas d'un garde
+    supplémentaire au niveau du routeur pour rester sûre si réutilisée ailleurs.
+    """
+
     async def _dependency(request: Request, db: AsyncSession = Depends(get_db_async)):
         if request.session.get("authenticated"):
             return
         if not request.headers.get("X-Api-Key"):
-            return
+            raise HTTPException(status_code=401, detail="Non authentifié")
         if await _api_key_has_scope(request, db, scope):
             return
         raise HTTPException(status_code=403, detail=f"Scope API requis: {scope}")

@@ -67,6 +67,7 @@ class SettingsUpdate(BaseModel):
     email_on_request: Optional[bool] = None
     email_on_available: Optional[bool] = None
     email_on_failure: Optional[bool] = None
+    notify_import_blocked: Optional[bool] = None
     email_recipients: Optional[str] = None
     email_send_available: Optional[bool] = None
     email_send_request: Optional[bool] = None
@@ -178,12 +179,31 @@ class TotpEnableRequest(BaseModel):
     code: str
 
 
+# Champs sensibles (tokens/mots de passe/secrets) masqués par GET /settings. webhook_secret
+# en est volontairement exclu : sa valeur réelle doit rester visible dans l'onglet Webhooks
+# pour que l'admin puisse copier les URLs à configurer côté Sonarr/Radarr/Plex.
+_MASKED_SECRET_FIELDS = (
+    "smtp_password",
+    "plex_token",
+    "sonarr_api_key",
+    "radarr_api_key",
+    "tmdb_api_key",
+    "seer_api_key",
+    "discord_webhook_url",
+    "telegram_bot_token",
+    "ntfy_token",
+    "gotify_token",
+    "api_token",
+)
+
+
 @router.get("/settings")
 def get_settings(s: Settings = Depends(get_settings_or_404)):
-    """Retourne la configuration complète. Le mot de passe SMTP est masqué."""
+    """Retourne la configuration complète. Les secrets/tokens sont masqués."""
     d = {c.name: getattr(s, c.name) for c in s.__table__.columns}
-    if d.get("smtp_password"):
-        d["smtp_password"] = "••••••••"
+    for field in _MASKED_SECRET_FIELDS:
+        if d.get(field):
+            d[field] = "••••••••"
     if d.get("totp_secret"):
         d["totp_secret"] = "configured"
     return d
@@ -218,7 +238,9 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
     for key, val in payload.items():
         if val is None and key not in _nullable_fields:
             continue
-        if key == "smtp_password" and val == "••••••••":
+        # Un champ masque (renvoye tel quel par le formulaire s'il n'a pas ete modifie
+        # par l'utilisateur) ne doit jamais ecraser le secret reel stocke en base.
+        if key in _MASKED_SECRET_FIELDS and val == "••••••••":
             continue
         if key in ("notification_log_retention_days", "poll_history_retention_days") and val == 0:
             val = None
@@ -349,13 +371,18 @@ async def generate_webhook_secret(db: AsyncSession = Depends(get_db_async)):
 
 @router.delete("/settings/webhook-secret")
 async def revoke_webhook_secret(db: AsyncSession = Depends(get_db_async)):
-    """Révoque le secret de webhook courant (désactive l'authentification des webhooks)."""
+    """Révoque le secret de webhook courant en le remplaçant immédiatement par un nouveau.
+
+    Un secret vide désactiverait l'authentification des endpoints /webhook/* (voir
+    _check_webhook_secret) : on régénère donc systématiquement plutôt que de laisser
+    les webhooks ouverts sans authentification.
+    """
     s = (await db.execute(select(Settings))).scalars().first()
     if not s:
         raise HTTPException(404, "Paramètres non initialisés")
-    s.webhook_secret = None
+    s.webhook_secret = secrets.token_urlsafe(32)
     await db.commit()
-    return {"status": "revoked"}
+    return {"status": "revoked", "webhook_secret": s.webhook_secret}
 
 
 @router.get("/settings/webhook-secret")

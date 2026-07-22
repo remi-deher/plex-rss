@@ -13,6 +13,7 @@
 
       <div class="media-detail-body">
         <p v-if="error" class="notice error-text">{{ error }}</p>
+        <UiFeedback v-if="successMessage" type="success" :message="successMessage" dismissible @dismiss="successMessage=''"/>
 
         <MediaRequestForm
           v-if="canRequest"
@@ -132,7 +133,7 @@ const envelopeError = ref(false);
 // (facon Seerr : GET /tv/:id/season/:n) -- l'enveloppe ne contient que le nombre de
 // saisons/episodes, jamais le detail episode par episode de toutes les saisons d'un coup.
 const seasonEpisodes = ref({}), seasonLoading = ref({}), seasonErrors = ref({});
-const loading = ref(false), busy = ref(false), error = ref(''), tab = ref('summary');
+const loading = ref(false), busy = ref(false), error = ref(''), successMessage = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const tabs = computed(() => detail.value?.media_type === 'show'
   ? ['summary', 'audio', 'requests', 'calendar']
@@ -490,7 +491,7 @@ async function sendCorrection(formPayload) {
     const media = detail.value.media || {};
     await api('/api/media/send-correction', { method: 'POST', body: JSON.stringify({ ...formPayload, library_id: media.library_id, request_id: media.request_id }) });
     showCorrectionForm.value = false;
-    alert('Correction envoyee !');
+    successMessage.value = 'Correction envoyée !';
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
@@ -501,8 +502,6 @@ onMounted(load);
 <style scoped>
 .media-detail-page {
   min-height: 100%;
-  --muted: #d9a13b;
-  --text-muted: #d9a13b;
 }
 .media-detail-body {
   max-width: 1280px;

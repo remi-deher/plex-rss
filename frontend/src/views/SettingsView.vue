@@ -26,6 +26,7 @@
     <EmailTemplatesPanel v-else-if="tab==='templates'"/>
     <DataTab v-else/>
     <FormSaveBar v-if="tab!=='templates'" :dirty="isDirty" :saving="saving" @save="save"/>
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 <script setup>
@@ -43,7 +44,11 @@ import LibraryTab from '@/components/settings/LibraryTab.vue';
 import DownloadsTab from '@/components/settings/DownloadsTab.vue';
 import ScheduledTasksTab from '@/components/settings/ScheduledTasksTab.vue';
 import DataTab from '@/components/settings/DataTab.vue';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 import { load, save, saving, error, message, isDirty } from '@/settingsForm';
+
+const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const tabs = [
   { key: 'overview', label: 'Vue d’ensemble', icon: markRaw(ServerCog) },
@@ -73,8 +78,8 @@ function selectTab(value) {
   router.replace({path:'/settings',query:{tab:value}});
 }
 function warnUnsaved(event){if(!isDirty.value)return;event.preventDefault();event.returnValue=''}
-onBeforeRouteLeave(()=>!isDirty.value||window.confirm('Des modifications ne sont pas enregistrées. Quitter cette page ?'));
-onBeforeRouteUpdate(()=>!isDirty.value||window.confirm('Des modifications ne sont pas enregistrées. Changer de section ?'));
+onBeforeRouteLeave(()=>!isDirty.value||askConfirm({title:'Quitter sans enregistrer ?',message:'Des modifications ne sont pas enregistrées. Quitter cette page ?',confirmLabel:'Quitter',danger:true}));
+onBeforeRouteUpdate(()=>!isDirty.value||askConfirm({title:'Changer de section sans enregistrer ?',message:'Des modifications ne sont pas enregistrées. Changer de section ?',confirmLabel:'Continuer',danger:true}));
 onMounted(()=>window.addEventListener('beforeunload',warnUnsaved));
 onUnmounted(()=>window.removeEventListener('beforeunload',warnUnsaved));
 

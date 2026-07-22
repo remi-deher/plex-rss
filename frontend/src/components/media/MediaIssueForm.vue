@@ -1,5 +1,5 @@
 <template>
-  <div class="panel form-section" style="margin-top: 1rem; border: 1px solid var(--border-color);">
+  <div class="panel form-section" style="margin-top: 1rem; border: 1px solid var(--border);">
     <label>Description du probleme
       <textarea v-model="localMessage" placeholder="Decrivez le probleme rencontre" rows="3" class="search"></textarea>
     </label>

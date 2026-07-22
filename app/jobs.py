@@ -247,6 +247,19 @@ async def job_sonarr_queue_monitor(ctx: dict, force: bool = False):
     )
 
 
+async def job_radarr_queue_monitor(ctx: dict, force: bool = False):
+    from .services.radarr_queue_monitor import monitor_radarr_queue
+
+    return await _run(
+        ctx,
+        "radarr-queue-monitor",
+        monitor_radarr_queue,
+        force=force,
+        interval_seconds=60,
+        event_type="download.updated",
+    )
+
+
 async def job_vff_statuses(ctx: dict, force: bool = False):
     from .services.vff_scanner import check_vf_statuses
 
@@ -462,6 +475,10 @@ async def cron_sonarr_queue_monitor(ctx: dict):
     return await job_sonarr_queue_monitor(ctx)
 
 
+async def cron_radarr_queue_monitor(ctx: dict):
+    return await job_radarr_queue_monitor(ctx)
+
+
 async def cron_vff_statuses(ctx: dict):
     return await job_vff_statuses(ctx)
 
@@ -504,6 +521,7 @@ class WorkerSettings:
         job_arr_statuses,
         job_torrent_statuses,
         job_sonarr_queue_monitor,
+        job_radarr_queue_monitor,
         job_vff_statuses,
         job_episode_tracking,
         job_episode_availability,
@@ -521,6 +539,7 @@ class WorkerSettings:
         cron(cron_arr_statuses, minute={0, 15, 30, 45}, unique=True),
         cron(cron_torrent_statuses, minute=set(range(0, 60, 2)), unique=True),
         cron(cron_sonarr_queue_monitor, minute=None, second=5, unique=True),
+        cron(cron_radarr_queue_monitor, minute=None, second=35, unique=True),
         cron(cron_vff_statuses, minute=None, unique=True),
         cron(cron_episode_tracking, minute=None, second=10, unique=True),
         cron(cron_episode_availability, minute=None, second=15, unique=True),

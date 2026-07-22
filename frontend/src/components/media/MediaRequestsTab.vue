@@ -67,7 +67,7 @@
               ></span>
             </span>
             <div v-if="admin" class="requester-menu-wrap">
-              <button class="icon-button" title="Actions" @click.stop="toggleRequesterMenu(row.id, uid)"><MoreVertical /></button>
+              <button class="icon-button" title="Actions" aria-label="Actions" @click.stop="toggleRequesterMenu(row.id, uid)"><MoreVertical /></button>
               <div v-if="openRequesterMenu === `${row.id}:${uid}`" class="requester-menu" @click.stop>
                 <button :disabled="busy" @click="$emit('notify-user', row.id, uid, ['request']); closeRequesterMenu()"><Mail /> Renvoyer mail demande</button>
                 <button v-if="row.status === 'available'" :disabled="busy" @click="$emit('notify-user', row.id, uid, ['available']); closeRequesterMenu()"><MailCheck /> Renvoyer mail dispo</button>
@@ -79,15 +79,15 @@
         </div>
       </div>
       <div class="actions">
-        <button v-if="row.status === 'pending_approval' && admin" class="icon-button success" title="Approuver" :disabled="busy" @click="$emit('approve', row.id)"><Check /></button>
-        <button v-if="row.status === 'pending_approval' && admin" class="icon-button danger" title="Refuser" :disabled="busy" @click="$emit('reject', row)"><Ban /></button>
-        <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" @click="$emit('open-release', row.id)"><Search /></button>
-        <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" @click="$emit('retry', row.id)"><RotateCcw /></button>
-        <button v-if="admin && hasUnnotified(row)" class="icon-button" title="Rattraper tout le monde (notifier les demandeurs pas encore prevenus)" :disabled="busy" @click="$emit('catch-up-all', row)"><Users /></button>
-        <button class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :disabled="busy" @click="$emit('resend-mail', row.id, 'request')"><Mail /></button>
-        <button v-if="row.status === 'available'" class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :disabled="busy" @click="$emit('resend-mail', row.id, 'available')"><MailCheck /></button>
-        <button v-if="canClose(row)" class="icon-button" title="Cloturer la demande" :disabled="busy" @click="$emit('close-request', row)"><CheckCheck /></button>
-        <button class="icon-button danger" title="Supprimer" @click="$emit('delete-request', row.id)"><Trash2 /></button>
+        <button v-if="row.status === 'pending_approval' && admin" class="icon-button success" title="Approuver" aria-label="Approuver" :disabled="busy" @click="$emit('approve', row.id)"><Check /></button>
+        <button v-if="row.status === 'pending_approval' && admin" class="icon-button danger" title="Refuser" aria-label="Refuser" :disabled="busy" @click="$emit('reject', row)"><Ban /></button>
+        <button v-if="row.arr_id" class="icon-button" title="Rechercher une release" aria-label="Rechercher une release" @click="$emit('open-release', row.id)"><Search /></button>
+        <button v-if="row.status === 'failed'" class="icon-button" title="Relancer" aria-label="Relancer" @click="$emit('retry', row.id)"><RotateCcw /></button>
+        <button v-if="admin && hasUnnotified(row)" class="icon-button" title="Rattraper tout le monde (notifier les demandeurs pas encore prevenus)" aria-label="Rattraper tout le monde (notifier les demandeurs pas encore prevenus)" :disabled="busy" @click="$emit('catch-up-all', row)"><Users /></button>
+        <button class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :aria-label="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :disabled="busy" @click="$emit('resend-mail', row.id, 'request')"><Mail /></button>
+        <button v-if="row.status === 'available'" class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :aria-label="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :disabled="busy" @click="$emit('resend-mail', row.id, 'available')"><MailCheck /></button>
+        <button v-if="canClose(row)" class="icon-button" title="Cloturer la demande" aria-label="Cloturer la demande" :disabled="busy" @click="$emit('close-request', row)"><CheckCheck /></button>
+        <button class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="$emit('delete-request', row.id)"><Trash2 /></button>
       </div>
     </article>
     <article v-if="!requests?.length && detail?.in_library" class="detail-row plex-origin-card">

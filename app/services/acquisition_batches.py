@@ -204,18 +204,17 @@ async def advance_acquisition_batches(db, settings: Settings | None, *, now=None
         active = [observation for observation in observations if observation.state in ACTIVE_QUEUE_STATES]
         blocked = [observation for observation in observations if observation.state == "import_blocked"]
 
-        if settings and settings.admin_notification_email:
+        if settings and settings.admin_notification_email and settings.notify_import_blocked:
             req = await db.get(MediaRequest, batch.request_id) if batch.request_id else None
             for observation in blocked:
                 if observation.admin_alert_queued_at or not req:
                     continue
                 reason = observation.error_message or "Import Sonarr bloque : verification manuelle requise."
                 await enqueue(
-                    "failed",
+                    "import_blocked",
                     req.id,
                     parse_email_list(settings.admin_notification_email),
                     {
-                        "scope": "import_blocked",
                         "reason": f"{reason} ({observation.title or 'element Sonarr'})",
                         "admin_only": True,
                     },

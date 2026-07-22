@@ -23,7 +23,7 @@
           </label>
         </div>
       </div>
-    <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+    <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
       <RefreshCw :class="{spin:loading}"/>
     </button>
   </PageHeader>
@@ -287,8 +287,8 @@ onMounted(() => {
 .hold-switch input:focus-visible + .hold-switch-track { outline: 2px solid var(--accent); outline-offset: 3px; }
 .hold-switch input:disabled + .hold-switch-track { cursor: wait; opacity: .6; }
 .notification-feedback { display: flex; align-items: center; gap: .45rem; margin: .9rem 0 0; padding: .7rem .85rem; border-radius: 10px; font-size: .84rem; }
-.notification-feedback.success { color: #176b42; background: #eaf8f0; }
-.notification-feedback.error { color: #a33a2b; background: #fff0ee; }
+.notification-feedback.success { color: var(--green); background: rgba(34, 197, 94, .1); }
+.notification-feedback.error { color: var(--red); background: rgba(239, 68, 68, .1); }
 .notification-feedback-enter-active, .notification-feedback-leave-active { transition: opacity .2s ease, transform .2s ease; }
 .notification-feedback-enter-from, .notification-feedback-leave-to { opacity: 0; transform: translateY(-4px); }
 @media (max-width: 900px) {

@@ -12,7 +12,7 @@
       <div v-for="row in items.slice(0, 4)" :key="rowKey(row)" class="unmatched-item">
         <span class="unmatched-title">{{ row.title }}</span>
         <span class="badge">{{ row.instance || '-' }}</span>
-        <button class="icon-button" title="Associer manuellement" @click="$emit('associate', row)"><Link /></button>
+        <button class="icon-button" title="Associer manuellement" aria-label="Associer manuellement" @click="$emit('associate', row)"><Link /></button>
       </div>
       <div v-if="items.length > 4" class="unmatched-more">
         + {{ items.length - 4 }} autre(s)

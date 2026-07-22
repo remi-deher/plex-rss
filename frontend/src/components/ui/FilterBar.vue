@@ -13,7 +13,7 @@
   <Teleport to="body">
     <Transition name="filter-sheet">
       <div v-if="open" class="ui-filter-overlay" @click.self="close">
-        <section class="ui-filter-sheet" role="dialog" aria-modal="true" aria-labelledby="filter-sheet-title">
+        <section ref="panelRef" tabindex="-1" class="ui-filter-sheet" role="dialog" aria-modal="true" aria-labelledby="filter-sheet-title">
           <header><div><span>Affichage</span><h2 id="filter-sheet-title">Filtres</h2></div><button class="icon-button" type="button" aria-label="Fermer" @click="close"><X/></button></header>
           <div class="ui-filter-sheet-content"><slot name="filters" /></div>
           <footer>
@@ -27,13 +27,13 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue';
+import { ref } from 'vue';
 import { SlidersHorizontal, X } from '@lucide/vue';
+import { useModalA11y } from '@/composables/useModalA11y';
 defineProps({ activeCount: { type: Number, default: 0 }, resultCount: { type: Number, default: null } });
 defineEmits(['reset']);
 const open=ref(false);
 function close(){open.value=false}
-function onKey(event){if(event.key==='Escape')close()}
-onMounted(()=>window.addEventListener('keydown',onKey));
-onUnmounted(()=>window.removeEventListener('keydown',onKey));
+const panelRef = ref(null);
+useModalA11y(panelRef, open, close);
 </script>

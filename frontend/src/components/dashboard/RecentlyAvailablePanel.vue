@@ -6,7 +6,7 @@
     <div class="recently-available-grid">
       <div v-for="item in items" :key="item.id" class="poster-card">
         <div class="poster-wrap">
-          <img v-if="item.poster_url" :src="item.poster_url" alt="Poster" />
+          <img v-if="item.poster_url" :src="item.poster_url" alt="" />
           <div v-else class="poster-fallback-inner"><Film /></div>
           <span class="media-type-badge" :class="item.media_type">{{ item.media_type === 'movie' ? 'Film' : 'Série' }}</span>
         </div>

@@ -21,10 +21,10 @@
             <td class="url-cell" data-label="Adresse">{{ instance.url }}</td>
             <td data-label="Statut"><span class="badge" :class="instance.enabled?'available':'failed'">{{ instance.enabled?'Actif':'Inactif' }}</span></td>
             <td class="actions card-actions">
-              <button class="icon-button" title="Tester" @click="testArr(instance)"><PlugZap/></button>
-              <button class="icon-button" title="Modifier" @click="openArrModal(instance)"><Pencil/></button>
-              <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
-              <button class="icon-button danger" title="Supprimer" @click="removeArr(instance)"><Trash2/></button>
+              <button class="icon-button" title="Tester" aria-label="Tester" @click="testArr(instance)"><PlugZap/></button>
+              <button class="icon-button" title="Modifier" aria-label="Modifier" @click="openArrModal(instance)"><Pencil/></button>
+              <button class="icon-button" :title="instance.enabled?'Desactiver':'Activer'" :aria-label="instance.enabled?'Desactiver':'Activer'" @click="toggleArr(instance)"><Power/></button>
+              <button class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="removeArr(instance)"><Trash2/></button>
             </td>
           </tr>
         </tbody>
@@ -34,10 +34,10 @@
   </SettingsCard>
 
   <div v-if="showArrModal" class="drawer-backdrop" @click.self="closeArrModal">
-    <aside class="modal-panel arr-instance-modal">
+    <aside ref="arrPanelRef" tabindex="-1" class="modal-panel arr-instance-modal" role="dialog" aria-modal="true" :aria-label="editingArrId?'Modifier l\'instance':'Ajouter une instance'">
       <div class="panel-head">
         <h2>{{ editingArrId?'Modifier l\'instance':'Ajouter une instance' }}</h2>
-        <button class="icon-button" title="Fermer" @click="closeArrModal"><X/></button>
+        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="closeArrModal"><X/></button>
       </div>
       <div class="compact-form">
         <label>Nom<input v-model="arrForm.name"></label>
@@ -66,10 +66,13 @@ import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
 import ConfirmModal from '../../ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
+import { useModalA11y } from '@/composables/useModalA11y';
 
 const busy = ref(false);
 const arrInstances = ref([]), arrProfiles = ref([]), arrFolders = ref([]), editingArrId = ref(null);
 const showArrModal = ref(false);
+const arrPanelRef = ref(null);
+useModalA11y(arrPanelRef, showArrModal, closeArrModal);
 const arrDefaults = { name: '', arr_type: 'sonarr', url: '', api_key: '', quality_profile_id: null, root_folder: '', minimum_availability: 'released', is_default: false, enabled: true, indexer_ids: null };
 const arrForm = reactive({ ...arrDefaults });
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();

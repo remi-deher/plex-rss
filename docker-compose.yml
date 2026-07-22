@@ -22,7 +22,10 @@ services:
       AUTO_MIGRATE_LEGACY_SQLITE: ${AUTO_MIGRATE_LEGACY_SQLITE:-1}
       LEGACY_SQLITE_PATH: ${LEGACY_SQLITE_PATH:-/app/data/plex_rss.db}
       LEGACY_IMPORT_MAX_BYTES: ${LEGACY_IMPORT_MAX_BYTES:-268435456}
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:?PLEXARR_ENCRYPTION_KEY must be set}
+      # Optionnelle : si absente, une clé est générée au premier démarrage et persistée
+      # dans data/.encryption_key (voir app/crypto.py). La définir explicitement n'est
+      # utile que pour fixer la clé à l'avance ou la partager avec une autre instance.
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -50,7 +53,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       ENABLE_ARQ: "1"
       AUTO_MIGRATE_LEGACY_SQLITE: "0"
-      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:?PLEXARR_ENCRYPTION_KEY must be set}
+      # Optionnelle : si absente, une clé est générée au premier démarrage et persistée
+      # dans data/.encryption_key (voir app/crypto.py). La définir explicitement n'est
+      # utile que pour fixer la clé à l'avance ou la partager avec une autre instance.
+      PLEXARR_ENCRYPTION_KEY: ${PLEXARR_ENCRYPTION_KEY:-}
       ARQ_MAX_JOBS: ${ARQ_MAX_JOBS:-15}
       ARQ_JOB_TIMEOUT: ${ARQ_JOB_TIMEOUT:-3600}
     depends_on:

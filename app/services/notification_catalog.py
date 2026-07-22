@@ -75,6 +75,20 @@ EVENTS: dict[str, NotificationEvent] = {
         default_subject="[Plexarr] Échec de transmission : {titre}",
         preview_context={"reason": "Le serveur Sonarr (ou Radarr) est inaccessible ou a renvoyé une erreur 500."},
     ),
+    "import_blocked": NotificationEvent(
+        key="import_blocked",
+        label="Import *arr bloqué",
+        group="Administration",
+        description=(
+            "Le téléchargement est terminé mais Sonarr ou Radarr n'a pas pu l'importer "
+            "automatiquement (nécessite une vérification manuelle) — distinct d'un échec de "
+            "transmission de la demande, qui n'a même pas atteint Sonarr/Radarr."
+        ),
+        color=0xFD7E14,
+        badge_class="bg-warning",
+        default_subject="[Plexarr] Import bloqué : {titre}",
+        preview_context={"reason": "Fichier introuvable après extraction : vérifiez le nom de la release."},
+    ),
     "correction": NotificationEvent(
         key="correction",
         label="Correction",

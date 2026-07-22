@@ -17,7 +17,7 @@
           <button
             class="icon-button"
             :disabled="busy || !available"
-            :title="available ? 'Actualiser' : 'Pas encore disponible dans Plex — reessayer une fois le media indexe'"
+            :title="available ? 'Actualiser' : 'Pas encore disponible dans Plex — reessayer une fois le media indexe'" :aria-label="available ? 'Actualiser' : 'Pas encore disponible dans Plex — reessayer une fois le media indexe'"
             @click="$emit('scan')"
           ><RefreshCw/></button>
         </div>
@@ -25,7 +25,7 @@
           v-for="season in vfDetail.seasons || []"
           :key="season.season_number"
           class="detail-row"
-          style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 6px;"
+          style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px;"
           @toggle="$event.target.open && $emit('expand-season', season.season_number)"
         >
           <summary style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
@@ -37,12 +37,12 @@
               <span class="badge danger" v-if="season.counts.absent">Absent: {{ season.counts.absent }}</span>
               <span class="badge pending_approval" v-if="season.counts.tba">TBA: {{ season.counts.tba }}</span>
               <span class="badge" v-if="!season.loaded && !season.loading && !season.error">{{ season.episode_count }} ep.</span>
-              <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison"><MessageSquareWarning size="16" /></button>
+              <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison" aria-label="Corriger Saison"><MessageSquareWarning size="16" /></button>
             </div>
           </summary>
           <div v-if="season.loading" style="padding: 0.5rem 0; color: var(--muted); font-size: 0.9em;">Chargement des episodes...</div>
           <p v-else-if="season.error" class="notice error-text">Échec du chargement de cette saison.</p>
-          <div v-else style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+          <div v-else style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
             <div v-for="ep in season.episodes" :key="ep.episode" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start;">
               <img
                 v-if="ep.still_url"
@@ -81,7 +81,7 @@
             <span>Audio ({{ vfDetail.tracks.length }})</span>
             <ChevronDown size="16" />
           </summary>
-          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
             <article v-for="(track, index) in vfDetail.tracks" :key="'audio-'+index" class="detail-row" style="margin-bottom: 6px;">
               <div>
                 <strong>{{ track.lang ? track.lang.toUpperCase() : 'Inconnu' }} <span v-if="track.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>
@@ -98,7 +98,7 @@
             <span>Sous-titres ({{ vfDetail.subtitles.length }})</span>
             <ChevronDown size="16" />
           </summary>
-          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border-color); margin-top: 0.5rem;">
+          <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
             <article v-for="(sub, index) in vfDetail.subtitles" :key="'sub-'+index" class="detail-row" style="margin-bottom: 6px;">
               <div>
                 <strong>{{ sub.lang ? sub.lang.toUpperCase() : 'Inconnu' }} <span v-if="sub.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>

@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <PageHeader title="Journaux" description="Diagnostic applicatif, parcours des demandes et tâches planifiées." eyebrow="Exploitation">
-      <button class="icon-button" :disabled="loading" title="Actualiser" @click="load"><RefreshCw :class="{spin: loading}" /></button>
+      <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load"><RefreshCw :class="{spin: loading}" /></button>
     </PageHeader>
     <nav class="detail-tabs">
       <button v-for="item in tabs" :key="item.id" :class="{active: tab === item.id}" @click="tab = item.id; load()">{{ item.label }}</button>
@@ -19,7 +19,7 @@
     <section class="panel table-wrap table-cards rich">
       <table><thead><tr><th>Date</th><th>Section</th><th>Description</th><th>Résultat</th></tr></thead>
         <tbody><tr v-for="row in filtered" :key="keyOf(row)"><td data-label="Date">{{ dateOf(row) }}</td><td data-label="Section"><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td class="card-title"><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td data-label="Résultat">{{ resultOf(row) }}</td></tr></tbody>
-      </table><p v-if="!loading && !filtered.length" class="empty">Aucune entrée pour ce filtre.</p>
+      </table><UiFeedback v-if="loading" type="loading" message="Chargement des journaux…"/><p v-else-if="!filtered.length" class="empty">Aucune entrée pour ce filtre.</p>
     </section>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>

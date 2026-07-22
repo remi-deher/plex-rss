@@ -22,6 +22,32 @@ from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeSta
 from ..serializers import format_datetime
 from ..utils import now_utc_naive, wrap_image_proxy
 
+# Hôtes d'images externes connus et de confiance (CDN TMDB) — voir _allowed_image_hosts
+# pour les hôtes internes (Plex, instances *arr), résolus dynamiquement depuis la config.
+_STATIC_ALLOWED_IMAGE_HOSTS = {"image.tmdb.org"}
+
+
+async def _allowed_image_hosts(db: AsyncSession) -> set[str]:
+    """Hôtes vers lesquels /api/image-proxy est autorisé à faire une requête.
+
+    Limité aux hôtes explicitement configurés par l'admin (serveur Plex, instances
+    *arr) plus le CDN TMDB, afin d'empêcher un utilisateur authentifié d'utiliser ce
+    proxy pour atteindre des hôtes internes/externes arbitraires (SSRF).
+    """
+    hosts = set(_STATIC_ALLOWED_IMAGE_HOSTS)
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if settings and settings.plex_url:
+        host = urlparse(settings.plex_url).hostname
+        if host:
+            hosts.add(host.lower())
+    instances = (await db.execute(select(ArrInstance))).scalars().all()
+    for inst in instances:
+        if inst.url:
+            host = urlparse(inst.url).hostname
+            if host:
+                hosts.add(host.lower())
+    return hosts
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["misc"])
@@ -68,7 +94,7 @@ def _write_image_cache(url: str, content: bytes, content_type: str) -> None:
 
 
 @router.get("/image-proxy", dependencies=[Depends(require_auth)])
-async def image_proxy(url: str):
+async def image_proxy(url: str, db: AsyncSession = Depends(get_db_async)):
     """Proxy authenticated UI images to avoid HTTPS pages loading HTTP posters directly.
 
     Mis en cache sur disque 24h (voir `_IMAGE_CACHE_DIR`) : la majorité des affichages
@@ -79,6 +105,15 @@ async def image_proxy(url: str):
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(400, "URL image invalide")
 
+    # SSRF : n'autorise que les hôtes configurés (Plex, instances *arr) + TMDB. Sans ce
+    # contrôle, tout utilisateur authentifié (même non-admin) pouvait faire proxier par
+    # le serveur une requête vers n'importe quel hôte, y compris interne (réseau privé,
+    # métadonnées cloud) puisque le endpoint suivait les redirections et acceptait
+    # n'importe quel netloc.
+    allowed_hosts = await _allowed_image_hosts(db)
+    if not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
+        raise HTTPException(400, "Hôte d'image non autorisé")
+
     cached = await asyncio.to_thread(_read_image_cache, url)
     if cached:
         content, content_type, cached_at = cached
@@ -86,7 +121,9 @@ async def image_proxy(url: str):
             return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, max-age=86400"})
 
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, verify=False) as client:
+        # follow_redirects=False : une redirection vers un hôte non autorisé contournerait
+        # sinon le contrôle ci-dessus.
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False, verify=False) as client:
             resp = await client.get(url)
             resp.raise_for_status()
     except Exception as e:

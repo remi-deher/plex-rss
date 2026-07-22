@@ -260,7 +260,7 @@ async def test_stable_batch_queues_one_summary_and_one_deduplicated_admin_alert(
         assert second == {"stabilizing": 0, "summaries": 0, "admin_alerts": 0, "closed": 0}
         assert enqueue_mock.await_count == 2
         admin_call, summary_call = enqueue_mock.await_args_list
-        assert admin_call.args[0] == "failed"
+        assert admin_call.args[0] == "import_blocked"
         assert admin_call.args[2] == ["admin@example.com"]
         assert admin_call.args[3]["admin_only"] is True
         assert summary_call.args[0] == "available"

@@ -6,14 +6,21 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async as get_db
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import MediaRequest, PlexUser
+from app.models import MediaRequest, PlexUser, Settings
+
+API_TOKEN = "test-api-token"
 
 
 def _client_with_db(db):
+    """Client de test avec un token API valide (scope "*") en DB : les routes /api/v1/*
+    exigent require_api_scope, qui vérifie l'en-tête X-Api-Key indépendamment de
+    require_auth/require_admin (surchargés ici pour les autres dépendances des routes)."""
+    db.add(Settings(api_token=API_TOKEN, api_token_scopes="*"))
+    db.commit()
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(app, raise_server_exceptions=False, headers={"X-Api-Key": API_TOKEN})
     return client
 
 
@@ -64,3 +71,17 @@ def test_api_v1_users_list(async_db):
         assert data[0]["display_name"] == "Alice"
     finally:
         _cleanup()
+
+
+def test_api_v1_requests_list_rejects_missing_credentials(async_db):
+    """require_api_scope doit échouer fermé (401) sans session ni X-Api-Key — sans
+    ce garde, /api/v1/* serait accessible sans aucune authentification."""
+    async_db.add(Settings(api_token=API_TOKEN, api_token_scopes="*"))
+    async_db.commit()
+    app.dependency_overrides[get_db] = lambda: async_db
+    client = TestClient(app, raise_server_exceptions=False)
+    try:
+        resp = client.get("/api/v1/requests")
+        assert resp.status_code == 401
+    finally:
+        app.dependency_overrides.pop(get_db, None)

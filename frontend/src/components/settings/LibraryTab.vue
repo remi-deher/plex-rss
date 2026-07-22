@@ -10,7 +10,7 @@
 
       <SettingsCard title="Analyse VF" :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :collapsible="false">
         <template #actions>
-          <button class="icon-button" title="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
+          <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>
         <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label>
         <label>Nouvelle analyse<IntervalPresetInput v-model="form.vff_recheck_interval_minutes" :presets="MINUTES_PRESETS"/></label>

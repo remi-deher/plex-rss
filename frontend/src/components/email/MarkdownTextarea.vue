@@ -4,12 +4,12 @@
       <select title="Niveau de titre" @change="setHeading($event.target.value);$event.target.value=''">
         <option value="">Titre</option><option value="1">Titre 1</option><option value="2">Titre 2</option><option value="3">Titre 3</option>
       </select>
-      <button class="icon-button" title="Gras" @click="wrapSelection('**','**','texte en gras')"><Bold/></button>
-      <button class="icon-button" title="Italique" @click="wrapSelection('*','*','texte en italique')"><Italic/></button>
-      <button class="icon-button" title="Liste a puces" @click="prefixLines('- ')"><List/></button>
-      <button class="icon-button" title="Liste numerotee" @click="prefixLines('1. ')"><ListOrdered/></button>
-      <button class="icon-button" title="Citation" @click="prefixLines('> ')"><Quote/></button>
-      <button class="icon-button" title="Lien" @click="insertLink"><LinkIcon/></button>
+      <button class="icon-button" title="Gras" aria-label="Gras" @click="wrapSelection('**','**','texte en gras')"><Bold/></button>
+      <button class="icon-button" title="Italique" aria-label="Italique" @click="wrapSelection('*','*','texte en italique')"><Italic/></button>
+      <button class="icon-button" title="Liste a puces" aria-label="Liste a puces" @click="prefixLines('- ')"><List/></button>
+      <button class="icon-button" title="Liste numerotee" aria-label="Liste numerotee" @click="prefixLines('1. ')"><ListOrdered/></button>
+      <button class="icon-button" title="Citation" aria-label="Citation" @click="prefixLines('> ')"><Quote/></button>
+      <button class="icon-button" title="Lien" aria-label="Lien" @click="insertLink"><LinkIcon/></button>
       <details v-if="variables.length" class="variable-picker">
         <summary><Braces/>Variables</summary>
         <div class="variable-menu">

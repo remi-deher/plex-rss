@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <PageHeader title="Maintenance" description="Opérations contrôlées et progression en direct." eyebrow="Exploitation">
-      <button class="icon-button" :disabled="loading" title="Actualiser" @click="load">
+      <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
         <RefreshCw :class="{spin:loading}"/>
       </button>
     </PageHeader>

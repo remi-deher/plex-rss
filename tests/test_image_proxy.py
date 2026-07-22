@@ -5,17 +5,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.database import get_db_async as get_db
 from app.dependencies import require_auth
 from app.main import app
+from app.models import Settings
 
 
-def _client():
+def _client(db):
+    """Client de test authentifié, avec un Settings.plex_url="http://plex.local" pour
+    que l'allow-list de _allowed_image_hosts accepte les URLs de test ci-dessous."""
+    db.add(Settings(plex_url="http://plex.local"))
+    db.commit()
     app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[get_db] = lambda: db
     return TestClient(app, raise_server_exceptions=False)
 
 
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
+    app.dependency_overrides.pop(get_db, None)
 
 
 def _resp(status_code=200, content=b"fake-image-bytes", content_type="image/jpeg"):
@@ -44,8 +52,8 @@ def cache_dir(tmp_path):
         yield tmp_path / "image_cache"
 
 
-def test_image_proxy_invalid_url_rejected():
-    client = _client()
+def test_image_proxy_invalid_url_rejected(async_db):
+    client = _client(async_db)
     try:
         resp = client.get("/api/image-proxy?url=not-a-url")
         assert resp.status_code == 400
@@ -53,8 +61,17 @@ def test_image_proxy_invalid_url_rejected():
         _cleanup()
 
 
-def test_image_proxy_fetches_and_caches(cache_dir):
-    client = _client()
+def test_image_proxy_disallowed_host_rejected(async_db):
+    client = _client(async_db)
+    try:
+        resp = client.get("/api/image-proxy?url=http://169.254.169.254/secret")
+        assert resp.status_code == 400
+    finally:
+        _cleanup()
+
+
+def test_image_proxy_fetches_and_caches(cache_dir, async_db):
+    client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
         with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
@@ -68,10 +85,10 @@ def test_image_proxy_fetches_and_caches(cache_dir):
         _cleanup()
 
 
-def test_image_proxy_second_call_uses_cache_not_plex(cache_dir):
+def test_image_proxy_second_call_uses_cache_not_plex(cache_dir, async_db):
     """Régression : un deuxième affichage de la même image ne doit plus jamais
     retaper Plex — c'est ce qui évite de le saturer lors des rafales de vignettes."""
-    client = _client()
+    client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
         with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
@@ -85,8 +102,8 @@ def test_image_proxy_second_call_uses_cache_not_plex(cache_dir):
         _cleanup()
 
 
-def test_image_proxy_expired_cache_refetches(cache_dir):
-    client = _client()
+def test_image_proxy_expired_cache_refetches(cache_dir, async_db):
+    client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
         with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
@@ -99,12 +116,12 @@ def test_image_proxy_expired_cache_refetches(cache_dir):
         _cleanup()
 
 
-def test_image_proxy_serves_stale_cache_on_plex_failure(cache_dir):
+def test_image_proxy_serves_stale_cache_on_plex_failure(cache_dir, async_db):
     """Régression : si Plex échoue mais qu'une version (même périmée) est en cache,
     on la sert plutôt que de renvoyer 502 — l'incident rapporté ('image inaccessible'
     lors des rafales) doit devenir invisible pour l'utilisateur une fois l'image
     déjà vue une première fois."""
-    client = _client()
+    client = _client(async_db)
     fake_ok = _fake_httpx_client(resp=_resp())
     fake_fail = _fake_httpx_client(side_effect=Exception("connection reset"))
     try:
@@ -123,9 +140,9 @@ def test_image_proxy_serves_stale_cache_on_plex_failure(cache_dir):
         _cleanup()
 
 
-def test_image_proxy_no_cache_and_plex_failure_returns_502():
+def test_image_proxy_no_cache_and_plex_failure_returns_502(async_db):
     """Comportement preexistant : sans aucun cache, un echec Plex reste un 502."""
-    client = _client()
+    client = _client(async_db)
     fake_fail = _fake_httpx_client(side_effect=Exception("connection reset"))
     with patch("app.routers.misc_api._IMAGE_CACHE_DIR", "/nonexistent/path/that/has/no/cache"):
         try:
@@ -136,8 +153,8 @@ def test_image_proxy_no_cache_and_plex_failure_returns_502():
             _cleanup()
 
 
-def test_image_proxy_rejects_non_image_content_type(cache_dir):
-    client = _client()
+def test_image_proxy_rejects_non_image_content_type(cache_dir, async_db):
+    client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp(content_type="text/html"))
     try:
         with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):

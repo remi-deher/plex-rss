@@ -12,6 +12,8 @@
         <label>Mot de passe<input v-model="form.smtp_password" type="password" placeholder="Laisser vide pour conserver"></label>
         <label>Expediteur<input v-model="form.smtp_from" type="email"></label>
         <label>Email administrateur<input v-model="form.admin_notification_email"></label>
+        <label class="check"><input v-model="form.notify_import_blocked" type="checkbox"> Alerter l'administrateur en cas d'import Sonarr bloqué</label>
+        <small style="margin-top:-8px;color:var(--muted)">Distinct d'un échec de transmission — se déclenche souvent avec les épisodes « TBA », désactivez si trop fréquent</small>
         <label class="check"><input v-model="form.smtp_tls" type="checkbox"> TLS</label>
         <label>URL publique de l'application<input v-model="form.public_base_url" type="url" placeholder="https://plexarr.mondomaine.fr"><small>Utilisee pour le lien vers la politique de confidentialite dans le pied de page des emails ; laisser vide pour ne pas l'afficher</small></label>
       </SettingsCard>
@@ -29,7 +31,7 @@
         </template>
         <label class="check"><input v-model="form[`${channel.key}_enabled`]" type="checkbox"> Activer</label>
         <template v-if="channel.key==='discord'">
-          <label>Webhook<input v-model="form.discord_webhook_url"></label>
+          <label>Webhook<input v-model="form.discord_webhook_url" type="password" placeholder="Laisser vide pour conserver"></label>
         </template>
         <template v-else-if="channel.key==='telegram'">
           <label>Token bot<input v-model="form.telegram_bot_token" type="password"></label>

@@ -5,7 +5,7 @@
         <h2>Sante des services</h2>
         <p>{{ updatedLabel }}</p>
       </div>
-      <button class="icon-button" :disabled="loading" @click="refresh" title="Actualiser">
+      <button class="icon-button" :disabled="loading" @click="refresh" title="Actualiser" aria-label="Actualiser">
         <RefreshCw :class="{ spin: loading }" />
       </button>
     </div>

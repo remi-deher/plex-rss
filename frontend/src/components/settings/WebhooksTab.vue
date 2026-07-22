@@ -19,8 +19,8 @@
               <strong>{{ svc.charAt(0).toUpperCase() + svc.slice(1) }}</strong>
             </div>
             <div class="webhook-url">
-              <input type="text" readonly :value="`${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`">
-              <button class="icon-button" @click="copyWebhook(svc)" title="Copier"><Copy/></button>
+              <input type="text" readonly :aria-label="`URL webhook ${svc}`" :value="`${baseUrl}/webhook/${svc}?secret=${form.webhook_secret}`">
+              <button class="icon-button" @click="copyWebhook(svc)" title="Copier" aria-label="Copier"><Copy/></button>
               <button v-if="svc === 'sonarr' || svc === 'radarr'" class="secondary" @click="configureWebhook(svc)" :disabled="configuringWebhook === svc">
                 <RefreshCw v-if="configuringWebhook === svc" class="spin" />
                 <span v-else>Configurer automatiquement</span>
@@ -41,7 +41,6 @@
           </div>
 
           <div class="actions" style="margin-top: 2rem;">
-            <button class="secondary danger" @click="revokeWebhookSecret">Révoquer le secret</button>
             <button class="secondary" @click="generateWebhookSecret">Regénérer le secret</button>
           </div>
         </div>
@@ -72,14 +71,6 @@ async function generateWebhookSecret() {
     const res = await api('/api/settings/webhook-secret', { method: 'POST' });
     form.webhook_secret = res.webhook_secret;
     success('Secret genere avec succes.');
-  } catch (e) { fail(e); }
-}
-async function revokeWebhookSecret() {
-  if (!await askConfirm({ title: 'Désactiver les webhooks ?', message: "Les webhooks entrants ne seront plus authentifiés tant qu’un nouveau secret ne sera pas configuré.", confirmLabel: 'Désactiver', danger: true })) return;
-  try {
-    await api('/api/settings/webhook-secret', { method: 'DELETE' });
-    form.webhook_secret = '';
-    success('Secret revoque.');
   } catch (e) { fail(e); }
 }
 async function copyWebhook(svc) {

@@ -692,11 +692,16 @@ async def send_import_blocked_notification(
     reason: str = "",
     display_name: str | None = None,
 ):
-    """Alerte admin dediee, distincte d'un echec de transmission de demande."""
+    """Alerte admin dediee, distincte d'un echec de transmission de demande.
+
+    Commune a Sonarr (services/sonarr_queue_monitor.py) et Radarr
+    (services/radarr_queue_monitor.py) : le libelle reste generique, la cible
+    concernee est deja precisee dans `reason`.
+    """
     tags = _build_tags(request, display_name, reason=reason)
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, "failure"))
-    extra_ctx["_badge_text"] = "Intervention Sonarr"
+    extra_ctx["_badge_text"] = "Intervention *arr"
     extra_ctx["_headline_text"] = "Import bloque"
     extra_ctx["_tmdb_url"] = build_tmdb_url(request)
     await _send_templated(
@@ -705,13 +710,13 @@ async def send_import_blocked_notification(
         recipient,
         display_name,
         template_field="_import_blocked_template",
-        default_template="""Le telechargement est termine, mais Sonarr ne peut pas l'importer automatiquement.
+        default_template="""Le telechargement est termine, mais Sonarr/Radarr ne peut pas l'importer automatiquement.
 
 **Intervention manuelle requise :**
 {raison}""",
         subject_field="_import_blocked_subject",
-        default_subject="[Plexarr] Import Sonarr bloque : {titre}",
-        subject_fallback=f"[Plexarr] Import Sonarr bloque : {request.title}",
+        default_subject="[Plexarr] Import bloque : {titre}",
+        subject_fallback=f"[Plexarr] Import bloque : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
     )

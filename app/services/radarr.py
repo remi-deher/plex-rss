@@ -483,7 +483,7 @@ async def trigger_import(
         return False, str(e)
 
 
-async def get_queue(url: str, api_key: str) -> list[dict]:
+async def get_queue(url: str, api_key: str, *, raise_on_error: bool = False) -> list[dict]:
     """File d'attente de téléchargement Radarr (GET /queue), format compact."""
     url.rstrip("/")
     try:
@@ -496,6 +496,8 @@ async def get_queue(url: str, api_key: str) -> list[dict]:
         records = resp.json().get("records", [])
     except Exception as e:
         logger.warning(f"Radarr get_queue échec: {e}")
+        if raise_on_error:
+            raise
         return []
     out = []
     for r in records:
