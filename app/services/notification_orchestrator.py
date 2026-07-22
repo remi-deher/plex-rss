@@ -374,7 +374,12 @@ def _series_milestones(
         milestones.append(("season_start", season, matching_eps[0]))
         if all(matches(v) for v in eps.values()):
             expected = season_aired_counts.get(season) if season_aired_counts else None
-            if expected is None or len(eps) >= expected:
+            # Sans reference fiable (Sonarr injoignable, serie Seer non resolue...), on ne
+            # peut pas confirmer que la saison a fini de diffuser : mieux vaut ne pas
+            # annoncer "saison complete" a tort (l'ancien "expected is None or ..." faisait
+            # l'inverse et declarait complete des que les episodes deja telecharges avaient
+            # tous leur VF, meme diffusion en cours) qu'un prochain scan corrigera plus tard.
+            if expected is not None and len(eps) >= expected:
                 milestones.append(("season_complete", season, None))
     return milestones
 

@@ -55,7 +55,10 @@ async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
         st = request_status_value(req.status) if req else None
         it["requested"] = st is not None
         it["request_status"] = st
-        it["available"] = it["in_library"] or st == "available"
+        # Une serie "partiellement disponible" (au moins un episode deja regardable) compte
+        # comme "dans Plex" au meme titre qu'une demande pleinement disponible -- coherent
+        # avec le filtre "Dans Plex" de la Bibliotheque (voir LibraryView.matchesStatusFilter).
+        it["available"] = it["in_library"] or st in ("available", "partially_available")
         it["has_vf"] = li.has_vf if li else (req.has_vf if req else None)
         it["vf_granularity"] = (li.vf_granularity if li else None) or (req.vf_granularity if req else None)
         # En cours de téléchargement (prioritaire sur l'anomalie) : cf. commentaire équivalent

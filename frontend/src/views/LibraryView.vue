@@ -165,13 +165,14 @@ const requesters = computed(() => {
 // affiche des series qui n'ont en realite rien de manquant cote Sonarr.
 function matchesStatusFilter(item) {
   if (!statusFilters.value.length) return true;
-  // Une demande "disponible" (Radarr/Sonarr) compte comme "Dans Plex" meme sans
-  // LibraryItem : le sync Plex (quotidien) n'a peut-etre pas encore rattrape, mais du
-  // point de vue de l'utilisateur le media est deja regardable, comme un vrai LibraryItem.
-  if (item._kind === 'library' || (item._kind === 'request' && !item.orphan && item.status === 'available')) {
-    return statusFilters.value.includes('library');
-  }
   if (item.orphan) return statusFilters.value.includes('orphan');
+  // "Dans Plex" couvre les LibraryItem synces, les demandes "disponible" (Radarr/Sonarr
+  // a confirme avant le prochain sync Plex quotidien), et desormais aussi les series
+  // "partiellement disponible" : au moins un episode est deja regardable, inutile
+  // d'attendre que Sonarr ait tout recupere pour la considerer "dans Plex".
+  const countsAsLibrary = item._kind === 'library'
+    || (item._kind === 'request' && (item.status === 'available' || item.status === 'partially_available'));
+  if (countsAsLibrary && statusFilters.value.includes('library')) return true;
   if (!statusFilters.value.includes(item.status)) return false;
   if (item.status !== 'partially_available') return true;
   return Boolean(item.episodes_aired_count) && item.episodes_available_count < item.episodes_aired_count;
@@ -188,9 +189,11 @@ const filtered = computed(() => items.value.filter(item =>
 ));
 
 const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
-// Demandes "disponibles" sans LibraryItem (pas encore synchronisees Plex) : comptent
-// comme "Dans Plex" pour les metriques aussi, pas comme "En cours" (voir matchesStatusFilter).
-const availableUnsynced = computed(() => items.value.filter(x => x._kind === 'request' && !x.orphan && x.status === 'available'));
+// Demandes "disponibles" ou "partiellement disponibles" sans LibraryItem affiche (son
+// LibraryItem existe mais est exclu du calcul ci-dessus, voir le filtrage de `items` plus
+// haut) : comptent comme "Dans Plex" pour les metriques aussi, pas comme "En cours"
+// (voir matchesStatusFilter).
+const availableUnsynced = computed(() => items.value.filter(x => x._kind === 'request' && !x.orphan && (x.status === 'available' || x.status === 'partially_available')));
 
 // Toutes les demandes (tous statuts confondus, cote arr) -- Radarr gere les films,
 // Sonarr les series, d'ou la repartition par media_type plutot qu'un champ "source"

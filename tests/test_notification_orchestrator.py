@@ -11,6 +11,7 @@ from app.services.notification_orchestrator import (
     _handle_show_progress_notification,
     _notify,
     _resolve_requester_users,
+    _series_milestones,
     notify_single_user,
     resolve_and_notify_availability,
 )
@@ -447,3 +448,30 @@ async def test_handle_show_progress_notification_fires_season_milestones():
     assert {(m.milestone_type, m.season_number) for m in milestones} == {("season_complete", 1)}
     await db.close()
     await engine.dispose()
+
+
+def test_series_milestones_no_aired_reference_never_declares_season_complete():
+    """Regression : sans compteur d'episodes deja diffuses (Sonarr injoignable, serie Seer
+    non resolue...), on ne doit jamais annoncer "saison complete" juste parce que tous les
+    episodes deja presents dans Plex ont leur VF -- une serie encore en diffusion (ex.
+    "Clevatess") n'a pas fini sa saison meme si les 6 episodes deja sortis sont tous en VF."""
+    episode_status = {1: {1: True, 2: True, 3: True, 4: True, 5: True, 6: True}}
+
+    milestones = _series_milestones("jalons", episode_status, False, "vf", season_aired_counts=None)
+
+    assert ("season_complete", 1, None) not in milestones
+    assert ("season_start", 1, 1) in milestones
+
+
+def test_series_milestones_declares_complete_only_when_aired_count_confirms_it():
+    episode_status = {1: {1: True, 2: True, 3: True, 4: True, 5: True, 6: True}}
+
+    # La saison compte 8 episodes deja diffuses cote Sonarr : les 6 presents dans Plex ne
+    # suffisent pas a la clore (diffusion en cours).
+    still_partial = _series_milestones("jalons", episode_status, False, "vf", season_aired_counts={1: 8})
+    assert ("season_complete", 1, None) not in still_partial
+
+    # Sonarr confirme que seuls 6 episodes ont ete diffuses jusqu'ici : la saison est bien
+    # complete au regard de ce qui est reellement sorti.
+    truly_complete = _series_milestones("jalons", episode_status, False, "vf", season_aired_counts={1: 6})
+    assert ("season_complete", 1, None) in truly_complete

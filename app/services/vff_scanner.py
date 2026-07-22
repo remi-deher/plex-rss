@@ -23,7 +23,7 @@ from .notification_orchestrator import (
     _resolve_series_notify_language,
 )
 from .radarr import search_movie
-from .sonarr import get_season_aired_episode_counts, search_series
+from .sonarr import get_season_aired_episode_counts, lookup_series, search_series
 
 logger = logging.getLogger(__name__)
 
@@ -286,13 +286,28 @@ async def _prefetch_season_aired_counts(db: AsyncSession, requests: list[MediaRe
     """
     counts: dict[int, dict[int, int]] = {}
     for req in requests:
-        if req.media_type != "show" or not req.arr_id or req.source == "seer" or req.id in counts:
+        if req.media_type != "show" or req.id in counts:
             continue
         inst = await _resolve_vf_arr_instance(db, req, "sonarr")
         if not inst:
             continue
         try:
-            counts[req.id] = await get_season_aired_episode_counts(inst.url, inst.api_key, req.arr_id)
+            # Une demande Seer porte l'ID interne Seer dans arr_id, pas l'ID Sonarr : il
+            # faut le resoudre via tvdb_id (meme logique que
+            # episode_availability._fetch_show_episodes), sans quoi cette serie etait
+            # silencieusement ignoree ici -- son "expected" restait None et
+            # _series_milestones annoncait alors "saison complete" des que les episodes
+            # deja telecharges avaient tous leur VF, meme diffusion en cours.
+            series_id = req.arr_id if req.source != "seer" else None
+            if req.tvdb_id:
+                data = await lookup_series(inst.url, inst.api_key, tvdb_id=req.tvdb_id)
+                series_id = data.get("id") if data else series_id
+            if not series_id and req.arr_id:
+                data = await lookup_series(inst.url, inst.api_key, arr_id=req.arr_id)
+                series_id = data.get("id") if data else None
+            if not series_id:
+                continue
+            counts[req.id] = await get_season_aired_episode_counts(inst.url, inst.api_key, series_id)
         except Exception as e:
             logger.warning(f"VFF : compteurs saison Sonarr indisponibles pour '{req.title}': {e}")
     return counts
@@ -610,14 +625,16 @@ async def scan_and_notify_availability(req: MediaRequest, settings: Settings, db
         await _persist_episode_status(db, "request", req.id, episode_status, now, res.get("french_default"))
         await db.commit()
 
-    if req.media_type == "show" and series_no_language:
-        await _queue_show_milestones(settings, req, db, language=None, episode_status=episode_status)
-        return True
-
     season_aired_counts = None
     if req.media_type == "show":
         counts = await _prefetch_season_aired_counts(db, [req])
         season_aired_counts = counts.get(req.id)
+
+    if req.media_type == "show" and series_no_language:
+        await _queue_show_milestones(
+            settings, req, db, language=None, episode_status=episode_status, season_aired_counts=season_aired_counts
+        )
+        return True
 
     trigger_search, _, _ = await _apply_vf_result(
         req,
