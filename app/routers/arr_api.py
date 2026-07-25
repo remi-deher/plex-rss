@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 import sqlalchemy
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -13,13 +13,13 @@ from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
 from ..services import prowlarr, radarr, sonarr
+from ..services.arr_queue_service import fetch_instance_queue
 from ..services.download_clients import (
     add_torrent_file_to_client,
     add_torrent_to_client,
     check_client_connection,
 )
 from ..services.request_lifecycle import transition_request
-from ..services.arr_queue_service import fetch_instance_queue
 from ..utils import async_get_or_404, wrap_image_proxy
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
@@ -592,7 +592,7 @@ async def arr_download_queue(db: AsyncSession = Depends(get_db_async)):
             rec["instance"] = inst.name
             rec["instance_id"] = inst.id
             rec["arr_type"] = inst.arr_type
-            
+
             poster = rec.get("poster_url")
             if poster:
                 if poster.startswith("/"):
@@ -933,7 +933,8 @@ async def direct_downloads(db: AsyncSession = Depends(get_db_async)):
 
 @router.get("/downloads/history")
 async def downloads_history(
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     media_type: Optional[str] = None,
     source: Optional[str] = None,
     db: AsyncSession = Depends(get_db_async),
@@ -946,7 +947,9 @@ async def downloads_history(
         q = q.filter(DownloadHistory.media_type == media_type)
     if source:
         q = q.filter(DownloadHistory.source == source)
-    rows = (await db.execute(q.order_by(DownloadHistory.completed_at.desc()).limit(min(limit, 500)))).scalars().all()
+    rows = (
+        await db.execute(q.order_by(DownloadHistory.completed_at.desc()).offset(offset).limit(limit))
+    ).scalars().all()
     return [
         {
             "id": h.id,

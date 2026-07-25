@@ -140,6 +140,7 @@ def _norm(item: dict, forced_type: Optional[str] = None) -> Optional[dict]:
         "poster_url": _poster(item.get("poster_path")),
         "backdrop_url": _backdrop(item.get("backdrop_path")),
         "vote": round(item.get("vote_average") or 0, 1),
+        "popularity": item.get("popularity") or 0,
         "genre_ids": item.get("genre_ids") or [],
     }
 
@@ -153,51 +154,91 @@ def _norm_list(data: dict, forced_type: Optional[str] = None) -> list[dict]:
     return out
 
 
+def _norm_page(data: dict, forced_type: Optional[str] = None) -> dict:
+    """Normalise une page TMDB sans perdre les métadonnées de pagination."""
+    return {
+        "items": _norm_list(data, forced_type),
+        "page": max(1, int(data.get("page") or 1)),
+        "total_pages": max(1, int(data.get("total_pages") or 1)),
+        "total_results": max(0, int(data.get("total_results") or 0)),
+    }
+
+
+def _merge_pages(movie_page: dict, show_page: dict, page: int) -> dict:
+    """Fusionne films et séries avec un ordre stable de pertinence."""
+    items = [*movie_page["items"], *show_page["items"]]
+    items.sort(key=lambda item: (item.get("popularity") or 0, item.get("vote") or 0), reverse=True)
+    return {
+        "items": items,
+        "page": page,
+        "total_pages": max(movie_page["total_pages"], show_page["total_pages"]),
+        "total_results": movie_page["total_results"] + show_page["total_results"],
+    }
+
+
 # --- API publiques (consommées par le routeur discover) ---------------------
 
 
-async def trending(db: AsyncSession, media_type: str = "all", window: str = "week") -> list[dict]:
-    mt = media_type if media_type in ("movie", "tv", "all") else "all"
-    data = await _get(db, f"/trending/{mt}/{window}")
+async def trending(db: AsyncSession, media_type: str = "all", window: str = "week", page: int = 1) -> dict:
+    mt = "tv" if media_type == "show" else media_type
+    data = await _get(db, f"/trending/{mt}/{window}", {"page": page})
     forced = None if mt == "all" else mt
-    return _norm_list(data, forced)
+    return _norm_page(data, forced)
 
 
-async def popular(db: AsyncSession, media_type: str, page: int = 1) -> list[dict]:
-    mt = "movie" if media_type in ("movie", "movies") else "tv"
+async def popular(db: AsyncSession, media_type: str, page: int = 1) -> dict:
+    if media_type == "all":
+        return _merge_pages(await popular(db, "movie", page), await popular(db, "show", page), page)
+    mt = "movie" if media_type == "movie" else "tv"
     data = await _get(db, f"/{mt}/popular", {"page": page, "region": REGION})
-    return _norm_list(data, mt)
+    return _norm_page(data, mt)
 
 
-async def coming_soon(db: AsyncSession, media_type: str, page: int = 1) -> list[dict]:
+async def coming_soon(db: AsyncSession, media_type: str, page: int = 1) -> dict:
     """Films : upcoming ; Séries : on_the_air."""
-    if media_type in ("movie", "movies"):
+    if media_type == "all":
+        return _merge_pages(await coming_soon(db, "movie", page), await coming_soon(db, "show", page), page)
+    if media_type == "movie":
         data = await _get(db, "/movie/upcoming", {"page": page, "region": REGION})
-        return _norm_list(data, "movie")
+        return _norm_page(data, "movie")
     data = await _get(db, "/tv/on_the_air", {"page": page})
-    return _norm_list(data, "tv")
+    return _norm_page(data, "tv")
 
 
 async def genres(db: AsyncSession, media_type: str) -> list[dict]:
-    mt = "movie" if media_type in ("movie", "movies") else "tv"
+    if media_type == "all":
+        combined = [*(await genres(db, "movie")), *(await genres(db, "show"))]
+        return sorted({g["id"]: g for g in combined}.values(), key=lambda g: g["name"])
+    mt = "movie" if media_type == "movie" else "tv"
     data = await _get(db, f"/genre/{mt}/list")
     return data.get("genres", [])
 
 
 async def discover(
     db: AsyncSession, media_type: str, genre: Optional[int] = None, sort_by: str = "popularity.desc", page: int = 1
-) -> list[dict]:
-    mt = "movie" if media_type in ("movie", "movies") else "tv"
+) -> dict:
+    if media_type == "all":
+        return _merge_pages(
+            await discover(db, "movie", genre, sort_by, page),
+            await discover(db, "show", genre, sort_by, page),
+            page,
+        )
+    mt = "movie" if media_type == "movie" else "tv"
     params = {"page": page, "sort_by": sort_by, "region": REGION}
     if genre:
         params["with_genres"] = genre
     data = await _get(db, f"/discover/{mt}", params)
-    return _norm_list(data, mt)
+    return _norm_page(data, mt)
 
 
-async def search(db: AsyncSession, query: str, page: int = 1) -> list[dict]:
-    data = await _get(db, "/search/multi", {"query": query, "page": page, "include_adult": "false"}, cache=False)
-    return _norm_list(data)
+async def search(db: AsyncSession, query: str, page: int = 1, media_type: str = "all") -> dict:
+    if media_type == "all":
+        path, forced = "/search/multi", None
+    else:
+        forced = "movie" if media_type == "movie" else "tv"
+        path = f"/search/{forced}"
+    data = await _get(db, path, {"query": query, "page": page, "include_adult": "false"}, cache=False)
+    return _norm_page(data, forced)
 
 
 async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:

@@ -6,12 +6,11 @@ les tmdb_id avec LibraryItem et MediaRequest.
 """
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_auth
@@ -41,9 +40,27 @@ async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
         for li in (await db.execute(select(LibraryItem).filter(LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)))).scalars().all():
             if li.tmdb_id:
                 lib[(mt, li.tmdb_id)] = li
-        for req in (await db.execute(select(MediaRequest).filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids)))).scalars().all():
+        request_rows = (await db.execute(
+            select(MediaRequest)
+            .filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids))
+            .order_by(MediaRequest.requested_at.desc(), MediaRequest.id.desc())
+        )).scalars().all()
+        status_priority = {
+            "available": 6,
+            "partially_available": 5,
+            "sent_to_arr": 4,
+            "pending": 3,
+            "pending_approval": 2,
+            "failed": 1,
+        }
+        for req in request_rows:
             if req.tmdb_id:
-                reqs[(mt, req.tmdb_id)] = req
+                key = (mt, req.tmdb_id)
+                current = reqs.get(key)
+                if current is None or status_priority.get(request_status_value(req.status), 0) > status_priority.get(
+                    request_status_value(current.status), 0
+                ):
+                    reqs[key] = req
 
     for it in items:
         k = (it.get("media_type"), str(it.get("tmdb_id")))
@@ -80,46 +97,78 @@ async def discover_status(db: AsyncSession = Depends(get_db_async)):
 @router.get("/requesters")
 async def discover_requesters(request: Request, db: AsyncSession = Depends(get_db_async)):
     caller = current_user(request, db)
+    if not caller:
+        raise HTTPException(403, "Une session utilisateur est requise.")
     if caller and not (caller.get("is_owner") or caller.get("role") == "admin"):
         uid = caller.get("plex_user_id")
         user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == uid, PlexUser.enabled))).scalars().first()
-        return [user] if user else []
-    return (await db.execute(select(PlexUser).filter(PlexUser.enabled).order_by(PlexUser.display_name))).scalars().all()
+        users = [user] if user else []
+    else:
+        users = (await db.execute(select(PlexUser).filter(PlexUser.enabled).order_by(PlexUser.display_name))).scalars().all()
+    return [
+        {
+            "id": user.id,
+            "plex_user_id": user.plex_user_id,
+            "display_name": user.display_name,
+            "custom_name": user.custom_name,
+        }
+        for user in users
+    ]
 
 
 def _guard(exc: Exception):
+    if isinstance(exc, HTTPException):
+        raise exc
     if isinstance(exc, tmdb.TmdbNotConfigured):
         raise HTTPException(400, "Clé API TMDB non configurée (Paramètres → Connexions).")
     logger.warning("Erreur TMDB : %s", exc)
-    raise HTTPException(502, f"Erreur TMDB : {exc}")
+    raise HTTPException(502, "Le catalogue TMDB est temporairement indisponible.")
+
+
+async def _annotate_page(db: AsyncSession, payload: dict) -> dict:
+    payload["items"] = await _annotate(db, payload.get("items", []))
+    return payload
 
 
 @router.get("/trending")
-async def get_trending(media_type: str = "all", window: str = "week", db: AsyncSession = Depends(get_db_async)):
+async def get_trending(
+    media_type: Literal["all", "movie", "show"] = "all",
+    window: Literal["day", "week"] = "week",
+    page: int = Query(1, ge=1, le=500),
+    db: AsyncSession = Depends(get_db_async),
+):
     try:
-        return await _annotate(db, await tmdb.trending(db, media_type, window))
+        return await _annotate_page(db, await tmdb.trending(db, media_type, window, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/popular")
-async def get_popular(media_type: str = "movie", page: int = 1, db: AsyncSession = Depends(get_db_async)):
+async def get_popular(
+    media_type: Literal["all", "movie", "show"] = "movie",
+    page: int = Query(1, ge=1, le=500),
+    db: AsyncSession = Depends(get_db_async),
+):
     try:
-        return await _annotate(db, await tmdb.popular(db, media_type, page))
+        return await _annotate_page(db, await tmdb.popular(db, media_type, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/coming-soon")
-async def get_coming_soon(media_type: str = "movie", page: int = 1, db: AsyncSession = Depends(get_db_async)):
+async def get_coming_soon(
+    media_type: Literal["all", "movie", "show"] = "movie",
+    page: int = Query(1, ge=1, le=500),
+    db: AsyncSession = Depends(get_db_async),
+):
     try:
-        return await _annotate(db, await tmdb.coming_soon(db, media_type, page))
+        return await _annotate_page(db, await tmdb.coming_soon(db, media_type, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/genres")
-async def get_genres(media_type: str = "movie", db: AsyncSession = Depends(get_db_async)):
+async def get_genres(media_type: Literal["all", "movie", "show"] = "movie", db: AsyncSession = Depends(get_db_async)):
     try:
         return await tmdb.genres(db, media_type)
     except Exception as e:
@@ -128,29 +177,34 @@ async def get_genres(media_type: str = "movie", db: AsyncSession = Depends(get_d
 
 @router.get("/discover")
 async def get_discover(
-    media_type: str = "movie",
+    media_type: Literal["all", "movie", "show"] = "movie",
     genre: Optional[int] = None,
-    sort_by: str = "popularity.desc",
-    page: int = 1,
+    sort_by: Literal["popularity.desc", "vote_average.desc", "primary_release_date.desc"] = "popularity.desc",
+    page: int = Query(1, ge=1, le=500),
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate(db, await tmdb.discover(db, media_type, genre, sort_by, page))
+        return await _annotate_page(db, await tmdb.discover(db, media_type, genre, sort_by, page))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/search")
-async def get_search(query: str = Query(..., min_length=1), page: int = 1, db: AsyncSession = Depends(get_db_async)):
+async def get_search(
+    query: str = Query(..., min_length=1, max_length=200),
+    media_type: Literal["all", "movie", "show"] = "all",
+    page: int = Query(1, ge=1, le=500),
+    db: AsyncSession = Depends(get_db_async),
+):
     try:
-        return await _annotate(db, await tmdb.search(db, query, page))
+        return await _annotate_page(db, await tmdb.search(db, query, page, media_type))
     except Exception as e:
         _guard(e)
 
 
 @router.get("/detail")
 async def get_detail(
-    media_type: str,
+    media_type: Literal["movie", "show"],
     tmdb_id: Optional[int] = None,
     tvdb_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db_async),
@@ -162,7 +216,7 @@ async def get_detail(
                 tmdb_id = resolved_tmdb
             else:
                 raise HTTPException(404, "Identifiant TVDB non trouve sur TMDB.")
-        
+
         if not tmdb_id:
             raise HTTPException(400, "tmdb_id ou tvdb_id requis.")
 

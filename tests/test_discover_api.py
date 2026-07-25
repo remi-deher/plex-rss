@@ -1,0 +1,103 @@
+"""Régressions de sécurité, validation et annotation du catalogue Découvrir."""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from app.database import get_db_async
+from app.dependencies import require_auth
+from app.main import app
+from app.models import MediaRequest, RequestStatus
+from app.routers.discover_api import _annotate, _guard
+from app.utils import now_utc_naive
+
+
+@pytest.fixture()
+def db(async_db):
+    return async_db
+
+
+@pytest.fixture()
+def client(db):
+    app.dependency_overrides[require_auth] = lambda: None
+    app.dependency_overrides[get_db_async] = lambda: db
+    test_client = TestClient(app, raise_server_exceptions=False, follow_redirects=False)
+    yield test_client
+    app.dependency_overrides.clear()
+
+
+def _request(db, *, status, requested_at, plex_user_id):
+    row = MediaRequest(
+        plex_user_id=plex_user_id,
+        plex_user=plex_user_id,
+        title="Film",
+        year=2025,
+        media_type="movie",
+        tmdb_id="42",
+        status=status,
+        requested_at=requested_at,
+    )
+    db.add(row)
+    db.commit()
+    return row
+
+
+def test_guard_preserves_expected_http_errors():
+    expected = HTTPException(404, "Absent")
+    with pytest.raises(HTTPException) as caught:
+        _guard(expected)
+    assert caught.value is expected
+    assert caught.value.status_code == 404
+
+
+def test_invalid_catalog_parameters_are_rejected(client):
+    assert client.get("/api/discover/popular?media_type=person").status_code == 422
+    assert client.get("/api/discover/popular?page=0").status_code == 422
+    assert client.get("/api/discover/discover?sort_by=unsupported").status_code == 422
+
+
+def test_api_token_style_request_cannot_list_requesters(client):
+    response = client.get("/api/discover/requesters")
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_annotation_prefers_most_advanced_request_status(db):
+    from datetime import timedelta
+
+    recent = _request(
+        db,
+        status=RequestStatus.failed,
+        requested_at=now_utc_naive(),
+        plex_user_id="recent",
+    )
+    advanced = _request(
+        db,
+        status=RequestStatus.sent_to_arr,
+        requested_at=now_utc_naive() - timedelta(days=1),
+        plex_user_id="advanced",
+    )
+
+    result = await _annotate(db, [{"tmdb_id": 42, "media_type": "movie"}])
+
+    assert result[0]["request_id"] == advanced.id
+    assert result[0]["request_id"] != recent.id
+    assert result[0]["request_status"] == "sent_to_arr"
+
+
+def test_trending_returns_paginated_annotated_envelope(client):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 3,
+        "total_results": 55,
+    }
+    with patch("app.routers.discover_api.tmdb.trending", new=AsyncMock(return_value=payload)):
+        response = client.get("/api/discover/trending?media_type=all&page=1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_pages"] == 3
+    assert body["items"][0]["requested"] is False

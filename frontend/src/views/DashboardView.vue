@@ -6,6 +6,9 @@
       </button>
     </PageHeader>
 
+    <UiFeedback v-if="error" type="error" title="Actualisation partielle" :message="error" retry @retry="load" />
+    <UiFeedback v-if="loading&&!updatedAt" type="loading" message="Chargement du tableau de bord…" />
+
     <OnboardingChecklist :onboarding="onboarding" :show="showOnboarding" @dismiss="dismissOnboarding" />
 
     <DashboardActionCenter :pending="pending" :queue="downloadQueue" :failed-count="failedCount" @action="action"/>
@@ -41,8 +44,8 @@
       <header class="dashboard-section-head">
         <div><span>Bibliothèque</span><h2>Nouveautés et sorties</h2><p>Ce qui vient d'arriver et ce qui est attendu prochainement.</p></div>
         <nav class="dashboard-view-tabs" aria-label="Vue des nouveautés">
-          <button :class="{active:mediaView==='recent'}" @click="mediaView='recent'">Disponibles <span>{{ recentlyAvailable.length }}</span></button>
-          <button :class="{active:mediaView==='upcoming'}" @click="mediaView='upcoming'">À venir <span>{{ upcoming.length }}</span></button>
+          <button :class="{active:mediaView==='recent'}" :aria-pressed="mediaView==='recent'" @click="mediaView='recent'">Disponibles <span>{{ recentlyAvailable.length }}</span></button>
+          <button :class="{active:mediaView==='upcoming'}" :aria-pressed="mediaView==='upcoming'" @click="mediaView='upcoming'">À venir <span>{{ upcoming.length }}</span></button>
         </nav>
       </header>
       <RecentlyAvailablePanel v-if="mediaView==='recent'" :items="recentlyAvailable" />
@@ -88,6 +91,8 @@ const byUser = ref([]);
 const onboarding = ref({});
 const nextPoll = ref({});
 const polling = ref(false);
+const loading = ref(false);
+const error = ref('');
 const seconds = ref(null);
 const diskSpace = ref([]);
 const topRequested = ref([]);
@@ -104,6 +109,7 @@ const plexSync = ref({ status: 'idle', items_synced: 0, total_items: 0, finished
 const vffCounts = ref({});
 let timer;
 let vffTimer;
+let refreshTimer;
 
 const showOnboarding = ref(localStorage.getItem('hide_onboarding') !== 'true');
 function dismissOnboarding() {
@@ -124,10 +130,10 @@ const blockedCount = computed(() => downloadQueue.value.filter(row => Boolean(ro
 
 const statCards = computed(() => [
   { label: 'À approuver', value: counts.value.pending_approval ?? pending.value.length, detail: 'Demandes en attente', icon: Clock3, route: { path: '/library', query: { status: 'pending_approval' } } },
-  { label: 'En téléchargement', value: downloadingCount.value, detail: 'Acquisitions actives', icon: Download, route: '/downloads' },
-  { label: 'En attente d’import', value: importingCount.value, detail: 'Traitement par *arr', icon: RefreshCw, route: '/downloads' },
-  { label: 'Bloqués', value: blockedCount.value + failedCount.value, detail: 'Intervention nécessaire', icon: AlertTriangle, route: '/downloads' },
-  { label: 'Disponibles', value: counts.value.available ?? '-', detail: 'Dans la bibliothèque', icon: CheckCircle2, route: { path: '/library', query: { status: 'available' } } },
+  { label: 'En téléchargement', value: downloadingCount.value, detail: 'Acquisitions actives', icon: Download, route: { path: '/downloads', query: { status: 'downloading' } } },
+  { label: 'En attente d’import', value: importingCount.value, detail: 'Traitement par *arr', icon: RefreshCw, route: { path: '/downloads', query: { status: 'error' } } },
+  { label: 'Bloqués', value: blockedCount.value + failedCount.value, detail: 'Intervention nécessaire', icon: AlertTriangle, route: { path: '/downloads', query: { status: 'error' } } },
+  { label: 'Disponibles', value: counts.value.available ?? '-', detail: 'Dans la bibliothèque', icon: CheckCircle2, route: { path: '/library', query: { status: 'library' } } },
 ]);
 
 const lastUpdatedLabel = computed(() => {
@@ -142,7 +148,7 @@ const countdown = computed(() => seconds.value == null ? '-' : seconds.value < 6
 async function loadDownloadQueue() {
   loadingQueue.value = true;
   try {
-    const data = await api('/api/arr/queue').catch(() => []);
+    const data = await api('/api/arr/queue');
     downloadQueue.value = Array.isArray(data) ? data : [];
   } finally {
     loadingQueue.value = false;
@@ -161,14 +167,17 @@ async function loadVffStatus() {
 }
 
 async function triggerVffScan() {
-  try { await api('/api/vff/scan', { method: 'POST' }); await loadVffStatus(); } catch (e) {}
+  try { await api('/api/vff/scan', { method: 'POST' }); await loadVffStatus(); } catch (e) { error.value = e.message; }
 }
 
 async function triggerPlexSync() {
-  try { await api('/api/vff/sync-plex', { method: 'POST' }); await loadVffStatus(); } catch (e) {}
+  try { await api('/api/vff/sync-plex', { method: 'POST' }); await loadVffStatus(); } catch (e) { error.value = e.message; }
 }
 
 async function load() {
+  if (loading.value) return;
+  loading.value = true;
+  error.value = '';
   const results = await Promise.allSettled([
     api('/api/stats/counts'),
     api('/api/requests/pending'),
@@ -186,18 +195,22 @@ async function load() {
   results.forEach((r, i) => {
     if (r.status === 'fulfilled' && refs[i]) refs[i].value = r.value;
   });
+  const failedLabels = ['compteurs','approbations','historique des tâches','activité','utilisateurs','configuration','prochaine vérification','médias demandés','disponibilités récentes','sorties à venir','notifications'];
+  const failures = results.flatMap((result, index) => result.status === 'rejected' ? [failedLabels[index]] : []);
   if (results[10].status === 'fulfilled') {
     recentNotifs.value = results[10].value?.items ?? results[10].value ?? [];
   }
-  seconds.value = nextPoll.value.next_run_seconds;
+  seconds.value = nextPoll.value?.next_run_seconds ?? null;
 
   // Espace disque : interroge Sonarr/Radarr en direct (mis en cache stale-while-
   // revalidate cote backend, voir metrics_api.py) -- ne doit jamais bloquer le reste
   // du dashboard (requetes DB rapides ci-dessus), donc chargee separement, sans attendre.
   api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
 
-  await loadDownloadQueue();
+  try { await loadDownloadQueue(); } catch { failures.push('file de téléchargement'); }
   updatedAt.value = Date.now();
+  error.value = failures.length ? `Données indisponibles : ${failures.join(', ')}.` : '';
+  loading.value = false;
 }
 
 async function pollNow() {
@@ -205,20 +218,24 @@ async function pollNow() {
   try {
     await api('/api/requests/poll', { method: 'POST' });
     await load();
+  } catch (e) {
+    error.value = e.message;
   } finally {
     polling.value = false;
   }
 }
 
 async function action(row, type) {
-  if (type === 'reject') {
-    const reason = prompt('Motif du refus', 'Demande refusee');
-    if (reason === null) return;
-    await api(`/api/requests/${row.id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
-  } else {
-    await api(`/api/requests/${row.id}/approve`, { method: 'POST' });
-  }
-  await load();
+  try {
+    if (type === 'reject') {
+      const reason = prompt('Motif du refus', 'Demande refusée');
+      if (reason === null) return;
+      await api(`/api/requests/${row.id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+    } else {
+      await api(`/api/requests/${row.id}/approve`, { method: 'POST' });
+    }
+    await load();
+  } catch (e) { error.value = e.message; }
 }
 
 useRealtime(['request.updated'], load);
@@ -230,8 +247,9 @@ onMounted(async () => {
     if (seconds.value > 0) seconds.value--;
     clock.value = Date.now();
   }, 1000);
-  vffTimer = setInterval(loadVffStatus, 5000);
+  vffTimer = setInterval(() => { if (!document.hidden) loadVffStatus(); }, 5000);
+  refreshTimer = setInterval(() => { if (!document.hidden) load(); }, 60000);
 });
 
-onUnmounted(() => { clearInterval(timer); clearInterval(vffTimer); });
+onUnmounted(() => { clearInterval(timer); clearInterval(vffTimer); clearInterval(refreshTimer); });
 </script>

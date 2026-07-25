@@ -41,14 +41,17 @@
     </div>
 
     <UiFeedback v-if="error" type="error" title="Impossible de charger la bibliothèque" :message="error" retry @retry="load" />
+    <UiFeedback v-if="loading&&!items.length" type="loading" message="Chargement de la bibliothèque…" />
+    <p class="library-result-count" aria-live="polite">{{ filtered.length }} média{{ filtered.length>1?'s':'' }} affiché{{ filtered.length>1?'s':'' }}</p>
 
-    <section :class="view==='grid'?'media-grid library-grid':'panel media-list'">
+    <section :class="view==='grid'?'media-grid library-grid':'panel media-list'" :aria-busy="loading">
       <LibraryCard
         v-for="item in filtered"
         :key="`${item._kind}-${item.id}`"
         :item="item"
         :view="view"
         :is-admin="isAdmin"
+        :busy="busy"
         :selected="selectedIds.includes(item.id)"
         @open="openDetail"
         @toggle-select="toggleSelect"
@@ -62,6 +65,7 @@
 
     <div v-if="hasMoreLibrary" ref="loadMoreSentinel" class="load-more-row">
       <RefreshCw v-if="loadingMore" class="spin"/>
+      <button v-else class="secondary" @click="loadMore">Charger plus de médias</button>
     </div>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
@@ -146,7 +150,7 @@ const view = ref(localStorage.getItem('library.view') || 'grid');
 const loading = ref(false);
 const error = ref('');
 
-let timer, fallback;
+let timer, fallback, activeController, loadSequence = 0;
 
 const sources = computed(() => [...new Set(allRequestsRaw.value.map(x => x.source).filter(Boolean))]);
 const requesters = computed(() => {
@@ -225,9 +229,20 @@ function toggleSelect(id) {
 }
 
 watch(view, value => localStorage.setItem('library.view', value));
+watch(
+  () => route.query,
+  value => {
+    query.value = value.query || '';
+    statusFilters.value = value.status ? (Array.isArray(value.status) ? value.status : [value.status]) : ['library'];
+    typeFilters.value = value.type ? (Array.isArray(value.type) ? value.type : [value.type]) : [];
+    load();
+  },
+  { deep: true },
+);
 
 function scheduleLoad() {
   clearTimeout(timer);
+  activeController?.abort();
   timer = setTimeout(load, 250);
 }
 
@@ -241,6 +256,10 @@ function _libraryParams(offset) {
 }
 
 async function load() {
+  activeController?.abort();
+  activeController = new AbortController();
+  const sequence = ++loadSequence;
+  const options = { signal: activeController.signal };
   error.value = '';
   libraryOffset.value = 0;
   loading.value = true;
@@ -252,23 +271,26 @@ async function load() {
   // arr_orphans.py) : avant, tout restait bloque derriere ce seul appel via
   // Promise.all, donnant l'impression d'un rechargement complet a chaque visite.
   try {
-    const library = await api(`/api/library?${_libraryParams(0)}`);
+    const library = await api(`/api/library?${_libraryParams(0)}`, options);
+    if (sequence !== loadSequence) return;
     libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
     libraryOffset.value = library.length;
     hasMoreLibrary.value = library.length === PAGE_SIZE;
   } catch (e) {
-    error.value = e.message;
+    if (e.name !== 'AbortError' && sequence === loadSequence) error.value = e.message;
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 
+  if (sequence !== loadSequence) return;
   try {
     const q = query.value.trim();
     const [requests, orphanRows, stats] = await Promise.all([
-      api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`),
-      api('/api/requests/orphans').catch(() => []),
-      api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`).catch(() => ({})),
+      api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`, options),
+      api('/api/requests/orphans', options).catch(e => e.name === 'AbortError' ? Promise.reject(e) : []),
+      api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`, options).catch(e => e.name === 'AbortError' ? Promise.reject(e) : {}),
     ]);
+    if (sequence !== loadSequence) return;
 
     allRequestsRaw.value = requests;
     const pending = requests
@@ -290,16 +312,17 @@ async function load() {
     rawMetrics.value = stats;
     selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
   } catch (e) {
-    error.value = e.message;
+    if (e.name !== 'AbortError' && sequence === loadSequence) error.value = e.message;
   }
 }
 
 async function loadMore() {
-  if (loadingMore.value || !hasMoreLibrary.value) return;
+  if (loading.value || loadingMore.value || !hasMoreLibrary.value) return;
   loadingMore.value = true;
   try {
     const library = await api(`/api/library?${_libraryParams(libraryOffset.value)}`);
-    libraryItemsRaw.value = [...libraryItemsRaw.value, ...library.map(x => ({ ...x, _kind: 'library' }))];
+    const known = new Set(libraryItemsRaw.value.map(x => x.id));
+    libraryItemsRaw.value = [...libraryItemsRaw.value, ...library.filter(x => !known.has(x.id)).map(x => ({ ...x, _kind: 'library' }))];
     libraryOffset.value += library.length;
     hasMoreLibrary.value = library.length === PAGE_SIZE;
   } catch (e) {
@@ -393,6 +416,7 @@ onUnmounted(() => {
   clearTimeout(timer);
   clearInterval(fallback);
   loadMoreObserver?.disconnect();
+  activeController?.abort();
 });
 </script>
 
@@ -409,6 +433,13 @@ onUnmounted(() => {
   align-items: center;
   min-height: 40px;
   margin-top: 1rem;
+}
+
+.library-result-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: .75rem;
+  text-align: right;
 }
 
 /* Plafonne a 4 colonnes sur cette page (le reste du responsive -- 4/3/2 colonnes en

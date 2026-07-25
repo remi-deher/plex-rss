@@ -7,7 +7,7 @@
     <div class="upcoming-grid">
       <div v-for="item in items" :key="item.id" class="upcoming-card">
         <div class="upcoming-poster">
-          <img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy" />
+          <img v-if="item.poster_url" :src="item.poster_url" :alt="`Affiche de ${item.title}`" loading="lazy" />
           <div v-else class="poster-fallback-inner"><Film /></div>
           <span class="upcoming-type-badge">{{ item.media_type === 'show' ? 'Série' : 'Film' }}</span>
         </div>

@@ -1,12 +1,12 @@
 <template>
-  <div class="media-card interactive" :class="{list:view==='list'}" role="button" tabindex="0" @click="handleOpen" @keydown.enter="handleOpen">
+  <div class="media-card interactive" :class="{list:view==='list'}" role="link" tabindex="0" :aria-label="`Ouvrir la fiche de ${item.title}`" @click="handleOpen" @keydown.enter.prevent="handleOpen" @keydown.space.prevent="handleOpen">
     <MediaPoster :poster-url="item.poster_url">
       <template #badges>
         <span v-if="item._kind==='library'" class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
         <span v-else class="badge status-tag" :class="item.status">{{ statusLabel(item.status) }}</span>
         <span v-if="requesterLabel(item)" class="requester-tag">👤 {{ requesterLabel(item) }}</span>
         <label v-if="isAdmin && item._kind==='request' && !item.orphan" class="select-tag" @click.stop>
-          <input :checked="selected" type="checkbox" @change="$emit('toggle-select', item.id)">
+          <input :checked="selected" :disabled="busy" type="checkbox" :aria-label="`Sélectionner ${item.title}`" @change="$emit('toggle-select', item.id)">
         </label>
       </template>
     </MediaPoster>
@@ -22,12 +22,12 @@
       </template>
       <div v-if="item._kind==='request'" class="card-actions" @click.stop>
         <template v-if="item.orphan">
-          <button v-if="isAdmin" class="icon-button danger" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
+          <button v-if="isAdmin" class="icon-button danger" :disabled="busy" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
         </template>
         <template v-else>
-          <button v-if="item.arr_id" class="icon-button" title="Rechercher une release" aria-label="Rechercher une release" @click="router.push(`/releases/${item.id}`)"><Search/></button>
-          <button v-if="item.status==='failed' && isAdmin" class="icon-button" title="Relancer" aria-label="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
-          <button v-if="item.status!=='available'" class="icon-button danger" title="Annuler" aria-label="Annuler" @click="$emit('act',item,'cancel')"><X/></button>
+          <button v-if="item.arr_id" class="icon-button" :disabled="busy" title="Rechercher une release" aria-label="Rechercher une release" @click="router.push(`/releases/${item.id}`)"><Search/></button>
+          <button v-if="item.status==='failed' && isAdmin" class="icon-button" :disabled="busy" title="Relancer" aria-label="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
+          <button v-if="item.status!=='available'" class="icon-button danger" :disabled="busy" title="Annuler" aria-label="Annuler" @click="$emit('act',item,'cancel')"><X/></button>
         </template>
       </div>
     </div>
@@ -47,6 +47,7 @@ const props = defineProps({
   item: { type: Object, required: true },
   view: { type: String, default: 'grid' },
   isAdmin: { type: Boolean, default: false },
+  busy: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 });
 const emit = defineEmits(['open', 'toggle-select', 'act', 'delete-orphan', 'error']);

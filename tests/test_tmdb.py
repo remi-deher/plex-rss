@@ -263,8 +263,8 @@ async def test_trending_returns_normalized_list(db):
     client = _mock_client(get_return=_mock_response(payload))
     with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
         result = await tmdb.trending(db)
-    assert len(result) == 1
-    assert result[0]["title"] == "A"
+    assert len(result["items"]) == 1
+    assert result["items"][0]["title"] == "A"
 
 
 @pytest.mark.asyncio
@@ -286,7 +286,21 @@ async def test_search_returns_normalized_list(db):
     client = _mock_client(get_return=_mock_response(payload))
     with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
         result = await tmdb.search(db, "query")
-    assert result[0]["title"] == "Show"
+    assert result["items"][0]["title"] == "Show"
+
+
+@pytest.mark.asyncio
+async def test_search_by_type_uses_specific_tmdb_endpoint(db):
+    db.add(Settings(tmdb_api_key="abc"))
+    db.commit()
+    payload = {"page": 2, "total_pages": 4, "total_results": 70, "results": [{"id": 9, "name": "Show"}]}
+    client = _mock_client(get_return=_mock_response(payload))
+    with patch("app.services.tmdb.httpx.AsyncClient", return_value=client):
+        result = await tmdb.search(db, "query", page=2, media_type="show")
+    assert "/search/tv" in client.get.await_args.args[0]
+    assert result["page"] == 2
+    assert result["total_pages"] == 4
+    assert result["items"][0]["media_type"] == "show"
 
 
 # ---------------------------------------------------------------------------
