@@ -252,6 +252,72 @@ def test_sonarr_webhook_download_without_french_media_info_leaves_has_vf_untouch
     assert req.has_vf is None
 
 
+def test_sonarr_webhook_download_does_not_mark_show_fully_available_when_season_incomplete():
+    """Régression : un webhook Download/Import Sonarr porte sur UN épisode importé, pas
+    sur la série entière. Avant le correctif, `_mark_available_and_notify` passait la
+    demande direct à `available` (complète) sans jamais consulter Sonarr — d'où de faux
+    mails "saison complète" dès le premier épisode importé, alors que la saison est
+    encore en cours de diffusion (voir 'Please Excuse My Younger Brothers')."""
+    req = _req(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    db = _make_db(settings=_settings(), requests=[req])
+    stats = {
+        "arr_id": 7,
+        "title_slug": "breaking-bad",
+        "episode_file_count": 1,
+        "episode_count": 1,
+        "total_episode_count": 5,
+    }
+    with (
+        _db_patch(db),
+        patch(
+            "app.routers.webhook._resolve_arr_connection",
+            new=AsyncMock(return_value=("http://sonarr", "key", "sonarr:legacy")),
+        ),
+        patch("app.routers.webhook.sonarr.get_series_episode_stats", new=AsyncMock(return_value=stats)),
+    ):
+        response = client.post(
+            "/webhook/sonarr",
+            json={"eventType": "Download", "series": {"title": "Breaking Bad", "tvdbId": 81189}},
+        )
+
+    assert response.status_code == 200
+    assert req.status == RequestStatus.partially_available
+    assert req.episodes_available_count == 1
+    assert req.episodes_total_count == 5
+
+
+def test_sonarr_webhook_download_marks_show_available_when_season_complete():
+    """Contrepartie : quand Sonarr confirme que tous les épisodes sont présents, le
+    statut doit bien passer à `available` (comportement inchangé pour une vraie fin de
+    saison/série)."""
+    req = _req(title="Breaking Bad", media_type="show", tvdb_id="81189")
+    db = _make_db(settings=_settings(), requests=[req])
+    stats = {
+        "arr_id": 7,
+        "title_slug": "breaking-bad",
+        "episode_file_count": 5,
+        "episode_count": 5,
+        "total_episode_count": 5,
+    }
+    with (
+        _db_patch(db),
+        patch(
+            "app.routers.webhook._resolve_arr_connection",
+            new=AsyncMock(return_value=("http://sonarr", "key", "sonarr:legacy")),
+        ),
+        patch("app.routers.webhook.sonarr.get_series_episode_stats", new=AsyncMock(return_value=stats)),
+    ):
+        response = client.post(
+            "/webhook/sonarr",
+            json={"eventType": "Download", "series": {"title": "Breaking Bad", "tvdbId": 81189}},
+        )
+
+    assert response.status_code == 200
+    assert req.status == RequestStatus.available
+    assert req.episodes_available_count == 5
+    assert req.episodes_total_count == 5
+
+
 def test_sonarr_webhook_delete_event_removes_requests():
     req = _req(title="Lost", media_type="show", arr_id=77, tvdb_id="73739")
     db = _make_db(settings=_settings(), requests=[req])

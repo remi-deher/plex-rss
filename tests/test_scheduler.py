@@ -818,6 +818,48 @@ async def test_check_arr_show_becomes_fully_available(db):
 
 
 @pytest.mark.asyncio
+async def test_check_arr_seer_actor_show_still_populates_episode_stats(db):
+    """Régression : une demande pilotée par Seer (mode acteur) qui confirme la
+    disponibilité doit quand même interroger Sonarr pour le détail par épisode.
+
+    Avant le correctif, ce lookup Sonarr n'était fait que quand Seer disait "non
+    disponible" (fallback) — jamais quand Seer disait "disponible". episodes_total_count
+    restait donc NULL, ce qui désactivait is_show_partial et faisait passer la demande
+    directement à `available` (complète) dès le premier épisode importé, avant même que
+    la saison ait fini de diffuser — d'où un faux mail "saison complète" prématuré.
+    """
+    db.add(_settings(availability_confirmation_mode="arr", seer_enabled=True, seer_url="http://seer.local", seer_api_key="key", seer_mode="actor"))
+    db.add(_sent_request(
+        title="Please Excuse My Younger Brothers", media_type="show", tvdb_id="81189",
+        source="seer", arr_id=99, tmdb_id=None,
+    ))
+    db.commit()
+
+    series_stats = {
+        "arr_id": 7,
+        "title_slug": None,
+        "episode_file_count": 1,
+        "episode_count": 1,
+        "total_episode_count": 5,
+    }
+    with (
+        _patch_session_arr(db),
+        patch("app.services.arr_tracker.seer_available", new=AsyncMock(return_value=(True, 7, "slug"))),
+        patch("app.services.arr_tracker.get_series_episode_stats", new=AsyncMock(return_value=series_stats)) as mock_stats,
+        _patch_enqueue(),
+    ):
+        await check_arr_statuses()
+
+    mock_stats.assert_awaited_once()
+    req = db.query(MediaRequest).first()
+    assert req.episodes_total_count == 5
+    assert req.episodes_available_count == 1
+    # Seule 1 des 5 episodes est presente : la demande doit rester partiellement
+    # disponible, jamais passer directement a "available" (serie complete).
+    assert req.status == RequestStatus.partially_available
+
+
+@pytest.mark.asyncio
 async def test_check_arr_show_upserts_season_status(db):
     """Le detail par saison Sonarr (seasons[]) doit etre persiste dans
     request_season_status, avec le bon statut par saison (available/partially_available/

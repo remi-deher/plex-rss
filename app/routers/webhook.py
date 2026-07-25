@@ -26,6 +26,7 @@ from ..services.request_lifecycle import transition_request
 from ..services.media_matching import request_identity_filter
 from ..services.notification_orchestrator import (
     AvailabilityCandidate,
+    _handle_show_progress_notification,
     _resolve_movie_notify_language,
     resolve_and_notify_availability,
 )
@@ -207,13 +208,51 @@ async def _mark_available_and_notify(
             req.arr_id = int(arr_id)
         if instance_id and not req.arr_instance_id:
             req.arr_instance_id = instance_id
+
+        # Un webhook Sonarr Download/Import porte sur UN épisode importé, jamais sur la
+        # série entière : sans ce lookup, une série marquerait direct "available"
+        # (complète) dès le premier épisode, avant même la fin de la diffusion de la
+        # saison — d'où de faux mails "saison complète" prématurés (voir aussi le même
+        # correctif dans arr_tracker.check_arr_statuses, is_show_partial).
+        event = "available"
+        details = {"arr_id": arr_id, "arr_detected_vf": arr_detected_vf}
+        if media_type == "show":
+            conn = await _resolve_arr_connection(db, "sonarr", instance_id)
+            stats = None
+            if conn:
+                try:
+                    stats = await sonarr.get_series_episode_stats(
+                        conn[0],
+                        conn[1],
+                        arr_id=arr_id or req.arr_id,
+                        tvdb_id=tvdb_id or req.tvdb_id,
+                        tmdb_id=req.tmdb_id,
+                        imdb_id=req.imdb_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Webhook %s: impossible de recuperer le detail episodes pour '%s': %s", source, req.title, exc
+                    )
+            if stats:
+                available_count = int(stats.get("episode_file_count") or 0)
+                aired_count = int(stats.get("episode_count") or 0)
+                total_count = int(stats.get("total_episode_count") or 0)
+                req.episodes_available_count = available_count
+                req.episodes_aired_count = aired_count
+                req.episodes_total_count = total_count
+                if total_count and available_count < total_count:
+                    event = "partially_available"
+                details.update(
+                    {"episodes_available": available_count, "episodes_aired": aired_count, "episodes_total": total_count}
+                )
+
         await transition_request(
             db,
             req,
-            "available",
+            event,
             source=source,
             instance_name=instance_name,
-            details={"arr_id": arr_id, "arr_detected_vf": arr_detected_vf},
+            details=details,
         )
         await db.commit()
         if arr_detected_vf and req.has_vf is not True:
@@ -230,21 +269,28 @@ async def _mark_available_and_notify(
         # média (_has_fallback_mechanism) — sinon on laisse le prochain scan planifié
         # envoyer le bon jalon, pour ne jamais faire doublon.
         await mark_external_availability_event(req.id)
-        handled = await scan_and_notify_availability(req, settings, db) if settings else False
-        user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
-        if (
-            not handled
-            and settings
-            and not _has_fallback_mechanism(settings, req, user_obj)
-            and settings.email_on_available
-            and not req.available_mail_sent
-        ):
-            await resolve_and_notify_availability(
-                settings,
-                req,
-                db,
-                candidates=[AvailabilityCandidate(scope="movie" if req.media_type == "movie" else "series_complete")],
-            )
+        if media_type == "show":
+            # Même dispatch que arr_tracker.check_arr_statuses : vérifie
+            # episodes_total_count, gère les jalons partiels/complets, et ne retombe sur
+            # le mail générique que si aucun suivi fin n'est possible pour ce média.
+            if settings:
+                await _handle_show_progress_notification(settings, req, db)
+        else:
+            handled = await scan_and_notify_availability(req, settings, db) if settings else False
+            user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
+            if (
+                not handled
+                and settings
+                and not _has_fallback_mechanism(settings, req, user_obj)
+                and settings.email_on_available
+                and not req.available_mail_sent
+            ):
+                await resolve_and_notify_availability(
+                    settings,
+                    req,
+                    db,
+                    candidates=[AvailabilityCandidate(scope="movie")],
+                )
         from ..realtime import publish
 
         await publish("request.updated", {"request_id": req.id}, user_id=req.plex_user_id)

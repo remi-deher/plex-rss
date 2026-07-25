@@ -299,33 +299,43 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                             movies_list=movies_list,
                         )
 
-                    # Fallback hybride : Seer dit "non dispo" → on retente Sonarr/Radarr
-                    # directement (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
-                    if seer_checked and not available:
-                        if req.media_type == "show" and inst.arr_type == "sonarr":
-                            series_stats = await get_series_episode_stats(
-                                inst.url,
-                                inst.api_key,
-                                tvdb_id=req.tvdb_id,
-                                tmdb_id=req.tmdb_id,
-                                imdb_id=req.imdb_id,
-                                series_list=series_list,
-                            )
-                            if series_stats:
+                    if seer_checked and req.media_type == "show" and inst.arr_type == "sonarr":
+                        # Toujours interroger Sonarr pour une demande pilotee par Seer : Seer
+                        # ne donne qu'un booleen "disponible", jamais le detail par episode/
+                        # saison. Sans ce lookup, episodes_total_count reste NULL meme apres
+                        # passage a "available", ce qui desactive silencieusement la detection
+                        # de serie encore en cours de diffusion (is_show_partial ci-dessous) ET
+                        # le suivi de jalons VF -- d'ou de faux mails "saison complete" envoyes
+                        # des le premier episode importe. Fallback hybride si Seer dit "non
+                        # disponible" : la disponibilite peut aussi venir de ce lookup Sonarr.
+                        series_stats = await get_series_episode_stats(
+                            inst.url,
+                            inst.api_key,
+                            tvdb_id=req.tvdb_id,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                            series_list=series_list,
+                        )
+                        if series_stats:
+                            new_arr_id = new_arr_id or series_stats["arr_id"]
+                            new_slug = new_slug or series_stats["title_slug"]
+                            if not available:
                                 available = series_stats["episode_file_count"] > 0
-                                new_arr_id = new_arr_id or series_stats["arr_id"]
-                                new_slug = new_slug or series_stats["title_slug"]
-                        elif req.media_type == "movie" and inst.arr_type == "radarr":
-                            available, arr_new_id, arr_new_slug = await is_movie_available(
-                                inst.url,
-                                inst.api_key,
-                                tmdb_id=req.tmdb_id,
-                                imdb_id=req.imdb_id,
-                                movies_list=movies_list,
-                            )
-                            new_arr_id = new_arr_id or arr_new_id
-                            new_slug = new_slug or arr_new_slug
-                    elif seer_checked and available and not await should_confirm_available(
+
+                    # Fallback hybride : Seer dit "non dispo" → on retente Radarr directement
+                    # (req.arr_id n'est pas réutilisable ici, c'est l'ID Seer).
+                    if seer_checked and not available and req.media_type == "movie" and inst.arr_type == "radarr":
+                        available, arr_new_id, arr_new_slug = await is_movie_available(
+                            inst.url,
+                            inst.api_key,
+                            tmdb_id=req.tmdb_id,
+                            imdb_id=req.imdb_id,
+                            movies_list=movies_list,
+                        )
+                        new_arr_id = new_arr_id or arr_new_id
+                        new_slug = new_slug or arr_new_slug
+
+                    if seer_checked and available and not await should_confirm_available(
                         db, req, settings=settings
                     ):
                         logger.info(

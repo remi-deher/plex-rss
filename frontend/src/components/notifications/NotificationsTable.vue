@@ -30,6 +30,8 @@
           </td>
           <td class="card-actions">
             <button v-if="tab==='history'&&!row.success" class="icon-button" title="Renvoyer" aria-label="Renvoyer" @click="$emit('resend',row)"><Send/></button>
+            <button v-if="tab==='pending'" class="icon-button" title="Marquer comme traitee (sans envoyer)" aria-label="Marquer comme traitee" @click="$emit('markHandled',row)"><CheckCheck/></button>
+            <button v-if="tab==='pending'" class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="$emit('deleteOne',row)"><Trash2/></button>
           </td>
         </tr>
       </tbody>
@@ -40,14 +42,14 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { Send } from '@lucide/vue';
+import { CheckCheck, Send, Trash2 } from '@lucide/vue';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   tab: { type: String, default: 'history' },
   loading: { type: Boolean, default: false },
 });
-defineEmits(['resend']);
+defineEmits(['resend', 'markHandled', 'deleteOne']);
 
 const selected = ref([]);
 const allSelected = computed(() => props.rows.length && props.rows.every(x => selected.value.includes(x.id)));

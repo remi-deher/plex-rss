@@ -51,7 +51,7 @@
 
   <p v-if="error" class="notice error-text">{{ error }}</p>
 
-  <NotificationsTable ref="tableRef" :rows="rows" :tab="tab" :loading="loading" @resend="resend"/>
+  <NotificationsTable ref="tableRef" :rows="rows" :tab="tab" :loading="loading" @resend="resend" @mark-handled="markHandled" @delete-one="deleteOne"/>
 
   <div v-if="tab==='history'&&total>limit" class="pagination">
     <button class="secondary" :disabled="offset===0" @click="page(-1)"><ChevronLeft/>Precedent</button>
@@ -193,6 +193,27 @@ async function purge(markHandled) {
   })) return;
   await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids, mark_handled: markHandled }) });
   if (tableRef.value) tableRef.value.selected = [];
+  await load();
+}
+
+async function markHandled(row) {
+  if (!await askConfirm({
+    title: 'Marquer cette notification comme traitée ?',
+    message: `« ${row.media_title || row.event_label} » sera marquée comme traitée sans être envoyée.`,
+    confirmLabel: 'Marquer comme traitée',
+  })) return;
+  await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids: [row.id], mark_handled: true }) });
+  await load();
+}
+
+async function deleteOne(row) {
+  if (!await askConfirm({
+    title: 'Supprimer cette notification ?',
+    message: `« ${row.media_title || row.event_label} » sera supprimée définitivement de la file.`,
+    confirmLabel: 'Supprimer',
+    danger: true,
+  })) return;
+  await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids: [row.id], mark_handled: false }) });
   await load();
 }
 
