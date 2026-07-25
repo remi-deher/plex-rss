@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.database import get_db_async
 from app.dependencies import require_admin, require_auth
-from app.main import app
+from app.main import app, serve_spa
 
 
 def _client(db):
@@ -45,3 +45,9 @@ def test_unknown_spa_root_still_404s(async_db):
         assert resp.status_code == 404
     finally:
         _cleanup()
+
+
+async def test_authenticated_spa_document_is_not_cached():
+    request = type("AuthenticatedRequest", (), {"session": {"authenticated": True}})()
+    response = await serve_spa(request, "dashboard")
+    assert "no-store" in response.headers["cache-control"]

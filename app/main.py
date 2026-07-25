@@ -11,9 +11,9 @@ import asyncio
 import json
 import logging
 import os
-from urllib.parse import quote
 from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 import itsdangerous
 import sqlalchemy
@@ -38,17 +38,17 @@ from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
 from .routers import (
-    corrections_api,
-    issues_api,
     api_v1,
     arr_api,
     auth,
     calendar_api,
+    corrections_api,
     discover_api,
     email_providers_api,
     email_templates,
     events_api,
     importexport,
+    issues_api,
     library_api,
     maintenance,
     metrics_api,
@@ -361,4 +361,10 @@ async def serve_spa(request: Request, spa_path: str = ""):
         return RedirectResponse("/login", status_code=302)
     if not os.path.exists(SPA_INDEX):
         raise HTTPException(503, "Build Vue introuvable")
-    return FileResponse(SPA_INDEX)
+    return FileResponse(
+        SPA_INDEX,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )

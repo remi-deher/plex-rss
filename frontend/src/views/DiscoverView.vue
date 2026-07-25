@@ -228,7 +228,7 @@ async function loadGenres() {
 
 function endpoint(targetPage) {
   const type = `media_type=${mediaType.value}`;
-  const pagination = `page=${targetPage}`;
+  const pagination = `page=${targetPage}&paginated=true`;
   const q = query.value.trim();
   if (q) return `/api/discover/search?query=${encodeURIComponent(q)}&${type}&${pagination}`;
   if (section.value === 'trending') return `/api/discover/trending?${type}&${pagination}`;

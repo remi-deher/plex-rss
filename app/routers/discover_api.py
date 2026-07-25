@@ -130,15 +130,22 @@ async def _annotate_page(db: AsyncSession, payload: dict) -> dict:
     return payload
 
 
+def _page_response(payload: dict, paginated: bool):
+    """Garde les anciens bundles compatibles pendant un déploiement progressif."""
+    return payload if paginated else payload["items"]
+
+
 @router.get("/trending")
 async def get_trending(
     media_type: Literal["all", "movie", "show"] = "all",
     window: Literal["day", "week"] = "week",
     page: int = Query(1, ge=1, le=500),
+    paginated: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate_page(db, await tmdb.trending(db, media_type, window, page))
+        payload = await _annotate_page(db, await tmdb.trending(db, media_type, window, page))
+        return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
 
@@ -147,10 +154,12 @@ async def get_trending(
 async def get_popular(
     media_type: Literal["all", "movie", "show"] = "movie",
     page: int = Query(1, ge=1, le=500),
+    paginated: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate_page(db, await tmdb.popular(db, media_type, page))
+        payload = await _annotate_page(db, await tmdb.popular(db, media_type, page))
+        return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
 
@@ -159,10 +168,12 @@ async def get_popular(
 async def get_coming_soon(
     media_type: Literal["all", "movie", "show"] = "movie",
     page: int = Query(1, ge=1, le=500),
+    paginated: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate_page(db, await tmdb.coming_soon(db, media_type, page))
+        payload = await _annotate_page(db, await tmdb.coming_soon(db, media_type, page))
+        return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
 
@@ -181,10 +192,12 @@ async def get_discover(
     genre: Optional[int] = None,
     sort_by: Literal["popularity.desc", "vote_average.desc", "primary_release_date.desc"] = "popularity.desc",
     page: int = Query(1, ge=1, le=500),
+    paginated: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate_page(db, await tmdb.discover(db, media_type, genre, sort_by, page))
+        payload = await _annotate_page(db, await tmdb.discover(db, media_type, genre, sort_by, page))
+        return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
 
@@ -194,10 +207,12 @@ async def get_search(
     query: str = Query(..., min_length=1, max_length=200),
     media_type: Literal["all", "movie", "show"] = "all",
     page: int = Query(1, ge=1, le=500),
+    paginated: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        return await _annotate_page(db, await tmdb.search(db, query, page, media_type))
+        payload = await _annotate_page(db, await tmdb.search(db, query, page, media_type))
+        return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
 

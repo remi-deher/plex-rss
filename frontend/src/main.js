@@ -22,6 +22,22 @@ const IssuesView = () => import("./views/IssuesView.vue");
 const MediaDetailView = () => import("./views/MediaDetailView.vue");
 import "./styles.css";
 
+const ASSET_RELOAD_KEY = "plexarr:asset-reload";
+function recoverFromStaleAssets(error) {
+  const message = String(error?.message || error || "");
+  if (!/dynamically imported module|failed to fetch module|importing a module script/i.test(message)) return;
+  if (sessionStorage.getItem(ASSET_RELOAD_KEY)) return;
+  sessionStorage.setItem(ASSET_RELOAD_KEY, String(Date.now()));
+  const url = new URL(window.location.href);
+  url.searchParams.set("_asset_reload", Date.now());
+  window.location.replace(url);
+}
+
+window.addEventListener("vite:preloadError", event => {
+  event.preventDefault();
+  recoverFromStaleAssets(event.payload);
+});
+
 const routes = [
   { path: "/", redirect: "/dashboard" },
   { path: "/dashboard", component: DashboardView },
@@ -51,6 +67,8 @@ const router = createRouter({
   routes,
 });
 
+router.onError(recoverFromStaleAssets);
+
 createApp(App)
   .component('PageHeader', PageHeader)
   .component('StatusBadge', StatusBadge)
@@ -59,3 +77,6 @@ createApp(App)
   .component('FormSaveBar', FormSaveBar)
   .use(router)
   .mount("#app");
+
+// Un chargement resté stable autorise une nouvelle récupération lors d'un futur déploiement.
+window.setTimeout(() => sessionStorage.removeItem(ASSET_RELOAD_KEY), 10_000);

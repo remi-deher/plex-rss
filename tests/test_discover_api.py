@@ -95,9 +95,24 @@ def test_trending_returns_paginated_annotated_envelope(client):
         "total_results": 55,
     }
     with patch("app.routers.discover_api.tmdb.trending", new=AsyncMock(return_value=payload)):
-        response = client.get("/api/discover/trending?media_type=all&page=1")
+        response = client.get("/api/discover/trending?media_type=all&page=1&paginated=true")
 
     assert response.status_code == 200
     body = response.json()
     assert body["total_pages"] == 3
     assert body["items"][0]["requested"] is False
+
+
+def test_trending_keeps_legacy_list_shape_by_default(client):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 3,
+        "total_results": 55,
+    }
+    with patch("app.routers.discover_api.tmdb.trending", new=AsyncMock(return_value=payload)):
+        response = client.get("/api/discover/trending?media_type=all&page=1")
+
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
+    assert response.json()[0]["title"] == "Film"
