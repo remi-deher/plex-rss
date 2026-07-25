@@ -93,14 +93,14 @@ class Settings(Base):
     radarr_enabled: Mapped[bool] = mapped_column(default=True)
     radarr_minimum_availability: Mapped[str] = mapped_column(default="released")
 
-    # --- Email (SMTP) ---
+    # --- Email ---
+    # Le "comment" (serveur/methode/identifiants) vit desormais dans EmailProvider
+    # (plusieurs fournisseurs possibles, avec ordre de repli) ; Settings ne garde que
+    # l'interrupteur global et l'adresse d'expedition, utilisee comme identite
+    # d'expedition commune a tous les fournisseurs et comme adresse de repli affichee
+    # ailleurs dans l'app (apercus d'email, destinataire par defaut, etc.).
     email_enabled: Mapped[bool] = mapped_column(default=True)
-    smtp_host: Mapped[Optional[str]]
-    smtp_port: Mapped[int] = mapped_column(default=587)
-    smtp_user: Mapped[Optional[str]]
-    smtp_password: Mapped[Optional[str]] = mapped_column(EncryptedText)
     smtp_from: Mapped[Optional[str]]
-    smtp_tls: Mapped[bool] = mapped_column(default=True)
     admin_notification_email: Mapped[Optional[str]]
     email_on_request: Mapped[bool] = mapped_column(default=True)
     email_on_available: Mapped[bool] = mapped_column(default=True)
@@ -348,6 +348,41 @@ class ArrInstance(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     is_default: Mapped[bool] = mapped_column(default=False)
     indexer_ids: Mapped[Optional[str]]  # JSON list d'int, indexeurs à utiliser (null = tous)
+
+
+class EmailProvider(Base):
+    """Un moyen d'envoyer des emails (SMTP classique, SMTP+OAuth2 Microsoft, ou API Brevo).
+
+    Plusieurs fournisseurs peuvent etre configures et actifs simultanement : l'envoi
+    (voir email_providers.py) essaie chaque fournisseur actif par ordre de `priority`
+    croissante et bascule sur le suivant en cas d'echec, jusqu'a un envoi reussi.
+    """
+
+    __tablename__ = "email_providers"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str]  # ex: "Hotmail perso"
+    provider_type: Mapped[str]  # "smtp" | "smtp_oauth2" | "brevo"
+    enabled: Mapped[bool] = mapped_column(default=True)
+    priority: Mapped[int] = mapped_column(default=0)  # ordre d'essai croissant
+
+    # --- SMTP (provider_type "smtp" et "smtp_oauth2") ---
+    smtp_host: Mapped[Optional[str]]
+    smtp_port: Mapped[int] = mapped_column(default=587)
+    smtp_tls: Mapped[bool] = mapped_column(default=True)
+    smtp_user: Mapped[Optional[str]]  # "smtp" uniquement
+    smtp_password: Mapped[Optional[str]] = mapped_column(EncryptedText)  # "smtp" uniquement
+
+    # --- SMTP OAuth2 Microsoft ("smtp_oauth2" uniquement) ---
+    oauth_tenant: Mapped[str] = mapped_column(default="consumers")
+    oauth_client_id: Mapped[Optional[str]]
+    oauth_client_secret: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    oauth_mailbox: Mapped[Optional[str]]
+    oauth_refresh_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    oauth_access_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
+    oauth_token_expires_at: Mapped[Optional[datetime]]
+
+    # --- Brevo ("brevo" uniquement) ---
+    brevo_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
 
 
 class PlexUser(Base):

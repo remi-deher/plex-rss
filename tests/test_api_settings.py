@@ -21,14 +21,13 @@ def _mock_db(settings=None):
 def _default_settings():
     return Settings(
         plex_url="http://plex.local",
-        plex_token="token123",
+        plex_token="real_token",
         plex_rss_url="http://rss.local",
         sonarr_url="http://sonarr.local",
         sonarr_api_key="key",
         radarr_url="http://radarr.local",
         radarr_api_key="key",
         poll_interval_minutes=5,
-        smtp_password="real_password",
     )
 
 
@@ -101,17 +100,17 @@ def test_update_settings_no_settings_row_returns_404(async_db):
         _cleanup()
 
 
-def test_update_settings_smtp_mask_not_overwritten(async_db):
-    """Le mot de passe masqué '••••••••' ne doit pas écraser le vrai mot de passe."""
+def test_update_settings_secret_mask_not_overwritten(async_db):
+    """Le token masqué '••••••••' ne doit pas écraser le vrai token."""
     settings = _default_settings()
     async_db.add(settings)
     async_db.commit()
     client = _client_with_db(async_db)
     try:
         with patch("app.routers.settings_api.update_poll_interval"):
-            resp = client.put("/api/settings", json={"smtp_password": "••••••••"})
+            resp = client.put("/api/settings", json={"plex_token": "••••••••"})
         assert resp.status_code == 200
-        assert settings.smtp_password == "real_password"
+        assert settings.plex_token == "real_token"
     finally:
         _cleanup()
 

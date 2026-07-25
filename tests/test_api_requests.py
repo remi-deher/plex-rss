@@ -603,7 +603,7 @@ def test_get_request_dates_are_serialized_with_utc_timezone(client, db):
 
 def test_mark_request_processed_default_sends_available_and_closes(client, db):
     """POST /requests/{id}/mark-processed (défaut event=available) envoie le mail dispo et clôture."""
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
     db.add_all([settings, req])
     db.commit()
@@ -628,7 +628,7 @@ def test_mark_request_processed_default_sends_available_and_closes(client, db):
 
 def test_mark_request_processed_stop_vf_tracking(client, db):
     """stop_vf_tracking=true pose vf_tracking_disabled — la demande sort du scan VF."""
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.available, has_vf=False, available_mail_sent=True)
     db.add_all([settings, req])
     db.commit()
@@ -648,7 +648,7 @@ def test_mark_request_processed_stop_vf_tracking(client, db):
 
 
 def test_mark_request_processed_without_stop_vf_tracking_leaves_it_enabled(client, db):
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.pending)
     db.add_all([settings, req])
     db.commit()
@@ -665,7 +665,7 @@ def test_mark_request_processed_without_stop_vf_tracking_leaves_it_enabled(clien
 
 def test_mark_request_processed_event_request_resends_without_closing(client, db):
     """event=request renvoie le mail de demande sans clôturer la demande, même si déjà envoyé."""
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.pending, request_mail_sent=False, available_mail_sent=False)
     db.add_all([settings, req])
     db.commit()
@@ -692,7 +692,7 @@ def test_mark_request_processed_event_request_resends_without_closing(client, db
 
 def test_resend_mail_available_does_not_change_status(client, db):
     """resend-mail(event=available) renvoie le mail sans modifier le statut ni les flags."""
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.sent_to_arr, available_mail_sent=True)
     db.add_all([settings, req])
     db.commit()
@@ -712,7 +712,7 @@ def test_resend_mail_available_does_not_change_status(client, db):
 
 
 def test_resend_mail_request_event(client, db):
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(status=RequestStatus.pending)
     db.add_all([settings, req])
     db.commit()
@@ -797,7 +797,7 @@ def test_update_requesters_empty_list_rejected(client, db):
 
 
 def test_notify_user_queues_requested_events(client, db):
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(plex_user_id="alice", available_mail_sent=True)
     db.add_all([settings, req])
     db.commit()
@@ -819,7 +819,7 @@ def test_notify_user_queues_requested_events(client, db):
 def test_notify_user_reports_which_events_actually_queued(client, db):
     """Si un des deux events echoue (ex: utilisateur introuvable/desactive), seul celui
     qui a reellement ete mis en queue doit apparaitre dans la reponse."""
-    settings = Settings(id=1, smtp_host="smtp.example.com")
+    settings = Settings(id=1)
     req = _req(plex_user_id="alice")
     db.add_all([settings, req])
     db.commit()

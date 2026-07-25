@@ -6,17 +6,14 @@
           <button class="secondary" :disabled="!form.email_enabled" @click.stop="testSmtp"><PlugZap/>Tester</button>
         </template>
         <label class="check"><input v-model="form.email_enabled" type="checkbox"> Activer les emails</label>
-        <label>Serveur SMTP<input v-model="form.smtp_host"></label>
-        <label>Port<input v-model.number="form.smtp_port" type="number"></label>
-        <label>Utilisateur<input v-model="form.smtp_user"></label>
-        <label>Mot de passe<input v-model="form.smtp_password" type="password" placeholder="Laisser vide pour conserver"></label>
         <label>Expediteur<input v-model="form.smtp_from" type="email"></label>
         <label>Email administrateur<input v-model="form.admin_notification_email"></label>
         <label class="check"><input v-model="form.notify_import_blocked" type="checkbox"> Alerter l'administrateur en cas d'import Sonarr bloqué</label>
         <small style="margin-top:-8px;color:var(--muted)">Distinct d'un échec de transmission — se déclenche souvent avec les épisodes « TBA », désactivez si trop fréquent</small>
-        <label class="check"><input v-model="form.smtp_tls" type="checkbox"> TLS</label>
         <label>URL publique de l'application<input v-model="form.public_base_url" type="url" placeholder="https://plexarr.mondomaine.fr"><small>Utilisee pour le lien vers la politique de confidentialite dans le pied de page des emails ; laisser vide pour ne pas l'afficher</small></label>
       </SettingsCard>
+
+      <EmailProvidersCard/>
 
       <SettingsCard
         v-for="channel in channels"
@@ -55,6 +52,7 @@ import { Bell, Mail, Megaphone, MessageSquare, PlugZap, Send } from '@lucide/vue
 import { api } from '@/api';
 import { form, success, fail, testSaved, save } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
+import EmailProvidersCard from './EmailProvidersCard.vue';
 
 const channels = [
   { key: 'discord', label: 'Discord', icon: MessageSquare },

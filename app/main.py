@@ -45,6 +45,7 @@ from .routers import (
     auth,
     calendar_api,
     discover_api,
+    email_providers_api,
     email_templates,
     events_api,
     importexport,
@@ -305,6 +306,7 @@ app.include_router(api_v1.router)
 app.include_router(webhook.router)
 app.include_router(importexport.router)
 app.include_router(email_templates.router)
+app.include_router(email_providers_api.router)
 app.include_router(maintenance.router)
 app.include_router(events_api.router)
 

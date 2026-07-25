@@ -125,11 +125,12 @@ def _coerce_value(model, key: str, value):
 
 
 def _apply_fields(obj, model, data: dict, skip: frozenset[str] = frozenset({"id"})) -> None:
+    secret_cols = _secret_columns(model)
     for k, v in data.items():
         if k in skip or not hasattr(obj, k):
             continue
-        if k == "smtp_password" and not v:
-            continue  # ne jamais écraser un mot de passe existant par une valeur vide
+        if k in secret_cols and not v:
+            continue  # ne jamais écraser un secret existant par une valeur vide
         setattr(obj, k, _coerce_value(model, k, v))
 
 

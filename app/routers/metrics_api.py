@@ -16,7 +16,7 @@ from ..cache import cache
 from ..database import AsyncSessionLocal, get_db_async
 from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, NotificationLog, PlexUser, PollHistory, RequestStatus, Settings
-from ..services import arr_orphans, prowlarr, radarr, sonarr
+from ..services import arr_orphans, email_providers, prowlarr, radarr, sonarr
 from ..services.plex_api import check_connection as plex_test
 from ..services.seer import check_connection as seer_test
 from ..utils import now_utc, now_utc_naive
@@ -153,10 +153,11 @@ async def health_check(db: AsyncSession = Depends(get_db_async)):
             else:
                 failed += 1
 
+    has_email_provider = await email_providers.has_enabled_provider(db)
     services["smtp"] = {
-        "ok": bool(s and s.smtp_host),
-        "state": "ok" if s and s.smtp_host else "non_configured",
-        "message": "Configure" if s and s.smtp_host else "Non configure",
+        "ok": has_email_provider,
+        "state": "ok" if has_email_provider else "non_configured",
+        "message": "Configure" if has_email_provider else "Non configure",
         "response_ms": None,
         "action_url": "/settings#tab-notifications",
         "action_label": "Configurer",

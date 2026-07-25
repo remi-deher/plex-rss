@@ -5,7 +5,7 @@ from typing import Optional
 
 import httpx
 import sqlalchemy
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ from ..dependencies import get_settings_or_404, require_admin
 from ..models import Settings
 from ..scheduler import _send_digest, update_poll_interval
 from ..scheduler import scheduler as _scheduler
-from ..services import email_service, radarr, sonarr
+from ..services import email_providers, radarr, sonarr
 from ..services.notifications import send_gotify, send_ntfy
 from ..services.plex_api import check_connection as plex_test
 from ..services.plex_rss import test_rss
@@ -55,14 +55,10 @@ class SettingsUpdate(BaseModel):
     watchlist_fallback_enabled: Optional[bool] = None
     poll_interval_minutes: Optional[int] = None
     poll_interval_seconds: Optional[int] = None
-    # --- SMTP / Mail ---
+    # --- Email (l'identite d'expedition ; les fournisseurs d'envoi eux-memes vivent
+    # dans EmailProvider, voir /api/email-providers) ---
     email_enabled: Optional[bool] = None
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
     smtp_from: Optional[str] = None
-    smtp_tls: Optional[bool] = None
     admin_notification_email: Optional[str] = None
     public_base_url: Optional[str] = None
     gdpr_contact_name: Optional[str] = None
@@ -188,7 +184,6 @@ class TotpEnableRequest(BaseModel):
 # en est volontairement exclu : sa valeur réelle doit rester visible dans l'onglet Webhooks
 # pour que l'admin puisse copier les URLs à configurer côté Sonarr/Radarr/Plex.
 _MASKED_SECRET_FIELDS = (
-    "smtp_password",
     "plex_token",
     "sonarr_api_key",
     "radarr_api_key",
@@ -536,6 +531,13 @@ async def test_seer(body: SeerTestRequest, db: AsyncSession = Depends(get_db_asy
 
 @router.post("/test/smtp")
 async def test_smtp(body: SmtpTestRequest, db: AsyncSession = Depends(get_db_async)):
+    """Teste le pipeline d'envoi complet (tous les fournisseurs actifs, avec repli) —
+    pour tester un fournisseur précis, voir POST /api/test/email-provider/{id}."""
     s = (await db.execute(select(Settings))).scalars().first()
-    ok, msg = await email_service.test_smtp(s, body.recipient)
-    return {"success": ok, "message": msg}
+    try:
+        await email_providers.send_with_fallback(
+            db, s.smtp_from, body.recipient, "[Plexarr] Test email", "<p>Configuration email opérationnelle.</p>"
+        )
+        return {"success": True, "message": f"Email envoyé à {body.recipient}"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

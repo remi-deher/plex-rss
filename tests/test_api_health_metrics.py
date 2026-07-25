@@ -53,7 +53,6 @@ def _settings(**kwargs) -> Settings:
         seer_enabled=False,
         plex_url="http://plex.local",
         plex_token="token",
-        smtp_host="smtp.example.com",
         plex_rss_url="http://rss.local",
     )
     defaults.update(kwargs)

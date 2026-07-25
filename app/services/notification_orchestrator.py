@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 async def _send_digest():
     """Envoie le récapitulatif quotidien aux utilisateurs ayant notify_digest=True."""
+    from . import email_providers
     from .email_service import _send as smtp_send
 
     try:
@@ -37,8 +38,8 @@ async def _send_digest():
             settings = (await db.execute(select(Settings))).scalars().first()
             if not settings or not settings.digest_enabled or not settings.email_enabled:
                 return
-            if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
-                logger.warning("Digest : SMTP non configuré, skip")
+            if not settings.smtp_from or not await email_providers.has_enabled_provider(db):
+                logger.warning("Digest : email non configuré, skip")
                 return
 
             cutoff = now_utc_naive() - timedelta(hours=24)

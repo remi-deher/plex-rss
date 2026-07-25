@@ -72,14 +72,14 @@ def test_export_returns_json_with_version(client, db_session):
 
 def test_export_includes_settings(client, db_session):
     db_session.query(Settings).delete()
-    s = Settings(id=1, smtp_host="smtp.example.com", smtp_from="noreply@example.com")
+    s = Settings(id=1, smtp_from="noreply@example.com")
     db_session.add(s)
     db_session.commit()
 
     r = client.get("/api/export")
     assert r.status_code == 200
     data = r.json()
-    assert data["settings"]["smtp_host"] == "smtp.example.com"
+    assert data["settings"]["smtp_from"] == "noreply@example.com"
 
 
 def test_export_includes_users(client, db_session):
@@ -161,7 +161,7 @@ def test_import_creates_settings(client, db_session):
     payload = json.dumps(
         {
             "version": 1,
-            "settings": {"smtp_host": "smtp.test.com", "smtp_from": "test@test.com"},
+            "settings": {"smtp_from": "test@test.com", "plex_url": "http://plex.test.com"},
             "users": [],
             "requests": [],
         }
@@ -174,7 +174,8 @@ def test_import_creates_settings(client, db_session):
 
     s = db_session.query(Settings).first()
     assert s is not None
-    assert s.smtp_host == "smtp.test.com"
+    assert s.smtp_from == "test@test.com"
+    assert s.plex_url == "http://plex.test.com"
 
 
 def test_import_upserts_users(client, db_session):
@@ -228,16 +229,17 @@ def test_import_upserts_requests(client, db_session):
     assert req is not None
 
 
-def test_import_does_not_overwrite_smtp_password_if_empty(client, db_session):
+def test_import_does_not_overwrite_secret_if_empty(client, db_session):
+    """Un secret (colonne EncryptedText, ex: plex_token) n'est jamais écrasé par une valeur vide importée."""
     db_session.query(Settings).delete()
-    s = Settings(id=1, smtp_password="secret123")
+    s = Settings(id=1, plex_token="secret123")
     db_session.add(s)
     db_session.commit()
 
     payload = json.dumps(
         {
             "version": 1,
-            "settings": {"smtp_password": ""},
+            "settings": {"plex_token": ""},
             "users": [],
             "requests": [],
         }
@@ -246,7 +248,7 @@ def test_import_does_not_overwrite_smtp_password_if_empty(client, db_session):
 
     db_session.expire_all()
     s = db_session.query(Settings).first()
-    assert s.smtp_password == "secret123"
+    assert s.plex_token == "secret123"
 
 
 def test_import_idempotent_on_second_call(client, db_session):

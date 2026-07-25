@@ -1,5 +1,12 @@
-"""Tests unitaires pour app/services/email_service.py."""
+"""Tests unitaires pour app/services/email_service.py.
 
+Le transport (SMTP classique/OAuth2/Brevo, choix du fournisseur, repli en cas
+d'échec) vit dans app/services/email_providers.py — voir tests/test_email_providers.py.
+Ici, on vérifie uniquement le rendu des templates et que `_send` délègue
+correctement à `email_providers.send_with_fallback`.
+"""
+
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,17 +26,11 @@ from app.services.email_service import (
     send_failure_notification,
     send_request_notification,
 )
-from app.services.email_service import test_smtp as smtp_test_connection
 
 
 def _settings(**kwargs) -> Settings:
     defaults = dict(
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-        smtp_user="user@example.com",
-        smtp_password="secret",
         smtp_from="plex@example.com",
-        smtp_tls=True,
         email_request_template=None,
         email_available_template=None,
         email_failure_template=None,
@@ -50,6 +51,29 @@ def _req(**kwargs) -> MediaRequest:
     )
     defaults.update(kwargs)
     return MediaRequest(**defaults)
+
+
+class _FakeSessionContext:
+    """Evite d'ouvrir une vraie connexion DB : `_send` ne s'en sert que pour la
+    transmettre telle quelle à send_with_fallback (mocké ci-dessous), jamais pour
+    l'interroger elle-même."""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@contextmanager
+def _patch_send():
+    """Mock du point d'entrée transport : `_send` délègue tout à send_with_fallback,
+    lui-même chargé de choisir/basculer entre fournisseurs (voir email_providers.py)."""
+    with (
+        patch("app.services.email_service.AsyncSessionLocal", lambda: _FakeSessionContext()),
+        patch("app.services.email_service.email_providers.send_with_fallback", new=AsyncMock()) as mock_send,
+    ):
+        yield mock_send
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +207,14 @@ def test_build_tags_exposes_diagnostic_context():
 @pytest.mark.asyncio
 async def test_send_request_uses_default_template_when_none():
     """Template custom None → DEFAULT_REQUEST_TEMPLATE utilisé."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_request_notification(_settings(), _req(), "dest@example.com")
 
-    mock_send.assert_called_once()
-    msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "[Plexarr] Nouvelle demande : Inception"
+    mock_send.assert_awaited_once()
+    _db, sender, recipient, subject, _html = mock_send.call_args[0]
+    assert sender == "plex@example.com"
+    assert recipient == "dest@example.com"
+    assert subject == "[Plexarr] Nouvelle demande : Inception"
 
 
 @pytest.mark.asyncio
@@ -196,46 +222,39 @@ async def test_send_request_uses_custom_template():
     """Template custom défini (tag {titre}) → rendu avec les variables du média."""
     custom = "Film demandé : {titre}"
     s = _settings(email_request_template=custom)
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_request_notification(s, _req(), "dest@example.com")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "Film demandé : Inception" in body
+    html = mock_send.call_args[0][4]
+    assert "Film demandé : Inception" in html
 
 
 @pytest.mark.asyncio
 async def test_send_request_includes_footer_credit():
     """Le pied de page Plexarr/DEHER est injecté dans la coquille email pour tout envoi."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_request_notification(_settings(), _req(), "dest@example.com")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "DEHER" in body
+    html = mock_send.call_args[0][4]
+    assert "DEHER" in html
 
 
 @pytest.mark.asyncio
-async def test_send_raises_when_smtp_not_configured():
-    """SMTP non configuré → exception levée (pas de succès silencieux sans envoi réel).
+async def test_send_propagates_failure_from_providers():
+    """Aucun fournisseur actif / tous en échec → exception propagée (pas de succès silencieux).
 
     Un retour silencieux remonterait comme un succès jusqu'à _send_with_retry (aucune
     exception = tentative réussie) : request_mail_sent serait posé à True et un
     NotificationLog success=True créé alors qu'aucun email n'a été envoyé.
     """
-    s = _settings(smtp_host=None)
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        with pytest.raises(RuntimeError, match="incomplète"):
-            await send_request_notification(s, _req(), "dest@example.com")
-
-    mock_send.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_send_raises_on_smtp_error():
-    """Erreur SMTP → exception propagée (pour que notification_queue la capture)."""
-    with patch(
-        "app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("connection refused"))
+    with (
+        patch("app.services.email_service.AsyncSessionLocal", lambda: _FakeSessionContext()),
+        patch(
+            "app.services.email_service.email_providers.send_with_fallback",
+            new=AsyncMock(side_effect=RuntimeError("Aucun fournisseur d'email configuré et actif")),
+        ),
     ):
-        with pytest.raises(Exception, match="connection refused"):
+        with pytest.raises(RuntimeError, match="Aucun fournisseur"):
             await send_request_notification(_settings(), _req(), "dest@example.com")
 
 
@@ -246,54 +265,53 @@ async def test_send_raises_on_smtp_error():
 
 @pytest.mark.asyncio
 async def test_send_available_default_subject():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(_settings(), _req(), "dest@example.com")
 
-    msg = mock_send.call_args[0][0]
-    assert "Inception" in msg["Subject"]
+    subject = mock_send.call_args[0][3]
+    assert "Inception" in subject
 
 
 @pytest.mark.asyncio
 async def test_send_available_uses_custom_template():
     custom = "Disponible : {titre}"
     s = _settings(email_available_template=custom)
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(s, _req(), "dest@example.com")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "Disponible : Inception" in body
+    html = mock_send.call_args[0][4]
+    assert "Disponible : Inception" in html
 
 
 @pytest.mark.asyncio
 async def test_send_available_vf_language_tag():
     """language='vf' → le tag {langue} vaut 'en VF' dans le corps."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(_settings(), _req(), "dest@example.com", language="vf")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "en VF" in body
+    html = mock_send.call_args[0][4]
+    assert "en VF" in html
 
 
 @pytest.mark.asyncio
 async def test_send_available_vo_language_tag():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(_settings(), _req(), "dest@example.com", language="vo")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "en VO" in body
+    html = mock_send.call_args[0][4]
+    assert "en VO" in html
 
 
 @pytest.mark.asyncio
 async def test_send_available_upgrade_uses_upgrade_template_and_subject():
     """is_upgrade=True → email_upgrade_template/subject utilisés (pas email_available_*)."""
     s = _settings(email_upgrade_template="Mise à jour : {titre}", email_upgrade_subject="Upgrade: {titre}")
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(s, _req(), "dest@example.com", language="vf", is_upgrade=True)
 
-    msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "Upgrade: Inception"
-    body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Mise à jour : Inception" in body
+    _db, _sender, _recipient, subject, html = mock_send.call_args[0]
+    assert subject == "Upgrade: Inception"
+    assert "Mise à jour : Inception" in html
 
 
 @pytest.mark.asyncio
@@ -301,13 +319,13 @@ async def test_send_available_episode_scope_details_tag():
     """scope='episode' avec saison/épisode → {details_saison_episode} renseigné dans le corps."""
     s = _settings(email_available_template="{titre} {details_saison_episode}")
     req = _req(media_type="show", title="Breaking Bad")
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(
             s, req, "dest@example.com", scope="episode", season_number=1, episode_number=3
         )
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "Saison 1, Épisode 3" in body
+    html = mock_send.call_args[0][4]
+    assert "Saison 1, Épisode 3" in html
 
 
 @pytest.mark.asyncio
@@ -323,7 +341,7 @@ async def test_series_complete_uses_dedicated_template_and_variables():
         "complete_seasons": [1, 2, 3, 4, 5],
         "expected_seasons": [1, 2, 3, 4, 5],
     }
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_available_notification(
             settings,
             request,
@@ -333,10 +351,9 @@ async def test_series_complete_uses_dedicated_template_and_variables():
             availability_details=details,
         )
 
-    message = mock_send.call_args[0][0]
-    assert message["Subject"] == "Serie complete : Breaking Bad"
-    body = message.get_payload(0).get_payload(decode=True).decode()
-    assert "Serie terminee : Breaking Bad (5/5)" in body
+    _db, _sender, _recipient, subject, html = mock_send.call_args[0]
+    assert subject == "Serie complete : Breaking Bad"
+    assert "Serie terminee : Breaking Bad (5/5)" in html
 
 
 # ---------------------------------------------------------------------------
@@ -346,58 +363,30 @@ async def test_series_complete_uses_dedicated_template_and_variables():
 
 @pytest.mark.asyncio
 async def test_send_failure_includes_reason():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_failure_notification(_settings(), _req(), "dest@example.com", reason="Sonarr injoignable")
 
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "Sonarr injoignable" in body
+    html = mock_send.call_args[0][4]
+    assert "Sonarr injoignable" in html
 
 
 @pytest.mark.asyncio
 async def test_send_failure_subject_contains_title():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_failure_notification(_settings(), _req(), "dest@example.com")
 
-    assert "Inception" in mock_send.call_args[0][0]["Subject"]
+    assert "Inception" in mock_send.call_args[0][3]
 
 
 @pytest.mark.asyncio
 async def test_send_failure_uses_custom_template_and_subject():
     s = _settings(email_failure_template="Échec : {titre} - {raison}", email_failure_subject="Alerte : {titre}")
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_failure_notification(s, _req(), "dest@example.com", reason="Erreur API")
 
-    msg = mock_send.call_args[0][0]
-    assert msg["Subject"] == "Alerte : Inception"
-    body = msg.get_payload(0).get_payload(decode=True).decode()
-    assert "Échec : Inception - Erreur API" in body
-
-
-# ---------------------------------------------------------------------------
-# _send — configuration SMTP (TLS/SSL)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_send_uses_starttls_when_smtp_tls_true():
-    """smtp_tls=True → start_tls=True, use_tls=False passé à aiosmtplib."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_request_notification(_settings(smtp_tls=True), _req(), "dest@example.com")
-
-    kwargs = mock_send.call_args[1]
-    assert kwargs["start_tls"] is True
-    assert kwargs["use_tls"] is False
-
-
-@pytest.mark.asyncio
-async def test_send_uses_ssl_when_smtp_tls_false():
-    """smtp_tls=False → use_tls=True, start_tls=False (SSL direct, port 465)."""
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
-        await send_request_notification(_settings(smtp_tls=False), _req(), "dest@example.com")
-
-    kwargs = mock_send.call_args[1]
-    assert kwargs["use_tls"] is True
-    assert kwargs["start_tls"] is False
+    _db, _sender, _recipient, subject, html = mock_send.call_args[0]
+    assert subject == "Alerte : Inception"
+    assert "Échec : Inception - Erreur API" in html
 
 
 # ---------------------------------------------------------------------------
@@ -432,35 +421,12 @@ def test_build_correction_email_includes_corrections_and_subject():
 
 @pytest.mark.asyncio
 async def test_send_correction_notification_sends_email():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()) as mock_send:
+    with _patch_send() as mock_send:
         await send_correction_notification(
             _settings(), _req(), "dest@example.com", "Alice", ["Son corrigé"], correction_note="Fichier remplacé"
         )
 
-    mock_send.assert_called_once()
-    body = mock_send.call_args[0][0].get_payload(0).get_payload(decode=True).decode()
-    assert "Son corrigé" in body
-    assert "Fichier remplacé" in body
-
-
-# ---------------------------------------------------------------------------
-# test_smtp
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_smtp_connection_check_success():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock()):
-        ok, message = await smtp_test_connection(_settings(), "dest@example.com")
-
-    assert ok is True
-    assert "dest@example.com" in message
-
-
-@pytest.mark.asyncio
-async def test_smtp_connection_check_failure_returns_error_message():
-    with patch("app.services.email_service.aiosmtplib.send", new=AsyncMock(side_effect=Exception("auth failed"))):
-        ok, message = await smtp_test_connection(_settings(), "dest@example.com")
-
-    assert ok is False
-    assert "auth failed" in message
+    mock_send.assert_awaited_once()
+    html = mock_send.call_args[0][4]
+    assert "Son corrigé" in html
+    assert "Fichier remplacé" in html

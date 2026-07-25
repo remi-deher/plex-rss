@@ -22,7 +22,7 @@ describe('settingsForm', () => {
     apiMock.mockResolvedValueOnce({
       plex_url: 'http://plex.local',
       plex_token: '••••••••',
-      smtp_password: '••••••••',
+      tmdb_api_key: '••••••••',
       email_enabled: true,
     });
 
@@ -33,9 +33,9 @@ describe('settingsForm', () => {
     // Un champ secret n'est jamais affiche, meme masque : sa presence est portee par
     // `secretsPresent`, pas par la valeur du formulaire (voir commentaire du fichier).
     expect(form.plex_token).toBe('');
-    expect(form.smtp_password).toBe('');
+    expect(form.tmdb_api_key).toBe('');
     expect(secretsPresent.plex_token).toBe(true);
-    expect(secretsPresent.smtp_password).toBe(true);
+    expect(secretsPresent.tmdb_api_key).toBe(true);
   });
 
   it('load() marque un secret absent comme non-present', async () => {

@@ -1,16 +1,14 @@
 import asyncio
 import logging
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
-import aiosmtplib
 import markdown
 from jinja2 import TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 
+from ..database import AsyncSessionLocal
 from ..models import LibraryItem, MediaRequest, Settings
 from ..utils import mask_email
-from . import audio_analyzer, plex_finder
+from . import audio_analyzer, email_providers, plex_finder
 from .diagnostics import request_context
 
 logger = logging.getLogger(__name__)
@@ -633,31 +631,12 @@ async def send_available_notification(
 
 
 async def _send(settings: Settings, recipient: str, subject: str, html: str):
-    if not all([settings.smtp_host, settings.smtp_user, settings.smtp_password, settings.smtp_from]):
-        # Lever plutôt que retourner silencieusement : un retour silencieux remonte comme un
-        # succès jusqu'à _send_with_retry (aucune exception = tentative réussie), ce qui fait
-        # poser request_mail_sent/available_mail_sent=True et logger un NotificationLog
-        # success=True alors qu'aucun email n'a été envoyé — perte silencieuse indétectable
-        # tant que la config SMTP reste incomplète (champ manquant après une sauvegarde
-        # partielle, rotation de mot de passe qui vide le champ, etc.).
-        raise RuntimeError("Configuration SMTP incomplète (host/user/password/from) — email non envoyé")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = settings.smtp_from
-    msg["To"] = recipient
-    msg.attach(MIMEText(html, "html"))
-
+    # Aucune session ambiante disponible à cet endroit de la pile (appelé depuis des
+    # jobs planifiés comme depuis des requêtes HTTP) : session dédiée, comme
+    # microsoft_oauth.store_tokens.
     try:
-        await aiosmtplib.send(
-            msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_user,
-            password=settings.smtp_password,
-            use_tls=not settings.smtp_tls,
-            start_tls=settings.smtp_tls,
-        )
+        async with AsyncSessionLocal() as db:
+            await email_providers.send_with_fallback(db, settings.smtp_from, recipient, subject, html)
         logger.info(f"Email sent to {mask_email(recipient)}: {subject}")
     except Exception as e:
         logger.error(f"Email send failed: {e}")
@@ -788,24 +767,3 @@ async def send_correction_notification(
         episode_number=episode_number,
     )
     await _send(settings, recipient, subject, html)
-
-
-async def test_smtp(settings: Settings, test_recipient: str) -> tuple[bool, str]:
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "[Plexarr] Test SMTP"
-        msg["From"] = settings.smtp_from
-        msg["To"] = test_recipient
-        msg.attach(MIMEText("<p>Configuration SMTP opérationnelle.</p>", "html"))
-        await aiosmtplib.send(
-            msg,
-            hostname=settings.smtp_host,
-            port=settings.smtp_port,
-            username=settings.smtp_user,
-            password=settings.smtp_password,
-            use_tls=not settings.smtp_tls,
-            start_tls=settings.smtp_tls,
-        )
-        return True, f"Email envoyé à {test_recipient}"
-    except Exception as e:
-        return False, str(e)

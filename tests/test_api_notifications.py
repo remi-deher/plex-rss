@@ -77,14 +77,7 @@ def _make_user(
 
 
 def _make_settings():
-    return Settings(
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-        smtp_user="user@example.com",
-        smtp_password="pass",
-        smtp_from="noreply@example.com",
-        smtp_tls=True,
-    )
+    return Settings(smtp_from="noreply@example.com")
 
 
 def _make_req(req_id=42, title="Inception", media_type="movie"):

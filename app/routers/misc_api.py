@@ -20,6 +20,7 @@ from ..dependencies import get_current_plex_user, require_admin, require_auth
 from ..i18n import SUPPORTED_LOCALES, catalog, normalize_locale
 from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeStatus
 from ..serializers import format_datetime
+from ..services import email_providers
 from ..utils import now_utc_naive, safe_error_message, wrap_image_proxy
 
 # Hôtes d'images externes connus et de confiance (CDN TMDB) — voir _allowed_image_hosts
@@ -177,7 +178,7 @@ async def onboarding_status(db: AsyncSession = Depends(get_db_async), _: None = 
         {"id": "rss", "label": "Flux RSS Plex configuré", "done": bool(s and s.plex_rss_url)},
         {"id": "sonarr", "label": "Sonarr configuré", "done": has_sonarr},
         {"id": "radarr", "label": "Radarr configuré", "done": has_radarr},
-        {"id": "smtp", "label": "Email (SMTP) configuré", "done": bool(s and s.smtp_host)},
+        {"id": "smtp", "label": "Email (SMTP) configuré", "done": await email_providers.has_enabled_provider(db)},
         {"id": "users", "label": "Au moins un utilisateur détecté", "done": users_count > 0},
         {
             "id": "webhooks",

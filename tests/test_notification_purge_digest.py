@@ -8,6 +8,7 @@ import pytest
 from app.models import (
     AdminActionLog,
     DiagnosticEvent,
+    EmailProvider,
     JobRunLog,
     LoginAttempt,
     MediaRequest,
@@ -23,15 +24,25 @@ def _settings(**kwargs):
     defaults = {
         "digest_enabled": True,
         "email_enabled": True,
+        "smtp_from": "noreply@example.com",
+    }
+    defaults.update(kwargs)
+    return Settings(**defaults)
+
+
+def _provider(**kwargs):
+    defaults = {
+        "name": "Test SMTP",
+        "provider_type": "smtp",
+        "enabled": True,
         "smtp_host": "smtp.example.com",
         "smtp_port": 587,
         "smtp_user": "user@example.com",
         "smtp_password": "password",
-        "smtp_from": "noreply@example.com",
         "smtp_tls": True,
     }
     defaults.update(kwargs)
-    return Settings(**defaults)
+    return EmailProvider(**defaults)
 
 
 def _request(**kwargs):
@@ -159,17 +170,27 @@ async def test_digest_skips_without_settings():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "settings",
-    [
-        _settings(digest_enabled=False),
-        _settings(email_enabled=False),
-        _settings(smtp_host=None),
-    ],
-)
-async def test_digest_skips_when_disabled_or_smtp_incomplete(settings):
+@pytest.mark.parametrize("settings_kwargs", [{"digest_enabled": False}, {"email_enabled": False}])
+async def test_digest_skips_when_disabled(settings_kwargs):
     db = make_test_session()
-    db.add(settings)
+    db.add(_settings(**settings_kwargs))
+    db.add(_provider())
+    db.add(_request())
+    db.commit()
+    send = AsyncMock()
+    with (
+        patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db),
+        patch("app.services.email_service._send", send),
+    ):
+        await _send_digest()
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_digest_skips_without_enabled_email_provider():
+    """Aucun fournisseur d'email actif configuré → digest sauté (email_service._send lèverait sinon)."""
+    db = make_test_session()
+    db.add(_settings())
     db.add(_request())
     db.commit()
     send = AsyncMock()
@@ -185,6 +206,7 @@ async def test_digest_skips_when_disabled_or_smtp_incomplete(settings):
 async def test_digest_skips_without_recent_requests():
     db = make_test_session()
     db.add(_settings())
+    db.add(_provider())
     db.add(_request(requested_at=datetime.now() - timedelta(days=2)))
     db.add(PlexUser(plex_user_id="alice", enabled=True, notify_digest=True, notification_email="a@example.com"))
     db.commit()
@@ -201,6 +223,7 @@ async def test_digest_skips_without_recent_requests():
 async def test_digest_sends_to_subscribers_and_uses_plex_email_fallback():
     db = make_test_session()
     db.add(_settings())
+    db.add(_provider())
     db.add(_request(title="Breaking Bad"))
     db.add_all(
         [
@@ -225,6 +248,7 @@ async def test_digest_sends_to_subscribers_and_uses_plex_email_fallback():
 async def test_digest_continues_after_smtp_failure():
     db = make_test_session()
     db.add(_settings())
+    db.add(_provider())
     db.add(_request())
     db.add_all(
         [
