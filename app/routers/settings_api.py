@@ -4,12 +4,12 @@ import secrets
 from typing import Optional
 
 import httpx
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
@@ -125,6 +125,8 @@ class SettingsUpdate(BaseModel):
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
     poll_history_retention_days: Optional[int] = None
+    login_attempt_retention_days: Optional[int] = None
+    audit_log_retention_days: Optional[int] = None
     arr_poll_interval_seconds: Optional[int] = None
     # --- RSS Output ---
     rss_hash: Optional[str] = None
@@ -235,6 +237,8 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
         # ci-dessous, laissant l'ancienne valeur numerique en base pour toujours.
         "notification_log_retention_days",
         "poll_history_retention_days",
+        "login_attempt_retention_days",
+        "audit_log_retention_days",
     }
     payload = data.model_dump()
     _validate_notify_settings(payload)
@@ -245,7 +249,12 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
         # par l'utilisateur) ne doit jamais ecraser le secret reel stocke en base.
         if key in _MASKED_SECRET_FIELDS and val == "••••••••":
             continue
-        if key in ("notification_log_retention_days", "poll_history_retention_days") and val == 0:
+        if key in (
+            "notification_log_retention_days",
+            "poll_history_retention_days",
+            "login_attempt_retention_days",
+            "audit_log_retention_days",
+        ) and val == 0:
             val = None
         if key == "seer_mode" and val not in ("observer", "actor"):
             continue

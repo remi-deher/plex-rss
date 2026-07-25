@@ -5,7 +5,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models import MediaRequest, NotificationLog, PlexUser, Settings
+from app.models import (
+    AdminActionLog,
+    DiagnosticEvent,
+    JobRunLog,
+    LoginAttempt,
+    MediaRequest,
+    NotificationLog,
+    PlexUser,
+    Settings,
+)
 from app.scheduler import _purge_notification_logs, _send_digest
 from tests.async_support import make_test_session
 
@@ -71,6 +80,70 @@ async def test_purge_deletes_only_expired_logs():
     with patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db):
         await _purge_notification_logs()
     assert [row.recipient for row in db.query(NotificationLog).all()] == ["new@example.com"]
+
+
+@pytest.mark.asyncio
+async def test_purge_deletes_expired_login_attempts():
+    db = make_test_session()
+    db.add(_settings(notification_log_retention_days=None, poll_history_retention_days=None, login_attempt_retention_days=90))
+    db.add_all(
+        [
+            LoginAttempt(ip_address="1.2.3.4", attempted_at=datetime.now() - timedelta(days=91)),
+            LoginAttempt(ip_address="5.6.7.8", attempted_at=datetime.now() - timedelta(days=2)),
+        ]
+    )
+    db.commit()
+    with patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db):
+        await _purge_notification_logs()
+    assert [row.ip_address for row in db.query(LoginAttempt).all()] == ["5.6.7.8"]
+
+
+@pytest.mark.asyncio
+async def test_purge_keeps_login_attempts_when_retention_disabled():
+    db = make_test_session()
+    db.add(_settings(notification_log_retention_days=None, poll_history_retention_days=None))
+    db.add(LoginAttempt(ip_address="1.2.3.4", attempted_at=datetime.now() - timedelta(days=400)))
+    db.commit()
+    # La retention IP a un default colonne 90 (applique a l'INSERT) ; on la desactive
+    # explicitement via UPDATE (chemin reel = champ vide dans l'UI -> null) avant purge.
+    db.query(Settings).first().login_attempt_retention_days = None
+    db.commit()
+    with patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db):
+        await _purge_notification_logs()
+    assert db.query(LoginAttempt).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_deletes_expired_audit_logs():
+    db = make_test_session()
+    db.add(_settings(notification_log_retention_days=None, poll_history_retention_days=None, login_attempt_retention_days=None, audit_log_retention_days=30))
+    old, recent = datetime.now() - timedelta(days=31), datetime.now() - timedelta(days=2)
+    db.add_all(
+        [
+            AdminActionLog(action="delete", summary="old", created_at=old),
+            AdminActionLog(action="delete", summary="recent", created_at=recent),
+            DiagnosticEvent(category="arr", action="submit", created_at=old),
+            JobRunLog(job="watchlist", started_at=old, status="complete"),
+            JobRunLog(job="watchlist", started_at=recent, status="complete"),
+        ]
+    )
+    db.commit()
+    with patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db):
+        await _purge_notification_logs()
+    assert [row.summary for row in db.query(AdminActionLog).all()] == ["recent"]
+    assert db.query(DiagnosticEvent).count() == 0
+    assert db.query(JobRunLog).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_keeps_audit_logs_when_retention_disabled():
+    db = make_test_session()
+    db.add(_settings(notification_log_retention_days=None, poll_history_retention_days=None, login_attempt_retention_days=None, audit_log_retention_days=None))
+    db.add(AdminActionLog(action="delete", summary="kept", created_at=datetime.now() - timedelta(days=400)))
+    db.commit()
+    with patch("app.services.notification_orchestrator.AsyncSessionLocal", return_value=db):
+        await _purge_notification_logs()
+    assert db.query(AdminActionLog).count() == 1
 
 
 @pytest.mark.asyncio

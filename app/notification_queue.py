@@ -41,7 +41,7 @@ from .services.notifications import (
     send_telegram,
     send_telegram_to_chat,
 )
-from .utils import now_utc, now_utc_naive, parse_email_list
+from .utils import mask_email, now_utc, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -390,7 +390,7 @@ async def _send_with_retry(
             sender = EMAIL_SENDERS.get(event)
             if sender:
                 await sender(settings, req, recipient, context, display_name)
-            logger.info(f"Notification [{event}] envoyée à {recipient} pour '{req.title}' (tentative {attempt + 1})")
+            logger.info(f"Notification [{event}] envoyée à {mask_email(recipient)} pour '{req.title}' (tentative {attempt + 1})")
             return True, None
         except Exception as e:
             error_msg = str(e)

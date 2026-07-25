@@ -1,19 +1,28 @@
-import sqlalchemy
 import json
 from datetime import timedelta
 from typing import Optional
 
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
 
 from ..database import get_db_async
 from ..dependencies import require_admin
-from ..models import MediaIssue, MediaRequest, NotificationLog, NotificationMilestone, PasskeyCredential, PlexUser, Settings
+from ..models import (
+    MediaIssue,
+    MediaRequest,
+    NotificationLog,
+    NotificationMilestone,
+    PasskeyCredential,
+    PlexUser,
+    Settings,
+)
 from ..serializers import format_datetime, request_status_value, serialize_plex_user
 from ..services.email_service import _send as smtp_send
+from ..services.gdpr import erase_user_data, export_user_data
 from ..services.seer import get_user_requests as seer_get_user_requests
 from ..services.seer import get_users as seer_get_users
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
@@ -357,9 +366,33 @@ async def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: AsyncSe
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
     user = await async_get_or_404(db, PlexUser, user_id, "User not found")
+    # Effacement RGPD (Art. 17) : purge les données personnelles dispersées (demandes,
+    # journaux de notification, jalons, signalements, passkeys) avant de retirer le compte.
+    erased = await erase_user_data(db, user)
     await db.delete(user)
     await db.commit()
-    return {"status": "deleted"}
+    return {"status": "deleted", "erased": erased}
+
+
+@router.get("/users/{user_id}/data-export")
+async def export_single_user_data(user_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Export RGPD (droit d'accès / portabilité, Art. 15 & 20) d'une seule personne.
+
+    Contrairement à /api/export (toute l'instance), ne renvoie que le sous-ensemble
+    rattaché à cette personne, sans secret — pour répondre à une demande d'accès."""
+    import json
+
+    from fastapi.responses import StreamingResponse
+
+    user = await async_get_or_404(db, PlexUser, user_id, "User not found")
+    payload = await export_user_data(db, user)
+    content = json.dumps(payload, indent=2, default=str, ensure_ascii=False)
+    filename = f"plexarr-donnees-{user.plex_user_id}-{now_utc_naive().strftime('%Y%m%d')}.json"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.post("/seer/sync/users")
@@ -797,7 +830,7 @@ async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSessi
     users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:
         raise HTTPException(404, "Aucun utilisateur trouvé.")
-    
+
     update_fields = {}
     if payload.can_login is not None:
         update_fields["can_login"] = payload.can_login
@@ -807,10 +840,10 @@ async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSessi
         if payload.role not in ("admin", "user"):
             raise HTTPException(400, "Role utilisateur invalide.")
         update_fields["role"] = payload.role
-        
+
     if not update_fields:
         return {"updated": 0}
-        
+
     for user in users:
         for field, value in update_fields.items():
             setattr(user, field, value)
@@ -828,8 +861,9 @@ async def bulk_delete_users(payload: BulkDeleteUpdate, db: AsyncSession = Depend
         raise HTTPException(404, "Aucun utilisateur trouvé.")
     count = len(users)
     for user in users:
-        # Also clean up credentials
-        await db.execute(sqlalchemy.delete(PasskeyCredential).filter(PasskeyCredential.user_id == user.id))
+        # Effacement RGPD complet (demandes, notifs, jalons, signalements, passkeys),
+        # pas seulement les credentials — voir services/gdpr.erase_user_data.
+        await erase_user_data(db, user)
         await db.delete(user)
     await db.commit()
     return {"deleted": count}

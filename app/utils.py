@@ -70,6 +70,21 @@ async def async_get_or_404(
     return obj
 
 
+def mask_email(value: str | None) -> str:
+    """Masque une adresse email pour la journalisation (RGPD / minimisation).
+
+    `alice.dupont@example.com` -> `a***@example.com`. Conserve juste assez pour
+    diagnostiquer (initiale + domaine) sans écrire l'email en clair dans des logs
+    applicatifs qui, contrairement aux tables en base, échappent à la rétention
+    configurable. Toute valeur non-email est retournée telle quelle.
+    """
+    if not value or "@" not in value:
+        return value or ""
+    local, _, domain = value.partition("@")
+    prefix = local[0] if local else ""
+    return f"{prefix}***@{domain}"
+
+
 def parse_email_list(raw: str | None) -> list[str]:
     """Parse une chaîne d'emails séparés par virgules en liste nettoyée.
 

@@ -9,6 +9,7 @@ from jinja2 import TemplateError
 from jinja2.sandbox import SandboxedEnvironment
 
 from ..models import LibraryItem, MediaRequest, Settings
+from ..utils import mask_email
 from . import audio_analyzer, plex_finder
 from .diagnostics import request_context
 
@@ -657,7 +658,7 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
             use_tls=not settings.smtp_tls,
             start_tls=settings.smtp_tls,
         )
-        logger.info(f"Email sent to {recipient}: {subject}")
+        logger.info(f"Email sent to {mask_email(recipient)}: {subject}")
     except Exception as e:
         logger.error(f"Email send failed: {e}")
         raise

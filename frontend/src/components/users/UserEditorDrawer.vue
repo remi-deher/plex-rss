@@ -17,6 +17,7 @@
       </div>
       <div class="actions">
         <button class="primary" :disabled="busy" @click="$emit('save')"><Save/>Enregistrer</button>
+        <a v-if="!creating && editing.id" class="secondary" :href="`/api/users/${editing.id}/data-export`" :download="`plexarr-donnees-${editing.plex_user_id||editing.id}.json`" title="Exporter les données de cette personne (RGPD, droit d'accès)"><Download/>Exporter les données</a>
         <button v-if="!creating" class="secondary danger" @click="$emit('delete')"><Trash2/>Supprimer</button>
       </div>
       <div v-if="!creating" class="notification-history">
@@ -81,7 +82,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
-import { Link, MailCheck, Merge, RefreshCw, Save, Trash2, Unlink } from '@lucide/vue';
+import { Download, Link, MailCheck, Merge, RefreshCw, Save, Trash2, Unlink } from '@lucide/vue';
 import DrawerShell from '@/components/DrawerShell.vue';
 
 const props = defineProps({

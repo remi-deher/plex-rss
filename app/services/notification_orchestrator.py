@@ -3,15 +3,27 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
 from ..job_queue import availability_notification_is_historical
-from ..models import MediaRequest, NotificationLog, NotificationMilestone, PlexUser, PollHistory, Settings
+from ..models import (
+    AdminActionLog,
+    DiagnosticEvent,
+    JobRunLog,
+    LoginAttempt,
+    MediaRequest,
+    NotificationLog,
+    NotificationMilestone,
+    PlexUser,
+    PollHistory,
+    Settings,
+)
 from ..notification_queue import enqueue
-from ..utils import now_utc, now_utc_naive, parse_email_list
+from ..utils import mask_email, now_utc, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +107,9 @@ async def _send_digest():
                     continue
                 try:
                     await smtp_send(settings, recipient, subject, html)
-                    logger.info(f"Digest envoyé à {recipient}")
+                    logger.info(f"Digest envoyé à {mask_email(recipient)}")
                 except Exception as e:
-                    logger.error(f"Digest échec pour {recipient}: {e}")
+                    logger.error(f"Digest échec pour {mask_email(recipient)}: {e}")
     except Exception as e:
         logger.error(f"Erreur job digest : {e}")
 
@@ -125,6 +137,31 @@ async def _purge_notification_logs():
                 deleted_polls = int(result.rowcount or 0)
                 if deleted_polls:
                     await db.commit()
+
+            # RGPD : tentatives de connexion = adresses IP, rétention bornée (Art. 5-1-e).
+            ip_days = settings.login_attempt_retention_days
+            if ip_days:
+                ip_cutoff = now_utc_naive() - timedelta(days=ip_days)
+                result = await db.execute(
+                    sqlalchemy.delete(LoginAttempt).filter(LoginAttempt.attempted_at < ip_cutoff)
+                )
+                deleted_ip = int(result.rowcount or 0)
+                if deleted_ip:
+                    await db.commit()
+                    logger.info(f"Purge tentatives de connexion : {deleted_ip} entrées supprimées (>{ip_days}j)")
+
+            # Journaux d'audit & diagnostic (None = conservation indéfinie).
+            audit_days = settings.audit_log_retention_days
+            if audit_days:
+                audit_cutoff = now_utc_naive() - timedelta(days=audit_days)
+                for model, ts_column in (
+                    (AdminActionLog, AdminActionLog.created_at),
+                    (DiagnosticEvent, DiagnosticEvent.created_at),
+                    (JobRunLog, JobRunLog.started_at),
+                ):
+                    result = await db.execute(sqlalchemy.delete(model).filter(ts_column < audit_cutoff))
+                    if int(result.rowcount or 0):
+                        await db.commit()
 
             from .download_history import purge_old_entries
 

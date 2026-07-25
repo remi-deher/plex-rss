@@ -426,6 +426,7 @@ Les contributions sont décrites dans [CONTRIBUTING.md](CONTRIBUTING.md). Pour l
 - Limitez l’exposition directe de PostgreSQL et Redis : aucun port hôte n’est nécessaire.
 - Sauvegardez `PLEXARR_ENCRYPTION_KEY` séparément des dumps PostgreSQL.
 - Consultez les alertes Dependabot, CodeQL et Trivy avant une mise à jour majeure.
+- Conformité RGPD : un modèle de registre des traitements est fourni dans [docs/RGPD_REGISTRE.md](docs/RGPD_REGISTRE.md). Renseignez le contact du responsable de traitement dans **Réglages → RGPD** (il alimente la page publique `/privacy`).
 
 ## Licence
 

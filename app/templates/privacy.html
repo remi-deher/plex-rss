@@ -130,7 +130,8 @@
       <li>Historique de vos demandes de films/séries et leur statut</li>
       <li>Préférences de notification (canaux activés, granularité VF/VO)</li>
       <li>Journaux techniques (connexions, erreurs) à des fins de diagnostic, avec une durée de conservation limitée et configurable</li>
-      <li>Adresse IP et horodatage de vos tentatives de connexion, à des fins de sécurité (protection contre les tentatives d'accès abusives)</li>
+      <li>Adresse IP et horodatage de vos tentatives de connexion, à des fins de sécurité (protection contre les tentatives d'accès abusives),
+      {% if login_attempt_retention_days %}conservées <strong>{{ login_attempt_retention_days }} jour(s)</strong> puis supprimées automatiquement{% else %}conservées jusqu'à purge manuelle par l'administrateur{% endif %}</li>
     </ul>
 
     <h2>Base légale</h2>

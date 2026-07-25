@@ -9,7 +9,24 @@ couverture sur leurs branches de rejet).
 import httpx
 import pytest
 
-from app.utils import safe_error_message, safe_redirect_path
+from app.utils import mask_email, safe_error_message, safe_redirect_path
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("alice.dupont@example.com", "a***@example.com"),
+        ("bob@sub.domain.fr", "b***@sub.domain.fr"),
+        ("x@y.z", "x***@y.z"),
+        # Non-emails / vides : retournes tels quels (identifiants push, chat_id...).
+        ("", ""),
+        (None, ""),
+        ("123456789", "123456789"),
+        ("https://discord.com/api/webhooks/xxx", "https://discord.com/api/webhooks/xxx"),
+    ],
+)
+def test_mask_email(value, expected):
+    assert mask_email(value) == expected
 
 
 @pytest.mark.parametrize(

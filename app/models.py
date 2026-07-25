@@ -254,6 +254,16 @@ class Settings(Base):
     # --- Poll history retention ---
     poll_history_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
 
+    # --- Retention RGPD (donnees personnelles / journaux) ---
+    # Tentatives de connexion = adresses IP (donnee personnelle) : rétention BORNÉE par
+    # défaut (90 j), contrairement aux autres retentions à None=indéfini — conserver des IP
+    # sans limite n'est justifiable ni par la finalité anti-abus, ni par le principe de
+    # minimisation (Art. 5-1-e). 0/None = conservation indéfinie (déconseillé).
+    login_attempt_retention_days: Mapped[Optional[int]] = mapped_column(default=90)
+    # Journaux d'audit & diagnostic (admin_action_logs, diagnostic_events, job_run_logs).
+    # None = conservation indéfinie (trace d'imputabilité), configurable pour les purger.
+    audit_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
+
     # --- Authentification ---
     auth_username: Mapped[Optional[str]]
     auth_password_hash: Mapped[Optional[str]]
