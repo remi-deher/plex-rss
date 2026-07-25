@@ -425,6 +425,14 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                                 "'%s' est partiellement disponible (%s/%s episodes)",
                                 req.title, req.episodes_available_count, req.episodes_total_count,
                             )
+                        # Série en cours de diffusion : au moins un épisode déjà présent
+                        # (available=True) donc on ne passe jamais par le else ci-dessous.
+                        # Sans cet appel, next_release_at ne serait jamais alimenté pour
+                        # les séries partiellement disponibles, qui n'apparaîtraient donc
+                        # jamais dans /api/upcoming (dashboard "Prochaines sorties").
+                        await _refresh_next_release(
+                            req, settings, series_list=series_list, movies_list=movies_list, inst=inst
+                        )
                         await db.commit()
                     elif not was_already_available:
                         await transition_request(

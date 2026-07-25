@@ -21,12 +21,19 @@ router = APIRouter(prefix="/api", tags=["calendar"], dependencies=[Depends(requi
 
 @router.get("/upcoming")
 async def upcoming_releases(db: AsyncSession = Depends(get_db_async), limit: int = 8):
-    """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles."""
+    """Retourne les prochaines sorties parmi les demandes transmises mais pas encore disponibles.
+
+    Inclut aussi les séries `partially_available` (en cours de diffusion) : une série
+    dont certains épisodes sont déjà disponibles a quand même un prochain épisode à
+    venir, alimenté par `next_release_at` (voir `_refresh_next_release`). S'en tenir à
+    `sent_to_arr` exclurait quasi toutes les séries suivies, qui quittent ce statut dès
+    le premier épisode importé.
+    """
     rows = (
         await db.execute(
             select(MediaRequest)
             .filter(
-                MediaRequest.status == RequestStatus.sent_to_arr,
+                MediaRequest.status.in_([RequestStatus.sent_to_arr, RequestStatus.partially_available]),
                 MediaRequest.next_release_at.isnot(None),
                 MediaRequest.next_release_at > now_utc_naive(),
             )
