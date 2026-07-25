@@ -207,13 +207,25 @@ async def job_arr_statuses(ctx: dict, force: bool = False, run_id: str | None = 
 
     settings = await _settings()
     interval = (settings.arr_poll_interval_seconds if settings else None) or 900
+    # Déclenché depuis Maintenance ("Actualiser", run_id renseigné) : un vrai resync
+    # complet, silencieux. cron_arr_statuses (run_id absent) appelle cette même fonction
+    # sans run_id pour le cycle planifié normal — _run() ne transmet jamais force/
+    # interval_seconds à check_arr_statuses (ils ne pilotent que le throttling de _run
+    # elle-même), donc sans ceci le bouton "Actualiser" ne faisait qu'un cycle normal
+    # limité aux demandes sent_to_arr/partially_available, avec notify=True par défaut
+    # -- ni resync complet des séries "Disponible", ni suppression du risque de notifier.
+    is_manual_resync = run_id is not None
+
+    async def _call():
+        return await check_arr_statuses(full_resync=is_manual_resync, notify=not is_manual_resync)
+
     return await _manual_result(
         run_id,
         action,
         _run(
             ctx,
             "arr-statuses",
-            check_arr_statuses,
+            _call,
             force=force,
             interval_seconds=interval,
             event_type="request.updated",

@@ -143,6 +143,51 @@ async def test_job_arr_statuses_falls_back_to_default_without_settings():
 
 
 @pytest.mark.asyncio
+async def test_job_arr_statuses_manual_run_id_triggers_silent_full_resync():
+    """Régression : le bouton Maintenance "Actualiser" (job_arr_statuses appelé avec un
+    run_id) doit lancer un vrai resync complet et silencieux. _run() ne transmet jamais
+    force/interval_seconds à la fonction passée (ils ne pilotent que son propre
+    throttling) — sans ce correctif, un déclenchement manuel exécutait le même cycle
+    limité (sent_to_arr/partially_available uniquement) que le cron planifié, avec
+    notify=True par défaut : aucun resync des séries déjà "Disponible", et risque réel
+    de notifications envoyées alors que l'UI promet un resync silencieux."""
+    captured = {}
+
+    async def _fake_run(ctx, name, function, **kwargs):
+        captured["result"] = await function()
+        return {"status": "complete"}
+
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=None)),
+        patch("app.jobs._run", new=_fake_run),
+        patch("app.jobs.publish", new=AsyncMock()),
+        patch("app.job_queue.set_json", new=AsyncMock()),
+        patch("app.services.arr_tracker.check_arr_statuses", new=AsyncMock(return_value="sentinel")) as check_mock,
+    ):
+        await jobs.job_arr_statuses({"redis": FakeRedis()}, force=True, run_id="abc123", action="check-arr-statuses")
+
+    check_mock.assert_awaited_once_with(full_resync=True, notify=False)
+
+
+@pytest.mark.asyncio
+async def test_job_arr_statuses_scheduled_cron_keeps_normal_behavior():
+    """Le cycle planifié (cron_arr_statuses, sans run_id) ne doit pas devenir un resync
+    complet silencieux — seul un déclenchement manuel (run_id présent) le fait."""
+    async def _fake_run(ctx, name, function, **kwargs):
+        await function()
+        return {"status": "complete"}
+
+    with (
+        patch("app.jobs._settings", new=AsyncMock(return_value=None)),
+        patch("app.jobs._run", new=_fake_run),
+        patch("app.services.arr_tracker.check_arr_statuses", new=AsyncMock(return_value="sentinel")) as check_mock,
+    ):
+        await jobs.cron_arr_statuses({"redis": FakeRedis()})
+
+    check_mock.assert_awaited_once_with(full_resync=False, notify=True)
+
+
+@pytest.mark.asyncio
 async def test_sonarr_queue_monitor_runs_every_minute():
     with patch("app.jobs._run", new=AsyncMock(return_value={"status": "not_due"})) as run_mock:
         await jobs.job_sonarr_queue_monitor({"redis": FakeRedis()})
