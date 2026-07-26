@@ -19,13 +19,14 @@
     <div v-else class="breakdown-table" role="table" :aria-label="title">
       <div role="row" class="table-head"><span role="columnheader">Catégorie</span><span role="columnheader">Valeur</span><span role="columnheader">Part</span></div>
       <button v-for="item in normalized" :key="item.label" type="button" role="row" :disabled="item.grouped||!interactive" @click="select(item)">
-        <span role="cell">{{item.label}}</span><strong role="cell">{{formatValue(item.value)}}{{item.suffix||''}}</strong><span role="cell">{{item.percent.toLocaleString('fr-FR',{maximumFractionDigits:1})}} %</span>
+        <span role="cell">{{item.label}}</span><strong role="cell">{{formatValue(item.value)}}{{item.suffix||''}}</strong><span role="cell">{{formatValue(item.percent)}} %</span>
       </button>
     </div>
     <button v-if="hasHidden" type="button" class="show-all" @click="expanded=!expanded">{{expanded?'Réduire':`Afficher les ${items.length} catégories`}}</button>
   </section>
 </template>
 <script setup>
+import { formatNumber as formatValue } from '@/utils/format';
 import { ChartNoAxesColumnIncreasing,TableProperties } from '@lucide/vue';
 import { computed,onBeforeUnmount,onMounted,ref } from 'vue';
 const props=defineProps({title:{type:String,required:true},eyebrow:{type:String,default:''},items:{type:Array,default:()=>[]},emptyText:{type:String,default:'Aucune donnée.'},tone:{type:String,default:'accent'},interactive:{type:Boolean,default:false}});
@@ -34,7 +35,7 @@ const limit=computed(()=>viewport.value<=640?5:viewport.value<=1024?7:10),hasHid
 const visible=computed(()=>{if(expanded.value||!hasHidden.value)return props.items;const n=Math.max(1,limit.value-1),head=props.items.slice(0,n),tail=props.items.slice(n);return[...head,{label:'Autres',value:tail.reduce((s,x)=>s+Number(x.value||0),0),detail:`${tail.length} catégories regroupées`,grouped:true}]});
 const total=computed(()=>props.items.reduce((s,x)=>s+Number(x.value||0),0)||1),maximum=computed(()=>Math.max(1,...visible.value.map(x=>Number(x.value||0))));
 const normalized=computed(()=>visible.value.map(x=>({...x,percent:Number(x.value||0)/total.value*100,width:Math.max(x.value?4:0,Number(x.value||0)/maximum.value*100)})));
-function formatValue(v){return Number(v||0).toLocaleString('fr-FR',{maximumFractionDigits:1})}function select(x){if(props.interactive&&!x.grouped)emit('select',x.label)}function resize(){viewport.value=window.innerWidth}
+function select(x){if(props.interactive&&!x.grouped)emit('select',x.label)}function resize(){viewport.value=window.innerWidth}
 onMounted(()=>window.addEventListener('resize',resize,{passive:true}));onBeforeUnmount(()=>window.removeEventListener('resize',resize));
 </script>
 <style scoped>

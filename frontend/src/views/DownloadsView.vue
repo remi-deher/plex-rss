@@ -64,6 +64,7 @@
 </template>
 
 <script setup>
+import { formatDateTime as formatDate } from '@/utils/format';
 import { computed,onMounted,onUnmounted,ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { AlertTriangle,Clock3,Download,Link,RefreshCw,RotateCcw,X } from '@lucide/vue';
@@ -93,7 +94,6 @@ function needsEpisodeImport(row){return row.arr_type==='sonarr'&&statusKey(row)=
 function requiresIntervention(row){return isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)||statusKey(row)==='error'}
 function statusKey(row){const value=(row.status||'').toLowerCase();if(row.error||value.includes('error')||value.includes('warning')||value.includes('failed'))return'error';if(value.includes('pause'))return'paused';if(value.includes('queue'))return'queued';if((row.progress||0)>=100)return'completed';return'downloading'}
 function statusLabel(row){return({error:'Erreur',paused:'En pause',queued:'En file',completed:'Terminé',downloading:'En cours'})[statusKey(row)]}
-function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'}
 function queueDetailPath(row){if(row.library_id)return mediaDetailPath({library_id:row.library_id},'library');const id=row.request_id||row.linked_request_id;return id?mediaDetailPath({request_id:id},'request'):null}
 
 const instances=computed(()=>[...new Set(queue.value.map(x=>x.instance||x.download_client).filter(Boolean))]);

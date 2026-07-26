@@ -41,6 +41,7 @@
 </template>
 
 <script setup>
+import { formatDateTimeShort as formatDate } from '@/utils/format';
 import { computed, ref } from 'vue';
 import { CheckCheck, Send, Trash2 } from '@lucide/vue';
 
@@ -54,9 +55,6 @@ defineEmits(['resend', 'markHandled', 'deleteOne']);
 const selected = ref([]);
 const allSelected = computed(() => props.rows.length && props.rows.every(x => selected.value.includes(x.id)));
 
-function formatDate(v) {
-  return v ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(v)) : '-';
-}
 function context(row) {
   const c = row.context || {};
   return [c.scope, c.language, c.is_upgrade ? 'amelioration' : ''].filter(Boolean).join(' - ') || row.event_description || '';

@@ -48,6 +48,7 @@
 </template>
 
 <script setup>
+import { formatBytes } from '@/utils/format';
 import { computed } from 'vue';
 
 const props = defineProps({ volumes: { type: Array, default: () => [] } });
@@ -64,10 +65,4 @@ const categorized = computed(() => {
   return result;
 });
 
-function formatBytes(bytes) {
-  if (!bytes) return '0 Go';
-  const g = bytes / (1024 * 1024 * 1024);
-  if (g > 1024) return (g / 1024).toFixed(1) + ' To';
-  return g.toFixed(1) + ' Go';
-}
 </script>

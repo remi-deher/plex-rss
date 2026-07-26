@@ -14,13 +14,13 @@
 </template>
 
 <script setup>
+import { formatDurationHours as formatDuration } from '@/utils/format';
 import MediaArtwork from './MediaArtwork.vue';
 defineProps({
   items:{type:Array,default:()=>[]},
   title:{type:String,default:'Médias les plus regardés'},
   eyebrow:{type:String,default:'Consommation'},
 });
-function formatDuration(ms){const hours=(ms||0)/3600000;return hours<1?`${Math.round(hours*60)} min`:`${hours.toLocaleString('fr-FR',{maximumFractionDigits:1})} h`}
 </script>
 
 <style scoped>

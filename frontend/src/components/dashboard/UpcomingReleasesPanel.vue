@@ -23,12 +23,9 @@
 </template>
 
 <script setup>
+import { formatReleaseDate as formatUpcomingDate } from '@/utils/format';
 import { Film } from '@lucide/vue';
 
 defineProps({ items: { type: Array, default: () => [] } });
 
-function formatUpcomingDate(v) {
-  if (!v) return '-';
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(v));
-}
 </script>

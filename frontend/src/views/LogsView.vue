@@ -26,6 +26,7 @@
 </template>
 
 <script setup>
+import { formatDateTimeSeconds } from '@/utils/format';
 import { computed, onMounted, ref } from 'vue';
 import { RefreshCw, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
@@ -51,7 +52,7 @@ function endpoint() {
 async function load() { loading.value = true; error.value = ''; try { const data = await api(endpoint()); rows.value = Array.isArray(data) ? data : (data.items || []); } catch (e) { error.value = e.message; } finally { loading.value = false; } }
 async function purge() { if (!await askConfirm({ title: 'Purger la file de notifications ?', message: 'Toutes les notifications en attente seront supprimées définitivement.', confirmLabel: 'Purger la file', danger: true })) return; await api('/api/notifications/pending/purge', { method: 'POST', body: JSON.stringify({ ids: [], mark_handled: false }) }); await load(); }
 function keyOf(r) { return `${tab.value}-${r.id || r.time || r.created_at}-${r.message || r.action || r.job}`; }
-function dateOf(r) { const v = r.created_at || r.time || r.started_at; return v ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(v.replace?.(' ', 'T') || v)) : '-'; }
+function dateOf(r) { const v = r.created_at || r.time || r.started_at; return formatDateTimeSeconds(v && (v.replace?.(' ', 'T') || v)); }
 function typeOf(r) { if (tab.value === 'diagnostic') return ({ request: 'Demande', arr: 'Arr', plex: 'Plex', vf_vo: 'VF / VO', notification: 'Notification' }[r.category] || r.category || '-'); return r.level || r.job || r.action || r.event_label || r.event || '-'; }
 function titleOf(r) { return tab.value === 'diagnostic' ? (r.title || `Demande #${r.request_id || '-'}`) : (r.message || r.summary || r.media_title || `Demande #${r.req_id || '-'}`); }
 function detailOf(r) { if (tab.value === 'diagnostic') return `${r.action} — ${r.message || ''} ${r.details ? JSON.stringify(r.details) : ''}`; if (tab.value === 'app') return r.logger || ''; if (tab.value === 'polls') return r.error_detail || `${r.items_processed || 0} élément(s) traité(s)`; if (tab.value === 'audit') return r.actor_name || ''; return (r.recipients || []).join(', '); }

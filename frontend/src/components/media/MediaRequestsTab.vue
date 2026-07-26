@@ -105,6 +105,7 @@
 </template>
 
 <script setup>
+import { formatDate, formatDateTime } from '@/utils/format';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { Ban, Check, CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircle, RotateCcw, Search, Trash2, UserMinus, Users } from '@lucide/vue';
 
@@ -135,8 +136,6 @@ const arrSteps = [
   { key: 'awaiting_plex', label: 'Attente Plex' }, { key: 'completed', label: 'Disponible' },
 ];
 
-function formatDate(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-'; }
-function formatDateTime(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-'; }
 function requestStatusLabel(value) {
   return ({
     pending_approval: 'A approuver',

@@ -23,6 +23,7 @@
 </template>
 
 <script setup>
+import { formatDateTime as formatDate } from '@/utils/format';
 import { computed } from 'vue';
 import { Check, Circle, TriangleAlert } from '@lucide/vue';
 
@@ -32,9 +33,6 @@ const progressLabel = computed(() => {
   return current?.label || props.steps.at(-1)?.label || '';
 });
 
-function formatDate(value) {
-  return new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
-}
 </script>
 
 <style scoped>

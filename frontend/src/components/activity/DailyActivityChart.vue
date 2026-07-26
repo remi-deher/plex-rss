@@ -11,10 +11,10 @@
 </template>
 
 <script setup>
+import { formatDayMonth as shortDate } from '@/utils/format';
 import { computed } from 'vue';
 const props=defineProps({points:{type:Array,default:()=>[]}});
 const maximum=computed(()=>Math.max(1,...props.points.map(value=>value.sessions||0)));
-function shortDate(value){return value?new Intl.DateTimeFormat('fr-FR',{day:'2-digit',month:'2-digit'}).format(new Date(`${value}T12:00:00`)):''}
 </script>
 
 <style scoped>

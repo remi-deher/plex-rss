@@ -49,6 +49,7 @@
   </div>
 </template>
 <script setup>
+import { formatDateTime, formatDurationRoundHours as duration, formatFileSize as bytes, formatInteger as number } from '@/utils/format';
 import { computed,onMounted,reactive,ref } from 'vue';
 import { FileDown,Lightbulb,RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
@@ -62,9 +63,8 @@ const activeCount=computed(()=>[...params.value].length),exportUrl=computed(()=>
 function breakdown(k){return(data.value.distributions?.[k]||[]).map(x=>({label:x.label,value:x.count,detail:`${x.percent} % du catalogue filtré`}))}
 function applyChartFilter(chart,value){if(chart.filter){filters[chart.filter]=value;load()}}
 async function load(refresh=false){loading.value=true;error.value='';limit.value=100;try{const p=new URLSearchParams(params.value);if(refresh)p.set('refresh','true');data.value=await api(`/api/library-analytics?${p}`)}catch(e){error.value=e.message}finally{loading.value=false}}
-function reset(){Object.keys(filters).forEach(k=>filters[k]='');load()}function number(v){return Number(v||0).toLocaleString('fr-FR')}
-function bytes(v){if(!v)return'0 o';const u=['o','Ko','Mo','Go','To'],i=Math.min(4,Math.floor(Math.log(v)/Math.log(1024)));return`${(v/1024**i).toLocaleString('fr-FR',{maximumFractionDigits:1})} ${u[i]}`}
-function duration(v){return`${Math.round((v||0)/3600000).toLocaleString('fr-FR')} h`}function date(v){return v?`Actualisé ${new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(v))}`:''}onMounted(()=>load());
+function reset(){Object.keys(filters).forEach(k=>filters[k]='');load()}
+function date(v){return v?`Actualisé ${formatDateTime(v)}`:''}onMounted(()=>load());
 useRealtime(['library.analytics.updated'],()=>load());
 </script>
 <style scoped>

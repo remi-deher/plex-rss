@@ -37,6 +37,7 @@
 </template>
 
 <script setup>
+import { formatDateShort } from '@/utils/format';
 import { computed, ref } from 'vue';
 import { Bell, BellOff, LogIn, LogOut, Power, PowerOff, Shield, Trash2, X } from '@lucide/vue';
 
@@ -62,7 +63,7 @@ const allSelected = computed(() => props.rows.length && props.rows.every(x => se
 
 function displayName(user) { return user?.custom_name || user?.display_name || user?.plex_user_id || ''; }
 function notificationState(user){return user.has_notification_error?'error':user.notification_email||user.plex_email||user.notify_admin?'active':'missing'}
-function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'short'}).format(new Date(value)):'Aucune'}
+const formatDate=value=>formatDateShort(value,'Aucune');
 function toggleAll(event) { selectedIds.value = event.target.checked ? props.rows.map(x => x.id) : []; }
 
 defineExpose({ selectedIds });

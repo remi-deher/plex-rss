@@ -40,6 +40,7 @@
 </template>
 
 <script setup>
+import { formatDateTime } from '@/utils/format';
 import { computed } from 'vue';
 import { Activity,BellRing,CalendarClock,Layers3,Users } from '@lucide/vue';
 
@@ -56,7 +57,7 @@ const upcoming=computed(()=>(props.detail.calendar||[]).filter(event=>new Date(e
 const requesterIds=computed(()=>new Set(requests.value.flatMap(request=>request.requester_ids||[request.plex_user_id]).filter(Boolean)));
 const requestersCount=computed(()=>requesterIds.value.size);
 const firstRequestDate=computed(()=>{const dates=requests.value.map(request=>request.requested_at).filter(Boolean).sort();return dates.length?formatDate(dates[0]):'Non renseignée'});
-function formatDate(value){if(!value)return 'Non renseignée';return new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value))}
+const formatDate=value=>formatDateTime(value,'Non renseignée');
 function eventLabel(log){const labels={request:'Demande enregistrée',available:'Média disponible',vf_available:'VF disponible'};let label=labels[log.event]||String(log.event||'Notification').replaceAll('_',' ');if(log.season_number!=null)label+=` · Saison ${log.season_number}`;if(log.episode_number!=null)label+=` épisode ${log.episode_number}`;return label}
 </script>
 

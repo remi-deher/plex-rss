@@ -48,6 +48,7 @@
 </template>
 
 <script setup>
+import { formatLongDay as formatLongDate, formatNumber } from '@/utils/format';
 import { computed,ref } from 'vue';
 
 const props = defineProps({ timeline: { type: Object, default: () => ({ labels: [], values: [] }) } });
@@ -61,7 +62,7 @@ const labels=computed(()=>(props.timeline.labels||[]).slice(-period.value));
 
 const total = computed(() => values.value.reduce((a, b) => a + b, 0));
 const max = computed(() => Math.max(1, ...values.value));
-const average = computed(() => ((total.value || 0) / Math.max(1, values.value.length)).toLocaleString('fr-FR',{maximumFractionDigits:1}));
+const average = computed(() => formatNumber((total.value || 0) / Math.max(1, values.value.length)));
 const peak = computed(() => {
   const points=values.value,periodLabels=labels.value;
   const value=Math.max(0,...points),index=points.indexOf(value);
@@ -81,7 +82,7 @@ function formatChartDate(v) {
   const d = new Date(v);
   return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 }
-function formatLongDate(v,options={weekday:'long',day:'numeric',month:'long'}){if(!v)return '';return new Intl.DateTimeFormat('fr-FR',options).format(new Date(`${v}T12:00:00`))}
+
 </script>
 
 <style scoped>

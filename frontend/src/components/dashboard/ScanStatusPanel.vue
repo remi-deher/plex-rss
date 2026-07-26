@@ -49,6 +49,7 @@
 </template>
 
 <script setup>
+import { formatDateTimeShort as formatDate } from '@/utils/format';
 defineProps({
   vffScan: { type: Object, default: () => ({ status: 'idle' }) },
   plexSync: { type: Object, default: () => ({ status: 'idle' }) },
@@ -56,7 +57,4 @@ defineProps({
 });
 defineEmits(['scan-vff', 'sync-plex']);
 
-function formatDate(v) {
-  return v ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(v)) : '-';
-}
 </script>

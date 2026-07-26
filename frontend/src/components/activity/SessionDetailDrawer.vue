@@ -63,6 +63,7 @@
 </template>
 
 <script setup>
+import { formatDurationExact as formatDuration, formatBandwidth, formatDateTime, formatTime } from '@/utils/format';
 import { MonitorPlay, Server, Workflow } from '@lucide/vue';
 import DrawerShell from '@/components/DrawerShell.vue';
 import MediaArtwork from './MediaArtwork.vue';
@@ -70,12 +71,10 @@ import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
 defineProps({ session: { type: Object, required: true } });
 defineEmits(['close']);
 function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:(item.title||'Session Plex')}
-function formatDuration(ms){if(!ms)return '0 min';const minutes=Math.round(ms/60000);return minutes<60?`${minutes} min`:`${Math.floor(minutes/60)} h ${minutes%60} min`}
-function formatBandwidth(value){return value?`${(value/1000).toLocaleString('fr-FR',{maximumFractionDigits:1})} Mb/s`:'—'}
-function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'—'}
+const formatDate=value=>formatDateTime(value,'—');
 function relativeDate(value){if(!value)return '—';const seconds=Math.max(0,Math.floor((Date.now()-new Date(value).getTime())/1000));return seconds<10?'À l’instant':seconds<60?`${seconds} s`:`${Math.floor(seconds/60)} min`}
 function remainingLabel(item){const remaining=Math.max(0,(item.duration_ms||0)-(item.progress_ms||item.watched_ms||0));return item.duration_ms?formatDuration(remaining):'Inconnu'}
-function estimatedEnd(item){const remaining=Math.max(0,(item.duration_ms||0)-(item.progress_ms||item.watched_ms||0));if(!remaining||item.state==='paused')return item.state==='paused'?'Estimation suspendue':'Fin non estimée';return `Fin vers ${new Intl.DateTimeFormat('fr-FR',{hour:'2-digit',minute:'2-digit'}).format(new Date(Date.now()+remaining))}`}
+function estimatedEnd(item){const remaining=Math.max(0,(item.duration_ms||0)-(item.progress_ms||item.watched_ms||0));if(!remaining||item.state==='paused')return item.state==='paused'?'Estimation suspendue':'Fin non estimée';return `Fin vers ${formatTime(Date.now()+remaining)}`}
 function bandwidthHint(value){if(!value)return 'débit non communiqué';return value>=20000?'bande passante élevée':value>=8000?'bande passante modérée':'flux léger'}
 function mediaTypeLabel(value){return {movie:'Film',episode:'Épisode',track:'Musique'}[value]||'Média'}
 function stateLabel(value){return {playing:'Lecture',paused:'En pause',buffering:'Mise en mémoire'}[value]||value||'Terminée'}

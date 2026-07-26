@@ -81,6 +81,7 @@
 </template>
 
 <script setup>
+import { formatDate, formatDateTime } from '@/utils/format';
 import { computed, ref } from 'vue';
 import { Download, Link, MailCheck, Merge, RefreshCw, Save, Trash2, Unlink } from '@lucide/vue';
 import DrawerShell from '@/components/DrawerShell.vue';
@@ -101,8 +102,6 @@ const mergeTarget = ref('');
 
 function displayName(user) { return user?.custom_name || user?.display_name || user?.plex_user_id || ''; }
 function editorLabel(value) { return ({ profile: 'Profil', notifications: 'Notifications', seer: 'Seer', activity: 'Activite', diagnostic: 'Diagnostic' })[value]; }
-function formatDate(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-'; }
-function formatDateTime(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)):'-'}
 function notificationLabel(log){return ({request:'Demande enregistrée',available:'Média disponible',vf_available:'VF disponible'})[log.event]||String(log.event||'Notification').replaceAll('_',' ')}
 const activityTimeline=computed(()=>{
   const requests=(props.editing.activity?.recent||[]).map(row=>({key:`request-${row.id}`,type:'request',date:row.requested_at,title:row.title,label:`Demande ${row.role==='co_requester'?'partagée':'principale'} · ${row.source}`,status:row.status}));

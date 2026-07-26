@@ -9,9 +9,9 @@
 </template>
 
 <script setup>
+import { formatDate } from '@/utils/format';
 import { CalendarDays } from '@lucide/vue';
 
 defineProps({ events: { type: Array, default: () => [] } });
 
-function formatDate(value) { return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-'; }
 </script>

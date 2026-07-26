@@ -15,13 +15,13 @@
 </template>
 
 <script setup>
+import { formatDurationExact as formatDuration, formatDateTimeShort } from '@/utils/format';
 import MediaArtwork from './MediaArtwork.vue';
 import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
 defineProps({items:{type:Array,default:()=>[]}});
 defineEmits(['select']);
 function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:item.title}
-function formatDuration(ms){const minutes=Math.round((ms||0)/60000);return minutes<60?`${minutes} min`:`${Math.floor(minutes/60)} h ${minutes%60} min`}
-function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'—'}
+const formatDate=value=>formatDateTimeShort(value,'—');
 </script>
 
 <style scoped>

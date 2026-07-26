@@ -55,6 +55,7 @@
   </div>
 </template>
 <script setup>
+import { formatDate } from '@/utils/format';
 import { computed, onMounted, ref } from 'vue';
 import { DatabaseZap, Download, HardDriveDownload, Search, Trash2, Upload } from '@lucide/vue';
 import { api } from '@/api';
@@ -66,9 +67,6 @@ const jsonInput = ref(null), sqliteInput = ref(null), inspection = ref(null), co
 const populatedTables = computed(() => Object.fromEntries(Object.entries(inspection.value?.tables || {}).filter(([, count]) => count > 0)));
 
 const deletedLog = ref([]);
-function formatDate(value) {
-  return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(value)) : '-';
-}
 async function loadDeletedLog() {
   deletedLog.value = await api('/api/requests/deleted-log').catch(() => []);
 }

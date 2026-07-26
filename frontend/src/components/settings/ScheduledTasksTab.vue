@@ -65,6 +65,7 @@
   </div>
 </template>
 <script setup>
+import { formatElapsed as formatDuration, formatDateTimeSeconds as formatDate } from '@/utils/format';
 import { onMounted, ref } from 'vue';
 import { Archive, Clock, History } from '@lucide/vue';
 import { api } from '@/api';
@@ -156,15 +157,6 @@ function formatInterval(seconds) {
   return `${Math.round(seconds / 86400)} j`;
 }
 
-function formatDuration(ms) {
-  if (ms == null) return '-';
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
-
-function formatDate(value) {
-  return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'medium' }).format(new Date(value)) : '-';
-}
 
 async function loadTasks() {
   tasks.value = await api('/api/scheduled-tasks');

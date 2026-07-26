@@ -39,6 +39,7 @@
 </template>
 
 <script setup>
+import { formatDateTimeShort as formatDate } from '@/utils/format';
 import { computed, reactive, ref } from 'vue';
 
 const props = defineProps({
@@ -72,7 +73,4 @@ function friendlyJobName(job) {
   return mapping[job] || job;
 }
 
-function formatDate(v) {
-  return v ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(v)) : '-';
-}
 </script>

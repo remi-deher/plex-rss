@@ -8,9 +8,10 @@
   </div>
 </template>
 <script setup>
+import { formatDate } from '@/utils/format';
 import { onMounted,ref } from 'vue';import { Fingerprint,KeyRound,RefreshCw,ShieldCheck,Trash2 } from '@lucide/vue';import QRCode from 'qrcode';import { api } from '@/api';
 const identity=ref(null),password=ref(''),totpSecret=ref(''),totpCode=ref(''),totpQr=ref(''),passkeys=ref([]),busy=ref(false),error=ref(''),message=ref('');const webAuthnAvailable=Boolean(window.PublicKeyCredential&&navigator.credentials);
-function notify(text){message.value=text;error.value=''}function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium'}).format(new Date(value)):'-'}
+function notify(text){message.value=text;error.value=''}
 async function load(){try{identity.value=await api('/api/session');await loadPasskeys()}catch(e){error.value=e.message}}async function loadPasskeys(){if(!identity.value?.id)return;try{passkeys.value=await api(`/api/users/${identity.value.id}/passkeys`)}catch(e){error.value=e.message}}
 async function changePassword(){busy.value=true;try{await api(`/api/users/${identity.value.id}/password`,{method:'POST',body:JSON.stringify({password:password.value})});password.value='';notify('Mot de passe modifie.')}catch(e){error.value=e.message}finally{busy.value=false}}
 async function setupTotp(){busy.value=true;try{const data=await api(`/api/users/${identity.value.id}/totp/setup`,{method:'POST'});totpSecret.value=data.secret;totpQr.value=await QRCode.toDataURL(data.uri,{width:220,margin:1});notify('Scannez le QR code dans votre application d’authentification.')}catch(e){error.value=e.message}finally{busy.value=false}}

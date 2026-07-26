@@ -52,6 +52,7 @@
 </template>
 
 <script setup>
+import { formatDateTime as formatDate } from '@/utils/format';
 import { onMounted, ref } from 'vue';
 import { Check, RefreshCw, RotateCcw, ScanSearch } from '@lucide/vue';
 import { api } from '@/api';
@@ -62,9 +63,6 @@ const error = ref('');
 const statusFilter = ref('open');
 function resetFilters() { statusFilter.value = ''; load(); }
 
-function formatDate(value) {
-  return value ? new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '-';
-}
 
 async function load() {
   loading.value = true;

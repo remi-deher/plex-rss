@@ -136,6 +136,7 @@
 </template>
 
 <script setup>
+import { formatBandwidth, formatDateTimeShort, formatDuration, signedPercent } from '@/utils/format';
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue';
 import { useRoute,useRouter } from 'vue-router';
 import { Activity, CheckCircle2,CircleStop,Clock3,Cpu,Gauge,HardDrive,History,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
@@ -203,10 +204,7 @@ async function load(silent=false){if(loading.value)return;if(!silent){loading.va
 async function refresh(){loading.value=true;error.value='';try{applySnapshot(await api('/api/playback/refresh',{method:'POST'}))}catch(e){error.value=e.message}finally{loading.value=false}}
 function setDays(value){days.value=value;router.replace({query:{...route.query,days:value===30?undefined:String(value)}});load()}
 function resetHistoryFilters(){historySearch.value='';methodFilter.value='';typeFilter.value=''}
-function formatDuration(ms){const minutes=Math.round((ms||0)/60000);if(minutes<60)return `${minutes} min`;const hours=Math.floor(minutes/60),rest=minutes%60;return `${hours} h${rest?` ${rest} min`:''}`}
-function formatBandwidth(value){return value?`${(value/1000).toLocaleString('fr-FR',{maximumFractionDigits:1})} Mb/s`:'—'}
-function formatDate(value){return value?new Intl.DateTimeFormat('fr-FR',{dateStyle:'short',timeStyle:'short'}).format(new Date(value)):'—'}
-function signedPercent(value){const number=Number(value||0);return `${number>0?'+':''}${number.toLocaleString('fr-FR',{maximumFractionDigits:1})} %`}
+const formatDate=value=>formatDateTimeShort(value,'—');
 function comparisonLabel(value){return `${signedPercent(value)} vs période précédente`}
 function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:item.title}
 function initials(name){return String(name||'?').split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}

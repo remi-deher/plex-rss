@@ -45,6 +45,7 @@
 </template>
 
 <script setup>
+import { formatLongDay as longDate, formatMonthYear } from '@/utils/format';
 import { computed,nextTick,onMounted,ref,watch } from 'vue';
 import { CalendarDays,ChevronLeft,ChevronRight,List,RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
@@ -55,7 +56,7 @@ const events=ref([]),search=ref(''),type=ref(''),tracked=ref(false),loading=ref(
 const view=ref(localStorage.getItem('calendar.view')||(window.matchMedia('(max-width:640px)').matches?'agenda':'month'));
 const todayStr=localIso(new Date()),weekLabels=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 const bounds=computed(()=>{const y=cursor.value.getFullYear(),m=cursor.value.getMonth();return {start:new Date(y,m,1),end:new Date(y,m+1,1)}});
-const periodLabel=computed(()=>new Intl.DateTimeFormat('fr-FR',{month:'long',year:'numeric'}).format(cursor.value));
+const periodLabel=computed(()=>formatMonthYear(cursor.value));
 const filtered=computed(()=>events.value.filter(e=>(!search.value||e.title.toLowerCase().includes(search.value.toLowerCase()))&&(!type.value||e.type===type.value)));
 const eventsByDate=computed(()=>{const map=new Map();filtered.value.forEach(e=>{const key=e.date.slice(0,10);if(!map.has(key))map.set(key,[]);map.get(key).push(e)});return map});
 const grouped=computed(()=>[...eventsByDate.value].map(([date,items])=>({date,events:items})));
@@ -63,7 +64,6 @@ const monthCells=computed(()=>{const start=bounds.value.start,first=(start.getDa
 const activeFilterCount=computed(()=>[search.value,type.value,tracked.value].filter(Boolean).length);
 watch(view,value=>localStorage.setItem('calendar.view',value));
 function localIso(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
-function longDate(v){return new Intl.DateTimeFormat('fr-FR',{weekday:'long',day:'numeric',month:'long'}).format(new Date(`${v}T12:00:00`))}
 function formatTime(v){if(!v)return '';const d=new Date(v);if(isNaN(d.getTime())||v.endsWith('T00:00:00Z')||v.endsWith('T00:00:00.000Z'))return '';return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
 function eventKey(event){return `${event.instance}:${event.date}:${event.title}:${event.subtitle}`}
 function eventState(event){return event.has_file?'available':event.tracked?'pending':''}
