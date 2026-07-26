@@ -1,9 +1,6 @@
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>File de telechargement</h2>
-      <RouterLink to="/downloads" class="panel-link">Tout voir</RouterLink>
-    </div>
+  <PanelCard title="File de telechargement">
+    <template #action><RouterLink to="/downloads" class="panel-link">Tout voir</RouterLink></template>
     <component :is="detailPath(item)?'RouterLink':'article'" v-for="item in queue" :key="item.id||item.queue_id||`${item.instance_id}:${item.title}`" :to="detailPath(item)" class="detail-row queue-row">
       <div class="inline-row gap-10">
         <img v-if="item.poster_url" :src="item.poster_url" class="mini-poster" :alt="`Affiche de ${item.title}`" />
@@ -19,10 +16,11 @@
     </component>
     <p v-if="!queue.length && !loading" class="empty">Aucun telechargement en cours.</p>
     <p v-if="loading" class="empty"><LoaderCircle class="spin" style="width:16px;height:16px" /> Chargement...</p>
-  </section>
+  </PanelCard>
 </template>
 
 <script setup>
+import PanelCard from '@/components/ui/PanelCard.vue';
 import { Download, LoaderCircle } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 

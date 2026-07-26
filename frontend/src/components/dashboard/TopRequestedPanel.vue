@@ -1,8 +1,5 @@
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Demandes les plus populaires</h2>
-    </div>
+  <PanelCard title="Demandes les plus populaires" :empty="items.length ? '' : 'Aucune demande multiple.'">
     <article v-for="item in items" :key="item.id" class="detail-row">
       <div class="inline-row gap-10">
         <img v-if="item.poster_url" :src="item.poster_url" class="mini-poster" alt="" />
@@ -14,11 +11,11 @@
       </div>
       <span class="badge available">{{ item.count }} demandeurs</span>
     </article>
-    <p v-if="!items.length" class="empty">Aucune demande multiple.</p>
-  </section>
+  </PanelCard>
 </template>
 
 <script setup>
+import PanelCard from '@/components/ui/PanelCard.vue';
 import { mediaTypeLabel } from '@/utils/labels';
 import { Film } from '@lucide/vue';
 

@@ -113,22 +113,18 @@
       </section>
 
       <p v-if="!displayedItems.length" class="empty">Aucun média ne correspond à ces filtres.</p>
-      <div v-if="hasMore" class="load-more">
-        <button class="secondary" :disabled="loadingMore" @click="loadMore">
-          <LoaderCircle v-if="loadingMore" class="spin" aria-hidden="true" />
-          {{ loadingMore ? 'Chargement…' : 'Charger plus de médias' }}
-        </button>
-      </div>
+      <LoadMore :has-more="hasMore" :loading="loadingMore" label="Charger plus de médias" @load="loadMore"/>
     </template>
   </div>
 </template>
 
 <script setup>
+import LoadMore from '@/components/ui/LoadMore.vue';
 import { mediaTypeLabel, requestStatusLabel } from '@/utils/labels';
 import { computed, onMounted, ref } from 'vue';
 import { useDebounced } from '@/composables/useDebounced';
 import { useLatestRequest } from '@/composables/useLatestRequest';
-import { Film, LoaderCircle, Search, SlidersHorizontal, Star } from '@lucide/vue';
+import { Film, Search, SlidersHorizontal, Star } from '@lucide/vue';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
 

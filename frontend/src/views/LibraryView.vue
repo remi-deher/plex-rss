@@ -9,13 +9,9 @@
         </button>
     </PageHeader>
 
-    <section class="metric-grid compact-metrics">
-      <article v-for="entry in metrics" :key="entry.label" class="metric-card">
-        <span>{{ entry.label }}</span>
-        <strong>{{ entry.value }}</strong>
-        <small v-if="entry.sub">{{ entry.sub }}</small>
-      </article>
-    </section>
+    <MetricGrid aria-label="Résumé de la bibliothèque">
+      <MetricCard v-for="entry in metrics" :key="entry.label" :label="entry.label" :value="entry.value" :detail="entry.sub"/>
+    </MetricGrid>
 
     <div class="sticky-stack">
       <MediaFiltersBar
@@ -72,6 +68,8 @@
 </template>
 
 <script setup>
+import MetricCard from '@/components/ui/MetricCard.vue';
+import MetricGrid from '@/components/ui/MetricGrid.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';

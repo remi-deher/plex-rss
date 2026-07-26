@@ -4,18 +4,13 @@
       <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="loadAll"><RefreshCw :class="{spin:loading}"/></button>
     </PageHeader>
 
-    <section class="metric-grid compact-metrics" aria-label="Résumé des téléchargements">
-      <article v-for="entry in summary" :key="entry.label" class="metric-card"><span>{{ entry.label }}</span><strong>{{ entry.value }}</strong></article>
-    </section>
+    <MetricGrid aria-label="Résumé des téléchargements">
+      <MetricCard v-for="entry in summary" :key="entry.label" :label="entry.label" :value="entry.value"/>
+    </MetricGrid>
 
     <UnmatchedImportsBanner :items="unmatchedItems" :row-key="rowKey" @view-all="tab='queue'; statusFilter='unmatched'" @associate="openManual"/>
 
-    <nav class="detail-tabs" role="tablist" aria-label="Téléchargements">
-      <button role="tab" :aria-selected="tab==='queue'" :class="{active:tab==='queue'}" @click="tab='queue'; statusFilter=''">
-        File active <span v-if="errorItems.length" class="tab-badge error-badge">{{ errorItems.length }}</span>
-      </button>
-      <button role="tab" :aria-selected="tab==='history'" :class="{active:tab==='history'}" @click="tab='history'">Historique</button>
-    </nav>
+    <TabNav :model-value="tab" :tabs="downloadTabs" aria-label="Téléchargements" @update:model-value="selectTab"/>
 
     <FilterBar :active-count="activeFilterCount" :result-count="tab==='queue'?filteredQueue.length:filteredHistory.length" @reset="resetFilters">
       <template #primary><input v-model="query" class="search" type="search" placeholder="Filtrer les titres" aria-label="Filtrer les téléchargements"></template>
@@ -55,7 +50,7 @@
         <tbody><tr v-for="row in filteredHistory" :key="row.id"><td class="card-title"><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td><td data-label="Type">{{ mediaTypeLabel(row.media_type) }}</td><td data-label="Source"><span class="badge">{{ row.source }}</span></td><td data-label="Instance">{{ row.instance_name||'-' }}</td><td data-label="Terminé">{{ formatDate(row.completed_at) }}</td></tr></tbody>
       </table>
       <p v-if="!filteredHistory.length" class="empty">Aucun téléchargement terminé.</p>
-      <div v-if="hasMoreHistory" class="load-more"><button class="secondary" :disabled="loadingHistory" @click="loadMoreHistory">{{ loadingHistory?'Chargement…':'Charger plus' }}</button></div>
+      <LoadMore :has-more="hasMoreHistory" :loading="loadingHistory" @load="loadMoreHistory"/>
     </section>
 
     <ManualImportModal v-if="manualRow" :row="manualRow" @close="manualRow=null" @submitted="onManualSubmitted"/>
@@ -64,6 +59,10 @@
 </template>
 
 <script setup>
+import MetricCard from '@/components/ui/MetricCard.vue';
+import MetricGrid from '@/components/ui/MetricGrid.vue';
+import TabNav from '@/components/ui/TabNav.vue';
+import LoadMore from '@/components/ui/LoadMore.vue';
 import { mediaTypeLabel } from '@/utils/labels';
 import { formatDateTime as formatDate } from '@/utils/format';
 import { computed,onMounted,ref } from 'vue';
@@ -106,7 +105,13 @@ const filteredQueue=computed(()=>{const activeStatus=status.value||statusFilter.
 const filteredHistory=computed(()=>{const needle=query.value.trim().toLocaleLowerCase('fr');return history.value.filter(row=>!needle||row.title?.toLocaleLowerCase('fr').includes(needle))});
 const queueGroups=computed(()=>{const intervention=filteredQueue.value.filter(requiresIntervention),ids=new Set(intervention.map(rowKey)),remaining=filteredQueue.value.filter(row=>!ids.has(rowKey(row)));return[{key:'intervention',title:'Intervention requise',description:'Import bloqué, erreur ou média à associer',icon:AlertTriangle,items:intervention},{key:'active',title:'En téléchargement',description:'Transferts actuellement en progression',icon:Download,items:remaining.filter(row=>statusKey(row)==='downloading')},{key:'waiting',title:'En attente',description:'Éléments en file ou temporairement en pause',icon:Clock3,items:remaining.filter(row=>['queued','paused','completed'].includes(statusKey(row)))}].filter(group=>group.items.length)});
 const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'Interventions',value:queue.value.filter(requiresIntervention).length},{label:'Terminés récents',value:history.value.length}]);
+const downloadTabs=computed(()=>[
+  {value:'queue',label:'File active',count:errorItems.value.length,badgeClass:'error-badge'},
+  {value:'history',label:'Historique'},
+]);
 const activeFilterCount=computed(()=>[query.value,instance.value,status.value||statusFilter.value].filter(Boolean).length);
+// Changer d'onglet leve le filtre de statut pose par la banniere « non associes ».
+function selectTab(value){tab.value=value;statusFilter.value=''}
 function resetFilters(){query.value='';instance.value='';status.value='';statusFilter.value=''}
 
 async function loadAll(){

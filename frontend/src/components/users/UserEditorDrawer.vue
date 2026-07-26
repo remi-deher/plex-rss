@@ -64,7 +64,7 @@
 
     <section v-else-if="editorTab==='activity'" class="drawer-section">
       <section class="metric-grid compact-metrics">
-        <article v-for="(value,key) in editing.stats||{}" :key="key" class="metric-card"><span>{{ key }}</span><strong>{{ value??'-' }}</strong></article>
+        <MetricCard v-for="(value,key) in editing.stats||{}" :key="key" :label="key" :value="value??'-'"/>
       </section>
       <div class="user-activity-timeline"><article v-for="event in activityTimeline" :key="event.key" :class="['activity-event',event.type]"><span class="activity-marker"></span><div><strong>{{ event.title }}</strong><span>{{ event.label }}</span><small>{{ formatDateTime(event.date) }}</small></div><span v-if="event.status" class="badge" :class="event.type==='notification_failed'?'failed':'pending'">{{ event.status }}</span></article></div>
       <p v-if="!editing.activity?.recent?.length" class="empty">Aucune activite recente.</p>
@@ -81,6 +81,7 @@
 </template>
 
 <script setup>
+import MetricCard from '@/components/ui/MetricCard.vue';
 import { formatDate, formatDateTime } from '@/utils/format';
 import { computed, ref } from 'vue';
 import { Download, Link, MailCheck, Merge, RefreshCw, Save, Trash2, Unlink } from '@lucide/vue';

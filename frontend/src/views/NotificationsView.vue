@@ -10,17 +10,13 @@
         </div>
         <div class="notification-control-action">
           <span class="notification-control-count" v-if="pendingTotal">{{ pendingTotal }} en attente</span>
-          <label class="hold-switch" :title="holdEnabled ? 'Réactiver les notifications automatiques' : 'Mettre les notifications en attente'">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="holdEnabled"
-              :disabled="holdSaving"
-              :aria-checked="holdEnabled"
-              @change="toggleHold($event.target.checked)"
-            >
-            <span class="hold-switch-track"><span class="hold-switch-thumb"></span></span>
-          </label>
+          <ToggleSwitch
+            :model-value="holdEnabled"
+            :label="holdEnabled ? 'Réactiver' : 'Mettre en attente'"
+            :title="holdEnabled ? 'Réactiver les notifications automatiques' : 'Mettre les notifications en attente'"
+            :disabled="holdSaving"
+            @update:model-value="toggleHold"
+          />
         </div>
       </div>
     <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
@@ -34,10 +30,7 @@
 
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 
-  <nav class="detail-tabs">
-    <button :class="{active:tab==='history'}" @click="tab='history';offset=0;load()">Historique</button>
-    <button :class="{active:tab==='pending'}" @click="tab='pending';offset=0;load()">En attente <span v-if="pendingTotal" class="badge">{{ pendingTotal }}</span></button>
-  </nav>
+  <TabNav :model-value="tab" :tabs="notificationTabs" aria-label="Notifications" @update:model-value="selectTab"/>
 
   <FilterBar :active-count="activeFilterCount" :result-count="tab==='history'?total:rows.length" @reset="resetFilters">
     <template #primary><input v-model="search" class="search" type="search" placeholder="Média, destinataire ou événement" aria-label="Rechercher dans les notifications"></template>
@@ -62,6 +55,8 @@
 </template>
 
 <script setup>
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue';
+import TabNav from '@/components/ui/TabNav.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CheckCheck, ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RefreshCw, Send, Trash2 } from '@lucide/vue';
@@ -103,8 +98,16 @@ const feedback = ref({ type: '', text: '' });
 let feedbackTimeout;
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
+const notificationTabs = computed(() => [
+  { value: 'history', label: 'Historique' },
+  { value: 'pending', label: 'En attente', count: pendingTotal.value },
+]);
 const selectedIds = computed(() => tableRef.value?.selected || []);
 const activeFilterCount = computed(() => Number(Boolean(search.value)) + Number(Boolean(state.value)) + selectedTypes.value.length + selectedUsers.value.length);
+// Un seul point d'entree : poser l'onglet, remettre la pagination a zero, recharger.
+// `watch(tab)` synchronise ensuite l'URL, et `watch(route.query.tab)` ne rappelle load()
+// que si l'onglet a reellement change -- pas de double chargement.
+function selectTab(value){tab.value=value;offset.value=0;load()}
 function resetFilters(){search.value='';state.value='';selectedTypes.value=[];selectedUsers.value=[];offset.value=0;load()}
 
 watch(tab,value=>router.replace({path:'/notifications',query:{...route.query,tab:value}}));
@@ -293,19 +296,7 @@ onMounted(() => {
 .notification-control-copy span { overflow: hidden; color: var(--muted); font-size: .72rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .notification-control-action { display: flex; align-items: center; gap: .65rem; padding-left: .75rem; border-left: 1px solid var(--border); }
 .notification-control-count { padding: .22rem .45rem; border: 1px solid rgba(229, 160, 13, .55); border-radius: 5px; color: var(--accent); font-size: .68rem; font-weight: 700; white-space: nowrap; }
-.hold-switch { position: relative; display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
-.hold-switch::before { content: 'Mettre en attente'; color: var(--text); font-size: .72rem; font-weight: 600; white-space: nowrap; }
-.notification-control.paused .hold-switch::before { content: 'Réactiver'; }
-.hold-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.hold-switch-track { display: flex; align-items: center; width: 42px; height: 23px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); transition: background .2s ease, border-color .2s ease; }
-.hold-switch-thumb { width: 15px; height: 15px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: transform .2s ease, background .2s ease; }
-.hold-switch input:checked + .hold-switch-track { border-color: rgba(229, 160, 13, .65); background: rgba(229, 160, 13, .24); }
-.hold-switch input:not(:checked) + .hold-switch-track { border-color: rgba(34, 197, 94, .55); background: rgba(34, 197, 94, .18); }
-.hold-switch input:not(:checked) + .hold-switch-track .hold-switch-thumb { background: var(--green); }
-.hold-switch input:checked + .hold-switch-track .hold-switch-thumb { transform: translateX(17px); }
-.hold-switch input:focus-visible + .hold-switch-track { outline: 2px solid var(--accent); outline-offset: 3px; }
-.hold-switch input:disabled + .hold-switch-track { cursor: wait; opacity: .6; }
-.notification-feedback { display: flex; align-items: center; gap: .45rem; margin: .9rem 0 0; padding: .7rem .85rem; border-radius: 10px; font-size: .84rem; }
+.notification-control.paused .notification-feedback { display: flex; align-items: center; gap: .45rem; margin: .9rem 0 0; padding: .7rem .85rem; border-radius: 10px; font-size: .84rem; }
 .notification-feedback.success { color: var(--green); background: rgba(34, 197, 94, .1); }
 .notification-feedback.error { color: var(--red); background: rgba(239, 68, 68, .1); }
 .notification-feedback-enter-active, .notification-feedback-leave-active { transition: opacity .2s ease, transform .2s ease; }

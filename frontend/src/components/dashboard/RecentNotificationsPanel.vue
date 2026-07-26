@@ -1,9 +1,6 @@
 <template>
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Notifications recentes</h2>
-      <RouterLink to="/notifications" class="panel-link">Tout voir</RouterLink>
-    </div>
+  <PanelCard title="Notifications recentes">
+    <template #action><RouterLink to="/notifications" class="panel-link">Tout voir</RouterLink></template>
     <article v-for="notif in notifications" :key="notif.id" class="detail-row">
       <div>
         <strong>{{ notif.media_title || '—' }}</strong>
@@ -14,9 +11,10 @@
       </span>
     </article>
     <p v-if="!notifications.length" class="empty">Aucune notification envoyee.</p>
-  </section>
+  </PanelCard>
 </template>
 
 <script setup>
+import PanelCard from '@/components/ui/PanelCard.vue';
 defineProps({ notifications: { type: Array, default: () => [] } });
 </script>

@@ -1,0 +1,1 @@
+import{W as c}from"./index-DqDUFDJQ.js";function m(u,n){let e;const o=(...t)=>{clearTimeout(e),e=setTimeout(()=>u(...t),n)};return o.cancel=()=>clearTimeout(e),o.flush=(...t)=>{clearTimeout(e),u(...t)},c(o.cancel),o}export{m as u};

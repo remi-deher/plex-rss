@@ -22,10 +22,10 @@
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load()"/>
     <UiFeedback v-if="loading&&!data.summary" type="loading" message="Analyse du catalogue Plex…"/>
     <section v-if="data.summary" class="metric-grid analytics-metrics">
-      <article class="metric-card"><span>Fichiers</span><strong>{{number(data.summary.items)}}</strong><small>filtre actuel</small></article>
-      <article class="metric-card"><span>Poids total</span><strong>{{bytes(data.summary.size_bytes)}}</strong><small>stockage observé</small></article>
-      <article class="metric-card"><span>Durée</span><strong>{{duration(data.summary.duration_ms)}}</strong><small>contenu cumulé</small></article>
-      <article class="metric-card"><span>Lectures</span><strong>{{number(data.summary.plays)}}</strong><small>{{data.summary.viewers}} spectateur(s)</small></article>
+      <MetricCard label="Fichiers" :value="number(data.summary.items)" detail="filtre actuel"/>
+      <MetricCard label="Poids total" :value="bytes(data.summary.size_bytes)" detail="stockage observé"/>
+      <MetricCard label="Durée" :value="duration(data.summary.duration_ms)" detail="contenu cumulé"/>
+      <MetricCard label="Lectures" :value="number(data.summary.plays)" :detail="`${data.summary.viewers} spectateur(s)`"/>
     </section>
     <section class="insight-grid">
       <article v-for="insight in data.insights||[]" :key="insight.kind" class="panel insight-card"><Lightbulb/><div><span>{{insight.title}}</span><strong>{{insight.unit==='bytes'?bytes(insight.value):number(insight.value)}}</strong></div></article>
@@ -49,6 +49,7 @@
   </div>
 </template>
 <script setup>
+import MetricCard from '@/components/ui/MetricCard.vue';
 import { formatDateTime, formatDurationRoundHours as duration, formatFileSize as bytes, formatInteger as number } from '@/utils/format';
 import { computed,onMounted,reactive,ref } from 'vue';
 import { FileDown,Lightbulb,RefreshCw } from '@lucide/vue';

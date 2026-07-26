@@ -13,12 +13,12 @@
 
     <template v-if="loaded">
       <template v-if="currentView==='overview'">
-        <div class="metric-grid activity-metrics">
-          <ActivityMetricCard label="En direct" :value="data.active.length" detail="lectures maintenant" :icon="Radio" accent/>
-          <ActivityMetricCard label="Sessions" :value="summary.sessions||0" :detail="`sur ${days} jours`" :icon="PlayCircle"/>
-          <ActivityMetricCard label="Temps regardé" :value="formatDuration(summary.watch_ms)" detail="durée cumulée" :icon="Clock3"/>
-          <ActivityMetricCard label="Transcodage" :value="`${summary.transcode_rate||0} %`" :detail="`${summary.transcodes||0} sessions`" :icon="Cpu"/>
-        </div>
+        <MetricGrid grid-class="activity-metrics">
+          <MetricCard card-class="activity-metric-card accent" label="En direct" :value="data.active.length" detail="lectures maintenant" :icon="Radio"/>
+          <MetricCard card-class="activity-metric-card" label="Sessions" :value="summary.sessions||0" :detail="`sur ${days} jours`" :icon="PlayCircle"/>
+          <MetricCard card-class="activity-metric-card" label="Temps regardé" :value="formatDuration(summary.watch_ms)" detail="durée cumulée" :icon="Clock3"/>
+          <MetricCard card-class="activity-metric-card" label="Transcodage" :value="`${summary.transcode_rate||0} %`" :detail="`${summary.transcodes||0} sessions`" :icon="Cpu"/>
+        </MetricGrid>
         <LiveSessionsPanel :sessions="data.active" interactive @select="selectedSession=$event"/>
         <div class="activity-grid">
           <DailyActivityChart :points="chart"/>
@@ -46,23 +46,23 @@
       </template>
 
       <template v-else-if="currentView==='stats'">
-        <div class="metric-grid activity-metrics">
-          <ActivityMetricCard label="Sessions" :value="summary.sessions||0" :detail="comparisonLabel(analytics.comparison?.sessions_change)" :icon="PlayCircle" accent/>
-          <ActivityMetricCard label="Temps regardé" :value="formatDuration(summary.watch_ms)" :detail="comparisonLabel(analytics.comparison?.watch_change)" :icon="Clock3"/>
-          <ActivityMetricCard label="Simultanéité max." :value="analytics.concurrency?.peak||0" detail="flux au même moment" :icon="Users"/>
-          <ActivityMetricCard label="Moyenne" :value="formatDuration(averageWatch)" detail="par session" :icon="Timer"/>
-        </div>
+        <MetricGrid grid-class="activity-metrics">
+          <MetricCard card-class="activity-metric-card accent" label="Sessions" :value="summary.sessions||0" :detail="comparisonLabel(analytics.comparison?.sessions_change)" :icon="PlayCircle"/>
+          <MetricCard card-class="activity-metric-card" label="Temps regardé" :value="formatDuration(summary.watch_ms)" :detail="comparisonLabel(analytics.comparison?.watch_change)" :icon="Clock3"/>
+          <MetricCard card-class="activity-metric-card" label="Simultanéité max." :value="analytics.concurrency?.peak||0" detail="flux au même moment" :icon="Users"/>
+          <MetricCard card-class="activity-metric-card" label="Moyenne" :value="formatDuration(averageWatch)" detail="par session" :icon="Timer"/>
+        </MetricGrid>
         <div class="activity-grid">
           <DailyActivityChart :points="chart"/>
           <ConcurrencyPanel :daily="analytics.concurrency?.daily" :peak="analytics.concurrency?.peak" :peak-at="analytics.concurrency?.peak_at"/>
         </div>
         <ActivityHeatmap :points="analytics.heatmap"/>
-        <div class="metric-grid activity-metrics engagement-metrics">
-          <ActivityMetricCard label="Terminées" :value="analytics.engagement?.completed||0" detail="seuil Tautulli ou générique" :icon="CheckCircle2" accent/>
-          <ActivityMetricCard label="Abandonnées" :value="analytics.engagement?.abandoned||0" detail="avant le premier quart du seuil" :icon="CircleStop"/>
-          <ActivityMetricCard label="Reprises" :value="analytics.engagement?.resumed||0" detail="sessions regroupées" :icon="History"/>
-          <ActivityMetricCard label="Revisionnages" :value="analytics.engagement?.rewatches||0" detail="nouvelle lecture du même média" :icon="Repeat2"/>
-        </div>
+        <MetricGrid grid-class="activity-metrics engagement-metrics">
+          <MetricCard card-class="activity-metric-card accent" label="Terminées" :value="analytics.engagement?.completed||0" detail="seuil Tautulli ou générique" :icon="CheckCircle2"/>
+          <MetricCard card-class="activity-metric-card" label="Abandonnées" :value="analytics.engagement?.abandoned||0" detail="avant le premier quart du seuil" :icon="CircleStop"/>
+          <MetricCard card-class="activity-metric-card" label="Reprises" :value="analytics.engagement?.resumed||0" detail="sessions regroupées" :icon="History"/>
+          <MetricCard card-class="activity-metric-card" label="Revisionnages" :value="analytics.engagement?.rewatches||0" detail="nouvelle lecture du même média" :icon="Repeat2"/>
+        </MetricGrid>
         <div class="activity-grid analytics-secondary">
           <CompletionPanel :items="analytics.completion"/>
           <BreakdownPanel title="Types de lecture" eyebrow="Qualité" :items="methodBreakdown"/>
@@ -81,12 +81,12 @@
       </template>
 
       <template v-else-if="currentView==='quality'">
-        <div class="metric-grid activity-metrics quality-metrics">
-          <ActivityMetricCard label="Débit moyen" :value="formatBandwidth(analytics.bandwidth?.average_kbps)" detail="toutes sessions" :icon="Gauge" accent/>
-          <ActivityMetricCard label="Débit P95" :value="formatBandwidth(analytics.bandwidth?.p95_kbps)" detail="95 % sous ce seuil" :icon="Activity"/>
-          <ActivityMetricCard label="Débit maximal" :value="formatBandwidth(analytics.bandwidth?.peak_kbps)" detail="pic observé" :icon="Zap"/>
-          <ActivityMetricCard label="Rendement stockage" :value="analytics.storage?.watch_hours_per_gb==null?'—':`${analytics.storage.watch_hours_per_gb} h/Go`" :detail="`${analytics.storage?.known_items||0} fichiers mesurés`" :icon="HardDrive"/>
-        </div>
+        <MetricGrid grid-class="activity-metrics quality-metrics">
+          <MetricCard card-class="activity-metric-card accent" label="Débit moyen" :value="formatBandwidth(analytics.bandwidth?.average_kbps)" detail="toutes sessions" :icon="Gauge"/>
+          <MetricCard card-class="activity-metric-card" label="Débit P95" :value="formatBandwidth(analytics.bandwidth?.p95_kbps)" detail="95 % sous ce seuil" :icon="Activity"/>
+          <MetricCard card-class="activity-metric-card" label="Débit maximal" :value="formatBandwidth(analytics.bandwidth?.peak_kbps)" detail="pic observé" :icon="Zap"/>
+          <MetricCard card-class="activity-metric-card" label="Rendement stockage" :value="analytics.storage?.watch_hours_per_gb==null?'—':`${analytics.storage.watch_hours_per_gb} h/Go`" :detail="`${analytics.storage?.known_items||0} fichiers mesurés`" :icon="HardDrive"/>
+        </MetricGrid>
         <div class="quality-grid">
           <BreakdownPanel title="Résolutions" eyebrow="Source" :items="resolutionBreakdown"/>
           <BreakdownPanel title="Codecs vidéo" eyebrow="Source" :items="codecBreakdown"/>
@@ -144,7 +144,7 @@ import { useRoute,useRouter } from 'vue-router';
 import { Activity, CheckCircle2,CircleStop,Clock3,Cpu,Gauge,HardDrive,History,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
-import ActivityMetricCard from '@/components/activity/ActivityMetricCard.vue';
+import MetricCard from '@/components/ui/MetricCard.vue';
 import ActivityHeatmap from '@/components/activity/ActivityHeatmap.vue';
 import ActivitySubnav from '@/components/activity/ActivitySubnav.vue';
 import BreakdownPanel from '@/components/activity/BreakdownPanel.vue';

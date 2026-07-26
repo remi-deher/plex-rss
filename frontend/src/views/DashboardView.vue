@@ -15,19 +15,17 @@
 
     <section class="dashboard-section">
       <header class="dashboard-section-head"><div><span>Activité</span><h2>Situation actuelle</h2><p>Les éléments utiles pour piloter les demandes et les acquisitions.</p></div></header>
-      <div class="metric-grid dashboard-metrics">
-      <component
-        v-for="card in statCards"
-        :key="card.label"
-        :is="card.route ? 'RouterLink' : 'article'"
-        :to="card.route"
-        class="metric-card"
-        :style="card.route ? 'text-decoration: none; color: inherit;' : ''"
-      >
-        <component :is="card.icon" class="metric-icon" />
-        <div><span>{{ card.label }}</span><strong>{{ card.value }}</strong><small>{{ card.detail }}</small></div>
-      </component>
-      </div>
+      <MetricGrid grid-class="dashboard-metrics">
+        <MetricCard
+          v-for="card in statCards"
+          :key="card.label"
+          :label="card.label"
+          :value="card.value"
+          :detail="card.detail"
+          :icon="card.icon"
+          :to="card.route"
+        />
+      </MetricGrid>
       <div class="dashboard-focus-grid">
         <LiveSessionsPanel :sessions="liveActivity.active||[]" />
         <DownloadQueuePanel :queue="downloadQueue.slice(0,5)" :loading="loadingQueue" />
@@ -65,6 +63,8 @@
 </template>
 
 <script setup>
+import MetricCard from '@/components/ui/MetricCard.vue';
+import MetricGrid from '@/components/ui/MetricGrid.vue';
 import { computed, onMounted, ref } from 'vue';
 import { usePolling } from '@/composables/usePolling';
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Download, RefreshCw } from '@lucide/vue';
