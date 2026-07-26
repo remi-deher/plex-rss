@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from xml.etree import ElementTree
 
 import httpx
@@ -14,7 +15,7 @@ from sqlalchemy.future import select
 from ..database import AsyncSessionLocal
 from ..models import PlaybackSession, Settings
 from ..realtime import publish
-from ..utils import now_utc_naive
+from ..utils import now_utc_naive, wrap_image_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ def _playback_method(video_decision: str | None, audio_decision: str | None) -> 
 
 
 def _serialize(row: PlaybackSession) -> dict:
+    thumb_url = row.thumb_url
+    if thumb_url and thumb_url.startswith("/"):
+        thumb_url = f"/api/playback/thumb?path={quote(thumb_url, safe='')}"
+    else:
+        thumb_url = wrap_image_proxy(thumb_url)
     return {
         "id": row.id,
         "source": row.source,
@@ -64,7 +70,7 @@ def _serialize(row: PlaybackSession) -> dict:
         "year": row.year,
         "rating_key": row.rating_key,
         "library": row.library_section_title,
-        "thumb_url": row.thumb_url,
+        "thumb_url": thumb_url,
         "player": row.player_title,
         "platform": row.platform,
         "product": row.product,
@@ -275,6 +281,7 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     year=_int(item.get("year")),
                     rating_key=str(item.get("rating_key") or "") or None,
                     library_section_title=item.get("section_name"),
+                    thumb_url=item.get("thumb"),
                     player_title=item.get("player"),
                     platform=item.get("platform"),
                     product=item.get("product"),

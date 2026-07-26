@@ -6,11 +6,14 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async
 from app.dependencies import require_admin
 from app.main import app
-from app.services.playback_activity import _masked_ip, _playback_method, parse_plex_sessions
+from app.models import PlaybackSession, Settings
+from app.services.playback_activity import _masked_ip, _playback_method, _serialize, parse_plex_sessions
 
 
 @pytest.fixture()
 def client(async_db):
+    async_db.add(Settings(id=1))
+    async_db.commit()
     app.dependency_overrides[require_admin] = lambda: None
     app.dependency_overrides[get_db_async] = lambda: async_db
     yield TestClient(app, raise_server_exceptions=False)
@@ -65,6 +68,22 @@ def test_playback_method_prioritizes_transcoding():
 
 def test_masked_ip_supports_ipv6():
     assert _masked_ip("2001:db8:1234:5678:abcd::1", True) == "2001:db8:1234:5678::"
+
+
+def test_serialize_routes_relative_plex_thumb_through_authenticated_endpoint():
+    row = PlaybackSession(
+        source_session_id="session",
+        title="Film",
+        thumb_url="/library/metadata/123/thumb/456",
+    )
+    assert _serialize(row)["thumb_url"] == (
+        "/api/playback/thumb?path=%2Flibrary%2Fmetadata%2F123%2Fthumb%2F456"
+    )
+
+
+def test_playback_thumb_rejects_external_url(client):
+    response = client.get("/api/playback/thumb?path=https://example.com/poster.jpg")
+    assert response.status_code == 400
 
 
 def test_activity_endpoint_returns_snapshot(client):

@@ -16,7 +16,17 @@
         <RouterLink to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
         <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
         <RouterLink to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
-        <RouterLink v-if="isAdmin" to="/activity" title="Activité Plex"><Activity />Activité Plex</RouterLink>
+        <div v-if="isAdmin" class="context-nav-group" :class="{open:isActivityRoute}">
+          <RouterLink to="/activity" title="Activité Plex"><Activity />Activité Plex<ChevronDown class="context-chevron"/></RouterLink>
+          <div v-if="isActivityRoute" class="context-sidebar-menu">
+            <RouterLink to="/activity">Vue d’ensemble</RouterLink>
+            <RouterLink to="/activity?view=live">En direct</RouterLink>
+            <RouterLink to="/activity?view=history">Historique</RouterLink>
+            <RouterLink to="/activity?view=stats">Statistiques</RouterLink>
+            <RouterLink to="/activity?view=quality">Qualité des flux</RouterLink>
+            <RouterLink to="/activity?view=users">Utilisateurs</RouterLink>
+          </div>
+        </div>
       </div>
 
       <div v-if="isAdmin" class="menu-section">
@@ -73,7 +83,7 @@
             <div class="menu-section">
               <span class="menu-label">Principal</span>
               <RouterLink to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
-              <RouterLink v-if="isAdmin" to="/activity" @click="closeMoreMenu"><Activity />Activité Plex</RouterLink>
+              <details v-if="isAdmin" class="mobile-activity-group" :open="isActivityRoute"><summary><Activity/>Activité Plex</summary><RouterLink to="/activity" @click="closeMoreMenu">Vue d’ensemble</RouterLink><RouterLink to="/activity?view=live" @click="closeMoreMenu">En direct</RouterLink><RouterLink to="/activity?view=history" @click="closeMoreMenu">Historique</RouterLink><RouterLink to="/activity?view=stats" @click="closeMoreMenu">Statistiques</RouterLink><RouterLink to="/activity?view=quality" @click="closeMoreMenu">Qualité des flux</RouterLink><RouterLink to="/activity?view=users" @click="closeMoreMenu">Utilisateurs</RouterLink></details>
             </div>
             
             <div v-if="isAdmin" class="menu-section mobile-admin-groups">
@@ -110,6 +120,7 @@ import { connectRealtime } from "@/events";
 const session=ref(null);
 const route=useRoute();
 const isAdmin=computed(()=>session.value?.is_owner||session.value?.role==='admin');
+const isActivityRoute=computed(()=>route.path==='/activity');
 const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
 const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));
 const isNotificationsRoute=computed(()=>route.path==='/notifications'||(route.path==='/settings'&&['notifications-channels','notifications-rules','templates'].includes(route.query.tab)));
@@ -128,4 +139,5 @@ onUnmounted(()=>window.removeEventListener('keydown',handleEscape));
 
 <style scoped>
 .context-nav-group{display:grid;gap:3px}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;gap:2px;margin:2px 0 6px 22px;padding:5px 5px 5px 12px;border-left:2px solid rgba(229,160,13,.28);border-radius:0 8px 8px 0;background:linear-gradient(90deg,rgba(229,160,13,.055),transparent)}.context-sidebar-menu a{min-height:32px;padding:6px 10px 6px 16px;font-size:11.5px;color:color-mix(in srgb,var(--muted) 88%,white);border-radius:6px}.context-sidebar-menu a::after{content:'';position:absolute;left:5px;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}.context-sidebar-menu a:hover{color:var(--text);background:rgba(255,255,255,.045)}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.13);box-shadow:inset 0 0 0 1px rgba(229,160,13,.12)}.context-sidebar-menu a.router-link-exact-active::after{opacity:1;box-shadow:0 0 6px currentColor}.sidebar.collapsed .context-sidebar-menu,.sidebar.collapsed .context-chevron,.sidebar.collapsed .settings-chevron{display:none}
+.mobile-activity-group{overflow:hidden;border:1px solid rgba(255,255,255,.06);border-radius:10px}.mobile-activity-group summary{display:flex;align-items:center;gap:12px;min-height:48px;padding:10px 14px;color:var(--muted);font-size:13px;cursor:pointer;list-style:none}.mobile-activity-group summary::-webkit-details-marker{display:none}.mobile-activity-group summary svg{width:18px}.mobile-activity-group[open] summary{color:#fff;border-bottom:1px solid rgba(255,255,255,.06)}.mobile-activity-group a{margin:4px 8px;min-height:42px;padding-left:44px;background:transparent}
 </style>
