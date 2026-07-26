@@ -16,7 +16,7 @@ from ..database import AsyncSessionLocal
 from ..models import ArrInstance, LibraryItem, MediaRequest
 from ..utils import now_utc_naive
 from . import radarr, sonarr
-from .plex_sync import _find_library_item_by_ids
+from .media_matching import find_library_item_by_ids as _find_library_item_by_ids
 
 # find_orphan_shows/find_orphan_movies interrogent Sonarr/Radarr en direct pour TOUT
 # leur catalogue (aucun endpoint paginé côté *arr pour "juste les non-suivis") --

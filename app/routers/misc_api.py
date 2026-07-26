@@ -22,6 +22,7 @@ from ..models import ArrInstance, MediaRequest, PlexUser, Settings, VfEpisodeSta
 from ..serializers import format_datetime
 from ..services import email_providers
 from ..utils import now_utc_naive, safe_error_message, wrap_image_proxy
+from ..services.vf_cache import delete_request_episode_cache
 
 # Hôtes d'images externes connus et de confiance (CDN TMDB) — voir _allowed_image_hosts
 # pour les hôtes internes (Plex, instances *arr), résolus dynamiquement depuis la config.
@@ -160,11 +161,6 @@ async def i18n_catalog(
         requested or (user.locale if user else None) or (settings.default_locale if settings else None)
     )
     return {"locale": locale, "supported": sorted(SUPPORTED_LOCALES), "messages": catalog(locale)}
-
-
-async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
-    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
-    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 @router.get("/onboarding")
@@ -489,7 +485,7 @@ async def delete_no_tmdb(request_id: int, db: AsyncSession = Depends(get_db_asyn
         raise HTTPException(404, "Entrée introuvable")
     if req.tmdb_id:
         raise HTTPException(400, "Cette entrée a un tmdb_id — utilisez /conflicts/resolve")
-    await _delete_vf_episode_cache(db, req.id)
+    await delete_request_episode_cache(db, req.id)
     await db.delete(req)
     await db.commit()
     return {"ok": True}
@@ -500,7 +496,7 @@ async def delete_orphan(request_id: int, db: AsyncSession = Depends(get_db_async
     req = await db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")
-    await _delete_vf_episode_cache(db, req.id)
+    await delete_request_episode_cache(db, req.id)
     await db.delete(req)
     await db.commit()
     return {"ok": True}

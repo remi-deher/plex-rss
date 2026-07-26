@@ -60,16 +60,6 @@ class MediaAddRequest(BaseModel):
     auto_search: bool = False
 
 
-
-
-
-
-
-
-
-
-
-
 async def _media_identity_filter(db: AsyncSession, item) -> list[MediaRequest]:
     """Retourne les demandes qui représentent le même média qu'un LibraryItem ou une demande."""
     matches: dict[int, MediaRequest] = {}
@@ -98,14 +88,6 @@ async def _media_identity_filter(db: AsyncSession, item) -> list[MediaRequest]:
         for req in (await db.execute(q)).scalars().all():
             matches[req.id] = req
     return sorted(matches.values(), key=lambda r: r.requested_at or datetime.min, reverse=True)
-
-
-
-
-
-
-
-
 
 
 _SCHEDULE_SOFT_TTL = 60
@@ -599,18 +581,6 @@ async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = D
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 @router.post("/media/recheck-plex")
 async def recheck_plex(
     request_id: Optional[int] = None,
@@ -628,7 +598,7 @@ async def recheck_plex(
     """
     import asyncio
 
-    from ..services.plex_sync import _find_library_item_by_ids
+    from ..services.media_matching import find_library_item_by_ids as _find_library_item_by_ids
     from ..services.plex_finder import connect, find_item_in_libraries
     from ..services.vff_scanner import _parse_vff_libraries
     from ..utils import now_utc_naive

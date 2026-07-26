@@ -286,3 +286,39 @@ async def test_check_vf_statuses_promotes_stuck_request_via_library_presence():
     assert req.library_item_id == li_id
     assert req.has_vf is True
     mock_scan.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_link_prefers_plex_guid_over_external_ids():
+    """Le GUID Plex l'emporte sur un tmdb_id qui pointe vers une autre entrée.
+
+    Le rapprochement existait en deux versions : celle de `plex_sync` testait le GUID
+    seul et en premier, celle de `vff_scanner` le mettait dans le même `or_` que les IDs
+    externes — la ligne retenue dépendait alors de l'ordre de la base. Les deux ont été
+    unifiées sur la version GUID-d'abord : un tmdb_id peut être partagé par plusieurs
+    entrées de bibliothèque (doublons, re-sorties), le GUID désigne exactement une entrée,
+    et se tromper ici attribue le statut VF au mauvais média.
+    """
+    db = _make_db()
+    # Même tmdb_id sur deux entrées ; seule la seconde porte le GUID de la demande.
+    homonym = LibraryItem(title="Dune", year=1984, media_type="movie", tmdb_id="841", plex_guid="plex://movie/old")
+    exact = LibraryItem(title="Dune", year=2021, media_type="movie", tmdb_id="841", plex_guid="plex://movie/new")
+    db.add(homonym)
+    db.add(exact)
+    db.commit()
+
+    req = MediaRequest(
+        plex_user_id="u1",
+        title="Dune",
+        year=2021,
+        media_type="movie",
+        tmdb_id="841",
+        plex_guid="plex://movie/new",
+        status=RequestStatus.available,
+    )
+    db.add(req)
+    db.commit()
+
+    found = await _link_request_to_library_item(db, req)
+    assert found is not None
+    assert found.id == exact.id, "le GUID doit primer sur le tmdb_id partagé"

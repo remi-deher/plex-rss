@@ -22,6 +22,7 @@ from .notification_orchestrator import (
     _resolve_movie_notify_language,
     _resolve_series_notify_language,
 )
+from .media_matching import link_request_to_library_item as _link_request_to_library_item
 from .radarr import search_movie
 from .sonarr import get_season_aired_episode_counts, lookup_series, search_series
 
@@ -44,31 +45,6 @@ episode_scan_state: dict[str, Any] = {
     "total_items": 0,
     "error": None,
 }
-
-
-async def _link_request_to_library_item(db: AsyncSession, req: MediaRequest) -> "LibraryItem | None":
-    if req.library_item_id:
-        item = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
-        if item:
-            return item
-        req.library_item_id = None
-    conditions = []
-    if req.plex_guid:
-        conditions.append(LibraryItem.plex_guid == req.plex_guid)
-    if req.tmdb_id:
-        conditions.append(LibraryItem.tmdb_id == req.tmdb_id)
-    if req.tvdb_id:
-        conditions.append(LibraryItem.tvdb_id == req.tvdb_id)
-    if req.imdb_id:
-        conditions.append(LibraryItem.imdb_id == req.imdb_id)
-    item = (await db.execute(select(LibraryItem).filter(or_(*conditions)))).scalars().first() if conditions else None
-    if not item:
-        item = (await db.execute(select(LibraryItem).filter(
-            LibraryItem.title.ilike(req.title), LibraryItem.year == req.year, LibraryItem.media_type == req.media_type
-        ))).scalars().first()
-    if item:
-        req.library_item_id = item.id
-    return item
 
 
 def _parse_vff_libraries(settings: Settings) -> list[dict]:

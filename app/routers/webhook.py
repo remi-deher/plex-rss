@@ -32,6 +32,7 @@ from ..services.notification_orchestrator import (
 )
 from ..services.vff_scanner import scan_and_notify_availability, trigger_plex_library_refresh
 from ..utils import now_utc_naive, safe_error_message
+from ..services.vf_cache import delete_request_episode_cache
 
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 logger = logging.getLogger(__name__)
@@ -82,10 +83,6 @@ def _get_recipients(user_obj, settings: Settings) -> list[str]:
             if addr not in recipients:
                 recipients.append(addr)
     return recipients
-
-
-async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
-    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 def _arr_event_query(
@@ -321,7 +318,7 @@ async def _delete_arr_requests(
     requests = (await db.execute(query)).scalars().all()
     count = 0
     for req in requests:
-        await _delete_vf_episode_cache(db, req.id)
+        await delete_request_episode_cache(db, req.id)
         await db.delete(req)
         count += 1
     await db.commit()

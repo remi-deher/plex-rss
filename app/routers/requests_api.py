@@ -19,6 +19,7 @@ from ..services.notification_orchestrator import _notify, notify_single_user
 from ..services.request_lifecycle import transition_request
 from ..services import arr_orphans, deleted_media, radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
+from ..services.vf_cache import delete_request_episode_cache
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +233,6 @@ async def notify_single_requester(request_id: int, body: NotifyUserRequest, db: 
         raise HTTPException(400, "events doit contenir 'request' et/ou 'available'")
     queued = [event for event in events if await notify_single_user(event, settings, req, db, body.plex_user_id)]
     return {"status": "ok", "queued": queued}
-
-
-async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
-    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines)."""
-    await db.execute(sqlalchemy.delete(VfEpisodeStatus).where(VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id))
 
 
 @router.get("/requests")
@@ -525,7 +521,7 @@ async def bulk_delete_requests(body: BulkAction, request: Request, db: AsyncSess
             db, req.media_type, req.title,
             tmdb_id=req.tmdb_id, tvdb_id=req.tvdb_id, imdb_id=req.imdb_id, deleted_by=deleted_by,
         )
-        await _delete_vf_episode_cache(db, req.id)
+        await delete_request_episode_cache(db, req.id)
         await db.delete(req)
         count += 1
     await db.commit()
@@ -680,7 +676,7 @@ async def delete_request(
         tmdb_id=req.tmdb_id, tvdb_id=req.tvdb_id, imdb_id=req.imdb_id,
         deleted_by=actor.get("username") or actor.get("plex_user_id") or "api",
     )
-    await _delete_vf_episode_cache(db, req.id)
+    await delete_request_episode_cache(db, req.id)
     await db.delete(req)
     await db.commit()
     return {"status": "deleted"}
@@ -728,7 +724,7 @@ async def cancel_own_request(request_id: int, request: Request, db: AsyncSession
 
     if not remaining:
         # Seul demandeur (ou admin annulant) : on annule la demande localement.
-        await _delete_vf_episode_cache(db, req.id)
+        await delete_request_episode_cache(db, req.id)
         await db.delete(req)
         await db.commit()
         return {"status": "cancelled", "removed": True}

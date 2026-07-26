@@ -14,6 +14,8 @@ from ..utils import now_utc, now_utc_naive
 from . import plex_finder
 from .radarr import get_all_movies
 from .sonarr import get_all_series
+from .media_matching import find_library_item_by_ids as _find_library_item_by_ids
+from .media_matching import link_request_to_library_item as _link_request_to_library_item
 from .vff_scanner import _invalidate_vf_cache, _parse_vff_libraries
 
 logger = logging.getLogger(__name__)
@@ -49,47 +51,6 @@ def _reset_if_stale() -> None:
         plex_sync_state["error"] = "Run precedent interrompu (timeout)"
 
 
-async def _find_library_item_by_ids(
-    db: AsyncSession,
-    plex_guid: str | None,
-    tmdb_id: str | None,
-    tvdb_id: str | None,
-    imdb_id: str | None,
-    title: str,
-    year: int | None,
-    media_type: str,
-) -> "LibraryItem | None":
-    """Cherche un LibraryItem par identité : GUID Plex > IDs externes > titre+année+type.
-
-    Cœur de rapprochement partagé par `_find_library_item` (sync Plex) et
-    `_link_request_to_library_item` (lien MediaRequest -> LibraryItem).
-    """
-    if plex_guid:
-        found = (await db.execute(select(LibraryItem).filter(LibraryItem.plex_guid == plex_guid))).scalars().first()
-        if found:
-            return found
-
-    conditions = []
-    if tmdb_id:
-        conditions.append(LibraryItem.tmdb_id == tmdb_id)
-    if tvdb_id:
-        conditions.append(LibraryItem.tvdb_id == tvdb_id)
-    if imdb_id:
-        conditions.append(LibraryItem.imdb_id == imdb_id)
-    if conditions:
-        found = (await db.execute(select(LibraryItem).filter(or_(*conditions)))).scalars().first()
-        if found:
-            return found
-
-    return (await db.execute(
-        select(LibraryItem).filter(
-            LibraryItem.title.ilike(title),
-            LibraryItem.year == year,
-            LibraryItem.media_type == media_type,
-        )
-    )).scalars().first()
-
-
 async def _find_library_item(db: AsyncSession, item: dict) -> "LibraryItem | None":
     """Cherche un LibraryItem déjà en base correspondant à un média Plex synchronisé."""
     return await _find_library_item_by_ids(
@@ -102,28 +63,6 @@ async def _find_library_item(db: AsyncSession, item: dict) -> "LibraryItem | Non
         item["year"],
         item["media_type"],
     )
-
-
-async def _link_request_to_library_item(db: AsyncSession, req: MediaRequest) -> "LibraryItem | None":
-    """Lie une demande à son LibraryItem correspondant (source de vérité VF unique).
-
-    Si déjà liée, renvoie directement le LibraryItem (retente un rapprochement si le lien
-    est devenu orphelin). Sinon, tente un rapprochement par identité et persiste le lien
-    s'il est trouvé (sans commit — à la charge de l'appelant). Renvoie None si aucun
-    LibraryItem ne correspond (le média n'est pas encore synchronisé depuis Plex : la
-    demande reste scannée indépendamment jusqu'au prochain rapprochement).
-    """
-    if req.library_item_id:
-        li = (await db.execute(select(LibraryItem).filter(LibraryItem.id == req.library_item_id))).scalars().first()
-        if li:
-            return li
-        req.library_item_id = None  # lien orphelin, on retente un rapprochement ci-dessous
-    li = await _find_library_item_by_ids(
-        db, req.plex_guid, req.tmdb_id, req.tvdb_id, req.imdb_id, req.title, req.year, req.media_type
-    )
-    if li:
-        req.library_item_id = li.id
-    return li
 
 
 async def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int:

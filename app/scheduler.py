@@ -31,8 +31,10 @@ from .services.notification_orchestrator import (
     _queue_milestone,
     _send_digest,
 )
+from .services.media_matching import (
+    link_request_to_library_item as _link_request_to_library_item,
+)
 from .services.plex_sync import (
-    _link_request_to_library_item,
     plex_sync_state,
     sync_plex_media,
 )

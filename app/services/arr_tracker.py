@@ -32,19 +32,9 @@ from .seer import resolve_mode as seer_resolve_mode
 from .sonarr import get_all_series, get_series_episode_stats, series_exists
 from .vff_scanner import scan_and_notify_availability
 from .watchlist_poller import _check_and_seed_instances_from_settings, _refresh_next_release
+from .vf_cache import delete_request_episode_cache
 
 logger = logging.getLogger(__name__)
-
-
-async def _delete_vf_episode_cache(db: AsyncSession, request_id: int) -> None:
-    """Purge le cache VF par épisode d'une demande supprimée (évite les lignes orphelines).
-
-    Doublon volontaire du helper de `app/routers/requests_api.py` : les deux modules
-    n'ont pas de dépendance commune vers les modèles sans risquer un import circulaire.
-    """
-    await db.execute(sqlalchemy.delete(VfEpisodeStatus).filter(
-        VfEpisodeStatus.source_type == "request", VfEpisodeStatus.source_id == request_id
-    ))
 
 
 def _season_status_label(available: int, total: int) -> str:
@@ -373,7 +363,7 @@ async def check_arr_statuses(full_resync: bool = False, notify: bool = True):
                         logger.info(
                             f"'{req.title}' n'existe plus dans {inst.arr_type} (id={req.arr_id}) — suppression de la demande"
                         )
-                        await _delete_vf_episode_cache(db, req.id)
+                        await delete_request_episode_cache(db, req.id)
                         await db.delete(req)
                         await db.commit()
                         deleted_count += 1
