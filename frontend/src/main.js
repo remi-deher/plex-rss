@@ -10,6 +10,7 @@ const DashboardView = () => import("./views/DashboardView.vue");
 const DiscoverView = () => import("./views/DiscoverView.vue");
 const DownloadsView = () => import("./views/DownloadsView.vue");
 const ActivityView = () => import("./views/ActivityView.vue");
+const LibraryAnalyticsView = () => import("./views/LibraryAnalyticsView.vue");
 const LibraryView = () => import("./views/LibraryView.vue");
 const CalendarView = () => import("./views/CalendarView.vue");
 const UsersView = () => import("./views/UsersView.vue");
@@ -45,6 +46,7 @@ const routes = [
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },
+  { path: "/analytics", component: LibraryAnalyticsView },
   // Bibliotheque et Demandes ont fusionne en une seule page (voir /library) : les
   // demandes disposent maintenant de leurs actions (approuver/refuser/etc.) directement
   // dans la fiche detaillee. Redirection pour les favoris/liens externes existants.

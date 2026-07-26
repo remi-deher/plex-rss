@@ -51,6 +51,7 @@ from .routers import (
     importexport,
     issues_api,
     library_api,
+    library_analytics_api,
     maintenance,
     metrics_api,
     misc_api,
@@ -296,6 +297,7 @@ app.include_router(security_api.router)
 app.include_router(requests_api.router)
 app.include_router(calendar_api.router)
 app.include_router(library_api.router)
+app.include_router(library_analytics_api.router)
 app.include_router(issues_api.router)
 app.include_router(corrections_api.router)
 app.include_router(discover_api.router)
@@ -329,6 +331,7 @@ SPA_ROOTS = {
     "profile",
     "releases",
     "media",
+    "analytics",
 }
 
 

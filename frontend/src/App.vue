@@ -28,6 +28,7 @@
             <RouterLink to="/activity?view=users">Utilisateurs</RouterLink>
           </div>
         </div>
+        <RouterLink v-if="isAdmin" to="/analytics" title="Insights médiathèque"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
       </div>
 
       <div v-if="isAdmin" class="menu-section">
@@ -85,6 +86,7 @@
               <span class="menu-label">Principal</span>
               <RouterLink to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
               <details v-if="isAdmin" class="mobile-activity-group" :open="isActivityRoute"><summary><Activity/>Activité Plex</summary><RouterLink to="/activity" @click="closeMoreMenu">Vue d’ensemble</RouterLink><RouterLink to="/activity?view=live" @click="closeMoreMenu">En direct</RouterLink><RouterLink to="/activity?view=history" @click="closeMoreMenu">Historique</RouterLink><RouterLink to="/activity?view=stats" @click="closeMoreMenu">Statistiques</RouterLink><RouterLink to="/activity?view=quality" @click="closeMoreMenu">Qualité des flux</RouterLink><RouterLink to="/activity?view=users" @click="closeMoreMenu">Utilisateurs</RouterLink></details>
+              <RouterLink v-if="isAdmin" to="/analytics" @click="closeMoreMenu"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
             </div>
             
             <div v-if="isAdmin" class="menu-section mobile-admin-groups">
@@ -116,7 +118,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-import { Activity, Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Activity, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
