@@ -1,12 +1,12 @@
 <template>
   <section class="panel popular-panel">
-    <div class="panel-head"><div><span class="eyebrow">Engagement</span><h2>Médias les plus regardés</h2></div></div>
+    <div class="panel-head"><div><span class="eyebrow">{{ eyebrow }}</span><h2>{{ title }}</h2></div></div>
     <div class="popular-list">
       <article v-for="(item,index) in items" :key="`${item.media_type}:${item.title}`">
         <b>{{ index+1 }}</b>
         <MediaArtwork :src="item.thumb_url" :alt="item.title" :type="item.media_type" size="small"/>
-        <div><strong>{{ item.title }}</strong><span>{{ item.sessions }} lectures · {{ item.users }} utilisateur{{ item.users>1?'s':'' }}</span></div>
-        <em>{{ formatDuration(item.watch_ms) }}<small v-if="item.watch_hours_per_gb!=null">{{ item.watch_hours_per_gb }} h/Go</small></em>
+        <div><strong>{{ item.title }}</strong><span>{{ item.sessions }} lectures · {{ item.users }} utilisateur{{ item.users>1?'s':'' }}</span><small>{{ item.completed }} terminée{{ item.completed>1?'s':'' }} · {{ item.completion_rate }} %</small></div>
+        <em>{{ formatDuration(item.watch_ms) }}<small v-if="item.rewatches">{{ item.rewatches }} revisionnage{{ item.rewatches>1?'s':'' }}</small><small v-else-if="item.watch_hours_per_gb!=null">{{ item.watch_hours_per_gb }} h/Go</small></em>
       </article>
       <p v-if="!items.length" class="empty">Aucun média classable.</p>
     </div>
@@ -15,7 +15,11 @@
 
 <script setup>
 import MediaArtwork from './MediaArtwork.vue';
-defineProps({items:{type:Array,default:()=>[]}});
+defineProps({
+  items:{type:Array,default:()=>[]},
+  title:{type:String,default:'Médias les plus regardés'},
+  eyebrow:{type:String,default:'Consommation'},
+});
 function formatDuration(ms){const hours=(ms||0)/3600000;return hours<1?`${Math.round(hours*60)} min`:`${hours.toLocaleString('fr-FR',{maximumFractionDigits:1})} h`}
 </script>
 

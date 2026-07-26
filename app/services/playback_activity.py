@@ -80,21 +80,24 @@ def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]
         day = moment.date().isoformat()
         concurrent_daily[day] = max(concurrent_daily[day], current)
 
-    completion_groups: dict[str, list[float]] = defaultdict(list)
+    completion_groups: dict[str, list[tuple[float, bool]]] = defaultdict(list)
     for row in rows:
-        if row.duration_ms:
-            progress = min(100, (row.watched_ms or row.progress_ms or 0) / row.duration_ms * 100)
-            completion_groups[row.media_type or "other"].append(progress)
+        progress = row.progress_percent
+        if progress is None and row.duration_ms:
+            progress = min(100, (row.progress_ms or row.watched_ms or 0) / row.duration_ms * 100)
+        if progress is not None:
+            completed = row.watched_status == 1 if row.watched_status is not None else progress >= 85
+            completion_groups[row.media_type or "other"].append((progress, completed))
     completion = []
     for media_type, values in completion_groups.items():
-        completed = sum(value >= 85 for value in values)
+        completed = sum(is_completed for _, is_completed in values)
         completion.append(
             {
                 "media_type": media_type,
                 "sessions": len(values),
                 "completed": completed,
                 "completion_rate": _percent(completed, len(values)),
-                "average_progress": round(sum(values) / len(values), 1),
+                "average_progress": round(sum(value for value, _ in values) / len(values), 1),
             }
         )
 
@@ -113,6 +116,10 @@ def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]
                 "thumb_url": _serialize(row)["thumb_url"],
                 "rating_key": row.rating_key,
                 "size_bytes": 0,
+                "completed": 0,
+                "abandoned": 0,
+                "resumed": 0,
+                "rewatches": 0,
             },
         )
         item["sessions"] += 1
@@ -120,11 +127,35 @@ def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]
         if row.user_name:
             item["users"].add(row.user_name)
         item["size_bytes"] = max(item["size_bytes"], row.media_size_bytes or 0)
-    popular = sorted(media_groups.values(), key=lambda item: item["watch_ms"], reverse=True)[:10]
-    for item in popular:
+        progress = row.progress_percent
+        if progress is None and row.duration_ms:
+            progress = min(100, (row.progress_ms or row.watched_ms or 0) / row.duration_ms * 100)
+        completed = row.watched_status == 1 if row.watched_status is not None else (progress or 0) >= 85
+        item["completed"] += int(completed)
+        item["abandoned"] += int(not completed and (progress or 0) < 21.25)
+        item["resumed"] += int((row.group_count or 1) > 1)
+
+    repeat_counts = Counter(
+        (row.user_name, row.rating_key)
+        for row in rows
+        if row.user_name and row.rating_key
+    )
+    for row in rows:
+        key = (row.media_type or "other", _media_label(row))
+        if row.user_name and row.rating_key and repeat_counts[(row.user_name, row.rating_key)] > 1:
+            media_groups[key]["rewatches"] += 1
+            repeat_counts[(row.user_name, row.rating_key)] -= 1
+
+    ranked_media = list(media_groups.values())
+    for item in ranked_media:
         item["users"] = len(item["users"])
+        item["completion_rate"] = _percent(item["completed"], item["sessions"])
         size_gb = item["size_bytes"] / (1024**3)
         item["watch_hours_per_gb"] = round(item["watch_ms"] / 3_600_000 / size_gb, 2) if size_gb else None
+    popular = sorted(ranked_media, key=lambda item: item["watch_ms"], reverse=True)[:10]
+    popular_by_audience = sorted(
+        ranked_media, key=lambda item: (item["users"], item["sessions"], item["watch_ms"]), reverse=True
+    )[:10]
 
     method_counts = Counter(row.playback_method or "unknown" for row in rows)
     codec_counts = Counter((row.video_codec or "Inconnu").upper() for row in rows)
@@ -244,6 +275,13 @@ def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]
         },
         "completion": completion,
         "popular": popular,
+        "popular_by_audience": popular_by_audience,
+        "engagement": {
+            "completed": sum(item["completed"] for item in ranked_media),
+            "abandoned": sum(item["abandoned"] for item in ranked_media),
+            "resumed": sum(item["resumed"] for item in ranked_media),
+            "rewatches": sum(item["rewatches"] for item in ranked_media),
+        },
         "quality": {
             "methods": [{"key": key, "count": count, "rate": _percent(count, total)} for key, count in method_counts.most_common()],
             "codecs": [{"label": key, "count": count} for key, count in codec_counts.most_common(8)],
@@ -323,15 +361,8 @@ def _playback_method(
 def _tautulli_values(item: dict) -> dict:
     """Normalise les champs réellement renvoyés par get_history."""
     play_seconds = max(0, _int(item.get("play_duration"), 0))
-    percent_complete = max(0, min(100, _int(item.get("percent_complete"), 0)))
-    duration_ms = max(0, _int(item.get("duration"), 0)) * 1000
-    if not duration_ms and play_seconds and percent_complete:
-        duration_ms = round(play_seconds * 1000 * 100 / percent_complete)
-    progress_ms = (
-        round(duration_ms * percent_complete / 100)
-        if duration_ms and percent_complete
-        else play_seconds * 1000
-    )
+    percent_complete = max(0.0, min(100.0, float(item.get("percent_complete") or 0)))
+    watched_status = max(0.0, min(1.0, float(item.get("watched_status") or 0)))
     video_decision = item.get("video_decision")
     audio_decision = item.get("audio_decision")
     return {
@@ -342,9 +373,15 @@ def _tautulli_values(item: dict) -> dict:
             audio_decision,
             item.get("transcode_decision"),
         ),
-        "duration_ms": duration_ms or None,
+        # get_history expose `duration` comme alias historique de play_duration :
+        # ce n'est jamais la durée du média.
+        "duration_ms": None,
         "watched_ms": play_seconds * 1000,
-        "progress_ms": progress_ms,
+        "progress_ms": None,
+        "progress_percent": percent_complete,
+        "watched_status": watched_status,
+        "group_count": max(1, _int(item.get("group_count"), 1)),
+        "source_group_ids": str(item.get("group_ids") or "") or None,
     }
 
 
@@ -401,7 +438,16 @@ def _serialize(row: PlaybackSession) -> dict:
         "progress_ms": row.progress_ms,
         "duration_ms": row.duration_ms,
         "watched_ms": row.watched_ms,
-        "progress": round((row.progress_ms or 0) / row.duration_ms * 100, 1) if row.duration_ms else 0,
+        "progress": (
+            round(row.progress_percent, 1)
+            if row.progress_percent is not None
+            else round((row.progress_ms or 0) / row.duration_ms * 100, 1)
+            if row.duration_ms
+            else 0
+        ),
+        "progress_percent": row.progress_percent,
+        "watched_status": row.watched_status,
+        "group_count": row.group_count or 1,
         "started_at": row.started_at.isoformat() if row.started_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         "ended_at": row.ended_at.isoformat() if row.ended_at else None,
@@ -481,6 +527,11 @@ def parse_plex_sessions(xml: str, *, anonymize_ips: bool = True) -> list[dict]:
                 "media_size_bytes": _int(part_attrs.get("size")),
                 "progress_ms": _int(media.get("viewOffset"), 0),
                 "duration_ms": _int(media.get("duration")),
+                "progress_percent": (
+                    round(_int(media.get("viewOffset"), 0) / _int(media.get("duration")) * 100, 1)
+                    if _int(media.get("duration"))
+                    else None
+                ),
             }
         )
     return sessions
@@ -528,6 +579,7 @@ async def collect_plex_activity() -> dict:
             row.last_seen_at = now
             row.ended_at = None
             row.watched_ms = max(row.watched_ms or 0, snapshot["progress_ms"] or 0, previous_progress)
+            row.watched_status = 1 if (row.progress_percent or 0) >= 85 else 0
         for session_id, row in existing.items():
             if session_id not in active_ids:
                 row.ended_at = now
@@ -636,6 +688,10 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     duration_ms=values["duration_ms"],
                     watched_ms=values["watched_ms"],
                     progress_ms=values["progress_ms"],
+                    progress_percent=values["progress_percent"],
+                    watched_status=values["watched_status"],
+                    group_count=values["group_count"],
+                    source_group_ids=values["source_group_ids"],
                     started_at=started,
                     last_seen_at=stopped or started,
                     ended_at=stopped or started + timedelta(milliseconds=values["watched_ms"]),

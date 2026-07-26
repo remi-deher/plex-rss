@@ -1,6 +1,6 @@
 <template>
   <section class="panel">
-    <div class="panel-head"><div><span class="eyebrow">Engagement</span><h2>Taux de complétion</h2></div><small>terminé à 90 %</small></div>
+    <div class="panel-head"><div><span class="eyebrow">Engagement</span><h2>Taux de complétion</h2></div><small>règle Tautulli · 85 % ou générique</small></div>
     <div class="completion-list">
       <article v-for="item in items" :key="item.media_type">
         <div class="completion-ring" :style="{'--rate':`${item.completion_rate*3.6}deg`}"><strong>{{ item.completion_rate }}%</strong></div>

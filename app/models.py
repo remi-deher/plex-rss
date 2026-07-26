@@ -492,6 +492,10 @@ class PlaybackSession(Base):
     media_size_bytes: Mapped[Optional[int]]
     progress_ms: Mapped[Optional[int]]
     duration_ms: Mapped[Optional[int]]
+    progress_percent: Mapped[Optional[float]]
+    watched_status: Mapped[Optional[float]]
+    group_count: Mapped[int] = mapped_column(default=1)
+    source_group_ids: Mapped[Optional[str]]
     watched_ms: Mapped[int] = mapped_column(default=0)
     started_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)

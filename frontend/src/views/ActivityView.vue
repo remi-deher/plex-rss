@@ -57,11 +57,20 @@
           <ConcurrencyPanel :daily="analytics.concurrency?.daily" :peak="analytics.concurrency?.peak" :peak-at="analytics.concurrency?.peak_at"/>
         </div>
         <ActivityHeatmap :points="analytics.heatmap"/>
+        <div class="metric-grid activity-metrics engagement-metrics">
+          <ActivityMetricCard label="Terminées" :value="analytics.engagement?.completed||0" detail="seuil Tautulli ou générique" :icon="CheckCircle2" accent/>
+          <ActivityMetricCard label="Abandonnées" :value="analytics.engagement?.abandoned||0" detail="avant le premier quart du seuil" :icon="CircleStop"/>
+          <ActivityMetricCard label="Reprises" :value="analytics.engagement?.resumed||0" detail="sessions regroupées" :icon="History"/>
+          <ActivityMetricCard label="Revisionnages" :value="analytics.engagement?.rewatches||0" detail="nouvelle lecture du même média" :icon="Repeat2"/>
+        </div>
         <div class="activity-grid analytics-secondary">
           <CompletionPanel :items="analytics.completion"/>
           <BreakdownPanel title="Types de lecture" eyebrow="Qualité" :items="methodBreakdown"/>
         </div>
-        <PopularMediaPanel :items="analytics.popular"/>
+        <div class="activity-grid analytics-secondary media-rankings">
+          <PopularMediaPanel :items="analytics.popular" title="Médias les plus regardés" eyebrow="Durée cumulée"/>
+          <PopularMediaPanel :items="analytics.popular_by_audience" title="Médias les plus populaires" eyebrow="Audience distincte"/>
+        </div>
         <section class="panel binge-panel">
           <div class="panel-head"><div><span class="eyebrow">Habitudes</span><h2>Marathons détectés</h2></div><small>3 épisodes ou plus</small></div>
           <div class="binge-list">
@@ -129,7 +138,7 @@
 <script setup>
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue';
 import { useRoute,useRouter } from 'vue-router';
-import { Activity, CheckCircle2,Clock3,Cpu,Gauge,HardDrive,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
+import { Activity, CheckCircle2,CircleStop,Clock3,Cpu,Gauge,HardDrive,History,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import ActivityMetricCard from '@/components/activity/ActivityMetricCard.vue';

@@ -96,16 +96,59 @@ def test_tautulli_values_use_history_decision_and_real_progress():
 
     assert values["playback_method"] == "direct_stream"
     assert values["watched_ms"] == 263_000
-    assert values["duration_ms"] == 313_095
-    assert values["progress_ms"] == 263_000
+    assert values["duration_ms"] is None
+    assert values["progress_ms"] is None
+    assert values["progress_percent"] == 84
 
 
 def test_tautulli_values_do_not_turn_missing_play_duration_into_full_watch():
     values = _tautulli_values({"duration": 3600, "percent_complete": 0})
 
     assert values["watched_ms"] == 0
-    assert values["progress_ms"] == 0
+    assert values["progress_ms"] is None
+    assert values["duration_ms"] is None
     assert values["playback_method"] == "unknown"
+
+
+def test_analytics_uses_tautulli_watched_status_and_grouping():
+    rows = [
+        PlaybackSession(
+            source="tautulli",
+            source_session_id="grouped",
+            title="Film",
+            media_type="movie",
+            user_name="Utilisateur",
+            rating_key="42",
+            progress_percent=70,
+            watched_status=1,
+            group_count=3,
+            watched_ms=4_000_000,
+        ),
+        PlaybackSession(
+            source="tautulli",
+            source_session_id="rewatch",
+            title="Film",
+            media_type="movie",
+            user_name="Utilisateur",
+            rating_key="42",
+            progress_percent=10,
+            watched_status=0,
+            group_count=1,
+            watched_ms=300_000,
+        ),
+    ]
+
+    analytics = _analytics(rows, [])
+
+    assert analytics["completion"][0]["completed"] == 1
+    assert analytics["engagement"] == {
+        "completed": 1,
+        "abandoned": 1,
+        "resumed": 1,
+        "rewatches": 1,
+    }
+    assert analytics["popular"][0]["users"] == 1
+    assert analytics["popular"][0]["completion_rate"] == 50
 
 
 def test_masked_ip_supports_ipv6():
