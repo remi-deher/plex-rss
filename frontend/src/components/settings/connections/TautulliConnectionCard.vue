@@ -15,18 +15,23 @@
       <button class="secondary" :disabled="busy" @click="testConnection"><PlugZap/>Tester</button>
       <select v-model.number="importLength"><option :value="500">500 sessions</option><option :value="2000">2 000 sessions</option><option :value="10000">Tout (10 000 max.)</option></select>
       <button class="secondary" :disabled="busy" @click="runImport"><History/>Importer</button>
+      <button class="secondary" :disabled="busy" @click="normalizeHistory"><RefreshCw/>Normaliser l'historique</button>
     </div>
     <p v-if="status" class="connection-result">{{ status }}</p>
+    <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)"/>
   </section>
 </template>
 
 <script setup>
 import { ref } from 'vue';
-import { History, PlugZap } from '@lucide/vue';
+import { History, PlugZap, RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
 import { form, save, secretsPresent } from '@/settingsForm';
+import ConfirmModal from '@/components/ConfirmModal.vue';
+import { useConfirm } from '@/composables/useConfirm';
 
 const busy=ref(false),status=ref(''),importLength=ref(2000);
+const {dialog:confirmDialog,askConfirm,resolveConfirm}=useConfirm();
 async function testConnection(){
   busy.value=true;status.value='';
   try{await save();const result=await api('/api/playback/tautulli/test',{method:'POST'});status.value=result.message}
@@ -37,6 +42,20 @@ async function runImport(){
   busy.value=true;status.value='';
   try{await save();const result=await api('/api/playback/tautulli/import',{method:'POST',body:JSON.stringify({length:importLength.value})});status.value=`${result.imported} session(s) importée(s) sur ${result.received}.`}
   catch(error){status.value=error.message}
+  finally{busy.value=false}
+}
+async function normalizeHistory(){
+  if(!await askConfirm({
+    title:"Normaliser l'historique Tautulli ?",
+    message:"Les décisions de lecture, la progression et le temps regardé des anciennes sessions seront recalculés depuis Tautulli.",
+    confirmLabel:"Normaliser",
+  }))return;
+  busy.value=true;status.value='';
+  try{
+    await save();
+    const result=await api('/api/playback/tautulli/normalize',{method:'POST',body:JSON.stringify({length:10000})});
+    status.value=`${result.normalized} session(s) corrigée(s) sur ${result.matched} retrouvée(s).`;
+  }catch(error){status.value=error.message}
   finally{busy.value=false}
 }
 </script>

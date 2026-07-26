@@ -87,7 +87,7 @@ def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]
             completion_groups[row.media_type or "other"].append(progress)
     completion = []
     for media_type, values in completion_groups.items():
-        completed = sum(value >= 90 for value in values)
+        completed = sum(value >= 85 for value in values)
         completion.append(
             {
                 "media_type": media_type,
@@ -293,13 +293,59 @@ def _masked_ip(value: str | None, anonymize: bool) -> str | None:
     return ".".join(parts[:3] + ["0"]) if len(parts) == 4 else None
 
 
-def _playback_method(video_decision: str | None, audio_decision: str | None) -> str:
-    decisions = {str(video_decision or "").lower(), str(audio_decision or "").lower()}
+def _decision(value: str | None) -> str:
+    return str(value or "").strip().lower().replace("-", " ").replace("_", " ")
+
+
+def _playback_method(
+    video_decision: str | None,
+    audio_decision: str | None,
+    transcode_decision: str | None = None,
+) -> str:
+    aggregate = _decision(transcode_decision)
+    if aggregate in {"transcode", "transcoded"}:
+        return "transcode"
+    if aggregate in {"copy", "direct stream", "directstream"}:
+        return "direct_stream"
+    if aggregate in {"direct play", "directplay"}:
+        return "direct_play"
+
+    decisions = {_decision(video_decision), _decision(audio_decision)}
     if "transcode" in decisions:
         return "transcode"
-    if "copy" in decisions:
+    if decisions & {"copy", "direct stream", "directstream"}:
         return "direct_stream"
-    return "direct_play"
+    if decisions & {"direct play", "directplay"}:
+        return "direct_play"
+    return "unknown"
+
+
+def _tautulli_values(item: dict) -> dict:
+    """Normalise les champs réellement renvoyés par get_history."""
+    play_seconds = max(0, _int(item.get("play_duration"), 0))
+    percent_complete = max(0, min(100, _int(item.get("percent_complete"), 0)))
+    duration_ms = max(0, _int(item.get("duration"), 0)) * 1000
+    if not duration_ms and play_seconds and percent_complete:
+        duration_ms = round(play_seconds * 1000 * 100 / percent_complete)
+    progress_ms = (
+        round(duration_ms * percent_complete / 100)
+        if duration_ms and percent_complete
+        else play_seconds * 1000
+    )
+    video_decision = item.get("video_decision")
+    audio_decision = item.get("audio_decision")
+    return {
+        "video_decision": video_decision,
+        "audio_decision": audio_decision,
+        "playback_method": _playback_method(
+            video_decision,
+            audio_decision,
+            item.get("transcode_decision"),
+        ),
+        "duration_ms": duration_ms or None,
+        "watched_ms": play_seconds * 1000,
+        "progress_ms": progress_ms,
+    }
 
 
 def _plex_thumb_path(row: PlaybackSession) -> str | None:
@@ -557,10 +603,7 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                 continue
             started = _dt_from_epoch(item.get("started")) or now_utc_naive()
             stopped = _dt_from_epoch(item.get("stopped"))
-            duration_ms = _int(item.get("duration"), 0) * 1000
-            watched_ms = _int(item.get("play_duration") or item.get("duration"), 0) * 1000
-            video_decision = item.get("video_decision")
-            audio_decision = item.get("audio_decision")
+            values = _tautulli_values(item)
             db.add(
                 PlaybackSession(
                     source="tautulli",
@@ -579,9 +622,9 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     product=item.get("product"),
                     player_address=_masked_ip(item.get("ip_address"), settings.activity_anonymize_ips),
                     state="stopped",
-                    video_decision=video_decision,
-                    audio_decision=audio_decision,
-                    playback_method=_playback_method(video_decision, audio_decision),
+                    video_decision=values["video_decision"],
+                    audio_decision=values["audio_decision"],
+                    playback_method=values["playback_method"],
                     quality=item.get("quality_profile") or item.get("video_resolution"),
                     video_codec=item.get("video_codec"),
                     audio_codec=item.get("audio_codec"),
@@ -590,18 +633,81 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     stream_location=item.get("location"),
                     bandwidth_kbps=_int(item.get("bandwidth")),
                     media_size_bytes=_int(item.get("file_size") or item.get("media_size")),
-                    duration_ms=duration_ms,
-                    watched_ms=watched_ms,
-                    progress_ms=watched_ms,
+                    duration_ms=values["duration_ms"],
+                    watched_ms=values["watched_ms"],
+                    progress_ms=values["progress_ms"],
                     started_at=started,
                     last_seen_at=stopped or started,
-                    ended_at=stopped or started + timedelta(milliseconds=watched_ms),
+                    ended_at=stopped or started + timedelta(milliseconds=values["watched_ms"]),
                 )
             )
             imported += 1
         await db.commit()
     await publish("activity.updated", {"imported": imported, "source": "tautulli"}, admin_only=True)
     return {"imported": imported, "received": len(rows)}
+
+
+async def normalize_tautulli_history(*, length: int = 10000) -> dict:
+    """Récupère à nouveau l'historique Tautulli et répare les lignes déjà importées."""
+    async with AsyncSessionLocal() as db:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if not settings or not settings.tautulli_url or not settings.tautulli_api_key:
+            raise ValueError("Tautulli n'est pas configuré.")
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(
+                f"{settings.tautulli_url.rstrip('/')}/api/v2",
+                params={
+                    "apikey": settings.tautulli_api_key,
+                    "cmd": "get_history",
+                    "length": min(max(length, 1), 10000),
+                    "order_column": "date",
+                    "order_dir": "desc",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json().get("response", {})
+        if payload.get("result") != "success":
+            raise ValueError(payload.get("message") or "Normalisation Tautulli refusée.")
+
+        rows = payload.get("data", {}).get("data") or []
+        references = {
+            str(item.get("reference_id") or item.get("row_id") or item.get("id") or ""): item
+            for item in rows
+        }
+        references.pop("", None)
+        existing = (
+            await db.execute(
+                select(PlaybackSession).filter(
+                    PlaybackSession.source == "tautulli",
+                    PlaybackSession.source_session_id.in_(references),
+                )
+            )
+        ).scalars().all() if references else []
+        changed = 0
+        for session in existing:
+            item = references[session.source_session_id]
+            values = _tautulli_values(item)
+            updates = {
+                **values,
+                "quality": item.get("quality_profile") or item.get("video_resolution") or session.quality,
+                "video_codec": item.get("video_codec") or session.video_codec,
+                "audio_codec": item.get("audio_codec") or session.audio_codec,
+                "container": item.get("container") or session.container,
+                "subtitle_decision": item.get("subtitle_decision") or session.subtitle_decision,
+                "bandwidth_kbps": _int(item.get("bandwidth")) or session.bandwidth_kbps,
+            }
+            if any(getattr(session, key) != value for key, value in updates.items()):
+                for key, value in updates.items():
+                    setattr(session, key, value)
+                changed += 1
+        await db.commit()
+    await publish("activity.updated", {"normalized": changed, "source": "tautulli"}, admin_only=True)
+    return {
+        "normalized": changed,
+        "matched": len(existing),
+        "received": len(rows),
+        "unmatched": max(0, len(references) - len(existing)),
+    }
 
 
 async def activity_snapshot(days: int = 30, db=None) -> dict:

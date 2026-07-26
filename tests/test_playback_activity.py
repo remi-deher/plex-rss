@@ -7,7 +7,14 @@ from app.database import get_db_async
 from app.dependencies import require_admin
 from app.main import app
 from app.models import PlaybackSession, Settings
-from app.services.playback_activity import _analytics, _masked_ip, _playback_method, _serialize, parse_plex_sessions
+from app.services.playback_activity import (
+    _analytics,
+    _masked_ip,
+    _playback_method,
+    _serialize,
+    _tautulli_values,
+    parse_plex_sessions,
+)
 
 
 @pytest.fixture()
@@ -72,6 +79,33 @@ def test_playback_method_prioritizes_transcoding():
     assert _playback_method("transcode", "copy") == "transcode"
     assert _playback_method("copy", "copy") == "direct_stream"
     assert _playback_method("directplay", "directplay") == "direct_play"
+    assert _playback_method(None, None, "direct play") == "direct_play"
+    assert _playback_method(None, None, "copy") == "direct_stream"
+    assert _playback_method(None, None, "transcode") == "transcode"
+    assert _playback_method(None, None) == "unknown"
+
+
+def test_tautulli_values_use_history_decision_and_real_progress():
+    values = _tautulli_values(
+        {
+            "transcode_decision": "copy",
+            "play_duration": 263,
+            "percent_complete": 84,
+        }
+    )
+
+    assert values["playback_method"] == "direct_stream"
+    assert values["watched_ms"] == 263_000
+    assert values["duration_ms"] == 313_095
+    assert values["progress_ms"] == 263_000
+
+
+def test_tautulli_values_do_not_turn_missing_play_duration_into_full_watch():
+    values = _tautulli_values({"duration": 3600, "percent_complete": 0})
+
+    assert values["watched_ms"] == 0
+    assert values["progress_ms"] == 0
+    assert values["playback_method"] == "unknown"
 
 
 def test_masked_ip_supports_ipv6():
@@ -171,3 +205,14 @@ def test_activity_refresh_reports_plex_failure(client):
         response = client.post("/api/playback/refresh")
     assert response.status_code == 502
     assert "Plex hors ligne" in response.json()["detail"]
+
+
+def test_tautulli_normalize_endpoint_returns_report(client):
+    payload = {"normalized": 12, "matched": 15, "received": 20, "unmatched": 5}
+    with patch(
+        "app.routers.activity_api.normalize_tautulli_history",
+        new=AsyncMock(return_value=payload),
+    ):
+        response = client.post("/api/playback/tautulli/normalize", json={"length": 10000})
+    assert response.status_code == 200
+    assert response.json() == payload

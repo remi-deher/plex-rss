@@ -13,6 +13,7 @@ from ..services.playback_activity import (
     activity_snapshot,
     collect_plex_activity,
     import_tautulli_history,
+    normalize_tautulli_history,
     test_tautulli,
 )
 
@@ -77,3 +78,11 @@ async def import_tautulli(data: TautulliImportRequest):
         return await import_tautulli_history(length=data.length)
     except Exception as exc:
         raise HTTPException(502, f"Import Tautulli impossible : {exc}") from exc
+
+
+@router.post("/tautulli/normalize")
+async def normalize_tautulli(data: TautulliImportRequest):
+    try:
+        return await normalize_tautulli_history(length=data.length)
+    except Exception as exc:
+        raise HTTPException(502, f"Normalisation Tautulli impossible : {exc}") from exc
