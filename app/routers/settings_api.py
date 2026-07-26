@@ -50,6 +50,12 @@ class SettingsUpdate(BaseModel):
     plex_url: Optional[str] = None
     plex_token: Optional[str] = None
     plex_verify_ssl: Optional[bool] = None
+    live_activity_enabled: Optional[bool] = None
+    activity_retention_days: Optional[int] = None
+    activity_anonymize_ips: Optional[bool] = None
+    tautulli_enabled: Optional[bool] = None
+    tautulli_url: Optional[str] = None
+    tautulli_api_key: Optional[str] = None
     plex_rss_url: Optional[str] = None
     watchlist_source_priority: Optional[str] = None
     watchlist_fallback_enabled: Optional[bool] = None
@@ -185,6 +191,7 @@ class TotpEnableRequest(BaseModel):
 # pour que l'admin puisse copier les URLs à configurer côté Sonarr/Radarr/Plex.
 _MASKED_SECRET_FIELDS = (
     "plex_token",
+    "tautulli_api_key",
     "sonarr_api_key",
     "radarr_api_key",
     "tmdb_api_key",
@@ -234,6 +241,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
         "poll_history_retention_days",
         "login_attempt_retention_days",
         "audit_log_retention_days",
+        "activity_retention_days",
     }
     payload = data.model_dump()
     _validate_notify_settings(payload)
@@ -249,6 +257,7 @@ async def update_settings(data: SettingsUpdate, db: AsyncSession = Depends(get_d
             "poll_history_retention_days",
             "login_attempt_retention_days",
             "audit_log_retention_days",
+            "activity_retention_days",
         ) and val == 0:
             val = None
         if key == "seer_mode" and val not in ("observer", "actor"):

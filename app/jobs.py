@@ -363,6 +363,19 @@ async def job_plex_sync_recent(ctx: dict, force: bool = False):
     )
 
 
+async def job_playback_activity(ctx: dict, force: bool = False):
+    from .services.playback_activity import collect_plex_activity
+
+    return await _run(
+        ctx,
+        "playback-activity",
+        collect_plex_activity,
+        force=force,
+        interval_seconds=10,
+        log_history=False,
+    )
+
+
 PURGE_LOCAL_HOUR = 3  # heure murale visee, hors heures d'utilisation habituelles
 
 
@@ -519,6 +532,10 @@ async def cron_plex_sync_recent(ctx: dict):
     return await job_plex_sync_recent(ctx)
 
 
+async def cron_playback_activity(ctx: dict):
+    return await job_playback_activity(ctx)
+
+
 async def cron_notification_purge(ctx: dict):
     return await job_notification_purge(ctx)
 
@@ -541,6 +558,7 @@ class WorkerSettings:
         job_seer_sync,
         job_plex_sync,
         job_plex_sync_recent,
+        job_playback_activity,
         job_notification_purge,
         job_digest,
         job_send_notification,
@@ -568,6 +586,7 @@ class WorkerSettings:
         # pas de parcours complet de bibliotheque)
         # -- voir job_plex_sync_recent / sync_plex_media_recent.
         cron(cron_plex_sync_recent, minute=set(range(0, 60, 5)), unique=True),
+        cron(cron_playback_activity, second={0, 10, 20, 30, 40, 50}, unique=True, run_at_startup=True),
         cron(cron_notification_purge, minute=0, unique=True),
         cron(cron_digest, minute=None, unique=True),
     ]

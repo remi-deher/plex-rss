@@ -16,6 +16,7 @@
         <RouterLink to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
         <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
         <RouterLink to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
+        <RouterLink v-if="isAdmin" to="/activity" title="Activité Plex"><Activity />Activité Plex</RouterLink>
       </div>
 
       <div v-if="isAdmin" class="menu-section">
@@ -72,6 +73,7 @@
             <div class="menu-section">
               <span class="menu-label">Principal</span>
               <RouterLink to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
+              <RouterLink v-if="isAdmin" to="/activity" @click="closeMoreMenu"><Activity />Activité Plex</RouterLink>
             </div>
             
             <div v-if="isAdmin" class="menu-section mobile-admin-groups">
@@ -102,7 +104,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-import { Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Activity, Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
 const session=ref(null);

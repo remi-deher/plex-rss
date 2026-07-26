@@ -8,10 +8,12 @@
 import { computed, reactive, ref } from 'vue';
 import { api } from '@/api';
 
-export const secretFields = ['plex_token', 'seer_api_key', 'tmdb_api_key', 'discord_webhook_url', 'telegram_bot_token', 'ntfy_token', 'gotify_token'];
+export const secretFields = ['plex_token', 'tautulli_api_key', 'seer_api_key', 'tmdb_api_key', 'discord_webhook_url', 'telegram_bot_token', 'ntfy_token', 'gotify_token'];
 
 export const form = reactive({
   plex_url: '', plex_token: '', plex_verify_ssl: true, plex_rss_url: '',
+  live_activity_enabled: true, activity_retention_days: 365, activity_anonymize_ips: true,
+  tautulli_enabled: false, tautulli_url: '', tautulli_api_key: '',
   seer_enabled: false, seer_url: '', seer_api_key: '', seer_mode: 'observer', seer_send_requests: false, seer_fallback_arr: false, seer_suppress_notifications: true,
   tmdb_api_key: '', tmdb_enabled: true,
   webhook_secret: '', public_base_url: '',

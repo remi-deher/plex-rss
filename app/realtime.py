@@ -18,6 +18,7 @@ EVENT_TYPES = {
     "health.updated",
     "job.updated",
     "notification.updated",
+    "activity.updated",
 }
 _subscribers: set[asyncio.Queue] = set()
 

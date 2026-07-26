@@ -65,6 +65,12 @@ class Settings(Base):
     plex_url: Mapped[Optional[str]]
     plex_token: Mapped[Optional[str]] = mapped_column(EncryptedText)
     plex_rss_url: Mapped[Optional[str]]
+    live_activity_enabled: Mapped[bool] = mapped_column(default=True)
+    activity_retention_days: Mapped[Optional[int]] = mapped_column(default=365)
+    activity_anonymize_ips: Mapped[bool] = mapped_column(default=True)
+    tautulli_enabled: Mapped[bool] = mapped_column(default=False)
+    tautulli_url: Mapped[Optional[str]]
+    tautulli_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
     watchlist_source_priority: Mapped[str] = mapped_column(default="api")
     watchlist_fallback_enabled: Mapped[bool] = mapped_column(default=True)
     poll_interval_minutes: Mapped[int] = mapped_column(default=5)
@@ -443,6 +449,50 @@ class PlexUser(Base):
     password_hash: Mapped[Optional[str]] = mapped_column(default=None)
     totp_secret: Mapped[Optional[str]] = mapped_column(EncryptedText, default=None)
     totp_enabled: Mapped[bool] = mapped_column(default=False)
+
+
+class PlaybackSession(Base):
+    """Session de lecture normalisée, collectée depuis Plex ou importée de Tautulli."""
+
+    __tablename__ = "playback_sessions"
+    __table_args__ = (
+        UniqueConstraint("source", "source_session_id", name="uq_playback_session_source"),
+        Index("ix_playback_sessions_started_at", "started_at"),
+        Index("ix_playback_sessions_active", "ended_at", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(default="plex")
+    source_session_id: Mapped[str]
+    user_name: Mapped[Optional[str]] = mapped_column(index=True)
+    plex_user_id: Mapped[Optional[str]]
+    media_type: Mapped[Optional[str]]
+    title: Mapped[str]
+    grandparent_title: Mapped[Optional[str]]
+    parent_title: Mapped[Optional[str]]
+    year: Mapped[Optional[int]]
+    rating_key: Mapped[Optional[str]]
+    library_section_title: Mapped[Optional[str]]
+    thumb_url: Mapped[Optional[str]]
+    player_title: Mapped[Optional[str]]
+    platform: Mapped[Optional[str]]
+    product: Mapped[Optional[str]]
+    player_address: Mapped[Optional[str]]
+    state: Mapped[Optional[str]]
+    playback_method: Mapped[Optional[str]]
+    video_decision: Mapped[Optional[str]]
+    audio_decision: Mapped[Optional[str]]
+    quality: Mapped[Optional[str]]
+    video_codec: Mapped[Optional[str]]
+    audio_codec: Mapped[Optional[str]]
+    bandwidth_kbps: Mapped[Optional[int]]
+    progress_ms: Mapped[Optional[int]]
+    duration_ms: Mapped[Optional[int]]
+    watched_ms: Mapped[int] = mapped_column(default=0)
+    started_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    ended_at: Mapped[Optional[datetime]]
+    media_request_id: Mapped[Optional[int]] = mapped_column(index=True)
 
 
 class PasskeyCredential(Base):

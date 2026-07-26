@@ -38,6 +38,7 @@ from .log_buffer import install as install_log_buffer
 from .notification_queue import start_worker as start_notif_worker
 from .notification_queue import stop_worker as stop_notif_worker
 from .routers import (
+    activity_api,
     api_v1,
     arr_api,
     auth,
@@ -287,6 +288,7 @@ app.mount("/vue", StaticFiles(directory="app/static/vue"), name="vue")
 
 
 app.include_router(auth.router)
+app.include_router(activity_api.router)
 app.include_router(settings_api.router)
 app.include_router(arr_api.router)
 app.include_router(users_api.router)

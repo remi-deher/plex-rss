@@ -29,6 +29,7 @@
       </component>
       </div>
       <div class="dashboard-focus-grid">
+        <LiveSessionsPanel :sessions="liveActivity.active||[]" />
         <DownloadQueuePanel :queue="downloadQueue.slice(0,5)" :loading="loadingQueue" />
         <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
         <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />
@@ -80,6 +81,7 @@ import TopRequestedPanel from '@/components/dashboard/TopRequestedPanel.vue';
 import ActiveUsersPanel from '@/components/dashboard/ActiveUsersPanel.vue';
 import RecentNotificationsPanel from '@/components/dashboard/RecentNotificationsPanel.vue';
 import ScanStatusPanel from '@/components/dashboard/ScanStatusPanel.vue';
+import LiveSessionsPanel from '@/components/activity/LiveSessionsPanel.vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 
@@ -100,6 +102,7 @@ const recentlyAvailable = ref([]);
 const upcoming = ref([]);
 const recentNotifs = ref([]);
 const downloadQueue = ref([]);
+const liveActivity = ref({ active: [] });
 const loadingQueue = ref(false);
 const mediaView = ref('recent');
 const updatedAt = ref(null);
@@ -190,12 +193,13 @@ async function load() {
     api('/api/stats/recently-available'),
     api('/api/upcoming?limit=8'),
     api('/api/notifications/log?limit=5'),
+    api('/api/playback?days=1'),
   ]);
-  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, topRequested, recentlyAvailable, upcoming];
+  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, topRequested, recentlyAvailable, upcoming, null, liveActivity];
   results.forEach((r, i) => {
     if (r.status === 'fulfilled' && refs[i]) refs[i].value = r.value;
   });
-  const failedLabels = ['compteurs','approbations','historique des tâches','activité','utilisateurs','configuration','prochaine vérification','médias demandés','disponibilités récentes','sorties à venir','notifications'];
+  const failedLabels = ['compteurs','approbations','historique des tâches','activité','utilisateurs','configuration','prochaine vérification','médias demandés','disponibilités récentes','sorties à venir','notifications','lectures Plex'];
   const failures = results.flatMap((result, index) => result.status === 'rejected' ? [failedLabels[index]] : []);
   if (results[10].status === 'fulfilled') {
     recentNotifs.value = results[10].value?.items ?? results[10].value ?? [];
@@ -238,7 +242,7 @@ async function action(row, type) {
   } catch (e) { error.value = e.message; }
 }
 
-useRealtime(['request.updated'], load);
+useRealtime(['request.updated','activity.updated'], load);
 
 onMounted(async () => {
   await load();
