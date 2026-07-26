@@ -503,6 +503,18 @@ class PlaybackSession(Base):
     media_request_id: Mapped[Optional[int]] = mapped_column(index=True)
 
 
+class LibraryAnalyticsSnapshot(Base):
+    """Dernier calcul complet des insights médiathèque, prêt à être servi."""
+
+    __tablename__ = "library_analytics_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    payload_json: Mapped[str] = mapped_column(Text)
+    item_count: Mapped[int] = mapped_column(default=0)
+    generated_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    updated_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+
+
 class PasskeyCredential(Base):
     __tablename__ = "passkey_credentials"
 

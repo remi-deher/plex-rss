@@ -32,6 +32,15 @@ router = APIRouter(prefix="/api", tags=["scheduled-tasks"], dependencies=[Depend
 # (digest_minute).
 JOB_CATALOG = [
     {
+        "job": "library-analytics",
+        "label": "Insights médiathèque",
+        "description": "Pré-calcule le catalogue, les statistiques de lecture et les insights pour un affichage instantané.",
+        "settings_field": None,
+        "settings_unit": None,
+        "default_seconds": 600,
+        "fixed_schedule": "Toutes les 10 minutes",
+    },
+    {
         "job": "sonarr-queue-monitor",
         "label": "File d'acquisition Sonarr",
         "description": "Suit chaque minute les telechargements, imports et blocages afin de regrouper les notifications de serie.",

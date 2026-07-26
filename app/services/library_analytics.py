@@ -1,7 +1,8 @@
-"""Exploration analytique du catalogue Plex et croisement avec l'historique."""
+"""Exploration analytique du catalogue Plex et snapshots persistants."""
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
@@ -10,10 +11,9 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..cache import cache
-from ..models import PlaybackSession, Settings
-
-CACHE_KEY = "plexarr:library-analytics:v1"
+from ..database import AsyncSessionLocal
+from ..models import LibraryAnalyticsSnapshot, PlaybackSession, Settings
+from ..utils import now_utc_naive
 
 
 def _int(value, default=0) -> int:
@@ -35,8 +35,8 @@ def parse_plex_item(item: dict, library: str, section_type: str) -> dict[str, An
     media = (_list(item.get("Media")) or [{}])[0]
     part = (_list(media.get("Part")) or [{}])[0]
     streams = _list(part.get("Stream"))
-    audio = [s for s in streams if _int(s.get("streamType")) == 2]
-    subtitles = [s for s in streams if _int(s.get("streamType")) == 3]
+    audio = [stream for stream in streams if _int(stream.get("streamType")) == 2]
+    subtitles = [stream for stream in streams if _int(stream.get("streamType")) == 3]
     raw_type = item.get("type") or section_type
     media_type = {"movie": "movie", "episode": "episode", "track": "track"}.get(raw_type, raw_type)
     return {
@@ -56,8 +56,8 @@ def parse_plex_item(item: dict, library: str, section_type: str) -> dict[str, An
         "audio_codec": (media.get("audioCodec") or (audio[0].get("codec") if audio else None) or "Inconnu").upper(),
         "video_resolution": media.get("videoResolution") or "Inconnue",
         "audio_channels": media.get("audioChannels") or (audio[0].get("channels") if audio else None),
-        "audio_languages": sorted({_stream_language(s) for s in audio}),
-        "subtitle_languages": sorted({_stream_language(s) for s in subtitles}),
+        "audio_languages": sorted({_stream_language(stream) for stream in audio}),
+        "subtitle_languages": sorted({_stream_language(stream) for stream in subtitles}),
         "subtitle_count": len(subtitles),
         "audio_track_count": len(audio),
     }
@@ -92,17 +92,6 @@ async def fetch_plex_catalog(settings: Settings) -> dict[str, Any]:
     return {"items": rows, "generated_at": datetime.utcnow().isoformat(), "libraries": libraries}
 
 
-async def cached_catalog(settings: Settings, refresh: bool = False) -> dict[str, Any]:
-    if refresh:
-        await cache.delete(CACHE_KEY)
-    return await cache.get_or_refresh(
-        CACHE_KEY,
-        soft_ttl_seconds=1800,
-        hard_ttl_seconds=86400,
-        compute_sync=lambda: fetch_plex_catalog(settings),
-    )
-
-
 def _distribution(rows: list[dict], key: str, limit=12) -> list[dict]:
     counts = Counter(str(row.get(key) or "Inconnu") for row in rows)
     total = sum(counts.values()) or 1
@@ -123,7 +112,8 @@ def apply_filters(rows: list[dict], filters: dict[str, Any]) -> list[dict]:
                 break
         else:
             if search and search not in " ".join(
-                str(row.get(k) or "").lower() for k in ("title", "parent_title", "grandparent_title", "studio")
+                str(row.get(key) or "").lower()
+                for key in ("title", "parent_title", "grandparent_title", "studio")
             ):
                 continue
             subtitle = filters.get("subtitle")
@@ -145,8 +135,47 @@ def apply_filters(rows: list[dict], filters: dict[str, Any]) -> list[dict]:
     return result
 
 
-async def analytics_payload(settings: Settings, db: AsyncSession, filters: dict[str, Any], refresh=False) -> dict:
-    catalog = await cached_catalog(settings, refresh)
+def _build_payload(rows: list[dict], generated_at: str, filters: dict[str, Any]) -> dict:
+    all_rows = [dict(item) for item in rows]
+    filtered = apply_filters(all_rows, filters)
+    total_size = sum(row["size_bytes"] for row in filtered)
+    total_duration = sum(row["duration_ms"] for row in filtered)
+    oversized = sorted(filtered, key=lambda row: row["size_bytes"], reverse=True)[:5]
+    return {
+        "generated_at": generated_at,
+        "summary": {
+            "items": len(filtered),
+            "size_bytes": total_size,
+            "duration_ms": total_duration,
+            "plays": sum(row["play_count"] for row in filtered),
+            "viewers": len({viewer for row in filtered for viewer in row["viewers"]}),
+        },
+        "insights": [
+            {"kind": "storage", "title": "Poids du catalogue filtré", "value": total_size, "unit": "bytes"},
+            {"kind": "unwatched", "title": "Jamais visionnés", "value": sum(not row["play_count"] for row in filtered), "unit": "items"},
+            {"kind": "subtitles", "title": "Sans sous-titres", "value": sum(not row["subtitle_count"] for row in filtered), "unit": "items"},
+        ],
+        "distributions": {
+            "types": _distribution(filtered, "media_type"),
+            "studios": _distribution(filtered, "studio"),
+            "video_codecs": _distribution(filtered, "video_codec"),
+            "audio_codecs": _distribution(filtered, "audio_codec"),
+            "resolutions": _distribution(filtered, "video_resolution"),
+            "containers": _distribution(filtered, "container"),
+        },
+        "largest": oversized,
+        "options": {
+            key: sorted({str(row.get(key)) for row in all_rows if row.get(key)})
+            for key in ("library", "studio", "video_codec", "audio_codec", "container")
+        },
+        "items": filtered,
+    }
+
+
+async def refresh_library_analytics_snapshot(settings: Settings, db: AsyncSession) -> dict:
+    """Recalcule puis remplace le snapshot; l'ancien reste intact si le calcul échoue."""
+
+    catalog = await fetch_plex_catalog(settings)
     rows = [dict(item) for item in catalog["items"]]
     history = (await db.execute(select(PlaybackSession))).scalars().all()
     by_key: dict[str, list[PlaybackSession]] = defaultdict(list)
@@ -162,42 +191,44 @@ async def analytics_payload(settings: Settings, db: AsyncSession, filters: dict[
             str(row.get("grandparent_title") or row["title"]).casefold(), []
         )
         row["play_count"] = len(sessions)
-        row["watch_time_ms"] = sum(s.watched_ms or s.progress_ms or 0 for s in sessions)
-        row["viewers"] = sorted({s.user_name for s in sessions if s.user_name})
+        row["watch_time_ms"] = sum(session.watched_ms or session.progress_ms or 0 for session in sessions)
+        row["viewers"] = sorted({session.user_name for session in sessions if session.user_name})
 
-    filtered = apply_filters(rows, filters)
-    total_size = sum(row["size_bytes"] for row in filtered)
-    total_duration = sum(row["duration_ms"] for row in filtered)
-    unwatched = sum(1 for row in filtered if not row["play_count"])
-    oversized = sorted(filtered, key=lambda row: row["size_bytes"], reverse=True)[:5]
-    insights = [
-        {"kind": "storage", "title": "Poids du catalogue filtré", "value": total_size, "unit": "bytes"},
-        {"kind": "unwatched", "title": "Jamais visionnés", "value": unwatched, "unit": "items"},
-        {"kind": "subtitles", "title": "Sans sous-titres", "value": sum(not r["subtitle_count"] for r in filtered), "unit": "items"},
-    ]
-    options = {
-        key: sorted({str(row.get(key)) for row in rows if row.get(key)})
-        for key in ("library", "studio", "video_codec", "audio_codec", "container")
-    }
-    return {
-        "generated_at": catalog["generated_at"],
-        "summary": {
-            "items": len(filtered),
-            "size_bytes": total_size,
-            "duration_ms": total_duration,
-            "plays": sum(row["play_count"] for row in filtered),
-            "viewers": len({viewer for row in filtered for viewer in row["viewers"]}),
-        },
-        "insights": insights,
-        "distributions": {
-            "types": _distribution(filtered, "media_type"),
-            "studios": _distribution(filtered, "studio"),
-            "video_codecs": _distribution(filtered, "video_codec"),
-            "audio_codecs": _distribution(filtered, "audio_codec"),
-            "resolutions": _distribution(filtered, "video_resolution"),
-            "containers": _distribution(filtered, "container"),
-        },
-        "largest": oversized,
-        "options": options,
-        "items": filtered,
-    }
+    payload = _build_payload(rows, catalog["generated_at"], {})
+    now = now_utc_naive()
+    snapshot = await db.get(LibraryAnalyticsSnapshot, 1)
+    if snapshot is None:
+        snapshot = LibraryAnalyticsSnapshot(id=1, payload_json="{}", generated_at=now, updated_at=now)
+        db.add(snapshot)
+    snapshot.payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    snapshot.item_count = len(rows)
+    snapshot.generated_at = datetime.fromisoformat(catalog["generated_at"])
+    snapshot.updated_at = now
+    await db.commit()
+    return payload
+
+
+async def refresh_library_analytics() -> dict:
+    """Point d'entrée autonome utilisé par le worker ARQ."""
+
+    async with AsyncSessionLocal() as db:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if settings is None:
+            return {"items": 0, "status": "not_configured"}
+        payload = await refresh_library_analytics_snapshot(settings, db)
+        return {"items": payload["summary"]["items"], "generated_at": payload["generated_at"]}
+
+
+async def analytics_payload(settings: Settings, db: AsyncSession, filters: dict[str, Any], refresh=False) -> dict:
+    snapshot = None if refresh else await db.get(LibraryAnalyticsSnapshot, 1)
+    if snapshot is None:
+        payload = await refresh_library_analytics_snapshot(settings, db)
+    else:
+        try:
+            payload = json.loads(snapshot.payload_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = await refresh_library_analytics_snapshot(settings, db)
+
+    if not any(value is not None and value != "" for value in filters.values()):
+        return payload
+    return _build_payload(payload.get("items", []), payload["generated_at"], filters)

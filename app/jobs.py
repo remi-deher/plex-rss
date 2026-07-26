@@ -376,6 +376,19 @@ async def job_playback_activity(ctx: dict, force: bool = False):
     )
 
 
+async def job_library_analytics(ctx: dict, force: bool = False):
+    from .services.library_analytics import refresh_library_analytics
+
+    return await _run(
+        ctx,
+        "library-analytics",
+        refresh_library_analytics,
+        force=force,
+        interval_seconds=600,
+        event_type="library.analytics.updated",
+    )
+
+
 PURGE_LOCAL_HOUR = 3  # heure murale visee, hors heures d'utilisation habituelles
 
 
@@ -536,6 +549,10 @@ async def cron_playback_activity(ctx: dict):
     return await job_playback_activity(ctx)
 
 
+async def cron_library_analytics(ctx: dict):
+    return await job_library_analytics(ctx)
+
+
 async def cron_notification_purge(ctx: dict):
     return await job_notification_purge(ctx)
 
@@ -559,6 +576,7 @@ class WorkerSettings:
         job_plex_sync,
         job_plex_sync_recent,
         job_playback_activity,
+        job_library_analytics,
         job_notification_purge,
         job_digest,
         job_send_notification,
@@ -587,6 +605,13 @@ class WorkerSettings:
         # -- voir job_plex_sync_recent / sync_plex_media_recent.
         cron(cron_plex_sync_recent, minute=set(range(0, 60, 5)), unique=True),
         cron(cron_playback_activity, second={0, 10, 20, 30, 40, 50}, unique=True, run_at_startup=True),
+        cron(
+            cron_library_analytics,
+            minute=set(range(0, 60, 10)),
+            second=25,
+            unique=True,
+            run_at_startup=True,
+        ),
         cron(cron_notification_purge, minute=0, unique=True),
         cron(cron_digest, minute=None, unique=True),
     ]

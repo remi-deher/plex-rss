@@ -52,6 +52,7 @@
 import { computed,onMounted,reactive,ref } from 'vue';
 import { FileDown,Lightbulb,RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
+import { useRealtime } from '@/events';
 import BreakdownPanel from '@/components/activity/BreakdownPanel.vue';
 const data=ref({items:[],options:{},distributions:{}}),loading=ref(false),error=ref(''),limit=ref(100);
 const filters=reactive({search:'',media_type:'',library:'',studio:'',video_codec:'',audio_codec:'',container:'',subtitle:'',watched:'',min_size_gb:'',max_size_gb:''});
@@ -64,6 +65,7 @@ async function load(refresh=false){loading.value=true;error.value='';limit.value
 function reset(){Object.keys(filters).forEach(k=>filters[k]='');load()}function number(v){return Number(v||0).toLocaleString('fr-FR')}
 function bytes(v){if(!v)return'0 o';const u=['o','Ko','Mo','Go','To'],i=Math.min(4,Math.floor(Math.log(v)/Math.log(1024)));return`${(v/1024**i).toLocaleString('fr-FR',{maximumFractionDigits:1})} ${u[i]}`}
 function duration(v){return`${Math.round((v||0)/3600000).toLocaleString('fr-FR')} h`}function date(v){return v?`Actualisé ${new Intl.DateTimeFormat('fr-FR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(v))}`:''}onMounted(()=>load());
+useRealtime(['library.analytics.updated'],()=>load());
 </script>
 <style scoped>
 .export-link{display:inline-flex;align-items:center;gap:7px;text-decoration:none}.analytics-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}.metric-card small,.panel-head small{color:var(--muted);font-size:10px}.insight-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.insight-card{display:flex;align-items:center;gap:12px}.insight-card>svg{width:22px;color:var(--accent)}.insight-card>div,.raw-title,.raw-table article>span{display:grid;min-width:0}.insight-card span{color:var(--muted);font-size:10px}.insight-card strong{font-size:18px}.analytics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.raw-data-panel{display:grid;gap:12px}.raw-table{display:grid}.raw-table article{display:grid;grid-template-columns:minmax(210px,1.5fr) repeat(5,minmax(110px,1fr));gap:12px;align-items:center;padding:11px 2px;border-bottom:1px solid var(--border);font-size:11px}.raw-table small{overflow:hidden;color:var(--muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}.raw-table strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.load-more{justify-self:center}@media(max-width:1100px){.analytics-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.raw-table article{grid-template-columns:minmax(180px,1fr) repeat(3,minmax(100px,1fr))}}@media(max-width:720px){.analytics-grid,.insight-grid{grid-template-columns:1fr}.raw-table article{grid-template-columns:1fr 1fr}.raw-title{grid-column:1/-1}}@media(max-width:420px){.analytics-metrics,.raw-table article{grid-template-columns:1fr}.raw-title{grid-column:auto}}
