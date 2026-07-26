@@ -475,6 +475,26 @@ def test_prometheus_help_and_type_lines(client, db):
     assert "# TYPE plex_rss_requests_by_status gauge" in body
 
 
+def test_stats_recently_available_exposes_request_and_library_ids(client, db):
+    item = MediaRequest(
+        plex_user_id="u",
+        plex_user="u",
+        title="Film lié",
+        media_type="movie",
+        status=RequestStatus.available,
+        library_item_id=98,
+    )
+    db.add(item)
+    db.commit()
+
+    response = client.get("/api/stats/recently-available")
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == item.id
+    assert response.json()[0]["request_id"] == item.id
+    assert response.json()[0]["library_id"] == 98
+
+
 # ---------------------------------------------------------------------------
 # GET /api/disk-space (mis en cache, voir cache.get_or_refresh)
 # ---------------------------------------------------------------------------

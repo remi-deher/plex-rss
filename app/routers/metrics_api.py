@@ -534,6 +534,8 @@ async def stats_recently_available(db: AsyncSession = Depends(get_db_async), lim
     return [
         {
             "id": r.id,
+            "request_id": r.id,
+            "library_id": r.library_item_id,
             "title": r.title,
             "media_type": r.media_type,
             "poster_url": r.poster_url,
