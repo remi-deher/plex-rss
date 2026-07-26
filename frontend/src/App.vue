@@ -1,7 +1,8 @@
 <template>
   <div class="shell" :class="{'sidebar-collapsed':isSidebarCollapsed}">
+    <a class="skip-link" href="#main-content">Aller au contenu principal</a>
     <!-- Desktop Sidebar -->
-    <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" :aria-expanded="!isSidebarCollapsed">
+    <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale">
       <div class="brand">
         <span class="brand-name">Plexarr</span>
         <button class="sidebar-toggle" type="button" :aria-label="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" :title="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" @click="toggleSidebar">
@@ -60,12 +61,12 @@
     </aside>
 
     <!-- Mobile Navigation Bar -->
-    <nav class="mobile-nav-bar mobile-only">
+    <nav class="mobile-nav-bar mobile-only" aria-label="Navigation principale">
       <RouterLink to="/dashboard" @click="closeMoreMenu"><Gauge /><span>Dashboard</span></RouterLink>
       <RouterLink to="/discover" @click="closeMoreMenu"><Compass /><span>Decouvrir</span></RouterLink>
       <RouterLink to="/library" @click="closeMoreMenu"><Library /><span>Bibliotheque</span></RouterLink>
       <RouterLink to="/calendar" @click="closeMoreMenu"><CalendarDays /><span>Calendrier</span></RouterLink>
-      <button class="more-nav-btn" :class="{ active: isMoreOpen }" @click="toggleMoreMenu">
+      <button ref="moreButtonRef" type="button" class="more-nav-btn" :class="{ active: isMoreOpen }" aria-controls="mobile-more-menu" :aria-expanded="isMoreOpen" @click="toggleMoreMenu">
         <Menu />
         <span>Plus</span>
       </button>
@@ -74,10 +75,10 @@
     <!-- Mobile More Menu Overlay -->
     <Transition name="slide-up">
       <div v-if="isMoreOpen" class="mobile-more-overlay" @click.self="closeMoreMenu">
-        <div class="mobile-more-sheet">
+        <div id="mobile-more-menu" ref="mobileMoreRef" class="mobile-more-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-menu-title" tabindex="-1">
           <div class="sheet-header">
-            <h3>Menu</h3>
-            <button class="close-sheet-btn" @click="closeMoreMenu"><X /></button>
+            <h2 id="mobile-menu-title">Menu</h2>
+            <button type="button" class="close-sheet-btn" aria-label="Fermer le menu" @click="closeMoreMenu"><X /></button>
           </div>
           <div class="sheet-content">
             <div class="menu-section">
@@ -105,9 +106,10 @@
       </div>
     </Transition>
 
-    <main class="main">
+    <main id="main-content" class="main" tabindex="-1">
       <RouterView />
     </main>
+    <ToastStack :toasts="toasts" @dismiss="dismissToast"/>
   </div>
 </template>
 
@@ -117,6 +119,9 @@ import { useRoute } from 'vue-router';
 import { Activity, Bell, CalendarDays, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { connectRealtime } from "@/events";
+import ToastStack from "@/components/ui/ToastStack.vue";
+import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
+import { useModalA11y } from "@/composables/useModalA11y";
 const session=ref(null);
 const route=useRoute();
 const isAdmin=computed(()=>session.value?.is_owner||session.value?.role==='admin');
@@ -127,14 +132,32 @@ const isNotificationsRoute=computed(()=>route.path==='/notifications'||(route.pa
 const isOperationsRoute=computed(()=>['/logs','/maintenance'].includes(route.path)||(route.path==='/settings'&&['operations','scheduled-tasks','data'].includes(route.query.tab)));
 const settingsSections=[{key:'overview',label:'Vue d’ensemble'},{key:'connections',label:'Connexions'},{key:'webhooks',label:'Webhooks'},{key:'library',label:'Bibliotheque'},{key:'downloads',label:'Telechargements'}];
 const isMoreOpen=ref(false);
+const mobileMoreRef=ref(null);
+const moreButtonRef=ref(null);
 const isSidebarCollapsed=ref(false);
+const toasts=ref([]);
+const seenPlaybackEvents=new Set();
+const toastTimers=new Map();
 function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
 function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;localStorage.setItem('plexarr.sidebarCollapsed',String(isSidebarCollapsed.value))}
-function handleEscape(event){if(event.key==='Escape'&&isMoreOpen.value)closeMoreMenu()}
+function dismissToast(id){toasts.value=toasts.value.filter(toast=>toast.id!==id);clearTimeout(toastTimers.get(id));toastTimers.delete(id)}
+function showPlaybackToasts(event){
+  const started=playbackStartsFromEvent(event);
+  for(const session of started){
+    const fingerprint=`${event.detail.id||''}:${session.session_id||session.id||playbackTitle(session)}`;
+    if(seenPlaybackEvents.has(fingerprint))continue;
+    seenPlaybackEvents.add(fingerprint);
+    const id=`playback-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    toasts.value=[...toasts.value.slice(-3),{id,type:'playback',title:`${session.user_name||'Un utilisateur'} lance une lecture`,message:playbackTitle(session),image:session.thumb_url||''}];
+    toastTimers.set(id,setTimeout(()=>dismissToast(id),7000));
+  }
+}
 watch(()=>route.fullPath,closeMoreMenu);
-onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('keydown',handleEscape);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
-onUnmounted(()=>window.removeEventListener('keydown',handleEscape));
+watch(isMoreOpen,open=>{document.body.classList.toggle('modal-open',open)});
+useModalA11y(mobileMoreRef,isMoreOpen,closeMoreMenu);
+onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
+onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);toastTimers.forEach(clearTimeout)});
 </script>
 
 <style scoped>

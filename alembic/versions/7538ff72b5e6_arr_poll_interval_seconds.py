@@ -21,12 +21,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column("settings", "arr_poll_interval_minutes", new_column_name="arr_poll_interval_seconds")
+    with op.batch_alter_table("settings") as batch_op:
+        batch_op.alter_column(
+            "arr_poll_interval_minutes",
+            new_column_name="arr_poll_interval_seconds",
+            existing_type=sa.Integer(),
+            server_default="900",
+        )
     op.execute("UPDATE settings SET arr_poll_interval_seconds = arr_poll_interval_seconds * 60")
-    op.alter_column("settings", "arr_poll_interval_seconds", server_default="900")
 
 
 def downgrade() -> None:
     op.execute("UPDATE settings SET arr_poll_interval_seconds = arr_poll_interval_seconds / 60")
-    op.alter_column("settings", "arr_poll_interval_seconds", new_column_name="arr_poll_interval_minutes")
-    op.alter_column("settings", "arr_poll_interval_minutes", server_default="15")
+    with op.batch_alter_table("settings") as batch_op:
+        batch_op.alter_column(
+            "arr_poll_interval_seconds",
+            new_column_name="arr_poll_interval_minutes",
+            existing_type=sa.Integer(),
+            server_default="15",
+        )

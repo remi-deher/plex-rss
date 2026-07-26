@@ -485,7 +485,11 @@ class PlaybackSession(Base):
     quality: Mapped[Optional[str]]
     video_codec: Mapped[Optional[str]]
     audio_codec: Mapped[Optional[str]]
+    container: Mapped[Optional[str]]
+    subtitle_decision: Mapped[Optional[str]]
+    stream_location: Mapped[Optional[str]]
     bandwidth_kbps: Mapped[Optional[int]]
+    media_size_bytes: Mapped[Optional[int]]
     progress_ms: Mapped[Optional[int]]
     duration_ms: Mapped[Optional[int]]
     watched_ms: Mapped[int] = mapped_column(default=0)

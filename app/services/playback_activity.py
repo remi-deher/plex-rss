@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from xml.etree import ElementTree
 
 import httpx
@@ -18,6 +19,255 @@ from ..realtime import publish
 from ..utils import now_utc_naive, wrap_image_proxy
 
 logger = logging.getLogger(__name__)
+
+
+def _percent(value: int | float, total: int | float) -> float:
+    return round(value / total * 100, 1) if total else 0
+
+
+def _percentile(values: list[int], percentile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * percentile)))
+    return int(ordered[index])
+
+
+def _media_label(row: PlaybackSession) -> str:
+    return row.grandparent_title or row.title
+
+
+def _transcode_reason(row: PlaybackSession) -> str:
+    if str(row.subtitle_decision or "").lower() in {"burn", "transcode"}:
+        return "Sous-titres"
+    if str(row.video_decision or "").lower() == "transcode":
+        return "Vidéo / résolution"
+    if str(row.audio_decision or "").lower() == "transcode":
+        return "Audio"
+    if row.container:
+        return "Conteneur"
+    return "Non déterminée"
+
+
+def _analytics(rows: list[PlaybackSession], previous_rows: list[PlaybackSession]) -> dict:
+    total = len(rows)
+    watch_ms = sum(row.watched_ms or 0 for row in rows)
+    previous_total = len(previous_rows)
+    previous_watch_ms = sum(row.watched_ms or 0 for row in previous_rows)
+
+    heatmap = defaultdict(lambda: {"sessions": 0, "watch_ms": 0})
+    for row in rows:
+        if row.started_at:
+            key = (row.started_at.weekday(), row.started_at.hour)
+            heatmap[key]["sessions"] += 1
+            heatmap[key]["watch_ms"] += row.watched_ms or 0
+
+    events: list[tuple[datetime, int]] = []
+    concurrent_daily: dict[str, int] = defaultdict(int)
+    for row in rows:
+        if not row.started_at:
+            continue
+        end = row.ended_at or row.last_seen_at or row.started_at
+        if end < row.started_at:
+            end = row.started_at
+        events.extend(((row.started_at, 1), (end, -1)))
+    current = peak = 0
+    peak_at = None
+    for moment, delta in sorted(events, key=lambda value: (value[0], -value[1])):
+        current += delta
+        if current > peak:
+            peak, peak_at = current, moment
+        day = moment.date().isoformat()
+        concurrent_daily[day] = max(concurrent_daily[day], current)
+
+    completion_groups: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        if row.duration_ms:
+            progress = min(100, (row.watched_ms or row.progress_ms or 0) / row.duration_ms * 100)
+            completion_groups[row.media_type or "other"].append(progress)
+    completion = []
+    for media_type, values in completion_groups.items():
+        completed = sum(value >= 90 for value in values)
+        completion.append(
+            {
+                "media_type": media_type,
+                "sessions": len(values),
+                "completed": completed,
+                "completion_rate": _percent(completed, len(values)),
+                "average_progress": round(sum(values) / len(values), 1),
+            }
+        )
+
+    media_groups: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        label = _media_label(row)
+        key = (row.media_type or "other", label)
+        item = media_groups.setdefault(
+            key,
+            {
+                "title": label,
+                "media_type": "show" if row.grandparent_title else row.media_type,
+                "sessions": 0,
+                "watch_ms": 0,
+                "users": set(),
+                "thumb_url": _serialize(row)["thumb_url"],
+                "rating_key": row.rating_key,
+                "size_bytes": 0,
+            },
+        )
+        item["sessions"] += 1
+        item["watch_ms"] += row.watched_ms or 0
+        if row.user_name:
+            item["users"].add(row.user_name)
+        item["size_bytes"] = max(item["size_bytes"], row.media_size_bytes or 0)
+    popular = sorted(media_groups.values(), key=lambda item: item["watch_ms"], reverse=True)[:10]
+    for item in popular:
+        item["users"] = len(item["users"])
+        size_gb = item["size_bytes"] / (1024**3)
+        item["watch_hours_per_gb"] = round(item["watch_ms"] / 3_600_000 / size_gb, 2) if size_gb else None
+
+    method_counts = Counter(row.playback_method or "unknown" for row in rows)
+    codec_counts = Counter((row.video_codec or "Inconnu").upper() for row in rows)
+    resolution_counts = Counter(row.quality or "Inconnue" for row in rows)
+    device_groups: dict[str, dict] = {}
+    for row in rows:
+        device = row.player_title or row.product or row.platform or "Inconnu"
+        item = device_groups.setdefault(device, {"device": device, "sessions": 0, "direct": 0, "transcodes": 0})
+        item["sessions"] += 1
+        if row.playback_method == "transcode":
+            item["transcodes"] += 1
+        elif row.playback_method in {"direct_play", "direct_stream"}:
+            item["direct"] += 1
+    devices = sorted(device_groups.values(), key=lambda item: item["sessions"], reverse=True)[:10]
+    for item in devices:
+        item["compatibility_score"] = round(item["direct"] / item["sessions"] * 100) if item["sessions"] else 0
+
+    bandwidth_values = [row.bandwidth_kbps for row in rows if row.bandwidth_kbps]
+    bandwidth_by_user: dict[str, list[int]] = defaultdict(list)
+    for row in rows:
+        if row.bandwidth_kbps:
+            bandwidth_by_user[row.user_name or "Inconnu"].append(row.bandwidth_kbps)
+
+    transcode_reasons = Counter(_transcode_reason(row) for row in rows if row.playback_method == "transcode")
+
+    episode_rows = sorted(
+        (row for row in rows if row.media_type == "episode" and row.user_name and row.grandparent_title),
+        key=lambda row: (row.user_name or "", row.grandparent_title or "", row.started_at or datetime.min),
+    )
+    binges = []
+    chain: list[PlaybackSession] = []
+    for row in episode_rows:
+        previous = chain[-1] if chain else None
+        same_chain = (
+            previous
+            and previous.user_name == row.user_name
+            and previous.grandparent_title == row.grandparent_title
+            and row.started_at
+            and (previous.ended_at or previous.last_seen_at or previous.started_at)
+            and row.started_at - (previous.ended_at or previous.last_seen_at or previous.started_at) <= timedelta(hours=2)
+        )
+        if not same_chain:
+            if len(chain) >= 3:
+                binges.append(chain)
+            chain = [row]
+        else:
+            chain.append(row)
+    if len(chain) >= 3:
+        binges.append(chain)
+    binge_items = [
+        {
+            "user_name": chain[0].user_name,
+            "title": chain[0].grandparent_title,
+            "episodes": len(chain),
+            "watch_ms": sum(row.watched_ms or 0 for row in chain),
+            "started_at": chain[0].started_at.isoformat() if chain[0].started_at else None,
+        }
+        for chain in sorted(binges, key=lambda value: sum(row.watched_ms or 0 for row in value), reverse=True)[:10]
+    ]
+
+    previous_users = defaultdict(lambda: {"sessions": 0, "watch_ms": 0})
+    for row in previous_rows:
+        if row.user_name:
+            previous_users[row.user_name]["sessions"] += 1
+            previous_users[row.user_name]["watch_ms"] += row.watched_ms or 0
+    user_groups: dict[str, dict] = {}
+    for row in rows:
+        if not row.user_name:
+            continue
+        item = user_groups.setdefault(
+            row.user_name,
+            {"name": row.user_name, "sessions": 0, "watch_ms": 0, "titles": Counter(), "devices": Counter(), "last_seen_at": None},
+        )
+        item["sessions"] += 1
+        item["watch_ms"] += row.watched_ms or 0
+        item["titles"][_media_label(row)] += 1
+        item["devices"][row.player_title or row.product or row.platform or "Inconnu"] += 1
+        seen = row.last_seen_at or row.ended_at or row.started_at
+        if seen and (item["last_seen_at"] is None or seen > item["last_seen_at"]):
+            item["last_seen_at"] = seen
+    user_trends = []
+    for item in user_groups.values():
+        previous = previous_users[item["name"]]
+        user_trends.append(
+            {
+                "name": item["name"],
+                "sessions": item["sessions"],
+                "watch_ms": item["watch_ms"],
+                "watch_change": _percent(item["watch_ms"] - previous["watch_ms"], previous["watch_ms"]) if previous["watch_ms"] else (100 if item["watch_ms"] else 0),
+                "favorite_title": item["titles"].most_common(1)[0][0] if item["titles"] else None,
+                "favorite_device": item["devices"].most_common(1)[0][0] if item["devices"] else None,
+                "last_seen_at": item["last_seen_at"].isoformat() if item["last_seen_at"] else None,
+            }
+        )
+    user_trends.sort(key=lambda item: item["watch_ms"], reverse=True)
+
+    known_storage = {}
+    for row in rows:
+        if row.rating_key and row.media_size_bytes:
+            known_storage[row.rating_key] = max(known_storage.get(row.rating_key, 0), row.media_size_bytes)
+    storage_bytes = sum(known_storage.values())
+
+    return {
+        "comparison": {
+            "sessions_change": _percent(total - previous_total, previous_total) if previous_total else (100 if total else 0),
+            "watch_change": _percent(watch_ms - previous_watch_ms, previous_watch_ms) if previous_watch_ms else (100 if watch_ms else 0),
+        },
+        "heatmap": [
+            {"weekday": weekday, "hour": hour, **heatmap[(weekday, hour)]}
+            for weekday in range(7)
+            for hour in range(24)
+        ],
+        "concurrency": {
+            "peak": peak,
+            "peak_at": peak_at.isoformat() if peak_at else None,
+            "daily": [{"date": day, "peak": value} for day, value in sorted(concurrent_daily.items())],
+        },
+        "completion": completion,
+        "popular": popular,
+        "quality": {
+            "methods": [{"key": key, "count": count, "rate": _percent(count, total)} for key, count in method_counts.most_common()],
+            "codecs": [{"label": key, "count": count} for key, count in codec_counts.most_common(8)],
+            "resolutions": [{"label": key, "count": count} for key, count in resolution_counts.most_common(8)],
+            "devices": devices,
+            "transcode_reasons": [{"label": key, "count": count} for key, count in transcode_reasons.most_common()],
+        },
+        "bandwidth": {
+            "average_kbps": round(sum(bandwidth_values) / len(bandwidth_values)) if bandwidth_values else 0,
+            "peak_kbps": max(bandwidth_values, default=0),
+            "p95_kbps": _percentile(bandwidth_values, 0.95),
+            "by_user": [
+                {"name": name, "average_kbps": round(sum(values) / len(values)), "peak_kbps": max(values)}
+                for name, values in sorted(bandwidth_by_user.items(), key=lambda item: sum(item[1]), reverse=True)[:10]
+            ],
+        },
+        "binges": binge_items,
+        "users": user_trends[:20],
+        "storage": {
+            "known_items": len(known_storage),
+            "known_bytes": storage_bytes,
+            "watch_hours_per_gb": round(watch_ms / 3_600_000 / (storage_bytes / (1024**3)), 2) if storage_bytes else None,
+        },
+    }
 
 
 def _int(value, default=None):
@@ -52,12 +302,27 @@ def _playback_method(video_decision: str | None, audio_decision: str | None) -> 
     return "direct_play"
 
 
+def _plex_thumb_path(row: PlaybackSession) -> str | None:
+    """Retrouve un chemin Plex exploitable, y compris pour les anciens imports Tautulli."""
+    thumb_url = row.thumb_url or ""
+    if thumb_url.startswith("/library/metadata/"):
+        return thumb_url
+    if thumb_url.startswith("/pms_image_proxy"):
+        proxied = unquote((parse_qs(urlparse(thumb_url).query).get("img") or [""])[0])
+        proxied_path = urlparse(proxied).path
+        if proxied_path.startswith("/library/metadata/"):
+            return proxied_path
+    if row.rating_key:
+        return f"/library/metadata/{quote(str(row.rating_key), safe='')}/thumb"
+    return None
+
+
 def _serialize(row: PlaybackSession) -> dict:
-    thumb_url = row.thumb_url
-    if thumb_url and thumb_url.startswith("/"):
-        thumb_url = f"/api/playback/thumb?path={quote(thumb_url, safe='')}"
+    plex_thumb_path = _plex_thumb_path(row)
+    if plex_thumb_path:
+        thumb_url = f"/api/playback/thumb?path={quote(plex_thumb_path, safe='')}"
     else:
-        thumb_url = wrap_image_proxy(thumb_url)
+        thumb_url = wrap_image_proxy(row.thumb_url)
     return {
         "id": row.id,
         "source": row.source,
@@ -82,7 +347,11 @@ def _serialize(row: PlaybackSession) -> dict:
         "quality": row.quality,
         "video_codec": row.video_codec,
         "audio_codec": row.audio_codec,
+        "container": row.container,
+        "subtitle_decision": row.subtitle_decision,
+        "location": row.stream_location,
         "bandwidth_kbps": row.bandwidth_kbps,
+        "media_size_bytes": row.media_size_bytes,
         "progress_ms": row.progress_ms,
         "duration_ms": row.duration_ms,
         "watched_ms": row.watched_ms,
@@ -105,11 +374,21 @@ def parse_plex_sessions(xml: str, *, anonymize_ips: bool = True) -> list[dict]:
         session = media.find("Session")
         transcode = media.find("TranscodeSession")
         media_info = media.find("Media")
+        part = media_info.find("Part") if media_info is not None else None
         user_attrs = user.attrib if user is not None else {}
         player_attrs = player.attrib if player is not None else {}
         session_attrs = session.attrib if session is not None else {}
         transcode_attrs = transcode.attrib if transcode is not None else {}
         media_attrs = media_info.attrib if media_info is not None else {}
+        part_attrs = part.attrib if part is not None else {}
+        subtitle_stream = next(
+            (
+                stream
+                for stream in (part.findall("Stream") if part is not None else [])
+                if stream.get("streamType") == "3" and stream.get("selected") == "1"
+            ),
+            None,
+        )
         session_id = (
             session_attrs.get("id")
             or transcode_attrs.get("key")
@@ -147,7 +426,13 @@ def parse_plex_sessions(xml: str, *, anonymize_ips: bool = True) -> list[dict]:
                 "quality": media_attrs.get("videoResolution") or media.get("videoResolution"),
                 "video_codec": media_attrs.get("videoCodec") or media.get("videoCodec"),
                 "audio_codec": media_attrs.get("audioCodec") or media.get("audioCodec"),
+                "container": media_attrs.get("container") or part_attrs.get("container"),
+                "subtitle_decision": (
+                    subtitle_stream.get("decision") if subtitle_stream is not None else None
+                ),
+                "stream_location": session_attrs.get("location"),
                 "bandwidth_kbps": _int(session_attrs.get("bandwidth") or transcode_attrs.get("bandwidth")),
+                "media_size_bytes": _int(part_attrs.get("size")),
                 "progress_ms": _int(media.get("viewOffset"), 0),
                 "duration_ms": _int(media.get("duration")),
             }
@@ -178,6 +463,7 @@ async def collect_plex_activity() -> dict:
                 )
             ).scalars()
         }
+        started_rows: list[PlaybackSession] = []
         for snapshot in snapshots:
             row = existing.get(snapshot["source_session_id"])
             if row is None:
@@ -189,6 +475,7 @@ async def collect_plex_activity() -> dict:
                     source_session_id=snapshot["source_session_id"],
                 )
                 db.add(row)
+                started_rows.append(row)
             previous_progress = row.progress_ms or snapshot["progress_ms"] or 0
             for key, value in snapshot.items():
                 setattr(row, key, value)
@@ -204,7 +491,12 @@ async def collect_plex_activity() -> dict:
             cutoff = now - timedelta(days=settings.activity_retention_days)
             await db.execute(delete(PlaybackSession).where(PlaybackSession.ended_at < cutoff))
         await db.commit()
-    await publish("activity.updated", {"active": len(snapshots)}, admin_only=True)
+        started = [_serialize(row) for row in started_rows]
+    await publish(
+        "activity.updated",
+        {"active": len(snapshots), "started": started},
+        admin_only=True,
+    )
     return {"status": "complete", "active": len(snapshots)}
 
 
@@ -293,7 +585,11 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     quality=item.get("quality_profile") or item.get("video_resolution"),
                     video_codec=item.get("video_codec"),
                     audio_codec=item.get("audio_codec"),
+                    container=item.get("container"),
+                    subtitle_decision=item.get("subtitle_decision"),
+                    stream_location=item.get("location"),
                     bandwidth_kbps=_int(item.get("bandwidth")),
+                    media_size_bytes=_int(item.get("file_size") or item.get("media_size")),
                     duration_ms=duration_ms,
                     watched_ms=watched_ms,
                     progress_ms=watched_ms,
@@ -311,6 +607,7 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
 async def activity_snapshot(days: int = 30, db=None) -> dict:
     days = min(max(days, 1), 3650)
     cutoff = now_utc_naive() - timedelta(days=days)
+    previous_cutoff = cutoff - timedelta(days=days)
     if db is None:
         async with AsyncSessionLocal() as owned_db:
             return await activity_snapshot(days, db=owned_db)
@@ -327,6 +624,21 @@ async def activity_snapshot(days: int = 30, db=None) -> dict:
             .filter(PlaybackSession.started_at >= cutoff)
             .order_by(PlaybackSession.started_at.desc())
             .limit(100)
+        )
+    ).scalars().all()
+    analytics_rows = (
+        await db.execute(
+            select(PlaybackSession)
+            .filter(PlaybackSession.started_at >= cutoff)
+            .order_by(PlaybackSession.started_at)
+        )
+    ).scalars().all()
+    previous_rows = (
+        await db.execute(
+            select(PlaybackSession).filter(
+                PlaybackSession.started_at >= previous_cutoff,
+                PlaybackSession.started_at < cutoff,
+            )
         )
     ).scalars().all()
     totals = (
@@ -384,4 +696,5 @@ async def activity_snapshot(days: int = 30, db=None) -> dict:
             {"name": row[0], "sessions": int(row[1] or 0), "watch_ms": int(row[2] or 0)}
             for row in user_rows
         ],
+        "analytics": _analytics(list(analytics_rows), list(previous_rows)),
     }

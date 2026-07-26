@@ -495,7 +495,7 @@ button svg {
     padding-bottom: 12px;
   }
 
-  .sheet-header h3 {
+  .sheet-header h2 {
     font-size: 18px;
     font-weight: 700;
     color: #fff;
@@ -556,6 +556,7 @@ button svg {
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.02);
     transition: all 0.2s ease;
+    min-height: 44px;
   }
 
   .sheet-content a:hover,
@@ -666,6 +667,17 @@ button svg {
 
   .preview-panel {
     position: static;
+  }
+}
+
+@media (pointer: coarse) {
+  .sidebar a,
+  .context-sidebar-menu a,
+  .mobile-nav-bar a,
+  .more-nav-btn,
+  .sheet-content a,
+  .mobile-admin-groups summary {
+    min-height: 48px;
   }
 }
 
