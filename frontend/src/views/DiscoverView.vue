@@ -104,7 +104,7 @@
           <div class="discover-card-info">
             <strong>{{ item.title || item.name }}</strong>
             <span>
-              {{ item.media_type === 'show' ? 'Série' : 'Film' }}
+              {{ mediaTypeLabel(item.media_type) }}
               <template v-if="item.year"> · {{ item.year }}</template>
               <template v-if="item.vote_average || item.vote"> · <Star aria-hidden="true" />{{ Number(item.vote_average || item.vote).toFixed(1) }}</template>
             </span>
@@ -124,6 +124,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel, requestStatusLabel } from '@/utils/labels';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { Film, LoaderCircle, Search, SlidersHorizontal, Star } from '@lucide/vue';
 import { api } from '@/api';
@@ -184,16 +185,7 @@ function detailPath(item) {
   return mediaDetailPath(item, kind);
 }
 
-function statusLabel(value) {
-  return ({
-    pending_approval: 'À approuver',
-    pending: 'En attente',
-    sent_to_arr: 'Transmise',
-    partially_available: 'Partiellement disponible',
-    failed: 'Échec',
-    available: 'Disponible',
-  })[value] || 'Demandé';
-}
+const statusLabel = value => requestStatusLabel(value, 'Demandé');
 
 async function setMediaType(value) {
   mediaType.value = value;

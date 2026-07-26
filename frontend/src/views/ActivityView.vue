@@ -136,6 +136,7 @@
 </template>
 
 <script setup>
+import { playbackMethodLabel } from '@/utils/labels';
 import { formatBandwidth, formatDateTimeShort, formatDuration, signedPercent } from '@/utils/format';
 import { computed,onMounted,onUnmounted,ref,watch } from 'vue';
 import { useRoute,useRouter } from 'vue-router';
@@ -183,8 +184,7 @@ const filteredHistory=computed(()=>data.value.history.filter(item=>{
   return (!needle||haystack.includes(needle))&&(!methodFilter.value||item.playback_method===methodFilter.value)&&(!typeFilter.value||item.media_type===typeFilter.value);
 }));
 const historyFilterCount=computed(()=>[historySearch.value,methodFilter.value,typeFilter.value].filter(Boolean).length);
-const methodNames={direct_play:'Lecture directe',direct_stream:'Direct Stream',transcode:'Transcodage',unknown:'Inconnu'};
-const methodBreakdown=computed(()=>(analytics.value.quality?.methods||[]).map(item=>({label:methodNames[item.key]||item.key,value:item.count,suffix:` · ${item.rate} %`})));
+const methodBreakdown=computed(()=>(analytics.value.quality?.methods||[]).map(item=>({label:playbackMethodLabel(item.key,{fallback:item.key==='unknown'?'Inconnu':item.key}),value:item.count,suffix:` · ${item.rate} %`})));
 const resolutionBreakdown=computed(()=>(analytics.value.quality?.resolutions||[]).map(item=>({label:item.label,value:item.count})));
 const codecBreakdown=computed(()=>(analytics.value.quality?.codecs||[]).map(item=>({label:item.label,value:item.count})));
 const transcodeReasonBreakdown=computed(()=>(analytics.value.quality?.transcode_reasons||[]).map(item=>({label:item.label,value:item.count})));

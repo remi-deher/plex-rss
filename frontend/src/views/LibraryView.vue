@@ -76,6 +76,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
+import { proxyUrl } from '@/utils/mediaImage';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import { useConfirm } from '@/composables/useConfirm';
@@ -215,14 +216,6 @@ const metrics = computed(() => [
   { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
   { label: 'En VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
 ]);
-
-function proxyUrl(url) {
-  if (!url) return url;
-  if (url.startsWith('http://') || (url.startsWith('https://') && /\/(192\.168\.|10\.|127\.)/.test(url))) {
-    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-}
 
 function toggleSelect(id) {
   selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(x => x !== id) : [...selectedIds.value, id];

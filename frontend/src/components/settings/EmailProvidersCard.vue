@@ -45,13 +45,14 @@
     <p v-else class="empty">Aucun fournisseur configuré — les notifications par email ne peuvent pas partir.</p>
   </SettingsCard>
 
-  <div v-if="showModal" class="drawer-backdrop" @click.self="closeModal">
-    <aside ref="panelRef" tabindex="-1" class="modal-panel arr-instance-modal" role="dialog" aria-modal="true" :aria-label="editingId?'Modifier le fournisseur':'Ajouter un fournisseur'">
-      <div class="panel-head">
-        <h2>{{ editingId?'Modifier le fournisseur':'Ajouter un fournisseur' }}</h2>
-        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="closeModal"><X/></button>
-      </div>
-      <div class="compact-form">
+  <ModalShell
+    v-if="showModal"
+    :title="editingId?'Modifier le fournisseur':'Ajouter un fournisseur'"
+    panel-class="arr-instance-modal"
+    :busy="busy"
+    @close="closeModal"
+  >
+    <div class="compact-form">
         <label>Nom<input v-model="form.name" placeholder="ex: Hotmail perso"></label>
         <label>Type
           <select v-model="form.provider_type">
@@ -103,33 +104,30 @@
         </template>
 
         <label class="check"><input v-model="form.enabled" type="checkbox"> Fournisseur actif</label>
-      </div>
-      <div class="actions">
-        <button class="primary" :disabled="busy||!form.name" @click="save"><Save/>{{ editingId?'Mettre a jour':'Ajouter' }}</button>
-        <button class="secondary" @click="closeModal">Annuler</button>
-      </div>
-    </aside>
-  </div>
+    </div>
+    <template #actions>
+      <button class="primary" :disabled="busy||!form.name" @click="save"><Save/>{{ editingId?'Mettre a jour':'Ajouter' }}</button>
+      <button class="secondary" @click="closeModal">Annuler</button>
+    </template>
+  </ModalShell>
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
+import ModalShell from '@/components/ui/ModalShell.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronDown, ChevronUp, Mail, Pencil, Plus, PlugZap, Power, Save, Trash2, X } from '@lucide/vue';
+import { ChevronDown, ChevronUp, Mail, Pencil, Plus, PlugZap, Power, Save, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
 import ConfirmModal from '../ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
-import { useModalA11y } from '@/composables/useModalA11y';
 
 const busy = ref(false);
 const providers = ref([]);
 const editingId = ref(null);
 const showModal = ref(false);
-const panelRef = ref(null);
-useModalA11y(panelRef, showModal, closeModal);
 const defaults = {
   name: '', provider_type: 'smtp', enabled: true,
   smtp_host: '', smtp_port: 587, smtp_tls: true, smtp_user: '', smtp_password: '',

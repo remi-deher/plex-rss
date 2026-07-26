@@ -1,28 +1,25 @@
 <template>
-  <div v-if="open" class="drawer-backdrop" @click.self="!busy && $emit('cancel')">
-    <aside ref="panelRef" tabindex="-1" class="modal-panel confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
-      <div class="panel-head">
-        <div>
-          <h2 id="confirm-modal-title">{{ title }}</h2>
-          <p v-if="message">{{ message }}</p>
-        </div>
-        <button class="icon-button" title="Fermer" aria-label="Fermer" :disabled="busy" @click="$emit('cancel')">×</button>
-      </div>
-      <div class="form-actions">
-        <button class="secondary" :disabled="busy" @click="$emit('cancel')">Annuler</button>
-        <button :class="danger ? 'danger-button' : 'primary'" :disabled="busy" @click="$emit('confirm')">
-          {{ busy ? 'Traitement…' : confirmLabel }}
-        </button>
-      </div>
-    </aside>
-  </div>
+  <ModalShell
+    :open="open"
+    :title="title"
+    :subtitle="message"
+    panel-class="confirm-modal"
+    :busy="busy"
+    @close="$emit('cancel')"
+  >
+    <div class="form-actions">
+      <button class="secondary" :disabled="busy" @click="$emit('cancel')">Annuler</button>
+      <button :class="danger ? 'danger-button' : 'primary'" :disabled="busy" @click="$emit('confirm')">
+        {{ busy ? 'Traitement…' : confirmLabel }}
+      </button>
+    </div>
+  </ModalShell>
 </template>
 
 <script setup>
-import { ref, toRef } from 'vue';
-import { useModalA11y } from '@/composables/useModalA11y';
+import ModalShell from '@/components/ui/ModalShell.vue';
 
-const props = defineProps({
+defineProps({
   open: Boolean,
   title: { type: String, default: 'Confirmer l’action' },
   message: { type: String, default: '' },
@@ -30,14 +27,14 @@ const props = defineProps({
   danger: Boolean,
   busy: Boolean,
 });
-const emit = defineEmits(['cancel', 'confirm']);
-
-const panelRef = ref(null);
-useModalA11y(panelRef, toRef(props, 'open'), () => { if (!props.busy) emit('cancel'); });
+defineEmits(['cancel', 'confirm']);
 </script>
 
 <style scoped>
-.confirm-modal { width: min(480px, calc(100% - 24px)); }
-.confirm-modal .panel-head p { margin-top: .35rem; color: var(--muted, #667085); }
-.confirm-modal .form-actions { justify-content: flex-end; margin-top: 1.5rem; }
+/* Le panneau est rendu par ModalShell : il n'est plus la racine de ce composant, d'où
+   `:deep`. La racine (le backdrop de ModalShell) porte bien l'attribut de scope, donc
+   ces règles restent limitées à cette modale. */
+:deep(.confirm-modal) { width: min(480px, calc(100% - 24px)); }
+:deep(.confirm-modal .panel-head p) { margin-top: .35rem; color: var(--muted, #667085); }
+:deep(.confirm-modal .form-actions) { justify-content: flex-end; margin-top: 1.5rem; }
 </style>

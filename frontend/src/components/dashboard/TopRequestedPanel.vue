@@ -9,7 +9,7 @@
         <div v-else class="mini-poster"><Film style="width: 14px; height: 20px; margin: 8px 5px;" /></div>
         <div>
           <strong>{{ item.title }}</strong>
-          <span>{{ item.media_type === 'movie' ? 'Film' : 'Série' }}</span>
+          <span>{{ mediaTypeLabel(item.media_type) }}</span>
         </div>
       </div>
       <span class="badge available">{{ item.count }} demandeurs</span>
@@ -19,6 +19,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel } from '@/utils/labels';
 import { Film } from '@lucide/vue';
 
 defineProps({ items: { type: Array, default: () => [] } });

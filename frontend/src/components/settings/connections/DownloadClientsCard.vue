@@ -33,13 +33,13 @@
     <p v-else class="empty">Aucun client configure.</p>
   </SettingsCard>
 
-  <div v-if="showClientModal" class="drawer-backdrop" @click.self="closeClientModal">
-    <aside ref="clientPanelRef" tabindex="-1" class="modal-panel arr-instance-modal" role="dialog" aria-modal="true" :aria-label="editingClientId?'Modifier le client':'Ajouter un client'">
-      <div class="panel-head">
-        <h2>{{ editingClientId?'Modifier le client':'Ajouter un client' }}</h2>
-        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="closeClientModal"><X/></button>
-      </div>
-      <div class="compact-form">
+  <ModalShell
+    v-if="showClientModal"
+    :title="editingClientId?'Modifier le client':'Ajouter un client'"
+    panel-class="arr-instance-modal"
+    @close="closeClientModal"
+  >
+    <div class="compact-form">
         <label>Nom<input v-model="clientForm.name"></label>
         <label>Type<select v-model="clientForm.client_type"><option value="qbittorrent">qBittorrent</option><option value="transmission">Transmission</option><option value="deluge">Deluge</option></select></label>
         <label>URL<input v-model="clientForm.url" type="url"></label>
@@ -48,30 +48,27 @@
         <label>Categorie<input v-model="clientForm.category"></label>
         <label>Tags<input v-model="clientForm.tags"></label>
         <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
-      </div>
-      <div class="actions">
-        <button class="primary" :disabled="!clientForm.name||!clientForm.url" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
-        <button class="secondary" @click="closeClientModal">Annuler</button>
-      </div>
-    </aside>
-  </div>
+    </div>
+    <template #actions>
+      <button class="primary" :disabled="!clientForm.name||!clientForm.url" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>
+      <button class="secondary" @click="closeClientModal">Annuler</button>
+    </template>
+  </ModalShell>
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
+import ModalShell from '@/components/ui/ModalShell.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { Download, Pencil, Plus, PlugZap, Power, Save, Trash2, X } from '@lucide/vue';
+import { Download, Pencil, Plus, PlugZap, Power, Save, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import ConfirmModal from '../../ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
-import { useModalA11y } from '@/composables/useModalA11y';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
 
 const clients = ref([]), editingClientId = ref(null);
 const showClientModal = ref(false);
-const clientPanelRef = ref(null);
-useModalA11y(clientPanelRef, showClientModal, closeClientModal);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 const clientDefaults = { name: '', client_type: 'qbittorrent', url: '', username: '', password: '', category: '', tags: '', is_default: false, enabled: true };
 const clientForm = reactive({ ...clientDefaults });

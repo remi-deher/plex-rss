@@ -52,7 +52,7 @@
     <section v-else class="panel table-wrap table-cards rich" role="tabpanel">
       <table>
         <thead><tr><th>Titre</th><th>Type</th><th>Source</th><th>Instance</th><th>Terminé</th></tr></thead>
-        <tbody><tr v-for="row in filteredHistory" :key="row.id"><td class="card-title"><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td><td data-label="Type">{{ row.media_type==='show'?'Série':'Film' }}</td><td data-label="Source"><span class="badge">{{ row.source }}</span></td><td data-label="Instance">{{ row.instance_name||'-' }}</td><td data-label="Terminé">{{ formatDate(row.completed_at) }}</td></tr></tbody>
+        <tbody><tr v-for="row in filteredHistory" :key="row.id"><td class="card-title"><strong>{{ row.title }}</strong><small v-if="row.year">{{ row.year }}</small></td><td data-label="Type">{{ mediaTypeLabel(row.media_type) }}</td><td data-label="Source"><span class="badge">{{ row.source }}</span></td><td data-label="Instance">{{ row.instance_name||'-' }}</td><td data-label="Terminé">{{ formatDate(row.completed_at) }}</td></tr></tbody>
       </table>
       <p v-if="!filteredHistory.length" class="empty">Aucun téléchargement terminé.</p>
       <div v-if="hasMoreHistory" class="load-more"><button class="secondary" :disabled="loadingHistory" @click="loadMoreHistory">{{ loadingHistory?'Chargement…':'Charger plus' }}</button></div>
@@ -64,6 +64,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel } from '@/utils/labels';
 import { formatDateTime as formatDate } from '@/utils/format';
 import { computed,onMounted,onUnmounted,ref } from 'vue';
 import { useRoute } from 'vue-router';

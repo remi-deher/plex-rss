@@ -1,15 +1,11 @@
 <template>
-  <div class="drawer-backdrop" @click.self="$emit('close')">
-    <aside ref="panelRef" tabindex="-1" class="modal-panel import-modal" role="dialog" aria-modal="true" aria-label="Associer / Importer">
-      <div class="panel-head">
-        <div>
-          <h2>Associer / Importer</h2>
-          <p style="font-size:13px;margin-top:4px">{{ row.title }}</p>
-        </div>
-        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="$emit('close')"><X/></button>
-      </div>
-
-      <p v-if="error" class="notice error-text">{{ error }}</p>
+  <ModalShell
+    title="Associer / Importer"
+    :subtitle="row.title"
+    panel-class="import-modal"
+    :error="error"
+    @close="$emit('close')"
+  >
 
       <div class="import-steps">
         <div class="import-step">
@@ -80,21 +76,17 @@
           {{ (row.arr_type==='sonarr'||row.arr_type==='radarr')&&episodeCandidates.length?'Associer et importer':'Associer' }}
         </button>
       </div>
-    </aside>
-  </div>
+  </ModalShell>
 </template>
 
 <script setup>
+import ModalShell from '@/components/ui/ModalShell.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { Clapperboard, Link, Search, X } from '@lucide/vue';
+import { Clapperboard, Link, Search } from '@lucide/vue';
 import { api } from '@/api';
-import { useModalA11y } from '@/composables/useModalA11y';
 
 const props = defineProps({ row: { type: Object, required: true } });
 const emit = defineEmits(['close', 'submitted']);
-
-const panelRef = ref(null);
-useModalA11y(panelRef, null, () => emit('close'));
 
 const lookupQuery = ref(''), lookupResults = ref([]), episodeCandidates = ref([]), episodeOptions = ref([]);
 const targetsLoading = ref(false), busy = ref(false), error = ref('');

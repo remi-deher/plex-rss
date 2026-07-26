@@ -12,27 +12,31 @@ Vue/JS + 86 Ko CSS). Chaque point est **constaté**, avec fichier/ligne, pas sup
 
 ## Partie A — Frontend
 
-### A1. Primitives déjà écrites mais sous-adoptées
+### A1. Primitives déjà écrites mais sous-adoptées — ✅ fait
 
-Le plus gros gain immédiat n'est pas d'écrire des composants, c'est d'utiliser ceux qui
-existent déjà.
-
-| Primitive | Utilisations | Réimplémentations à la main |
+| Primitive | Utilisations avant | Réimplémentations à la main |
 |---|---|---|
-| `components/ui/StatusBadge.vue` (map statut → ton + libellé) | **5** | **74** `class="badge"` dans **29 fichiers** |
 | `components/DrawerShell.vue` (backdrop + panel + a11y) | **2** | **5** (`ConfirmModal`, `ManualImportModal`, `ArrInstancesCard`, `DownloadClientsCard`, `EmailProvidersCard`) |
 | `components/ui/PageHeader.vue` | 14 vues / 16 | — |
+| `components/ui/StatusBadge.vue` | **5** | **74** `class="badge"` dans **29 fichiers** |
 
-**Actions**
-1. Étendre `StatusBadge` avec les statuts manquants (`orphan`, `library`, `direct_play`,
-   `transcode`…) et remplacer les `<span class="badge" :class="row.status">` +
-   map locale. Cible : les 3 maps de libellés dupliquées
-   ([mediaListHelpers.js:6](frontend/src/components/media/mediaListHelpers.js:6),
-   [MediaRequestsTab.vue:140](frontend/src/components/media/MediaRequestsTab.vue:140),
-   [DiscoverView.vue:187](frontend/src/views/DiscoverView.vue:187)) disparaissent au profit
-   de celle de `StatusBadge`.
-2. Créer `components/ui/ModalShell.vue` (frère de `DrawerShell`, variante centrée) et
-   migrer les 5 modales : ~15 lignes de markup + `useModalA11y` en double chacune.
+`ui/ModalShell.vue` (frère de `DrawerShell`, variante centrée) est créé et les 5 modales
+sont migrées : ~15 lignes de markup + un branchement `useModalA11y` en double chacune.
+`drawer-backdrop` n'est plus écrit que dans les deux coquilles, et `useModalA11y` n'est
+plus appelé que par elles, `FilterBar` et le menu mobile de `App.vue`.
+
+> **Correction de l'audit initial.** Remplacer les 74 `class="badge"` par `<StatusBadge>`
+> n'est **pas** une factorisation : `.badge` est un chip rectangulaire (rayon 5 px, sans
+> point), `.ui-status` une pilule à point de 26 px de haut. La substitution changerait
+> l'apparence de 29 fichiers — c'est un choix de design, à trancher séparément.
+>
+> Ce qui *était* de la duplication, et qui est fait : les **tables de libellés**. Le même
+> statut `failed` s'affichait « Echec » dans la liste Bibliothèque, « Échec » dans
+> Découvrir et « Erreur » dans l'onglet Demandes. `utils/labels.js` porte désormais
+> `requestStatusLabel`, `mediaTypeLabel`/`mediaTypePluralLabel` (7 ternaires
+> `media_type === 'show' ? …` recopiés) et `playbackMethodLabel` (dupliqué entre
+> `PlaybackMethodBadge` et `ActivityView`). `StatusBadge` y puise ses libellés de statut et
+> ne garde que sa table de tons.
 
 ### A2. Composants communs manquants
 
@@ -47,7 +51,7 @@ existent déjà.
 | `ui/CrudResourceCard.vue` | voir A4 (`useCrudResource`) | `ArrInstancesCard`, `DownloadClientsCard`, `EmailProvidersCard` |
 | carte média unique | `poster-shell` + badges + titre | [LibraryCard.vue](frontend/src/components/library/LibraryCard.vue) vs [DiscoverView.vue:80-112](frontend/src/views/DiscoverView.vue:80) (inline) vs `media/MediaPoster.vue` — **3 implémentations** de la même carte affiche |
 
-### A3. Utilitaires dupliqués → `frontend/src/utils/format.js`
+### A3. Utilitaires dupliqués → `frontend/src/utils/format.js` — ✅ fait
 
 Aucun module de formatage n'existe ; chaque composant réécrit le sien.
 
@@ -59,11 +63,18 @@ Aucun module de formatage n'existe ; chaque composant réécrit le sien.
 | `shortDate` / `formatLongDate` | 4 (`ConcurrencyPanel`, `DailyActivityChart`, `ActivityChartPanel`, `CalendarView`) | |
 | `formatBytes` | 1 (`DiskSpacePanel`) mais absent là où il faudrait | |
 | `signedPercent`, `formatValue` (`toLocaleString('fr-FR')`) | 3 | |
-| `proxyUrl` | 2 ([LibraryView.vue:219](frontend/src/views/LibraryView.vue:219) et [mediaListHelpers.js:33](frontend/src/components/media/mediaListHelpers.js:33)) — copie exacte | |
+| `proxyUrl` | 2 — copie exacte, désormais dans `utils/mediaImage.js` | |
 | relative time (« il y a N s ») | 2 ([ActivityView.vue:178](frontend/src/views/ActivityView.vue:178), [DashboardView.vue:142](frontend/src/views/DashboardView.vue:142)) | |
 
-`mediaListHelpers.js` est l'amorce correcte : le promouvoir en `utils/format.js` +
-`utils/labels.js` et y rapatrier tout ce qui précède.
+`utils/format.js` porte les 21 formateurs, chacun en un seul exemplaire, et
+`format.spec.js` fige leurs sorties. `mediaListHelpers.js` n'est plus qu'un jeu de
+ré-exports vers `utils/labels.js` et `utils/mediaImage.js`.
+
+Deux variantes subsistent volontairement, parce que ce sont des différences d'affichage
+réelles et non des doublons : `formatDuration` (« 2 h ») vs `formatDurationExact`
+(« 2 h 0 min », pour aligner les colonnes du tableau d'historique), et `formatBytes`
+(échelle Go/To de l'espace disque *arr) vs `formatFileSize` (o → To de l'inventaire de
+fichiers).
 
 ### A4. Composables manquants
 

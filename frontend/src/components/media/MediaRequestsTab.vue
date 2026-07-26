@@ -105,6 +105,7 @@
 </template>
 
 <script setup>
+import { requestStatusLabel } from '@/utils/labels';
 import { formatDate, formatDateTime } from '@/utils/format';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { Ban, Check, CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircle, RotateCcw, Search, Trash2, UserMinus, Users } from '@lucide/vue';
@@ -136,17 +137,6 @@ const arrSteps = [
   { key: 'awaiting_plex', label: 'Attente Plex' }, { key: 'completed', label: 'Disponible' },
 ];
 
-function requestStatusLabel(value) {
-  return ({
-    pending_approval: 'A approuver',
-    pending: 'En attente',
-    sent_to_arr: 'Transmise',
-    partially_available: 'Partiellement disponible',
-    available: 'Disponible',
-    failed: 'Erreur',
-    rejected: 'Refusee',
-  })[value] || value;
-}
 function seasonsSummary(seasons) {
   const available = seasons.filter(s => s.status === 'available').length;
   return `${available}/${seasons.length} completes`;

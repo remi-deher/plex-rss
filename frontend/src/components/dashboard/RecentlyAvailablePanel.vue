@@ -8,7 +8,7 @@
         <div class="poster-wrap">
           <img v-if="item.poster_url" :src="item.poster_url" :alt="`Affiche de ${item.title}`" />
           <div v-else class="poster-fallback-inner"><Film /></div>
-          <span class="media-type-badge" :class="item.media_type">{{ item.media_type === 'movie' ? 'Film' : 'Série' }}</span>
+          <span class="media-type-badge" :class="item.media_type">{{ mediaTypeLabel(item.media_type) }}</span>
         </div>
         <strong>{{ item.title }}</strong>
         <span>{{ formatRelativeDate(item.available_at) }}</span>
@@ -19,6 +19,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel } from '@/utils/labels';
 import { Film } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 

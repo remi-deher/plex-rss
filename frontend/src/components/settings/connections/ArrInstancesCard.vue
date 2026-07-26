@@ -33,13 +33,14 @@
     <p v-else class="empty">Aucune instance configuree.</p>
   </SettingsCard>
 
-  <div v-if="showArrModal" class="drawer-backdrop" @click.self="closeArrModal">
-    <aside ref="arrPanelRef" tabindex="-1" class="modal-panel arr-instance-modal" role="dialog" aria-modal="true" :aria-label="editingArrId?'Modifier l\'instance':'Ajouter une instance'">
-      <div class="panel-head">
-        <h2>{{ editingArrId?'Modifier l\'instance':'Ajouter une instance' }}</h2>
-        <button class="icon-button" title="Fermer" aria-label="Fermer" @click="closeArrModal"><X/></button>
-      </div>
-      <div class="compact-form">
+  <ModalShell
+    v-if="showArrModal"
+    :title="editingArrId?'Modifier l\'instance':'Ajouter une instance'"
+    panel-class="arr-instance-modal"
+    :busy="busy"
+    @close="closeArrModal"
+  >
+    <div class="compact-form">
         <label>Nom<input v-model="arrForm.name"></label>
         <label>Type<select v-model="arrForm.arr_type"><option value="sonarr">Sonarr</option><option value="radarr">Radarr</option><option value="prowlarr">Prowlarr</option></select></label>
         <label>URL<input v-model="arrForm.url" type="url"></label>
@@ -47,32 +48,29 @@
         <label>Profil<select v-model.number="arrForm.quality_profile_id"><option :value="null">Par defaut</option><option v-for="profile in arrProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option></select></label>
         <label>Dossier racine<select v-model="arrForm.root_folder"><option value="">Par defaut</option><option v-for="folder in arrFolders" :key="folder.path||folder" :value="folder.path||folder">{{ folder.path||folder }}</option></select></label>
         <label class="check"><input v-model="arrForm.is_default" type="checkbox"> Instance par defaut</label>
-      </div>
-      <div class="actions">
-        <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
-        <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
-        <button class="secondary" @click="closeArrModal">Annuler</button>
-      </div>
-    </aside>
-  </div>
+    </div>
+    <template #actions>
+      <button class="secondary" @click="loadArrOptions"><ListRestart/>Charger profils et dossiers</button>
+      <button class="primary" :disabled="busy||!arrForm.name||!arrForm.url||!arrForm.api_key" @click="saveArr"><Save/>{{ editingArrId?'Mettre a jour':'Ajouter' }}</button>
+      <button class="secondary" @click="closeArrModal">Annuler</button>
+    </template>
+  </ModalShell>
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 
 <script setup>
+import ModalShell from '@/components/ui/ModalShell.vue';
 import { onMounted, reactive, ref } from 'vue';
-import { ListRestart, Pencil, Plus, PlugZap, Power, Save, ServerCog, Trash2, X } from '@lucide/vue';
+import { ListRestart, Pencil, Plus, PlugZap, Power, Save, ServerCog, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { success, fail } from '@/settingsForm';
 import SettingsCard from '../SettingsCard.vue';
 import ConfirmModal from '../../ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
-import { useModalA11y } from '@/composables/useModalA11y';
 
 const busy = ref(false);
 const arrInstances = ref([]), arrProfiles = ref([]), arrFolders = ref([]), editingArrId = ref(null);
 const showArrModal = ref(false);
-const arrPanelRef = ref(null);
-useModalA11y(arrPanelRef, showArrModal, closeArrModal);
 const arrDefaults = { name: '', arr_type: 'sonarr', url: '', api_key: '', quality_profile_id: null, root_folder: '', minimum_availability: 'released', is_default: false, enabled: true, indexer_ids: null };
 const arrForm = reactive({ ...arrDefaults });
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();

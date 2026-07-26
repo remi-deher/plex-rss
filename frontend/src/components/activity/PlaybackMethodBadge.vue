@@ -3,14 +3,11 @@
 </template>
 
 <script setup>
+import { playbackMethodLabel } from '@/utils/labels';
 import { computed } from 'vue';
 const props = defineProps({ method: { type: String, default: '' }, compact: { type: Boolean, default: false } });
 const normalized = computed(() => ['transcode','direct_stream','direct_play'].includes(props.method) ? props.method : 'unknown');
-const label = computed(() => ({
-  transcode: props.compact ? 'Transcode' : 'Transcodage',
-  direct_stream: 'Direct Stream',
-  direct_play: props.compact ? 'Direct Play' : 'Lecture directe',
-})[normalized.value] || 'Lecture');
+const label = computed(() => playbackMethodLabel(normalized.value, { compact: props.compact }));
 </script>
 
 <style scoped>

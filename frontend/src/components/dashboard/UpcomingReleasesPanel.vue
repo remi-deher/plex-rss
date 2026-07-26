@@ -9,7 +9,7 @@
         <div class="upcoming-poster">
           <img v-if="item.poster_url" :src="item.poster_url" :alt="`Affiche de ${item.title}`" loading="lazy" />
           <div v-else class="poster-fallback-inner"><Film /></div>
-          <span class="upcoming-type-badge">{{ item.media_type === 'show' ? 'Série' : 'Film' }}</span>
+          <span class="upcoming-type-badge">{{ mediaTypeLabel(item.media_type) }}</span>
         </div>
         <div class="upcoming-info">
           <strong>{{ item.title }}</strong>
@@ -23,6 +23,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel } from '@/utils/labels';
 import { formatReleaseDate as formatUpcomingDate } from '@/utils/format';
 import { Film } from '@lucide/vue';
 

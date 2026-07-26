@@ -1,31 +1,12 @@
-export const STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available', 'available', 'failed', 'rejected'];
-// Pseudo-statuts : pas un MediaRequest.status reel, mais des categories de la page
-// Bibliotheque fusionnee (media deja dans Plex / suivi Sonarr-Radarr sans demande).
-export const KIND_STATUSES = ['library', 'orphan'];
+// Ré-exports conservés pour les composants de la page Bibliothèque, qui parlent en
+// « statuts » et « types » de liste. La définition des libellés vit dans @/utils/labels,
+// celle du proxy d'images dans @/utils/mediaImage.
+export {
+  KIND_STATUSES,
+  REQUEST_STATUSES as STATUSES,
+  mediaTypePluralLabel as typeLabel,
+  requestStatusLabel as statusLabel,
+} from '@/utils/labels';
+export { proxyUrl } from '@/utils/mediaImage';
+
 export const TYPES = ['movie', 'show'];
-
-export function statusLabel(value) {
-  return ({
-    library: 'Dans Plex',
-    orphan: 'Suivi Sonarr/Radarr',
-    pending_approval: 'A approuver',
-    pending: 'En attente',
-    sent_to_arr: 'Transmise',
-    partially_available: 'Partiellement disponible',
-    available: 'Disponible',
-    failed: 'Echec',
-    rejected: 'Refusee',
-  })[value] || value;
-}
-
-export function typeLabel(value) {
-  return value === 'show' ? 'Series' : 'Films';
-}
-
-export function proxyUrl(url) {
-  if (!url) return url;
-  if (url.startsWith('http://') || (url.startsWith('https://') && /\/(192\.168\.|10\.|127\.)/.test(url))) {
-    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
-  }
-  return url;
-}

@@ -45,6 +45,7 @@
 </template>
 
 <script setup>
+import { mediaTypeLabel } from '@/utils/labels';
 import { computed } from 'vue';
 import { ArrowLeft, ExternalLink, Film, Flag, Star } from '@lucide/vue';
 
@@ -56,7 +57,7 @@ const props = defineProps({
 });
 defineEmits(['back', 'report-issue']);
 
-const typeLabel = computed(() => (props.detail.media_type === 'show' ? 'Serie' : 'Film'));
+const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
 </script>
 
 <style scoped>

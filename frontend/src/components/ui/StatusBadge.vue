@@ -8,20 +8,38 @@
 <script setup>
 import { computed } from 'vue';
 
+import { REQUEST_STATUS_LABELS } from '@/utils/labels';
+
 const props = defineProps({
   status: { type: String, default: 'neutral' },
   label: { type: String, default: '' },
   description: { type: String, default: '' },
 });
 
-const definitions = {
-  available: ['success', 'Disponible'], completed: ['success', 'Terminé'], active: ['success', 'Actif'], sent: ['success', 'Envoyée'], closed: ['success', 'Clos'],
-  sent_to_arr: ['info', 'Transmise à *Arr'], downloading: ['info', 'Téléchargement'], investigating: ['info', 'En cours'], running: ['info', 'En cours'],
-  pending: ['neutral', 'En attente'], queued: ['neutral', 'En file'], inactive: ['neutral', 'Inactif'],
-  pending_approval: ['warning', 'À approuver'], partially_available: ['warning', 'Partiellement disponible'], paused: ['warning', 'En pause'], open: ['warning', 'Ouvert'], warning: ['warning', 'Attention'],
-  failed: ['danger', 'Échec'], error: ['danger', 'Erreur'], rejected: ['danger', 'Refusée'], blocked: ['danger', 'Bloqué'],
+// Ton visuel par statut. Les statuts de demande tirent leur libellé de
+// REQUEST_STATUS_LABELS (source unique, voir @/utils/labels) ; les statuts propres à
+// d'autres domaines (tâches, incidents, connexions) portent le leur ici.
+const TONES = {
+  available: 'success', completed: 'success', active: 'success', sent: 'success', closed: 'success',
+  sent_to_arr: 'info', downloading: 'info', investigating: 'info', running: 'info',
+  pending: 'neutral', queued: 'neutral', inactive: 'neutral',
+  pending_approval: 'warning', partially_available: 'warning', paused: 'warning', open: 'warning', warning: 'warning',
+  failed: 'danger', error: 'danger', rejected: 'danger', blocked: 'danger',
+};
+const OWN_LABELS = {
+  completed: 'Terminé', active: 'Actif', sent: 'Envoyée', closed: 'Clos',
+  // Nuance propre au badge : ailleurs dans l'app, `sent_to_arr` s'affiche « Transmise ».
+  sent_to_arr: 'Transmise à *Arr',
+  downloading: 'Téléchargement', investigating: 'En cours', running: 'En cours',
+  queued: 'En file', inactive: 'Inactif', paused: 'En pause', open: 'Ouvert',
+  warning: 'Attention', error: 'Erreur', blocked: 'Bloqué',
 };
 const normalized = computed(() => String(props.status || 'neutral').toLowerCase());
-const tone = computed(() => definitions[normalized.value]?.[0] || 'neutral');
-const displayLabel = computed(() => props.label || definitions[normalized.value]?.[1] || String(props.status || '—'));
+const tone = computed(() => TONES[normalized.value] || 'neutral');
+const displayLabel = computed(
+  () => props.label
+    || OWN_LABELS[normalized.value]
+    || REQUEST_STATUS_LABELS[normalized.value]
+    || String(props.status || '—'),
+);
 </script>
