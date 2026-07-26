@@ -11,7 +11,7 @@ from ..dependencies import current_user, require_admin, require_auth
 from ..models import LibraryItem, MediaIssue, MediaRequest
 from ..services import radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive
-from .arr_api import _resolve_arr_instance
+from .arr_shared import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
 

@@ -397,7 +397,7 @@ async def add_watch_folder_torrent(path: str, torrent_url_or_magnet: str) -> tup
     # téléchargement sur le même réseau privé/docker que l'app (voir docker-compose.yml)
     # : une cible interne est donc le cas normal, pas un signal d'attaque, et cette route
     # est de toute façon réservée aux administrateurs (dependencies=[Depends(require_admin)]
-    # sur tout le routeur arr_api.py). On se limite donc à rejeter les schémas non-HTTP.
+    # sur tout le routeur Prowlarr). On se limite donc à rejeter les schémas non-HTTP.
     parsed = urlparse(torrent_url_or_magnet)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         return False, "URL de torrent invalide", None

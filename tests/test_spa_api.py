@@ -6,7 +6,7 @@ from app.database import get_db_async
 from app.dependencies import require_admin, require_auth
 from app.main import app
 from app.models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
-from app.routers import arr_api
+from app.routers import arr_shared
 from app.services.email_service import DEFAULT_HEADER_BRAND, DEFAULT_REQUEST_TEMPLATE
 
 
@@ -167,13 +167,13 @@ def test_spa_arr_releases_put_english_results_last_and_grab(async_db):
         {"guid": "vf", "title": "Dune 2021 MULTI VFF", "indexer_id": 2, "seeders": 10},
     ]
     try:
-        with patch("app.routers.arr_api.radarr.get_releases", new=AsyncMock(return_value=releases)):
+        with patch("app.routers.arr_releases_api.radarr.get_releases", new=AsyncMock(return_value=releases)):
             response = client.get(f"/api/arr/releases?media_type=movie&arr_id=42&instance_id={instance.id}")
         assert response.status_code == 200
         assert [item["guid"] for item in response.json()] == ["vf", "en"]
         assert [item["is_french"] for item in response.json()] == [True, False]
 
-        with patch("app.routers.arr_api.radarr.grab_release", new=AsyncMock(return_value=(True, "ok"))):
+        with patch("app.routers.arr_releases_api.radarr.grab_release", new=AsyncMock(return_value=(True, "ok"))):
             grabbed = client.post(
                 "/api/arr/grab",
                 json={
@@ -375,7 +375,7 @@ def test_spa_direct_downloads_reads_tracked_requests(async_db):
     async_db.add(request)
     async_db.commit()
     client = _client(async_db)
-    arr_api._direct_cache.update({"data": None, "ts": 0.0})
+    arr_shared._direct_cache.update({"data": None, "ts": 0.0})
     try:
         status = {"progress": 42.5, "eta": 600}
         with patch("app.services.download_clients.get_torrent_status", new=AsyncMock(return_value=status)):
@@ -384,7 +384,7 @@ def test_spa_direct_downloads_reads_tracked_requests(async_db):
         assert response.json()[0]["title"] == "Arrival"
         assert response.json()[0]["progress"] == 42.5
     finally:
-        arr_api._direct_cache.update({"data": None, "ts": 0.0})
+        arr_shared._direct_cache.update({"data": None, "ts": 0.0})
         _cleanup()
 
 
@@ -396,8 +396,8 @@ def test_sonarr_episode_targets_are_available_without_download_id(async_db):
     episodes = [{"id": 12, "seasonNumber": 2, "episodeNumber": 3, "title": "Episode 3"}]
     try:
         with (
-            patch("app.routers.arr_api.sonarr.get_episodes", new=AsyncMock(return_value=episodes)),
-            patch("app.routers.arr_api.sonarr.get_manual_import_candidates", new=AsyncMock()) as candidates,
+            patch("app.routers.manual_import_api.sonarr.get_episodes", new=AsyncMock(return_value=episodes)),
+            patch("app.routers.manual_import_api.sonarr.get_manual_import_candidates", new=AsyncMock()) as candidates,
         ):
             response = client.get(
                 f"/api/downloads/sonarr-manual-import?instance_id={instance.id}&series_id=42"

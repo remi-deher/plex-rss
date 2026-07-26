@@ -1,4 +1,4 @@
-"""Tests unitaires pour /api/image-proxy et son cache disque (app/routers/misc_api.py)."""
+"""Tests unitaires pour /api/image-proxy et son cache disque (app/routers/image_proxy_api.py)."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -48,7 +48,7 @@ def _fake_httpx_client(resp=None, side_effect=None):
 
 @pytest.fixture()
 def cache_dir(tmp_path):
-    with patch("app.routers.misc_api._IMAGE_CACHE_DIR", str(tmp_path / "image_cache")):
+    with patch("app.routers.image_proxy_api._IMAGE_CACHE_DIR", str(tmp_path / "image_cache")):
         yield tmp_path / "image_cache"
 
 
@@ -74,7 +74,7 @@ def test_image_proxy_fetches_and_caches(cache_dir, async_db):
     client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
-        with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
             resp = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert resp.status_code == 200
         assert resp.content == b"fake-image-bytes"
@@ -91,7 +91,7 @@ def test_image_proxy_second_call_uses_cache_not_plex(cache_dir, async_db):
     client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
-        with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
             first = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
             second = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert first.status_code == 200
@@ -106,10 +106,10 @@ def test_image_proxy_expired_cache_refetches(cache_dir, async_db):
     client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp())
     try:
-        with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
             client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
-        with patch("app.routers.misc_api.time.time", return_value=__import__("time").time() + 999999):
-            with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
+        with patch("app.routers.image_proxy_api.time.time", return_value=__import__("time").time() + 999999):
+            with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
                 client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert fake.get.await_count == 2
     finally:
@@ -125,13 +125,13 @@ def test_image_proxy_serves_stale_cache_on_plex_failure(cache_dir, async_db):
     fake_ok = _fake_httpx_client(resp=_resp())
     fake_fail = _fake_httpx_client(side_effect=Exception("connection reset"))
     try:
-        with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake_ok):
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake_ok):
             first = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert first.status_code == 200
 
         # Force le cache a etre considere perime pour declencher un re-fetch...
-        with patch("app.routers.misc_api.time.time", return_value=__import__("time").time() + 999999):
-            with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake_fail):
+        with patch("app.routers.image_proxy_api.time.time", return_value=__import__("time").time() + 999999):
+            with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake_fail):
                 second = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         # ...qui echoue cote Plex, mais le cache perime sert quand meme de filet.
         assert second.status_code == 200
@@ -144,9 +144,9 @@ def test_image_proxy_no_cache_and_plex_failure_returns_502(async_db):
     """Comportement preexistant : sans aucun cache, un echec Plex reste un 502."""
     client = _client(async_db)
     fake_fail = _fake_httpx_client(side_effect=Exception("connection reset"))
-    with patch("app.routers.misc_api._IMAGE_CACHE_DIR", "/nonexistent/path/that/has/no/cache"):
+    with patch("app.routers.image_proxy_api._IMAGE_CACHE_DIR", "/nonexistent/path/that/has/no/cache"):
         try:
-            with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake_fail):
+            with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake_fail):
                 resp = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
             assert resp.status_code == 502
         finally:
@@ -157,7 +157,7 @@ def test_image_proxy_rejects_non_image_content_type(cache_dir, async_db):
     client = _client(async_db)
     fake = _fake_httpx_client(resp=_resp(content_type="text/html"))
     try:
-        with patch("app.routers.misc_api.httpx.AsyncClient", return_value=fake):
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
             resp = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert resp.status_code == 415
     finally:

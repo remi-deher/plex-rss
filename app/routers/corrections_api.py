@@ -10,7 +10,7 @@ from sqlalchemy.future import select
 
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
-from ..models import LibraryItem, MediaRequest, PlexUser, Settings, NotificationLog
+from ..models import LibraryItem, MediaRequest, NotificationLog, PlexUser, Settings
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..utils import async_get_or_404, now_utc_naive, safe_error_message
 

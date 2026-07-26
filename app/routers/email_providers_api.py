@@ -1,6 +1,6 @@
 """CRUD des fournisseurs d'envoi d'email (SMTP classique, SMTP+OAuth2 Microsoft, Brevo).
 
-Miroir de /api/arr-instances (voir arr_api.py) : liste de fournisseurs, chacun
+Miroir de /api/arr-instances (voir arr_instances_api.py) : liste de fournisseurs, chacun
 activable/désactivable indépendamment, essayés par ordre de priorité avec repli
 automatique en cas d'échec (voir app/services/email_providers.py).
 """

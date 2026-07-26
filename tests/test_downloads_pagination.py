@@ -5,7 +5,7 @@ from datetime import timedelta
 import pytest
 
 from app.models import DownloadHistory
-from app.routers.arr_api import downloads_history
+from app.routers.downloads_api import downloads_history
 from app.utils import now_utc_naive
 
 

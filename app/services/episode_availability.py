@@ -31,7 +31,7 @@ episode_availability_state: dict = {
 
 
 async def _resolve_sonarr_instance(db: AsyncSession, instance_id: int | None) -> ArrInstance | None:
-    """Version tolérante de `arr_api._resolve_arr_instance` (renvoie None plutôt que de
+    """Version tolérante de `arr_shared._resolve_arr_instance` (renvoie None plutôt que de
     lever une HTTPException) : ce module tourne en tâche de fond, une instance
     introuvable pour une série ne doit jamais faire échouer tout le cycle."""
     if instance_id is not None:

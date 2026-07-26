@@ -1,25 +1,36 @@
+import asyncio
 import json as _json
 import logging
 from typing import Any, Optional
 
 import httpx
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
-import asyncio
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_admin, require_auth
-from ..models import AdminActionLog, ArrInstance, DeletedMediaLog, DownloadClient, LibraryItem, MediaRequest, PlexUser, RequestStatus, Settings, VfEpisodeStatus
+from ..models import (
+    AdminActionLog,
+    ArrInstance,
+    DeletedMediaLog,
+    DownloadClient,
+    LibraryItem,
+    MediaRequest,
+    PlexUser,
+    RequestStatus,
+    Settings,
+    VfEpisodeStatus,
+)
 from ..scheduler import check_arr_statuses, poll_watchlists
+from ..services import arr_orphans, deleted_media, radarr, sonarr
 from ..services.notification_orchestrator import _notify, notify_single_user
 from ..services.request_lifecycle import transition_request
-from ..services import arr_orphans, deleted_media, radarr, sonarr
-from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 from ..services.vf_cache import delete_request_episode_cache
+from ..utils import async_get_or_404, now_utc_naive, parse_email_list
 
 logger = logging.getLogger(__name__)
 

@@ -2,10 +2,10 @@ import asyncio
 import logging
 from typing import Optional
 
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import require_admin, require_auth
@@ -20,15 +20,15 @@ from ..scheduler import (
     sync_plex_media,
     vff_scan_state,
 )
-from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..serializers import format_datetime
-from ..services import plex_finder as vff_svc
 from ..services import audio_analyzer, tmdb
+from ..services import plex_finder as vff_svc
 from ..services.episode_availability import sync_episode_availability_for_show
+from ..services.notification_orchestrator import _notify, _queue_milestone
 from ..services.radarr import lookup_movie
 from ..services.sonarr import get_episodes, lookup_series
 from ..utils import async_get_or_404, now_utc_naive, wrap_image_proxy
-from .arr_api import _resolve_arr_instance
+from .arr_shared import _resolve_arr_instance
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +342,7 @@ async def vff_counts(db: AsyncSession = Depends(get_db_async)):
     vo_pending = await count_where(LibraryItem.has_vf.is_(False))
     vf_available = await count_where(LibraryItem.has_vf.is_(True))
     unchecked = await count_where(LibraryItem.has_vf.is_(None))
-    
+
     return {"vo_pending": vo_pending, "vf_available": vf_available, "unchecked": unchecked}
 
 

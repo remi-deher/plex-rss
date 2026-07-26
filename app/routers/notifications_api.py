@@ -1,24 +1,23 @@
 import json as _json
 import time
-from html import escape
 from datetime import datetime, timedelta, timezone
+from html import escape
 from typing import Any, Optional
 
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import current_user, require_admin
-from ..models import AdminActionLog, DiagnosticEvent, MediaRequest, NotificationLog, PlexUser, Settings
-from ..notification_queue import enqueue as enqueue_notification
-from ..notification_queue import cancel_all_pending, cancel_pending
-from ..notification_queue import process_pending_id
 from ..job_queue import arq_enabled, enqueue_job, notification_hold_enabled, set_notification_hold
+from ..models import AdminActionLog, DiagnosticEvent, MediaRequest, NotificationLog, PlexUser, Settings
+from ..notification_queue import cancel_all_pending, cancel_pending, process_pending_id
+from ..notification_queue import enqueue as enqueue_notification
 from ..serializers import format_datetime
 from ..services.email_service import (
     DEFAULT_AVAILABLE_TEMPLATE,

@@ -265,7 +265,7 @@ async def _compute_calendar(
                                 added_date = datetime.fromisoformat(added_str.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
                             except ValueError:
                                 pass
-                                
+
                         # Auto-create MediaRequest for untracked series in database
                         new_req = MediaRequest(
                             title=series.get("title") or "Unknown Series",
@@ -280,7 +280,7 @@ async def _compute_calendar(
                         )
                         db.add(new_req)
                         await db.flush()
-                        
+
                         entry = {
                             "in_library": False,
                             "library_item_id": None,
@@ -361,7 +361,7 @@ async def _compute_calendar(
                         )
                         db.add(new_req)
                         await db.flush()
-                        
+
                         entry = {
                             "in_library": False,
                             "library_item_id": None,

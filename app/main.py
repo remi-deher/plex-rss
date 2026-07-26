@@ -40,7 +40,13 @@ from .notification_queue import stop_worker as stop_notif_worker
 from .routers import (
     activity_api,
     api_v1,
-    arr_api,
+    arr_instances_api,
+    download_clients_api,
+    prowlarr_api,
+    arr_releases_api,
+    arr_queue_api,
+    manual_import_api,
+    downloads_api,
     auth,
     calendar_api,
     corrections_api,
@@ -54,7 +60,10 @@ from .routers import (
     library_analytics_api,
     maintenance,
     metrics_api,
-    misc_api,
+    image_proxy_api,
+    onboarding_api,
+    conflicts_api,
+    i18n_api,
     notifications_api,
     requests_api,
     scheduled_tasks_api,
@@ -63,6 +72,7 @@ from .routers import (
     users_api,
     vff_api,
     webhook,
+    webhook_admin,
 )
 from .scheduler import scheduler, start_scheduler
 from .services.auth import get_secret_key
@@ -73,7 +83,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 install_log_buffer()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -121,7 +130,6 @@ async def lifespan(app: FastAPI):
     await cache.close()
     logging.info("Shutdown complete.")
 
-
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -131,7 +139,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
-
 
 async def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
     """Corps synchrone de la résolution de rôle (exécuté hors event loop via to_thread)."""
@@ -155,7 +162,6 @@ async def _sync_session_role(plex_user_id: str | None, username: str | None) -> 
     finally:
         await db.close()
 
-
 class SessionSyncMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         if request.session.get("authenticated"):
@@ -166,7 +172,6 @@ class SessionSyncMiddleware(BaseHTTPMiddleware):
             except Exception:
                 pass
         return await call_next(request)
-
 
 def _request_is_https(scope: Scope) -> bool:
     """Détecte si la requête d'origine était en HTTPS.
@@ -180,7 +185,6 @@ def _request_is_https(scope: Scope) -> bool:
     headers = dict(scope.get("headers") or [])
     proto = headers.get(b"x-forwarded-proto", b"").decode("latin-1").split(",")[0].strip().lower()
     return proto == "https"
-
 
 class DynamicSecureSessionMiddleware:
     """Équivalent de starlette.middleware.sessions.SessionMiddleware, mais le flag
@@ -258,26 +262,21 @@ class DynamicSecureSessionMiddleware:
 
         await self.app(scope, receive, send_wrapper)
 
-
 app = FastAPI(title="Plexarr", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None)
-
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
-
 
 @app.get("/api/docs", include_in_schema=False)
 async def get_documentation(request: Request, db: SqlSession = Depends(get_db)):
     await require_admin(request, db)
     return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Plexarr API Docs")
 
-
 @app.get("/api/openapi.json", include_in_schema=False)
 async def get_open_api_endpoint(request: Request, db: SqlSession = Depends(get_db)):
     await require_admin(request, db)
     return get_openapi(title="Plexarr", version="1.0.0", routes=app.routes)
-
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SessionSyncMiddleware)
@@ -287,11 +286,16 @@ app.add_middleware(DynamicSecureSessionMiddleware, secret_key=get_secret_key())
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.mount("/vue", StaticFiles(directory="app/static/vue"), name="vue")
 
-
 app.include_router(auth.router)
 app.include_router(activity_api.router)
 app.include_router(settings_api.router)
-app.include_router(arr_api.router)
+app.include_router(arr_instances_api.router)
+app.include_router(download_clients_api.router)
+app.include_router(prowlarr_api.router)
+app.include_router(arr_releases_api.router)
+app.include_router(arr_queue_api.router)
+app.include_router(manual_import_api.router)
+app.include_router(downloads_api.router)
 app.include_router(users_api.router)
 app.include_router(security_api.router)
 app.include_router(requests_api.router)
@@ -305,9 +309,13 @@ app.include_router(vff_api.router)
 app.include_router(metrics_api.router)
 app.include_router(notifications_api.router)
 app.include_router(scheduled_tasks_api.router)
-app.include_router(misc_api.router)
+app.include_router(image_proxy_api.router)
+app.include_router(onboarding_api.router)
+app.include_router(conflicts_api.router)
+app.include_router(i18n_api.router)
 app.include_router(api_v1.router)
 app.include_router(webhook.router)
+app.include_router(webhook_admin.router)
 app.include_router(importexport.router)
 app.include_router(email_templates.router)
 app.include_router(email_providers_api.router)
@@ -334,23 +342,19 @@ SPA_ROOTS = {
     "analytics",
 }
 
-
 @app.get("/app", include_in_schema=False)
 @app.get("/app/{legacy_path:path}", include_in_schema=False)
 async def redirect_legacy_spa(legacy_path: str = ""):
     destination = f"/{legacy_path}" if legacy_path else "/dashboard"
     return RedirectResponse(safe_redirect_path(destination, default="/dashboard"), status_code=308)
 
-
 @app.get("/templates", include_in_schema=False)
 async def redirect_legacy_templates():
     return RedirectResponse("/settings?tab=templates", status_code=308)
 
-
 @app.get("/setup/wizard", include_in_schema=False)
 async def redirect_legacy_wizard():
     return RedirectResponse("/settings?tab=connections", status_code=308)
-
 
 @app.get("/", include_in_schema=False)
 @app.get("/{spa_path:path}", include_in_schema=False)

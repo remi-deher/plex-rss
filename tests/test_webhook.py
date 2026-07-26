@@ -506,9 +506,11 @@ def _arr_instance(arr_type="sonarr"):
 
 @contextmanager
 def _configure_db_patch(db):
+    # /webhook/configure et /webhook/check-live vivent dans webhook_admin.py, separe de
+    # l'ingestion (webhook.py) : c'est la session de ce module qu'il faut remplacer.
     db.close = AsyncMock()
     with ExitStack() as stack:
-        stack.enter_context(patch("app.routers.webhook.AsyncSessionLocal", return_value=db))
+        stack.enter_context(patch("app.routers.webhook_admin.AsyncSessionLocal", return_value=db))
         stack.enter_context(patch.dict(app.dependency_overrides, {require_admin: lambda: None}))
         yield
 

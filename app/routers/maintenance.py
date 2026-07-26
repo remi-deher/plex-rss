@@ -14,12 +14,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import httpx
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal, get_db_async
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
-import sqlalchemy
 from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
 from ..utils import now_utc
@@ -276,12 +276,12 @@ async def _run_resync_availability(run: MaintenanceRun):
         emit.info(f"{len(before)} série(s) 'Disponible' à revérifier…")
         run.progress = 10
 
-        from ..services.arr_tracker import check_arr_statuses
         from ..job_queue import (
             clear_resync_notification_baselines,
             set_resync_notification_baselines,
         )
         from ..notification_queue import cancel_pending_availability_notifications
+        from ..services.arr_tracker import check_arr_statuses
 
         # Le resync tourne dans l'API, tandis que les cron, webhooks et livraisons
         # tournent potentiellement dans d'autres processus/conteneurs. On partage
@@ -615,8 +615,8 @@ async def _run_recover_sqlite(run: MaintenanceRun):
     emit = _Emit(run, logging.getLogger("app.maintenance"))
     emit.info("Démarrage de la récupération SQLite...")
     try:
-        import sys
         import asyncio
+        import sys
         proc = await asyncio.create_subprocess_exec(
             sys.executable, "scripts/recover_sqlite_data.py",
             stdout=asyncio.subprocess.PIPE,
@@ -680,6 +680,7 @@ _ACTION_RUNNERS = {
 
 async def _is_action_enabled(action: str, db: AsyncSession) -> tuple[bool, str | None]:
     from sqlalchemy import select
+
     from ..models import Settings
     settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:
@@ -702,9 +703,9 @@ async def list_actions(db: AsyncSession = Depends(get_db_async), _: None = Depen
     result = {}
     for key, meta in ACTIONS_META.items():
         last = _last_runs.get(key)
-        
+
         enabled, disabled_reason = await _is_action_enabled(key, db)
-        
+
         result[key] = {
             **meta,
             "enabled": enabled,

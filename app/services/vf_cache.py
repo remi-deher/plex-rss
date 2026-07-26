@@ -3,7 +3,7 @@
 Module feuille (il n'importe que les modeles et SQLAlchemy), pour que routers et services
 puissent l'appeler sans risque d'import circulaire -- c'est ce risque qui avait conduit a
 recopier `_delete_vf_episode_cache` a l'identique dans quatre modules
-(routers/webhook.py, routers/requests_api.py, routers/misc_api.py,
+(routers/webhook.py, routers/requests_api.py, routers/conflicts_api.py,
 services/arr_tracker.py).
 """
 

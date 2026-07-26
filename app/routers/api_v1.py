@@ -1,16 +1,16 @@
 from typing import List, Optional
 
+import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import sqlalchemy
 
 from ..database import get_db_async
 from ..dependencies import require_api_scope, require_auth
 from ..models import MediaRequest, PlexUser, PollHistory, RequestStatus
 from ..scheduler import poll_watchlists
-from ..services.request_lifecycle import transition_request
 from ..schemas import HealthOut, MetricsOut, PollHistoryOut, RequestOut, UserOut
+from ..services.request_lifecycle import transition_request
 from ..utils import async_get_or_404
 from .metrics_api import get_metrics, get_poll_history, health_check
 
