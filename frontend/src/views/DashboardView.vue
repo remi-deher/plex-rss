@@ -85,6 +85,7 @@ import ScanStatusPanel from '@/components/dashboard/ScanStatusPanel.vue';
 import LiveSessionsPanel from '@/components/activity/LiveSessionsPanel.vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
+import { queueCounts } from '@/downloads/queueRules';
 
 const counts = ref({});
 const pending = ref([]);
@@ -124,16 +125,16 @@ function dismissOnboarding() {
 // comme Face Off/New York police judiciaire (statut partially_available, vrai manque).
 const IN_PROGRESS_STATUSES = ['sent_to_arr', 'partially_available'];
 const failedCount = computed(() => Number(counts.value.failed || 0));
-const queueState = row => `${row.status || ''} ${row.tracked_state || ''}`.toLowerCase();
-const downloadingCount = computed(() => downloadQueue.value.filter(row => queueState(row).includes('download')).length);
-const importingCount = computed(() => downloadQueue.value.filter(row => queueState(row).includes('import')).length);
-const blockedCount = computed(() => downloadQueue.value.filter(row => Boolean(row.error) || ['error','warning','failed','importpending'].some(key => queueState(row).includes(key))).length);
+// Memes regles que la page Telechargements (@/downloads/queueRules) : les trois tuiles
+// ci-dessous partitionnent la file sans double compte, et chaque chiffre correspond au
+// groupe qu'on trouve en cliquant.
+const queueTotals = computed(() => queueCounts(downloadQueue.value));
 
 const statCards = computed(() => [
   { label: 'À approuver', value: counts.value.pending_approval ?? pending.value.length, detail: 'Demandes en attente', icon: Clock3, route: { path: '/library', query: { status: 'pending_approval' } } },
-  { label: 'En téléchargement', value: downloadingCount.value, detail: 'Acquisitions actives', icon: Download, route: { path: '/downloads', query: { status: 'downloading' } } },
-  { label: 'En attente d’import', value: importingCount.value, detail: 'Traitement par *arr', icon: RefreshCw, route: { path: '/downloads', query: { status: 'error' } } },
-  { label: 'Bloqués', value: blockedCount.value + failedCount.value, detail: 'Intervention nécessaire', icon: AlertTriangle, route: { path: '/downloads', query: { status: 'error' } } },
+  { label: 'En téléchargement', value: queueTotals.value.downloading, detail: 'Acquisitions actives', icon: Download, route: { path: '/downloads', query: { status: 'downloading' } } },
+  { label: 'En attente d’import', value: queueTotals.value.importPending, detail: 'Traitement par *arr', icon: RefreshCw, route: { path: '/downloads', query: { status: 'unmatched' } } },
+  { label: 'Bloqués', value: queueTotals.value.blocked + failedCount.value, detail: 'Intervention nécessaire', icon: AlertTriangle, route: { path: '/downloads', query: { status: 'error' } } },
   { label: 'Disponibles', value: counts.value.available ?? '-', detail: 'Dans la bibliothèque', icon: CheckCircle2, route: { path: '/library', query: { status: 'library' } } },
 ]);
 

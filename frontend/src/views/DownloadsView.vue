@@ -72,8 +72,18 @@ import { api } from '@/api';
 import { useRealtime } from '@/events';
 import { useConfirm } from '@/composables/useConfirm';
 import { useLatestRequest } from '@/composables/useLatestRequest';
+import {
+  canAct,
+  isUnmatched,
+  needsEpisodeImport,
+  queueCounts,
+  queueDetailPath,
+  requiresIntervention,
+  rowKey,
+  statusKey,
+  statusLabel,
+} from '@/downloads/queueRules';
 import { usePolling } from '@/composables/usePolling';
-import { mediaDetailPath } from '@/mediaUrl';
 import UnmatchedImportsBanner from '@/components/downloads/UnmatchedImportsBanner.vue';
 import ManualImportModal from '@/components/downloads/ManualImportModal.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -87,16 +97,7 @@ const {dialog:confirmDialog,askConfirm,resolveConfirm}=useConfirm();
 const HISTORY_PAGE_SIZE=100;
 const request=useLatestRequest();
 
-function rowKey(row){return `${row.instance_id||row.instance||'direct'}:${row.queue_id||row.download_id||row.request_id||row.title}`}
 const queue=computed(()=>[...arrQueue.value,...directQueue.value].filter(row=>!hiddenItems.value.has(rowKey(row))).sort((a,b)=>(a.progress||0)-(b.progress||0)));
-function canAct(row){return row.instance_id!=null&&row.queue_id!=null}
-function isImportPending(row){return (row.tracked_state||'').toLowerCase()==='importpending'&&canAct(row)}
-function isUnmatched(row){return row.request_id==null&&row.library_id==null&&['sonarr','radarr'].includes(row.arr_type)}
-function needsEpisodeImport(row){return row.arr_type==='sonarr'&&statusKey(row)==='error'&&row.arr_media_id!=null}
-function requiresIntervention(row){return isUnmatched(row)||needsEpisodeImport(row)||isImportPending(row)||statusKey(row)==='error'}
-function statusKey(row){const value=(row.status||'').toLowerCase();if(row.error||value.includes('error')||value.includes('warning')||value.includes('failed'))return'error';if(value.includes('pause'))return'paused';if(value.includes('queue'))return'queued';if((row.progress||0)>=100)return'completed';return'downloading'}
-function statusLabel(row){return({error:'Erreur',paused:'En pause',queued:'En file',completed:'Terminé',downloading:'En cours'})[statusKey(row)]}
-function queueDetailPath(row){if(row.library_id)return mediaDetailPath({library_id:row.library_id},'library');const id=row.request_id||row.linked_request_id;return id?mediaDetailPath({request_id:id},'request'):null}
 
 const instances=computed(()=>[...new Set(queue.value.map(x=>x.instance||x.download_client).filter(Boolean))]);
 const unmatchedItems=computed(()=>queue.value.filter(row=>isUnmatched(row)||needsEpisodeImport(row)));
@@ -104,7 +105,8 @@ const errorItems=computed(()=>queue.value.filter(row=>statusKey(row)==='error'))
 const filteredQueue=computed(()=>{const activeStatus=status.value||statusFilter.value;const needle=query.value.trim().toLocaleLowerCase('fr');return queue.value.filter(row=>(!needle||row.title?.toLocaleLowerCase('fr').includes(needle))&&(!instance.value||(row.instance||row.download_client)===instance.value)&&(activeStatus==='unmatched'?(isUnmatched(row)||needsEpisodeImport(row)):!activeStatus||statusKey(row)===activeStatus))});
 const filteredHistory=computed(()=>{const needle=query.value.trim().toLocaleLowerCase('fr');return history.value.filter(row=>!needle||row.title?.toLocaleLowerCase('fr').includes(needle))});
 const queueGroups=computed(()=>{const intervention=filteredQueue.value.filter(requiresIntervention),ids=new Set(intervention.map(rowKey)),remaining=filteredQueue.value.filter(row=>!ids.has(rowKey(row)));return[{key:'intervention',title:'Intervention requise',description:'Import bloqué, erreur ou média à associer',icon:AlertTriangle,items:intervention},{key:'active',title:'En téléchargement',description:'Transferts actuellement en progression',icon:Download,items:remaining.filter(row=>statusKey(row)==='downloading')},{key:'waiting',title:'En attente',description:'Éléments en file ou temporairement en pause',icon:Clock3,items:remaining.filter(row=>['queued','paused','completed'].includes(statusKey(row)))}].filter(group=>group.items.length)});
-const summary=computed(()=>[{label:'En cours',value:queue.value.filter(x=>statusKey(x)==='downloading').length},{label:'En file',value:queue.value.filter(x=>statusKey(x)==='queued').length},{label:'Interventions',value:queue.value.filter(requiresIntervention).length},{label:'Terminés récents',value:history.value.length}]);
+const counts=computed(()=>queueCounts(queue.value));
+const summary=computed(()=>[{label:'En cours',value:counts.value.downloading},{label:'En file',value:counts.value.queued},{label:'Interventions',value:counts.value.intervention},{label:'Terminés récents',value:history.value.length}]);
 const downloadTabs=computed(()=>[
   {value:'queue',label:'File active',count:errorItems.value.length,badgeClass:'error-badge'},
   {value:'history',label:'Historique'},
