@@ -28,7 +28,7 @@
         v-model:requester-filters="requesterFilters"
         :sources="sources"
         :requesters="requesters"
-        @search="scheduleLoad"
+        @search="onSearch"
       />
 
       <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
@@ -80,6 +80,10 @@ import { proxyUrl } from '@/utils/mediaImage';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import { useConfirm } from '@/composables/useConfirm';
+import { useDebounced } from '@/composables/useDebounced';
+import { useLatestRequest } from '@/composables/useLatestRequest';
+import { usePolling } from '@/composables/usePolling';
+import { isAdminSession, loadSession } from '@/composables/useSession';
 import MediaFiltersBar from '@/components/media/MediaFiltersBar.vue';
 import LibraryCard from '@/components/library/LibraryCard.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -87,6 +91,7 @@ import ConfirmModal from '@/components/ConfirmModal.vue';
 const route = useRoute();
 const router = useRouter();
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
+const request = useLatestRequest();
 
 const loadMoreSentinel = ref(null);
 let loadMoreObserver = null;
@@ -150,8 +155,6 @@ const view = ref(localStorage.getItem('library.view') || 'grid');
 
 const loading = ref(false);
 const error = ref('');
-
-let timer, fallback, activeController, loadSequence = 0;
 
 const sources = computed(() => [...new Set(allRequestsRaw.value.map(x => x.source).filter(Boolean))]);
 const requesters = computed(() => {
@@ -233,10 +236,12 @@ watch(
   { deep: true },
 );
 
-function scheduleLoad() {
-  clearTimeout(timer);
-  activeController?.abort();
-  timer = setTimeout(load, 250);
+// La frappe au clavier abandonne la requete en cours avant d'armer le delai : inutile de
+// laisser courir une recherche que l'utilisateur est deja en train de reformuler.
+const scheduleLoad = useDebounced(load, 250);
+function onSearch() {
+  request.abort();
+  scheduleLoad();
 }
 
 function _libraryParams(offset) {
@@ -249,10 +254,8 @@ function _libraryParams(offset) {
 }
 
 async function load() {
-  activeController?.abort();
-  activeController = new AbortController();
-  const sequence = ++loadSequence;
-  const options = { signal: activeController.signal };
+  const { signal, isCurrent } = request.begin();
+  const options = { signal };
   error.value = '';
   libraryOffset.value = 0;
   loading.value = true;
@@ -265,25 +268,25 @@ async function load() {
   // Promise.all, donnant l'impression d'un rechargement complet a chaque visite.
   try {
     const library = await api(`/api/library?${_libraryParams(0)}`, options);
-    if (sequence !== loadSequence) return;
+    if (!isCurrent()) return;
     libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
     libraryOffset.value = library.length;
     hasMoreLibrary.value = library.length === PAGE_SIZE;
   } catch (e) {
-    if (e.name !== 'AbortError' && sequence === loadSequence) error.value = e.message;
+    if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   } finally {
-    if (sequence === loadSequence) loading.value = false;
+    if (isCurrent()) loading.value = false;
   }
 
-  if (sequence !== loadSequence) return;
+  if (!isCurrent()) return;
   try {
     const q = query.value.trim();
     const [requests, orphanRows, stats] = await Promise.all([
       api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`, options),
-      api('/api/requests/orphans', options).catch(e => e.name === 'AbortError' ? Promise.reject(e) : []),
-      api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`, options).catch(e => e.name === 'AbortError' ? Promise.reject(e) : {}),
+      api('/api/requests/orphans', options).catch(e => request.isAbort(e) ? Promise.reject(e) : []),
+      api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`, options).catch(e => request.isAbort(e) ? Promise.reject(e) : {}),
     ]);
-    if (sequence !== loadSequence) return;
+    if (!isCurrent()) return;
 
     allRequestsRaw.value = requests;
     const pending = requests
@@ -305,7 +308,7 @@ async function load() {
     rawMetrics.value = stats;
     selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
   } catch (e) {
-    if (e.name !== 'AbortError' && sequence === loadSequence) error.value = e.message;
+    if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   }
 }
 
@@ -398,19 +401,15 @@ async function runUtility(path) {
 }
 
 useRealtime(['request.updated'], load);
+// Filet de securite si le flux SSE se perd ; le garde de visibilite de usePolling evite
+// de rafraichir un onglet en arriere-plan (ce que l'ancien setInterval nu faisait).
+usePolling(load, 120000);
 onMounted(async () => {
-  const session = await api('/api/session').catch(() => null);
-  isAdmin.value = Boolean(session?.is_owner || session?.role === 'admin');
+  isAdmin.value = isAdminSession(await loadSession());
   await load();
   loadUsers();
-  fallback = setInterval(load, 120000);
 });
-onUnmounted(() => {
-  clearTimeout(timer);
-  clearInterval(fallback);
-  loadMoreObserver?.disconnect();
-  activeController?.abort();
-});
+onUnmounted(() => loadMoreObserver?.disconnect());
 </script>
 
 <style scoped>

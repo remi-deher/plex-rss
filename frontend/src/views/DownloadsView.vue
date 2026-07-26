@@ -66,12 +66,14 @@
 <script setup>
 import { mediaTypeLabel } from '@/utils/labels';
 import { formatDateTime as formatDate } from '@/utils/format';
-import { computed,onMounted,onUnmounted,ref } from 'vue';
+import { computed,onMounted,ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { AlertTriangle,Clock3,Download,Link,RefreshCw,RotateCcw,X } from '@lucide/vue';
 import { api } from '@/api';
 import { useRealtime } from '@/events';
 import { useConfirm } from '@/composables/useConfirm';
+import { useLatestRequest } from '@/composables/useLatestRequest';
+import { usePolling } from '@/composables/usePolling';
 import { mediaDetailPath } from '@/mediaUrl';
 import UnmatchedImportsBanner from '@/components/downloads/UnmatchedImportsBanner.vue';
 import ManualImportModal from '@/components/downloads/ManualImportModal.vue';
@@ -84,7 +86,7 @@ const manualRow=ref(null),loading=ref(false),loadingHistory=ref(false),error=ref
 const hiddenItems=ref(new Set()),actingKeys=ref(new Set()),hasMoreHistory=ref(false);
 const {dialog:confirmDialog,askConfirm,resolveConfirm}=useConfirm();
 const HISTORY_PAGE_SIZE=100;
-let fallback,activeController,loadSequence=0;
+const request=useLatestRequest();
 
 function rowKey(row){return `${row.instance_id||row.instance||'direct'}:${row.queue_id||row.download_id||row.request_id||row.title}`}
 const queue=computed(()=>[...arrQueue.value,...directQueue.value].filter(row=>!hiddenItems.value.has(rowKey(row))).sort((a,b)=>(a.progress||0)-(b.progress||0)));
@@ -108,12 +110,12 @@ const activeFilterCount=computed(()=>[query.value,instance.value,status.value||s
 function resetFilters(){query.value='';instance.value='';status.value='';statusFilter.value=''}
 
 async function loadAll(){
-  activeController?.abort();activeController=new AbortController();const sequence=++loadSequence;loading.value=true;error.value='';
-  const options={signal:activeController.signal};
+  const {signal,isCurrent}=request.begin();loading.value=true;error.value='';
+  const options={signal};
   const results=await Promise.allSettled([api('/api/arr/queue',options),api('/api/downloads/direct',options),api(`/api/downloads/history?limit=${HISTORY_PAGE_SIZE}&offset=0`,options)]);
-  if(sequence!==loadSequence)return;
+  if(!isCurrent())return;
   const labels=['File Sonarr/Radarr','Téléchargements directs','Historique'],failures=[];
-  results.forEach((result,index)=>{if(result.status==='rejected'&&result.reason?.name!=='AbortError')failures.push(`${labels[index]} : ${result.reason.message}`)});
+  results.forEach((result,index)=>{if(result.status==='rejected'&&!request.isAbort(result.reason))failures.push(`${labels[index]} : ${result.reason.message}`)});
   if(results[0].status==='fulfilled')arrQueue.value=results[0].value;
   if(results[1].status==='fulfilled')directQueue.value=results[1].value;
   if(results[2].status==='fulfilled'){history.value=results[2].value;hasMoreHistory.value=results[2].value.length===HISTORY_PAGE_SIZE}
@@ -125,8 +127,8 @@ function openManual(row){manualRow.value=row}
 async function onManualSubmitted(){hiddenItems.value.add(rowKey(manualRow.value));manualRow.value=null;await loadAll()}
 
 useRealtime(['download.updated'],loadAll);
-onMounted(()=>{loadAll();fallback=setInterval(()=>{if(!document.hidden)loadAll()},15000)});
-onUnmounted(()=>{clearInterval(fallback);activeController?.abort()});
+usePolling(loadAll,15000);
+onMounted(loadAll);
 </script>
 
 <style scoped>

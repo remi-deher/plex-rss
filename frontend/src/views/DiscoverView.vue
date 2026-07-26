@@ -125,7 +125,9 @@
 
 <script setup>
 import { mediaTypeLabel, requestStatusLabel } from '@/utils/labels';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { useDebounced } from '@/composables/useDebounced';
+import { useLatestRequest } from '@/composables/useLatestRequest';
 import { Film, LoaderCircle, Search, SlidersHorizontal, Star } from '@lucide/vue';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
@@ -144,9 +146,7 @@ const page = ref(1);
 const totalPages = ref(1);
 const totalResults = ref(0);
 const filtersOpen = ref(!window.matchMedia('(max-width:640px)').matches);
-let timer;
-let activeController;
-let requestSequence = 0;
+const request = useLatestRequest();
 
 const mediaTypes = [
   { value: 'all', label: 'Tout' },
@@ -231,19 +231,16 @@ function endpoint(targetPage) {
 
 async function load({ append = false } = {}) {
   const targetPage = append ? page.value + 1 : 1;
-  if (!append) {
-    activeController?.abort();
-    activeController = new AbortController();
-  }
-  const controller = activeController || new AbortController();
-  const sequence = ++requestSequence;
+  // « Charger plus » prolonge la requete en cours (ne pas annuler la page deja demandee) ;
+  // un nouveau chargement abandonne la precedente.
+  const { signal, isCurrent } = append ? request.extend() : request.begin();
   if (append) loadingMore.value = true;
   else loading.value = true;
   error.value = '';
 
   try {
-    const payload = await api(endpoint(targetPage), { signal: controller.signal });
-    if (sequence !== requestSequence) return;
+    const payload = await api(endpoint(targetPage), { signal });
+    if (!isCurrent()) return;
     const incoming = payload.items || [];
     if (append) {
       const known = new Set(items.value.map(item => `${item.media_type}:${item.tmdb_id}`));
@@ -255,12 +252,12 @@ async function load({ append = false } = {}) {
     totalPages.value = payload.total_pages || 1;
     totalResults.value = payload.total_results || incoming.length;
   } catch (e) {
-    if (e.name !== 'AbortError' && sequence === requestSequence) {
+    if (!request.isAbort(e) && isCurrent()) {
       error.value = e.message;
       if (!append) items.value = [];
     }
   } finally {
-    if (sequence === requestSequence) {
+    if (isCurrent()) {
       loading.value = false;
       loadingMore.value = false;
     }
@@ -275,19 +272,15 @@ function loadMore() {
   if (!loadingMore.value && hasMore.value) load({ append: true });
 }
 
+const debouncedReload = useDebounced(reload, 300);
 function scheduleSearch() {
-  clearTimeout(timer);
-  activeController?.abort();
-  timer = setTimeout(reload, 300);
+  request.abort();
+  debouncedReload();
 }
 
 onMounted(async () => {
   await loadGenres();
   await load();
-});
-onBeforeUnmount(() => {
-  clearTimeout(timer);
-  activeController?.abort();
 });
 </script>
 

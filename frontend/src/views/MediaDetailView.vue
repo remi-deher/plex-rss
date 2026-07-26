@@ -117,6 +117,7 @@ import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import { useConfirm } from "@/composables/useConfirm";
+import { isAdminSession, loadSession } from "@/composables/useSession";
 
 const route = useRoute();
 const router = useRouter();
@@ -225,11 +226,8 @@ async function loadUsers() {
   } catch (e) {}
 }
 
-async function loadSession() {
-  try {
-    const session = await api('/api/session');
-    admin.value = Boolean(session?.is_owner || session?.role === 'admin');
-  } catch (e) { admin.value = false; }
+async function loadAdminFlag() {
+  admin.value = isAdminSession(await loadSession());
 }
 
 async function load() {
@@ -255,14 +253,14 @@ async function load() {
     // l'accordeon des qu'elle arrive, sans attendre disponibilite/VF (Sonarr/BDD),
     // qui completent ensuite les badges au fil de l'eau (voir mergedVfDetail).
     if (detail.value?.media_type === 'show') {
-      Promise.all([loadEpisodesEnvelope(), loadAvailability(), loadVfStatus(), loadUsers(), loadSession()]).catch(() => {});
+      Promise.all([loadEpisodesEnvelope(), loadAvailability(), loadVfStatus(), loadUsers(), loadAdminFlag()]).catch(() => {});
     } else {
       loadVf().catch(() => { envelopeError.value = true; });
       loadUsers().catch(() => {});
-      loadSession().catch(() => {});
+      loadAdminFlag().catch(() => {});
     }
   } else {
-    loadSession().catch(() => {});
+    loadAdminFlag().catch(() => {});
   }
 }
 

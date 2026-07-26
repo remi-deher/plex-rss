@@ -71,6 +71,7 @@ import NotificationsFiltersBar from '@/components/notifications/NotificationsFil
 import NotificationsTable from '@/components/notifications/NotificationsTable.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
+import { useDebounced } from '@/composables/useDebounced';
 
 const rows = ref([]);
 const users = ref([]);
@@ -250,14 +251,11 @@ watch([state, selectedTypes, selectedUsers], () => {
   load();
 }, { deep: true });
 
-let searchTimeout;
-watch(search, () => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
-    offset.value = 0;
-    load();
-  }, 300);
-});
+const debouncedSearch = useDebounced(() => {
+  offset.value = 0;
+  load();
+}, 300);
+watch(search, debouncedSearch);
 
 useRealtime(['notification.updated'], () => { loadHold(); load(); });
 

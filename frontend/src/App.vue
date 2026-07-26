@@ -124,9 +124,10 @@ import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
 import { useModalA11y } from "@/composables/useModalA11y";
+import { isAdminSession, loadSession } from "@/composables/useSession";
 const session=ref(null);
 const route=useRoute();
-const isAdmin=computed(()=>session.value?.is_owner||session.value?.role==='admin');
+const isAdmin=computed(()=>isAdminSession(session.value));
 const isActivityRoute=computed(()=>route.path==='/activity');
 const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
 const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));
@@ -158,7 +159,7 @@ function showPlaybackToasts(event){
 watch(()=>route.fullPath,closeMoreMenu);
 watch(isMoreOpen,open=>{document.body.classList.toggle('modal-open',open)});
 useModalA11y(mobileMoreRef,isMoreOpen,closeMoreMenu);
-onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);session.value=await api('/api/session').catch(()=>null);if(session.value)connectRealtime()});
+onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);session.value=await loadSession();if(session.value)connectRealtime()});
 onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);toastTimers.forEach(clearTimeout)});
 </script>
 

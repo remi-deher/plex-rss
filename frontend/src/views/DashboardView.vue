@@ -65,7 +65,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { usePolling } from '@/composables/usePolling';
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Download, RefreshCw } from '@lucide/vue';
 import HealthGrid from '@/components/HealthGrid.vue';
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist.vue';
@@ -110,9 +111,6 @@ const clock = ref(Date.now());
 const vffScan = ref({ status: 'idle', items_scanned: 0, total_items: 0, finished_at: null });
 const plexSync = ref({ status: 'idle', items_synced: 0, total_items: 0, finished_at: null });
 const vffCounts = ref({});
-let timer;
-let vffTimer;
-let refreshTimer;
 
 const showOnboarding = ref(localStorage.getItem('hide_onboarding') !== 'true');
 function dismissOnboarding() {
@@ -244,16 +242,17 @@ async function action(row, type) {
 
 useRealtime(['request.updated','activity.updated'], load);
 
+// Compte a rebours et horloge : locaux, ils doivent avancer meme onglet masque pour que
+// « prochaine verification dans X » soit juste au retour sur l'onglet.
+usePolling(() => {
+  if (seconds.value > 0) seconds.value--;
+  clock.value = Date.now();
+}, 1000, { whenVisible: false });
+usePolling(loadVffStatus, 5000);
+usePolling(load, 60000);
+
 onMounted(async () => {
   await load();
   await loadVffStatus();
-  timer = setInterval(() => {
-    if (seconds.value > 0) seconds.value--;
-    clock.value = Date.now();
-  }, 1000);
-  vffTimer = setInterval(() => { if (!document.hidden) loadVffStatus(); }, 5000);
-  refreshTimer = setInterval(() => { if (!document.hidden) load(); }, 60000);
 });
-
-onUnmounted(() => { clearInterval(timer); clearInterval(vffTimer); clearInterval(refreshTimer); });
 </script>

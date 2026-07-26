@@ -138,7 +138,8 @@
 <script setup>
 import { playbackMethodLabel } from '@/utils/labels';
 import { formatBandwidth, formatDateTimeShort, formatDuration, signedPercent } from '@/utils/format';
-import { computed,onMounted,onUnmounted,ref,watch } from 'vue';
+import { computed,onMounted,ref,watch } from 'vue';
+import { usePolling } from '@/composables/usePolling';
 import { useRoute,useRouter } from 'vue-router';
 import { Activity, CheckCircle2,CircleStop,Clock3,Cpu,Gauge,HardDrive,History,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
 import { api } from '@/api';
@@ -164,7 +165,6 @@ const currentView=computed(()=>allowedViews.includes(route.query.view)?route.que
 const days=ref(Number(route.query.days)||30),loading=ref(false),loaded=ref(false),error=ref('');
 const data=ref({active:[],history:[],daily:[],users:[],summary:{}});
 const selectedSession=ref(null),historySearch=ref(''),methodFilter=ref(''),typeFilter=ref(''),updatedAt=ref(Date.now()),clock=ref(Date.now());
-let clockTimer,dataRefreshTimer;
 const summary=computed(()=>data.value.summary||{});
 const analytics=computed(()=>data.value.analytics||{});
 const chart=computed(()=>data.value.daily||[]);
@@ -211,8 +211,11 @@ function initials(name){return String(name||'?').split(/\s+/).slice(0,2).map(par
 function userShare(sessions){return Math.round(Number(sessions||0)/Math.max(1,summary.value.sessions||0)*100)}
 watch(()=>route.query.days,value=>{const next=Number(value)||30;if(next!==days.value){days.value=next;load()}});
 useRealtime(['activity.updated'],()=>load(true));
-onMounted(()=>{load();clockTimer=setInterval(()=>clock.value=Date.now(),1000);dataRefreshTimer=setInterval(()=>{if(!document.hidden)load(true)},10000)});
-onUnmounted(()=>{clearInterval(clockTimer);clearInterval(dataRefreshTimer)});
+// Horloge locale du libelle « actualise il y a N s » : doit tourner meme onglet masque,
+// sinon l'age affiche au retour sur l'onglet est faux.
+usePolling(()=>clock.value=Date.now(),1000,{whenVisible:false});
+usePolling(()=>load(true),10000);
+onMounted(()=>load());
 </script>
 
 <style scoped>
