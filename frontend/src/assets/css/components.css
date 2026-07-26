@@ -100,7 +100,7 @@
 .ui-feedback.is-error { color: var(--red); border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.07); }
 .ui-feedback.is-warning { color: var(--accent); border-color: rgba(229,160,13,.35); background: rgba(229,160,13,.07); }
 .ui-feedback.is-loading > svg { animation: spin 1s linear infinite; }
-.ui-feedback-close { display: grid; place-items: center; width: 36px; height: 36px; border: 0; background: transparent; color: currentColor; border-radius: 7px; cursor: pointer; }
+.ui-feedback-close { display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; color: currentColor; border-radius: 9px; cursor: pointer; }
 .ui-feedback-close:hover { background: rgba(255,255,255,.06); }
 .ui-feedback-close svg { width: 17px; }
 

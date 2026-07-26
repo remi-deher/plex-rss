@@ -2,7 +2,7 @@
   <div class="shell" :class="{'sidebar-collapsed':isSidebarCollapsed}">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
     <!-- Desktop Sidebar -->
-    <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale">
+    <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale" :aria-expanded="!isSidebarCollapsed">
       <div class="brand">
         <span class="brand-name">Plexarr</span>
         <button class="sidebar-toggle" type="button" :aria-label="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" :title="isSidebarCollapsed ? 'Afficher le menu' : 'Réduire le menu'" @click="toggleSidebar">
