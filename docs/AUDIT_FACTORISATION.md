@@ -3,10 +3,13 @@
 Inspection complète de `app/` (30 800 lignes Python) et `frontend/src/` (13 100 lignes
 Vue/JS + 86 Ko CSS). Chaque point est **constaté**, avec fichier/ligne, pas supposé.
 
-> `docs/REFACTORING_TASKS.md` est **obsolète** : il décrit `api.py` (3708 lignes,
-> 120 endpoints) et `settings.html` (3353 lignes), qui n'existent plus. `api.py` est un
-> stub d'une ligne non référencé (`app/routers/api.py`) — à supprimer. Le présent
-> document le remplace.
+> Remplace `docs/REFACTORING_TASKS.md`, devenu obsolète (il décrivait `api.py` à
+> 3708 lignes et `settings.html` à 3353 lignes, tous deux disparus depuis) et supprimé.
+>
+> **Avancement** — chantiers 1 à 6 du tableau de priorisation faits, plus le nettoyage
+> des fichiers morts. Chaque chantier est un commit sur `refactor/factorisation`,
+> vérifié par la suite de tests et, pour le backend, par la parité des 273 routes
+> (`scripts/dump_routes.py`). Les chantiers 7 à 14 restent à faire.
 
 ---
 
@@ -76,7 +79,7 @@ réelles et non des doublons : `formatDuration` (« 2 h ») vs `formatDurationEx
 (échelle Go/To de l'espace disque *arr) vs `formatFileSize` (o → To de l'inventaire de
 fichiers).
 
-### A4. Composables manquants
+### A4. Composables manquants — ✅ fait (1-4), reste `useConfirmedAction`
 
 `composables/` ne contient que `useConfirm` et `useModalA11y`. Cinq patterns transverses
 sont recopiés à la main dans chaque vue :
@@ -99,7 +102,9 @@ sont recopiés à la main dans chaque vue :
 4. **`useDebouncedSearch`.** `clearTimeout/setTimeout` 250-300 ms : `LibraryView` (250),
    `DiscoverView` (300), `NotificationsView` (300), `EmailTemplatesPanel` (500).
 5. **`useCrudResource(basePath)`** — voir A5/`ArrInstancesCard`.
-6. **`useConfirmedAction`.** Le bloc
+6. **`useConfirmedAction`** — *reporté*, à faire avec le découpage de `MediaDetailView`
+   et `LibraryView` (A5) : l'état qui l'entoure (`busy`, `error`, `load`) part dans les
+   composables extraits, faire les deux séparément produirait deux fois le même diff. Le bloc
    `if (!await askConfirm({…})) return; busy=true; try { await api(…); await load() } catch { error=… } finally { busy=false }`
    apparaît **6 fois** dans `NotificationsView`, **5 fois** dans `MediaDetailView`,
    **4 fois** dans `LibraryView`. ~10 lignes × 15.
@@ -225,7 +230,7 @@ faire un fichier à la fois, capture avant/après).
 
 ## Partie B — Backend
 
-### B1. `sonarr.py` / `radarr.py` — le plus gros doublon du projet (priorité 1)
+### B1. `sonarr.py` / `radarr.py` — le plus gros doublon du projet — ✅ fait
 
 985 + 750 lignes, avec **~20 fonctions de signature identique**. Vérifié par diff après
 normalisation des noms de produit :
@@ -295,7 +300,7 @@ Doublons internes à corriger au passage :
   toggle / delete + `_set_single_default`. Un helper générateur de routeur CRUD
   (`make_crud_router(model, schema, path)`) couvre aussi `email_providers_api.py`.
 
-### B4. `models.py` — 1177 lignes, 30 modèles, 1 god-model
+### B4. `models.py` — 1177 lignes, 30 modèles, 1 god-model — ✅ découpé (reste `Settings`)
 
 - **Découper en package** `app/models/` : `settings.py`, `media.py` (`MediaRequest`,
   `LibraryItem`, `RequestSeasonStatus`, `VfEpisodeStatus`, `EpisodeAvailability`),
@@ -314,7 +319,7 @@ Doublons internes à corriger au passage :
   tables distinctes (les `season_number`/`episode_number`/`batch_id` sont légitimement
   Sonarr-only).
 
-### B5. Helpers dupliqués à centraliser
+### B5. Helpers dupliqués à centraliser — ✅ fait (partiellement)
 
 | Helper | Sites | Remède |
 |---|---|---|
@@ -390,7 +395,7 @@ vérifier ce qui est réellement utilisé de Bootstrap : si c'est de la grille e
 boutons, la dépendance CDN (et la requête réseau externe au moment du login) est
 supprimable.
 
-### C2. Fichiers morts / hors place à la racine
+### C2. Fichiers morts / hors place à la racine — ✅ fait
 
 - `app/routers/api.py` — stub d'une ligne, plus référencé (`grep` = 0).
 - `scratch.py` (14,6 Ko), `scratch2.py`, `fix_settings.py`, `fix_settings_js.py` (ce
@@ -408,12 +413,12 @@ pour les `.db`/`.coverage`.
 
 | # | Chantier | Gain | Risque | Migration DB |
 |---|---|---|---|---|
-| 1 | `arr_common.py` (B1) | ~450 lignes, 1 seul point de correction API *arr | faible (couvert par 995 tests) | non |
-| 2 | `utils/format.js` + `utils/labels.js` (A3) | 22 `formatDate` → 1 ; corrige les incohérences d'affichage | faible | non |
-| 3 | Adopter `StatusBadge` / `ModalShell` (A1) | 74 badges + 5 modales | faible | non |
-| 4 | Composables `useAsyncResource` / `usePolling` / `useSession` / `useConfirmedAction` (A4) | ~250 lignes, corrige 2 incohérences (polling, 3× `/api/session`) | faible | non |
-| 5 | Helpers backend dupliqués (B5) | supprime 4 copies de `_delete_vf_episode_cache` | faible | non |
-| 6 | Découper `models.py` en package (B4, hors `Settings`) | lisibilité, réexport = 0 import cassé | nul | non |
+| ✅ 1 | `arr_common.py` (B1) | −450 lignes, 1 seul point de correction API *arr | faible | non |
+| ✅ 2 | `utils/format.js` (A3) | 22 `formatDate` → 1 ; corrige les incohérences d'affichage | faible | non |
+| ✅ 3 | `ModalShell` + `utils/labels.js` (A1) | 5 modales + 4 tables de libellés divergentes | faible | non |
+| ✅ 4 | Composables `useLatestRequest` / `usePolling` / `useSession` / `useDebounced` (A4) | corrige 2 incohérences (polling, 3× `/api/session`) | faible | non |
+| ✅ 5 | Helpers backend dupliqués (B5) | 4 copies de `_delete_vf_episode_cache`, 2 du rapprochement LibraryItem | faible | non |
+| ✅ 6 | Découper `models.py` en package (B4, hors `Settings`) | lisibilité, réexport = 0 import cassé | nul | non |
 | 7 | Découper `webhook.py` / `arr_api.py` / `misc_api.py` (B2, B3, B8) | 2660 lignes → ~12 modules ; parité de routes vérifiable | moyen | non |
 | 8 | Primitives `MetricCard` / `PanelCard` / `DataTable` / `TabNav` (A2) | 33 `panel-head`, 10 tableaux | moyen (visuel) | non |
 | 9 | Éclater `MediaDetailView` + `MediaRequestsTab` (A5) | rend la logique VF/saisons testable | moyen | non |
@@ -422,10 +427,34 @@ pour les `.db`/`.coverage`.
 | 12 | `ArrClient` pooling + sessions (B7) | perf sur le chemin chaud | moyen | non |
 | 13 | `_run_vf_scan` (284 l.) et `media_detail` (199 l.) (B6) | cœur métier | élevé | non |
 | 14 | Extraire les 73 colonnes email de `Settings` (B4) | dégonfle le god-model | élevé | **oui** |
+| ✅ — | Nettoyage des fichiers morts (C2) | 10 fichiers, dont 4 cassés | nul | non |
 
-Les items 1 à 6 sont behavior-preserving et vérifiables mécaniquement (tests +
-`diff` de la liste des routes). Le 7 exige la capture avant/après des routes. Les 11, 13
-et 14 méritent chacun leur propre branche.
+Les items 1 à 6 étaient behavior-preserving et vérifiables mécaniquement ; ils sont
+faits. Le 7 exige la même capture avant/après des routes. Les 11, 13 et 14 méritent
+chacun leur propre branche.
+
+**Changements d'affichage assumés au cours des chantiers 1-6** — tous des harmonisations,
+détaillées dans les messages de commit :
+1. le statut `failed` s'affichait « Echec », « Échec » ou « Erreur » selon la page ; les
+   formes accentuées correctes l'emportent partout (idem « A approuver », « Refusee »,
+   « Serie ») ;
+2. la croix de fermeture de `ConfirmModal` passe du caractère « × » à l'icône Lucide, comme
+   les quatre autres modales ;
+3. la page Bibliothèque ne rafraîchit plus un onglet en arrière-plan (elle était la seule
+   des six à ne pas avoir le garde de visibilité) ;
+4. le rapprochement demande → `LibraryItem` de `vff_scanner` privilégie désormais le GUID
+   Plex sur les identifiants externes, comme le faisait déjà `plex_sync` — un `tmdb_id`
+   partagé pouvait faire attribuer le statut VF au mauvais média.
+
+**Deux constats à trancher côté produit**, hors refactorisation :
+- remplacer les 74 `class="badge"` par `<StatusBadge>` change l'apparence de 29 fichiers ;
+- `DashboardView` et `DownloadsView` ont deux définitions divergentes de « bloqué » pour la
+  file *arr (A5) — un chiffre du tableau de bord ne correspond pas à la page qu'il ouvre.
+
+**Outillage manquant relevé en chemin** : le dépôt n'a pas d'ESLint. Un `onUnmounted`
+laissé sans son import pendant le chantier 4 aurait levé un `ReferenceError` au montage de
+la page Bibliothèque sans que Vite ni `npm run build` ne le signalent. Un
+`eslint-plugin-vue` avec `no-undef` ferme cette classe d'erreur.
 
 ## Vérification après chaque étape
 
