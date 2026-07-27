@@ -25,11 +25,16 @@
         <small>{{ date(data.generated_at) }}</small>
       </header>
 
+      <div class="table-toolbar" role="search">
+        <input v-model="filters.search" type="search" placeholder="Rechercher un titre, une série ou un studio…" aria-label="Rechercher dans la médiathèque">
+        <button v-if="activeCount" type="button" class="secondary" @click="reset">Effacer les filtres ({{ activeCount }})</button>
+      </div>
+
       <div class="inventory-meta">
         <span>{{ number(data.items?.length || 0) }} résultat(s)</span>
         <span v-if="activeCount">{{ activeCount }} filtre(s) actif(s)</span>
       </div>
-      <MediaRowsTable :items="visibleItems" :filters="filters" :options="data.options" :active-count="activeCount" filterable @update-filter="updateFilter" @reset="reset" />
+      <MediaRowsTable :items="visibleItems" :filters="filters" :options="data.options" @update-filter="updateFilter" />
       <button v-if="limit < (data.items?.length || 0)" type="button" class="secondary load-more" @click="limit += 100">
         Afficher 100 lignes de plus
       </button>
@@ -126,7 +131,8 @@ const insightLimit = ref(100);
 const selectedInsight = ref({ ...DEFAULT_INSIGHT });
 const filters = reactive({
   search: '', media_type: '', library: '', studio: '', video_codec: '',
-  audio_codec: '', container: '', subtitle: '', watched: '',
+  audio_codec: '', audio_language: '', container: '', subtitle: '',
+  subtitle_language: '', subtitle_type: '', watched: '',
   min_size_gb: '', max_size_gb: '',
 });
 const charts = [
@@ -200,6 +206,7 @@ useRealtime(['library.analytics.updated'], () => load());
 .section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}
 .section-heading h2{margin:3px 0 0}.section-heading small,.panel-head small{color:var(--muted)}
 .inventory-meta{display:flex;gap:14px;color:var(--muted);font-size:11px}
+.table-toolbar{display:flex;align-items:center;gap:10px}.table-toolbar input{flex:1;min-width:0}.table-toolbar button{flex:0 0 auto}
 .analytics-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
 .insight-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .insight-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;color:var(--text);text-align:left;cursor:pointer;transition:border-color .2s,transform .2s,background .2s}
@@ -211,5 +218,6 @@ useRealtime(['library.analytics.updated'], () => load());
 .load-more{justify-self:center}
 @media(max-width:900px){.analytics-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.insight-grid{grid-template-columns:1fr}.section-heading{align-items:flex-start}}
 @media(max-width:720px){.analytics-grid{grid-template-columns:1fr}.section-heading{display:grid}}
+@media(max-width:560px){.table-toolbar{align-items:stretch;flex-direction:column}}
 @media(max-width:420px){.analytics-metrics{grid-template-columns:1fr}}
 </style>

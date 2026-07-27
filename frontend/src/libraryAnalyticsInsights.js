@@ -40,6 +40,9 @@ export function filterAnalyticsItems(items = [], filters = {}) {
     }
     if (filters.subtitle === 'with' && !Number(row.subtitle_count || 0)) return false;
     if (filters.subtitle === 'without' && Number(row.subtitle_count || 0)) return false;
+    if (filters.subtitle_type && !(row.subtitle_types || []).includes(filters.subtitle_type)) return false;
+    if (filters.subtitle_language && !(row.subtitle_languages || []).includes(filters.subtitle_language)) return false;
+    if (filters.audio_language && !(row.audio_languages || []).includes(filters.audio_language)) return false;
     if (filters.watched === 'yes' && !Number(row.play_count || 0)) return false;
     if (filters.watched === 'no' && Number(row.play_count || 0)) return false;
     const sizeGb = Number(row.size_bytes || 0) / (1024 ** 3);

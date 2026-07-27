@@ -31,6 +31,13 @@ def _stream_language(stream: dict) -> str:
     return stream.get("language") or stream.get("languageCode") or "Inconnu"
 
 
+def _subtitle_type(stream: dict) -> str:
+    language = _stream_language(stream)
+    codec = str(stream.get("codec") or stream.get("format") or "Inconnu").upper()
+    forced = " · Forcé" if stream.get("forced") in (True, 1, "1", "true") else ""
+    return f"{language} · {codec}{forced}"
+
+
 def parse_plex_item(item: dict, library: str, section_type: str) -> dict[str, Any]:
     media = (_list(item.get("Media")) or [{}])[0]
     part = (_list(media.get("Part")) or [{}])[0]
@@ -58,6 +65,7 @@ def parse_plex_item(item: dict, library: str, section_type: str) -> dict[str, An
         "audio_channels": media.get("audioChannels") or (audio[0].get("channels") if audio else None),
         "audio_languages": sorted({_stream_language(stream) for stream in audio}),
         "subtitle_languages": sorted({_stream_language(stream) for stream in subtitles}),
+        "subtitle_types": sorted({_subtitle_type(stream) for stream in subtitles}),
         "subtitle_count": len(subtitles),
         "audio_track_count": len(audio),
     }
@@ -121,6 +129,12 @@ def apply_filters(rows: list[dict], filters: dict[str, Any]) -> list[dict]:
                 continue
             if subtitle == "without" and row["subtitle_count"]:
                 continue
+            if filters.get("subtitle_type") and filters["subtitle_type"] not in row.get("subtitle_types", []):
+                continue
+            if filters.get("subtitle_language") and filters["subtitle_language"] not in row.get("subtitle_languages", []):
+                continue
+            if filters.get("audio_language") and filters["audio_language"] not in row.get("audio_languages", []):
+                continue
             watched = filters.get("watched")
             if watched == "yes" and not row.get("play_count"):
                 continue
@@ -167,6 +181,19 @@ def _build_payload(rows: list[dict], generated_at: str, filters: dict[str, Any])
         "options": {
             key: sorted({str(row.get(key)) for row in all_rows if row.get(key)})
             for key in ("library", "studio", "video_codec", "audio_codec", "container")
+        } | {
+            "audio_language": sorted({
+                language for row in all_rows for language in row.get("audio_languages", []) if language
+            }),
+            "subtitle_language": sorted({
+                language for row in all_rows for language in row.get("subtitle_languages", []) if language
+            }),
+            "subtitle_type": sorted({
+                subtitle_type
+                for row in all_rows
+                for subtitle_type in row.get("subtitle_types", [])
+                if subtitle_type
+            })
         },
         "items": filtered,
     }

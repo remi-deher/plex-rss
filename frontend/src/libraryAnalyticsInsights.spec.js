@@ -53,4 +53,17 @@ describe('library analytics insight table', () => {
     ]);
     expect(result.options).toBe(snapshot.options);
   });
+
+  it('combines exact audio and subtitle language/type filters', () => {
+    const rows = [
+      { title: 'VF', audio_languages: ['Français'], subtitle_languages: ['Français'], subtitle_types: ['Français · SRT'] },
+      { title: 'VO', audio_languages: ['English'], subtitle_languages: ['Français'], subtitle_types: ['Français · PGS · Forcé'] },
+    ];
+    const result = analyticsForFilters({ items: rows }, {
+      audio_language: 'English',
+      subtitle_language: 'Français',
+      subtitle_type: 'Français · PGS · Forcé',
+    });
+    expect(result.items.map(row => row.title)).toEqual(['VO']);
+  });
 });
