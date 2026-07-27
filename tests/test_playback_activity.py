@@ -8,6 +8,7 @@ from app.dependencies import require_admin
 from app.main import app
 from app.models import PlaybackSession, Settings
 from app.services.playback_activity import (
+    _deduplicate_plex_sessions,
     _analytics,
     _masked_ip,
     _playback_method,
@@ -73,6 +74,21 @@ def test_parse_plex_sessions_normalizes_live_session():
 def test_parse_plex_sessions_can_keep_full_ip():
     session = parse_plex_sessions(PLEX_SESSIONS_XML, anonymize_ips=False)[0]
     assert session["player_address"] == "192.168.1.25"
+
+
+def test_duplicate_plex_session_ids_are_collapsed_before_persistence():
+    snapshots = [
+        {"source_session_id": "same", "progress_ms": 100},
+        {"source_session_id": "other", "progress_ms": 50},
+        {"source_session_id": "same", "progress_ms": 200},
+    ]
+
+    result = _deduplicate_plex_sessions(snapshots)
+
+    assert result == [
+        {"source_session_id": "same", "progress_ms": 200},
+        {"source_session_id": "other", "progress_ms": 50},
+    ]
 
 
 def test_playback_method_prioritizes_transcoding():

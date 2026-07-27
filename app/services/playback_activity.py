@@ -4,21 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import asyncio
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from xml.etree import ElementTree
 
 import httpx
-from sqlalchemy import case, delete, func
+from sqlalchemy import case, delete, func, or_
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
 from ..models import PlaybackSession, Settings
 from ..realtime import publish
+from .distributed_lock import acquire_distributed_lock, release_distributed_lock
 from ..utils import now_utc_naive, wrap_image_proxy
 
 logger = logging.getLogger(__name__)
+_plex_collection_lock = asyncio.Lock()
+_PLEX_COLLECTION_LOCK_KEY = "plexarr:locks:playback-activity"
 
 
 def _percent(value: int | float, total: int | float) -> float:
@@ -537,7 +541,15 @@ def parse_plex_sessions(xml: str, *, anonymize_ips: bool = True) -> list[dict]:
     return sessions
 
 
-async def collect_plex_activity() -> dict:
+def _deduplicate_plex_sessions(snapshots: list[dict]) -> list[dict]:
+    """Une seule photographie par identifiant Plex, la plus récente gagnant."""
+    return list({
+        item["source_session_id"]: item
+        for item in snapshots
+    }.values())
+
+
+async def _collect_plex_activity_unlocked() -> dict:
     async with AsyncSessionLocal() as db:
         settings = (await db.execute(select(Settings))).scalars().first()
         if not settings or not settings.live_activity_enabled or not settings.plex_url or not settings.plex_token:
@@ -547,19 +559,25 @@ async def collect_plex_activity() -> dict:
             response = await client.get(f"{settings.plex_url.rstrip('/')}/status/sessions", headers=headers)
             response.raise_for_status()
         snapshots = parse_plex_sessions(response.text, anonymize_ips=settings.activity_anonymize_ips)
+        # Plex peut exposer deux nœuds pour une même lecture (notamment pendant une
+        # transition de lecteur/transcodage). Sans déduplication, la boucle ajoutait
+        # deux objets ORM portant la même clé unique avant le premier flush.
+        snapshots = _deduplicate_plex_sessions(snapshots)
         now = now_utc_naive()
         active_ids = {item["source_session_id"] for item in snapshots}
-        existing = {
-            row.source_session_id: row
-            for row in (
-                await db.execute(
-                    select(PlaybackSession).filter(
-                        PlaybackSession.source == "plex",
+        rows = (
+            await db.execute(
+                select(PlaybackSession).filter(
+                    PlaybackSession.source == "plex",
+                    or_(
                         PlaybackSession.ended_at.is_(None),
-                    )
+                        PlaybackSession.source_session_id.in_(active_ids),
+                    ),
                 )
-            ).scalars()
-        }
+            )
+        ).scalars().all()
+        existing = {row.source_session_id: row for row in rows}
+        previously_active = [row for row in rows if row.ended_at is None]
         started_rows: list[PlaybackSession] = []
         for snapshot in snapshots:
             row = existing.get(snapshot["source_session_id"])
@@ -573,6 +591,7 @@ async def collect_plex_activity() -> dict:
                 )
                 db.add(row)
                 started_rows.append(row)
+                existing[row.source_session_id] = row
             previous_progress = row.progress_ms or snapshot["progress_ms"] or 0
             for key, value in snapshot.items():
                 setattr(row, key, value)
@@ -580,7 +599,8 @@ async def collect_plex_activity() -> dict:
             row.ended_at = None
             row.watched_ms = max(row.watched_ms or 0, snapshot["progress_ms"] or 0, previous_progress)
             row.watched_status = 1 if (row.progress_percent or 0) >= 85 else 0
-        for session_id, row in existing.items():
+        for row in previously_active:
+            session_id = row.source_session_id
             if session_id not in active_ids:
                 row.ended_at = now
                 row.state = "stopped"
@@ -596,6 +616,18 @@ async def collect_plex_activity() -> dict:
         admin_only=True,
     )
     return {"status": "complete", "active": len(snapshots)}
+
+
+async def collect_plex_activity() -> dict:
+    """Collecte sérialisée entre le worker ARQ et le rafraîchissement HTTP manuel."""
+    async with _plex_collection_lock:
+        token = await acquire_distributed_lock(_PLEX_COLLECTION_LOCK_KEY, ttl=30)
+        if token is None:
+            return {"status": "skipped", "reason": "already_running"}
+        try:
+            return await _collect_plex_activity_unlocked()
+        finally:
+            await release_distributed_lock(_PLEX_COLLECTION_LOCK_KEY, token)
 
 
 async def test_tautulli(url: str, api_key: str) -> tuple[bool, str]:
