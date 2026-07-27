@@ -113,29 +113,41 @@ const downloadTabs=computed(()=>[
 ]);
 const activeFilterCount=computed(()=>[query.value,instance.value,status.value||statusFilter.value].filter(Boolean).length);
 // Changer d'onglet leve le filtre de statut pose par la banniere « non associes ».
-function selectTab(value){tab.value=value;statusFilter.value=''}
+function selectTab(value){
+  tab.value=value;
+  statusFilter.value='';
+  if(value==='history'&&!history.value.length)loadHistory();
+}
 function resetFilters(){query.value='';instance.value='';status.value='';statusFilter.value=''}
 
 async function loadAll(){
   const {signal,isCurrent}=request.begin();loading.value=true;error.value='';
   const options={signal};
-  const results=await Promise.allSettled([api('/api/arr/queue',options),api('/api/downloads/direct',options),api(`/api/downloads/history?limit=${HISTORY_PAGE_SIZE}&offset=0`,options)]);
+  const results=await Promise.allSettled([api('/api/arr/queue',options),api('/api/downloads/direct',options)]);
   if(!isCurrent())return;
-  const labels=['File Sonarr/Radarr','Téléchargements directs','Historique'],failures=[];
+  const labels=['File Sonarr/Radarr','Téléchargements directs'],failures=[];
   results.forEach((result,index)=>{if(result.status==='rejected'&&!request.isAbort(result.reason))failures.push(`${labels[index]} : ${result.reason.message}`)});
   if(results[0].status==='fulfilled')arrQueue.value=results[0].value;
   if(results[1].status==='fulfilled')directQueue.value=results[1].value;
-  if(results[2].status==='fulfilled'){history.value=results[2].value;hasMoreHistory.value=results[2].value.length===HISTORY_PAGE_SIZE}
   error.value=failures.join(' · ');loading.value=false;
+}
+async function loadHistory(){
+  loadingHistory.value=true;
+  try{
+    const rows=await api(`/api/downloads/history?limit=${HISTORY_PAGE_SIZE}&offset=0`);
+    history.value=rows;
+    hasMoreHistory.value=rows.length===HISTORY_PAGE_SIZE;
+  }catch(e){error.value=e.message}
+  finally{loadingHistory.value=false}
 }
 async function loadMoreHistory(){if(loadingHistory.value||!hasMoreHistory.value)return;loadingHistory.value=true;try{const rows=await api(`/api/downloads/history?limit=${HISTORY_PAGE_SIZE}&offset=${history.value.length}`);history.value=[...history.value,...rows];hasMoreHistory.value=rows.length===HISTORY_PAGE_SIZE}catch(e){error.value=e.message}finally{loadingHistory.value=false}}
 async function queueAction(row,blocklist,search){if(!await askConfirm({title:blocklist?'Blocklister ce téléchargement ?':'Retirer ce téléchargement ?',message:blocklist?'Le fichier sera blocklisté et une nouvelle recherche sera lancée.':'Le téléchargement sera retiré de la file.',confirmLabel:blocklist?'Blocklister et rechercher':'Retirer',danger:true}))return;const key=rowKey(row);actingKeys.value=new Set([...actingKeys.value,key]);try{await api(`/api/arr/queue/${row.instance_id}/${row.queue_id}?blocklist=${blocklist}&search=${search}`,{method:'DELETE'});await loadAll()}catch(e){error.value=e.message}finally{const next=new Set(actingKeys.value);next.delete(key);actingKeys.value=next}}
 function openManual(row){manualRow.value=row}
 async function onManualSubmitted(){hiddenItems.value.add(rowKey(manualRow.value));manualRow.value=null;await loadAll()}
 
-useRealtime(['download.updated'],loadAll);
+useRealtime(['download.updated'],()=>{loadAll();if(tab.value==='history')loadHistory()});
 usePolling(loadAll,15000);
-onMounted(loadAll);
+onMounted(()=>{loadAll();if(tab.value==='history')loadHistory()});
 </script>
 
 <style scoped>

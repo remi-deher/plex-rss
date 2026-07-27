@@ -157,6 +157,11 @@ async function loadDownloadQueue() {
   }
 }
 
+async function loadLiveActivity() {
+  const value = await api('/api/playback/live');
+  liveActivity.value = value;
+}
+
 async function loadVffStatus() {
   const [scanData, syncData, countsData] = await Promise.all([
     api('/api/vff/scan-status').catch(() => null),
@@ -192,7 +197,7 @@ async function load() {
     api('/api/stats/recently-available'),
     api('/api/upcoming?limit=8'),
     api('/api/notifications/log?limit=5'),
-    api('/api/playback?days=1'),
+    api('/api/playback/live'),
   ]);
   const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, topRequested, recentlyAvailable, upcoming, null, liveActivity];
   results.forEach((r, i) => {
@@ -241,7 +246,8 @@ async function action(row, type) {
   } catch (e) { error.value = e.message; }
 }
 
-useRealtime(['request.updated','activity.updated'], load);
+useRealtime(['request.updated'], load);
+useRealtime(['activity.updated'], () => loadLiveActivity().catch(() => {}));
 
 // Compte a rebours et horloge : locaux, ils doivent avancer meme onglet masque pour que
 // « prochaine verification dans X » soit juste au retour sur l'onglet.

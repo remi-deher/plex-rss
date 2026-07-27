@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_INSIGHT,
+  analyticsForFilters,
   distributionSelection,
   insightRows,
   insightSelection,
@@ -31,5 +32,25 @@ describe('library analytics insight table', () => {
       'hevc',
     );
     expect(insightRows(items, selection)).toEqual([items[0], items[2]]);
+  });
+
+  it('filters and rebuilds all aggregates locally', () => {
+    const snapshot = {
+      items: [
+        { ...items[0], media_type: 'movie', duration_ms: 100, viewers: ['Rémi'] },
+        { ...items[1], media_type: 'episode', duration_ms: 200, viewers: ['Rémi', 'Alex'] },
+        { ...items[2], media_type: 'movie', duration_ms: 300, viewers: [] },
+      ],
+      options: { video_codec: ['h264', 'hevc'] },
+    };
+    const result = analyticsForFilters(snapshot, { media_type: 'movie', watched: 'no' });
+    expect(result.items.map(row => row.title)).toEqual(['A', 'C']);
+    expect(result.summary).toEqual({
+      items: 2, size_bytes: 30, duration_ms: 400, plays: 0, viewers: 1,
+    });
+    expect(result.distributions.video_codecs).toEqual([
+      { label: 'hevc', count: 2, percent: 100 },
+    ]);
+    expect(result.options).toBe(snapshot.options);
   });
 });

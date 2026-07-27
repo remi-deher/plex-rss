@@ -15,6 +15,7 @@ from sqlalchemy import case, delete, func, or_
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
+from ..cache import cache
 from ..models import PlaybackSession, Settings
 from ..realtime import publish
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
@@ -892,3 +893,32 @@ async def activity_snapshot(days: int = 30, db=None) -> dict:
         ],
         "analytics": _analytics(list(analytics_rows), list(previous_rows)),
     }
+
+
+async def live_activity_snapshot(db=None) -> dict:
+    """Retourne uniquement les sessions actives, pour le polling fréquent."""
+    if db is None:
+        async with AsyncSessionLocal() as owned_db:
+            return await live_activity_snapshot(db=owned_db)
+    active = (
+        await db.execute(
+            select(PlaybackSession)
+            .filter(PlaybackSession.ended_at.is_(None))
+            .order_by(PlaybackSession.started_at.desc())
+        )
+    ).scalars().all()
+    return {"active": [_serialize(row) for row in active]}
+
+
+async def activity_statistics(days: int = 30, db=None, refresh: bool = False) -> dict:
+    """Retourne l'historique et les agrégats, mis en cache séparément du direct."""
+    days = min(max(days, 1), 3650)
+    cache_key = f"plexarr:playback:statistics:{days}"
+    if not refresh:
+        cached = await cache.get_json(cache_key)
+        if cached is not None:
+            return cached
+    snapshot = await activity_snapshot(days, db=db)
+    snapshot.pop("active", None)
+    await cache.set_json(cache_key, snapshot, ttl_seconds=60)
+    return snapshot

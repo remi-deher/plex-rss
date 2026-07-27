@@ -27,42 +27,41 @@
           type="search"
           placeholder="Titre, série ou studio"
           aria-label="Rechercher"
-          @keyup.enter="load()"
         >
-        <select v-model="filters.media_type" aria-label="Type" @change="load">
+        <select v-model="filters.media_type" aria-label="Type">
           <option value="">Tous les médias</option><option value="movie">Films</option>
           <option value="episode">Épisodes</option><option value="track">Musique</option>
         </select>
-        <select v-model="filters.library" aria-label="Bibliothèque" @change="load">
+        <select v-model="filters.library" aria-label="Bibliothèque">
           <option value="">Toutes les bibliothèques</option>
           <option v-for="value in data.options?.library || []" :key="value">{{ value }}</option>
         </select>
-        <select v-model="filters.studio" aria-label="Studio" @change="load">
+        <select v-model="filters.studio" aria-label="Studio">
           <option value="">Tous les studios</option>
           <option v-for="value in data.options?.studio || []" :key="value">{{ value }}</option>
         </select>
-        <select v-model="filters.video_codec" aria-label="Codec vidéo" @change="load">
+        <select v-model="filters.video_codec" aria-label="Codec vidéo">
           <option value="">Vidéo : tous</option>
           <option v-for="value in data.options?.video_codec || []" :key="value">{{ value }}</option>
         </select>
-        <select v-model="filters.audio_codec" aria-label="Codec audio" @change="load">
+        <select v-model="filters.audio_codec" aria-label="Codec audio">
           <option value="">Audio : tous</option>
           <option v-for="value in data.options?.audio_codec || []" :key="value">{{ value }}</option>
         </select>
-        <select v-model="filters.container" aria-label="Conteneur" @change="load">
+        <select v-model="filters.container" aria-label="Conteneur">
           <option value="">Conteneurs : tous</option>
           <option v-for="value in data.options?.container || []" :key="value">{{ value }}</option>
         </select>
-        <select v-model="filters.subtitle" aria-label="Sous-titres" @change="load">
+        <select v-model="filters.subtitle" aria-label="Sous-titres">
           <option value="">Sous-titres : tous</option><option value="with">Avec</option>
           <option value="without">Sans</option>
         </select>
-        <select v-model="filters.watched" aria-label="Visionnage" @change="load">
+        <select v-model="filters.watched" aria-label="Visionnage">
           <option value="">Visionnage : tous</option><option value="yes">Déjà visionnés</option>
           <option value="no">Jamais visionnés</option>
         </select>
-        <input v-model.number="filters.min_size_gb" type="number" min="0" step="0.5" placeholder="Min. Go" aria-label="Poids minimal en Go" @change="load">
-        <input v-model.number="filters.max_size_gb" type="number" min="0" step="0.5" placeholder="Max. Go" aria-label="Poids maximal en Go" @change="load">
+        <input v-model.number="filters.min_size_gb" type="number" min="0" step="0.5" placeholder="Min. Go" aria-label="Poids minimal en Go">
+        <input v-model.number="filters.max_size_gb" type="number" min="0" step="0.5" placeholder="Max. Go" aria-label="Poids maximal en Go">
         <button v-if="activeCount" type="button" class="secondary reset-button" @click="reset">
           <RotateCcw /> Effacer
         </button>
@@ -147,6 +146,7 @@ import MetricGrid from '@/components/ui/MetricGrid.vue';
 import { useRealtime } from '@/events';
 import {
   DEFAULT_INSIGHT,
+  analyticsForFilters,
   distributionSelection,
   insightRows,
   insightSelection,
@@ -177,7 +177,7 @@ const MediaRowsTable = defineComponent({
   },
 });
 
-const data = ref({ items: [], options: {}, distributions: {} });
+const snapshot = ref({ items: [], options: {}, distributions: {} });
 const loading = ref(false);
 const error = ref('');
 const limit = ref(100);
@@ -202,6 +202,7 @@ const params = computed(() => {
   Object.entries(filters).forEach(([key, item]) => { if (item !== '' && item != null) value.set(key, item); });
   return value;
 });
+const data = computed(() => analyticsForFilters(snapshot.value, filters));
 const activeCount = computed(() => [...params.value].length);
 const exportUrl = computed(() => `/api/library-analytics/export.csv?${params.value}`);
 const visibleItems = computed(() => (data.value.items || []).slice(0, limit.value));
@@ -227,9 +228,7 @@ async function load(refresh = false) {
   limit.value = 100;
   insightLimit.value = 100;
   try {
-    const query = new URLSearchParams(params.value);
-    if (refresh) query.set('refresh', 'true');
-    data.value = await api(`/api/library-analytics?${query}`);
+    snapshot.value = await api(`/api/library-analytics?${refresh ? 'refresh=true' : ''}`);
   } catch (exception) {
     error.value = exception.message;
   } finally {
@@ -238,7 +237,6 @@ async function load(refresh = false) {
 }
 function reset() {
   Object.keys(filters).forEach(key => { filters[key] = ''; });
-  load();
 }
 function date(value) {
   return value ? `Actualisé ${formatDateTime(value)}` : '';

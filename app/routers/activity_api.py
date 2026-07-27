@@ -10,9 +10,11 @@ from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
 from ..models import Settings
 from ..services.playback_activity import (
+    activity_statistics,
     activity_snapshot,
     collect_plex_activity,
     import_tautulli_history,
+    live_activity_snapshot,
     normalize_tautulli_history,
     test_tautulli,
 )
@@ -27,6 +29,20 @@ class TautulliImportRequest(BaseModel):
 @router.get("")
 async def get_activity(days: int = Query(30, ge=1, le=3650), db: AsyncSession = Depends(get_db_async)):
     return await activity_snapshot(days, db=db)
+
+
+@router.get("/live")
+async def get_live_activity(db: AsyncSession = Depends(get_db_async)):
+    return await live_activity_snapshot(db=db)
+
+
+@router.get("/statistics")
+async def get_activity_statistics(
+    days: int = Query(30, ge=1, le=3650),
+    refresh: bool = False,
+    db: AsyncSession = Depends(get_db_async),
+):
+    return await activity_statistics(days, db=db, refresh=refresh)
 
 
 @router.get("/thumb")
@@ -59,7 +75,9 @@ async def playback_thumb(path: str, settings: Settings = Depends(get_settings_or
 async def refresh_activity():
     try:
         await collect_plex_activity()
-        return await activity_snapshot(30)
+        statistics = await activity_statistics(30, refresh=True)
+        live = await live_activity_snapshot()
+        return {**statistics, **live}
     except Exception as exc:
         raise HTTPException(502, f"Lecture des sessions Plex impossible : {exc}") from exc
 

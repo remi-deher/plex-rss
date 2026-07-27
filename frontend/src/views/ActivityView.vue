@@ -200,21 +200,45 @@ function applySnapshot(snapshot){
   loaded.value=true;
   updatedAt.value=Date.now();
 }
-async function load(silent=false){if(loading.value)return;if(!silent){loading.value=true;error.value=''}try{applySnapshot(await api(`/api/playback?days=${days.value}`))}catch(e){if(!silent)error.value=e.message}finally{if(!silent)loading.value=false}}
+function applyLive(snapshot){
+  data.value={...data.value,active:snapshot.active||[]};
+  if(selectedSession.value){
+    const fresh=(snapshot.active||[]).find(item=>item.source===selectedSession.value.source&&item.session_id===selectedSession.value.session_id);
+    if(fresh)selectedSession.value=fresh;
+  }
+  updatedAt.value=Date.now();
+}
+function applyStatistics(snapshot){applySnapshot({...snapshot,active:data.value.active||[]})}
+async function loadLive(silent=true){try{applyLive(await api('/api/playback/live'))}catch(e){if(!silent)error.value=e.message}}
+async function loadStatistics(silent=true,refresh=false){try{applyStatistics(await api(`/api/playback/statistics?days=${days.value}${refresh?'&refresh=true':''}`))}catch(e){if(!silent)error.value=e.message}}
+async function load(silent=false){
+  if(loading.value)return;
+  if(!silent){loading.value=true;error.value=''}
+  try{
+    const [statistics,live]=await Promise.all([
+      api(`/api/playback/statistics?days=${days.value}`),
+      api('/api/playback/live'),
+    ]);
+    applyStatistics(statistics);
+    applyLive(live);
+  }catch(e){if(!silent)error.value=e.message}
+  finally{if(!silent)loading.value=false}
+}
 async function refresh(){loading.value=true;error.value='';try{applySnapshot(await api('/api/playback/refresh',{method:'POST'}))}catch(e){error.value=e.message}finally{loading.value=false}}
-function setDays(value){days.value=value;router.replace({query:{...route.query,days:value===30?undefined:String(value)}});load()}
+function setDays(value){days.value=value;router.replace({query:{...route.query,days:value===30?undefined:String(value)}});loadStatistics(false)}
 function resetHistoryFilters(){historySearch.value='';methodFilter.value='';typeFilter.value=''}
 const formatDate=value=>formatDateTimeShort(value,'—');
 function comparisonLabel(value){return `${signedPercent(value)} vs période précédente`}
 function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:item.title}
 function initials(name){return String(name||'?').split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}
 function userShare(sessions){return Math.round(Number(sessions||0)/Math.max(1,summary.value.sessions||0)*100)}
-watch(()=>route.query.days,value=>{const next=Number(value)||30;if(next!==days.value){days.value=next;load()}});
-useRealtime(['activity.updated'],()=>load(true));
+watch(()=>route.query.days,value=>{const next=Number(value)||30;if(next!==days.value){days.value=next;loadStatistics(false)}});
+useRealtime(['activity.updated'],()=>loadLive());
 // Horloge locale du libelle « actualise il y a N s » : doit tourner meme onglet masque,
 // sinon l'age affiche au retour sur l'onglet est faux.
 usePolling(()=>clock.value=Date.now(),1000,{whenVisible:false});
-usePolling(()=>load(true),10000);
+usePolling(()=>loadLive(),10000);
+usePolling(()=>loadStatistics(),60000);
 onMounted(()=>load());
 </script>
 
