@@ -19,14 +19,12 @@ from ..models import (
     LibraryItem,
     MediaIssue,
     MediaRequest,
-    NotificationLog,
     PlexUser,
-    RequestSeasonStatus,
     RequestStatus,
     Settings,
     VfEpisodeStatus,
 )
-from ..services import deleted_media, radarr, sonarr, tmdb
+from ..services import deleted_media, radarr, sonarr
 from ..services import seer as seer_service
 from ..services.diagnostics import record_event, update_request_context
 from ..services.email_service import build_correction_email, send_correction_notification
@@ -316,198 +314,16 @@ async def media_detail(
     db: AsyncSession = Depends(get_db_async),
 ):
     """Détail média unifié pour la modale Bibliothèque."""
-    if not library_id and not request_id:
-        raise HTTPException(400, "library_id or request_id is required")
+    from ..services.media_detail import build_media_detail
 
-    selected_request: Optional[MediaRequest] = None
-    library_item: Optional[LibraryItem] = None
-    media_obj: LibraryItem | MediaRequest
-    if library_id:
-        library_item = await async_get_or_404(db, LibraryItem, library_id, "Library item not found")
-        media_obj = library_item
-    else:
-        selected_request = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
-        if selected_request.library_item_id:
-            library_item = (await db.execute(select(LibraryItem).filter(LibraryItem.id == selected_request.library_item_id))).scalars().first()
-        media_obj = library_item or selected_request
-
-    related_requests = await _media_identity_filter(db, media_obj)
-    if selected_request and selected_request.id not in {r.id for r in related_requests}:
-        related_requests.insert(0, selected_request)
-
-    all_users = (await db.execute(select(PlexUser))).scalars().all()
-    users = {u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id) for u in all_users}
-    user_by_id = {u.plex_user_id: u for u in all_users}
-    from ..serializers import format_datetime, serialize_media_request
-
-    request_ids_for_mail = [req.id for req in related_requests]
-    last_mail_by_req: dict[int, dict] = {}
-    notification_history: list[dict] = []
-    # (req_id, event) -> adresses ayant reçu ce mail avec succès — sert à savoir, PAR
-    # PERSONNE (pas juste globalement), si un demandeur/co-demandeur a déjà été notifié
-    # (voir "Rattraper tout le monde" et l'indicateur par ligne dans MediaDetailDrawer).
-    mail_recipients_by_req: dict[tuple[int, str], set[str]] = {}
-    if request_ids_for_mail:
-        all_notification_logs = (await db.execute(
-            select(NotificationLog)
-            .filter(
-                NotificationLog.req_id.in_(request_ids_for_mail),
-            )
-            .order_by(NotificationLog.sent_at.desc())
-            .limit(50)
-        )).scalars().all()
-        notification_history = [
-            {
-                "id": log.id,
-                "event": log.event,
-                "channel": log.channel,
-                "recipient": log.recipient,
-                "sent_at": format_datetime(log.sent_at),
-                "success": log.success,
-                "error_msg": log.error_msg,
-                "triggered_by": log.triggered_by,
-                "scope": log.scope,
-                "language": log.language,
-                "season_number": log.season_number,
-                "episode_number": log.episode_number,
-            }
-            for log in all_notification_logs
-        ]
-        mail_logs = [
-            log for log in all_notification_logs
-            if log.channel == "email" and log.event in ("request", "available")
-        ]
-        for log in mail_logs:
-            key = (log.req_id, log.event)
-            if key not in last_mail_by_req:
-                last_mail_by_req[key] = {
-                    "sent_at": format_datetime(log.sent_at),
-                    "triggered_by": log.triggered_by,
-                    "success": log.success,
-                }
-            if log.success:
-                mail_recipients_by_req.setdefault(key, set()).add((log.recipient or "").strip().lower())
-
-    def _requester_emails(plex_user_id: str) -> set[str]:
-        u = user_by_id.get(plex_user_id)
-        raw = (u.notification_email if u else None) or ""
-        return {addr.strip().lower() for addr in raw.split(",") if addr.strip()}
-
-    show_request_ids = [req.id for req in related_requests if req.media_type == "show"]
-    seasons_by_req: dict[int, list[dict]] = {}
-    if show_request_ids:
-        season_rows = (await db.execute(
-            select(RequestSeasonStatus).filter(RequestSeasonStatus.request_id.in_(show_request_ids))
-        )).scalars().all()
-        for row in season_rows:
-            seasons_by_req.setdefault(row.request_id, []).append({
-                "season_number": row.season_number,
-                "episodes_available_count": row.episodes_available_count,
-                "episodes_total_count": row.episodes_total_count,
-                "status": row.status,
-            })
-        for rows in seasons_by_req.values():
-            rows.sort(key=lambda r: r["season_number"])
-
-    request_payloads = [serialize_media_request(req, users) for req in related_requests]
-    for payload, req in zip(request_payloads, related_requests):
-        payload["seasons"] = seasons_by_req.get(req.id, [])
-        payload["last_request_mail"] = last_mail_by_req.get((req.id, "request"))
-        payload["last_available_mail"] = last_mail_by_req.get((req.id, "available"))
-        request_recipients = mail_recipients_by_req.get((req.id, "request"), set())
-        available_recipients = mail_recipients_by_req.get((req.id, "available"), set())
-        payload["requester_notifications"] = {
-            uid: {
-                "request": bool(_requester_emails(uid) & request_recipients) if _requester_emails(uid) else None,
-                "available": bool(_requester_emails(uid) & available_recipients) if _requester_emails(uid) else None,
-            }
-            for uid in payload.get("requester_ids", [])
-        }
-    schedule = await _media_schedule_payload(db, media_obj)
-    request_ids = [req.id for req in related_requests]
-    issue_q = select(MediaIssue).filter(MediaIssue.status != "closed")
-    if library_item and request_ids:
-        issue_q = issue_q.filter(
-            (MediaIssue.library_item_id == library_item.id) | (MediaIssue.request_id.in_(request_ids))
-        )
-    elif library_item:
-        issue_q = issue_q.filter(MediaIssue.library_item_id == library_item.id)
-    elif selected_request:
-        issue_q = issue_q.filter(MediaIssue.request_id == selected_request.id)
-    open_issues = (await db.execute(issue_q.order_by(MediaIssue.created_at.desc()))).scalars().all()
-
-    backdrop_url = None
-    if media_obj.tmdb_id:
-        try:
-            tmdb_detail = await tmdb.detail(db, media_obj.media_type, int(media_obj.tmdb_id))
-            backdrop_url = tmdb_detail.get("backdrop_url")
-        except Exception as e:
-            logger.debug("Failed to fetch backdrop from TMDB: %s", e)
-
-    arr_url = None
-    if media_obj.arr_instance_id and media_obj.arr_slug:
-        try:
-            from app.models import ArrInstance
-            arr_inst = (await db.execute(select(ArrInstance).filter(ArrInstance.id == media_obj.arr_instance_id))).scalars().first()
-            if arr_inst:
-                base_url = arr_inst.url.rstrip('/')
-                if media_obj.media_type == "movie":
-                    arr_url = f"{base_url}/movie/{media_obj.arr_slug}"
-                else:
-                    arr_url = f"{base_url}/series/{media_obj.arr_slug}"
-        except Exception as e:
-            logger.debug(f"Failed to build arr_url: {e}")
-
-    from ..services.operational_projection import plex_library_projection
-
-    operational = (
-        request_payloads[0]
-        if request_payloads
-        else plex_library_projection()
-        if library_item
-        else {}
+    return await build_media_detail(
+        db,
+        library_id=library_id,
+        request_id=request_id,
+        identity_filter=_media_identity_filter,
+        schedule_payload=_media_schedule_payload,
+        issue_serializer=_serialize_issue,
     )
-    return {
-        "media": {
-            "kind": "library" if library_item else "request",
-            "library_id": library_item.id if library_item else None,
-            "request_id": selected_request.id
-            if selected_request
-            else (related_requests[0].id if related_requests else None),
-            "vf_source_type": "library" if library_item else "request",
-            "vf_source_id": library_item.id if library_item else (selected_request.id if selected_request else None),
-            "title": media_obj.title,
-            "year": media_obj.year,
-            "media_type": media_obj.media_type,
-            "poster_url": wrap_image_proxy(media_obj.poster_url),
-            "backdrop_url": wrap_image_proxy(backdrop_url),
-            "overview": media_obj.overview,
-            "has_vf": media_obj.has_vf,
-            "vf_granularity": media_obj.vf_granularity,
-            "arr_id": media_obj.arr_id,
-            "arr_slug": media_obj.arr_slug,
-            "arr_instance_id": media_obj.arr_instance_id,
-            "arr_url": arr_url,
-            "tmdb_id": media_obj.tmdb_id,
-            "tvdb_id": media_obj.tvdb_id,
-            "imdb_id": media_obj.imdb_id,
-            "plex_guid": media_obj.plex_guid,
-            "in_library": library_item is not None,
-            "added_at": format_datetime(library_item.added_at) if library_item else None,
-            "origin_kind": operational.get("origin_kind"),
-            "origin_label": operational.get("origin_label"),
-            "operational_status": operational.get("operational_status"),
-            "operational_status_label": operational.get("operational_status_label"),
-            "waiting_reason": operational.get("waiting_reason"),
-            "workflow_timeline": operational.get("workflow_timeline", []),
-        },
-        "requests": request_payloads,
-        "issues": [_serialize_issue(issue) for issue in open_issues],
-        "timeline": schedule["timeline"],
-        "calendar": schedule["events"],
-        "notification_history": notification_history,
-    }
-
 
 @router.get("/library-metrics")
 async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = Depends(get_db_async)):

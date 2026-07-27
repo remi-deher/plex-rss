@@ -23,9 +23,7 @@
         </div>
         <p v-if="row.waiting_reason" class="waiting-reason">{{ row.waiting_reason }}</p>
 
-        <div v-if="!['failed','rejected'].includes(row.status)" class="status-stepper">
-          <span v-for="step in statusSteps(row)" :key="step.key" :class="['step', stepState(row, step.key)]">{{ step.label }}</span>
-        </div>
+        <RequestStatusStepper v-if="!['failed','rejected'].includes(row.status)" :row="row" />
 
         <details v-if="row.media_type === 'show' && row.seasons?.length" class="mail-history-details">
           <summary>Detail par saison ({{ seasonsSummary(row.seasons) }})</summary>
@@ -35,48 +33,15 @@
           </div>
         </details>
 
-        <details class="mail-history-details">
-          <summary>Historique</summary>
-          <small>{{ row.origin_kind === 'arr' ? 'Detectee le' : 'Demandee le' }} {{ formatDate(row.requested_at) }}</small>
-          <small v-if="row.arr_processed_at" class="mail-history">
-            Validee par *arr le {{ formatDateTime(row.arr_processed_at) }}
-          </small>
-          <small v-if="row.last_request_mail" class="mail-history">
-            Mail demande {{ formatDateTime(row.last_request_mail.sent_at) }} ({{ row.last_request_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
-            <span v-if="row.last_request_mail.success === false" class="badge failed tiny">Echec</span>
-          </small>
-          <small v-if="row.available_at" class="mail-history">
-            Disponible le {{ formatDateTime(row.available_at) }}
-          </small>
-          <small v-if="row.last_available_mail" class="mail-history">
-            Mail dispo {{ formatDateTime(row.last_available_mail.sent_at) }} ({{ row.last_available_mail.triggered_by === 'manual' ? 'manuel' : 'auto' }})
-            <span v-if="row.last_available_mail.success === false" class="badge failed tiny">Echec</span>
-          </small>
-          <small v-if="row.vf_tracking_disabled" class="mail-history">Suivi VF arrete</small>
-        </details>
-
-        <div v-if="(row.requester_ids || []).length > 1" class="requester-breakdown">
-          <div v-for="(uid, idx) in row.requester_ids" :key="`${uid}-${idx}`" class="requester-line">
-            <span class="requester-name">
-              {{ row.requesters?.[idx] || uid }}
-              <span v-if="idx === 0" class="badge tiny">Principal</span>
-              <span
-                v-if="notifiedStatus(row, uid) !== null"
-                :class="['notif-dot', notifiedStatus(row, uid) ? 'ok' : 'pending']"
-                :title="notifiedStatus(row, uid) ? 'Deja notifie' : 'Pas encore notifie'"
-              ></span>
-            </span>
-            <div v-if="admin" class="requester-menu-wrap">
-              <button class="icon-button" title="Actions" aria-label="Actions" @click.stop="toggleRequesterMenu(row.id, uid)"><MoreVertical /></button>
-              <div v-if="openRequesterMenu === `${row.id}:${uid}`" class="requester-menu" @click.stop>
-                <button :disabled="busy" @click="$emit('notify-user', row.id, uid, ['request']); closeRequesterMenu()"><Mail /> Renvoyer mail demande</button>
-                <button v-if="row.status === 'available'" :disabled="busy" @click="$emit('notify-user', row.id, uid, ['available']); closeRequesterMenu()"><MailCheck /> Renvoyer mail dispo</button>
-                <button v-if="idx !== 0" :disabled="busy" @click="$emit('promote-requester', row, uid); closeRequesterMenu()"><Crown /> Promouvoir principal</button>
-                <button class="danger" :disabled="busy" @click="$emit('remove-requester', row, uid); closeRequesterMenu()"><UserMinus /> Retirer</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <RequestMailHistory :row="row" />
+        <RequesterList
+          :row="row"
+          :admin="admin"
+          :busy="busy"
+          @notify-user="(...args) => $emit('notify-user', ...args)"
+          @promote-requester="(...args) => $emit('promote-requester', ...args)"
+          @remove-requester="(...args) => $emit('remove-requester', ...args)"
+        />
       </div>
       <div class="actions">
         <button v-if="row.status === 'pending_approval' && admin" class="icon-button success" title="Approuver" aria-label="Approuver" :disabled="busy" @click="$emit('approve', row.id)"><Check /></button>
@@ -106,9 +71,11 @@
 
 <script setup>
 import { requestStatusLabel } from '@/utils/labels';
-import { formatDate, formatDateTime } from '@/utils/format';
-import { onBeforeUnmount, onMounted, ref } from 'vue';
-import { Ban, Check, CheckCheck, Crown, Mail, MailCheck, MoreVertical, PlusCircle, RotateCcw, Search, Trash2, UserMinus, Users } from '@lucide/vue';
+import { Ban, Check, CheckCheck, Mail, MailCheck, PlusCircle, RotateCcw, Search, Trash2, Users } from '@lucide/vue';
+import RequestMailHistory from './RequestMailHistory.vue';
+import RequestStatusStepper from './RequestStatusStepper.vue';
+import RequesterList from './RequesterList.vue';
+import { canClose, hasUnnotified, seasonsSummary } from './requestRules';
 
 defineProps({
   requests: { type: Array, default: () => [] },
@@ -124,58 +91,6 @@ defineEmits([
   'approve', 'reject',
 ]);
 
-const openRequesterMenu = ref(null);
-const requestSteps = [
-  { key: 'requested', label: 'Demandee' }, { key: 'submitted', label: 'Transmise a *ARR' },
-  { key: 'queued', label: 'En file' }, { key: 'downloading', label: 'Telechargement' },
-  { key: 'importing', label: 'Import *ARR' }, { key: 'awaiting_plex', label: 'Attente Plex' },
-  { key: 'completed', label: 'Disponible' },
-];
-const arrSteps = [
-  { key: 'submitted', label: 'Detectee dans *ARR' }, { key: 'queued', label: 'En file' },
-  { key: 'downloading', label: 'Telechargement' }, { key: 'importing', label: 'Import *ARR' },
-  { key: 'awaiting_plex', label: 'Attente Plex' }, { key: 'completed', label: 'Disponible' },
-];
-
-function seasonsSummary(seasons) {
-  const available = seasons.filter(s => s.status === 'available').length;
-  return `${available}/${seasons.length} completes`;
-}
-function statusSteps(row) { return row.origin_kind === 'arr' ? arrSteps : requestSteps; }
-function stepState(row, key) {
-  const steps = statusSteps(row);
-  const order = steps.map(step => step.key);
-  let current = row.operational_status || 'not_submitted';
-  if (['not_submitted', 'awaiting_submission'].includes(current)) current = 'requested';
-  if (current === 'partially_available') current = 'completed';
-  if (row.origin_kind === 'arr' && current === 'requested') current = 'submitted';
-  const statusIndex = Math.max(0, order.indexOf(current));
-  const keyIndex = order.indexOf(key);
-  if (keyIndex < statusIndex) return 'done';
-  if (keyIndex === statusIndex) return 'current';
-  return 'upcoming';
-}
-function notifiedStatus(row, uid) {
-  const n = row.requester_notifications?.[uid];
-  if (!n) return null;
-  return row.status === 'available' ? n.available : n.request;
-}
-function hasUnnotified(row) {
-  return (row.requester_ids || []).some((uid) => notifiedStatus(row, uid) === false);
-}
-function canClose(row) {
-  return row.status !== 'available' || (row.has_vf !== true && !row.vf_tracking_disabled);
-}
-function toggleRequesterMenu(rowId, uid) {
-  const key = `${rowId}:${uid}`;
-  openRequesterMenu.value = openRequesterMenu.value === key ? null : key;
-}
-function closeRequesterMenu() { openRequesterMenu.value = null; }
-function handleOutsideClick(event) {
-  if (!event.target.closest('.requester-menu-wrap')) closeRequesterMenu();
-}
-onMounted(() => document.addEventListener('click', handleOutsideClick));
-onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick));
 </script>
 
 <style scoped>
@@ -206,12 +121,12 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   justify-content: space-between;
   gap: 8px;
 }
-.request-detail-row .mail-history {
+:deep(.request-detail-row .mail-history) {
   display: block;
   color: var(--muted);
 }
 
-.status-stepper {
+:deep(.status-stepper) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -234,7 +149,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   margin: 6px 0;
   color: var(--muted);
 }
-.status-stepper .step {
+:deep(.status-stepper .step) {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -242,30 +157,30 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   color: var(--muted);
   background: var(--surface-2);
 }
-.status-stepper .step.done {
+:deep(.status-stepper .step.done) {
   border-color: rgba(34, 197, 94, .45);
   color: var(--green);
 }
-.status-stepper .step.current {
+:deep(.status-stepper .step.current) {
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 600;
 }
 
-.mail-history-details {
+:deep(.mail-history-details) {
   margin-top: 4px;
 }
-.mail-history-details summary {
+:deep(.mail-history-details summary) {
   cursor: pointer;
   font-size: 11px;
   color: var(--muted);
   user-select: none;
 }
-.mail-history-details small {
+:deep(.mail-history-details small) {
   display: block;
 }
 
-.requester-breakdown {
+:deep(.requester-breakdown) {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -274,7 +189,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   border-top: 1px dashed var(--border);
 }
 
-.requester-line {
+:deep(.requester-line) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -282,35 +197,35 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   font-size: 12px;
 }
 
-.requester-name {
+:deep(.requester-name) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.badge.tiny {
+:deep(.badge.tiny) {
   min-height: auto;
   padding: 0 6px;
   font-size: 10px;
 }
 
-.notif-dot {
+:deep(.notif-dot) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: inline-block;
 }
-.notif-dot.ok {
+:deep(.notif-dot.ok) {
   background: var(--green);
 }
-.notif-dot.pending {
+:deep(.notif-dot.pending) {
   background: var(--muted);
 }
 
-.requester-menu-wrap {
+:deep(.requester-menu-wrap) {
   position: relative;
 }
-.requester-menu {
+:deep(.requester-menu) {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -327,7 +242,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
-.requester-menu button {
+:deep(.requester-menu button) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -340,10 +255,10 @@ onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
   font-size: 12px;
   text-align: left;
 }
-.requester-menu button:hover:not(:disabled) {
+:deep(.requester-menu button:hover:not(:disabled)) {
   background: rgba(255, 255, 255, 0.06);
 }
-.requester-menu button.danger {
+:deep(.requester-menu button.danger) {
   color: var(--red);
 }
 </style>

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..crypto import EncryptedText
 from .base import Base
@@ -69,78 +69,12 @@ class Settings(Base):
     # (fichier telecharge mais non importable). Frequent avec les episodes "TBA" -- bascule
     # dediee pour pouvoir la couper sans desactiver les vraies alertes d'echec de transmission.
     notify_import_blocked: Mapped[bool] = mapped_column(default=True)
-    # 3 templates (un par évènement du catalogue simplifié — voir notification_catalog.py) :
-    # "available" fusionne les 10 anciens templates de disponibilité (available_vf,
-    # available_vo_tracking, vo_only, vf_available, language_*, partially_available) en un
-    # seul, paramétré par le contexte structuré (scope/language/is_upgrade/season/episode)
-    # assemblé par email_service._build_subject_phrase()/_build_status_phrase().
-    email_request_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_available_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_upgrade_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_failure_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_correction_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_request_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_episode_available_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_episode_available_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_season_started_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_season_started_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_season_partial_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_season_partial_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_season_complete_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_season_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_series_partial_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_series_partial_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_series_complete_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_series_complete_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_upgrade_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_failure_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_correction_subject: Mapped[Optional[str]] = mapped_column(default=None)
-    email_templates_backup: Mapped[Optional[str]] = mapped_column(Text)
-    # Coquille email : parties communes (header/footer) + bandeau par évènement
-    # (couleur/badge/titre/synopsis), tous éditables via /templates. None = valeur
-    # par défaut codée en dur (voir email_service.get_shared_email_parts/get_event_visuals).
-    email_header_brand: Mapped[Optional[str]] = mapped_column(default=None)
-    email_header_subtitle: Mapped[Optional[str]] = mapped_column(default=None)
-    email_footer_template: Mapped[Optional[str]] = mapped_column(Text)
-    email_request_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_request_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_request_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_request_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_available_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_available_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_upgrade_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_upgrade_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_upgrade_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_upgrade_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_failure_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_failure_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_failure_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_failure_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_correction_accent_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_correction_badge_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_correction_headline_text: Mapped[Optional[str]] = mapped_column(default=None)
-    email_correction_show_synopsis: Mapped[Optional[bool]] = mapped_column(default=None)
-    # Bloc affiche/titre/tags/"Demandé par" : mise en page, partagée entre tous les templates
-    # (contrairement au bandeau, ce n'est pas du contenu qui varie par évènement).
-    email_show_poster: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_show_genres: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_show_requester: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_requester_label: Mapped[Optional[str]] = mapped_column(default=None)
-    email_brand_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_show_header_subtitle: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_poster_width: Mapped[Optional[int]] = mapped_column(default=None)
-    email_media_layout: Mapped[Optional[str]] = mapped_column(default=None)
-    email_bg_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_card_bg_color: Mapped[Optional[str]] = mapped_column(default=None)
-    email_font_family: Mapped[Optional[str]] = mapped_column(default=None)
-    email_card_width: Mapped[Optional[int]] = mapped_column(default=None)
-    email_card_border_radius: Mapped[Optional[int]] = mapped_column(default=None)
-    email_synopsis_font_size: Mapped[Optional[str]] = mapped_column(default=None)
-    email_show_tmdb_link: Mapped[Optional[bool]] = mapped_column(default=None)
-    email_show_plex_button: Mapped[Optional[bool]] = mapped_column(default=None)
+    email_branding: Mapped[Optional["EmailBranding"]] = relationship(
+        cascade="all, delete-orphan", lazy="selectin", uselist=False
+    )
+    email_templates: Mapped[list["EmailTemplate"]] = relationship(
+        cascade="all, delete-orphan", lazy="selectin"
+    )
 
     # --- Notifications avancées ---
     notification_log_retention_days: Mapped[Optional[int]] = mapped_column(default=None)
@@ -293,3 +227,77 @@ class Settings(Base):
     # finale), "jalons" (début/fin de saison + améliorations VF — défaut), "tout" (chaque
     # épisode individuellement).
     series_notify_granularity: Mapped[str] = mapped_column(default="jalons")
+
+
+# Façade temporaire de compatibilité : l'API et les services gardent leurs noms
+# `email_<...>` pendant que la persistance est désormais normalisée. Elle évite une
+# migration simultanée de tous les appelants et pourra être retirée séparément.
+_EMAIL_BRANDING_FIELDS = {
+    "email_header_brand": "header_brand",
+    "email_header_subtitle": "header_subtitle",
+    "email_footer_template": "footer_template",
+    "email_templates_backup": "templates_backup",
+    "email_show_poster": "show_poster",
+    "email_show_genres": "show_genres",
+    "email_show_requester": "show_requester",
+    "email_requester_label": "requester_label",
+    "email_brand_color": "brand_color",
+    "email_show_header_subtitle": "show_header_subtitle",
+    "email_poster_width": "poster_width",
+    "email_media_layout": "media_layout",
+    "email_bg_color": "bg_color",
+    "email_card_bg_color": "card_bg_color",
+    "email_font_family": "font_family",
+    "email_card_width": "card_width",
+    "email_card_border_radius": "card_border_radius",
+    "email_synopsis_font_size": "synopsis_font_size",
+    "email_show_tmdb_link": "show_tmdb_link",
+    "email_show_plex_button": "show_plex_button",
+}
+_EMAIL_EVENTS = (
+    "request", "available", "upgrade", "failure", "correction",
+    "episode_available", "season_started", "season_partial",
+    "season_complete", "series_partial", "series_complete",
+)
+
+
+def _branding_property(field):
+    def get(self):
+        return getattr(self.email_branding, field, None)
+
+    def set_(self, value):
+        if self.email_branding is None:
+            from .email_config import EmailBranding
+            self.email_branding = EmailBranding()
+        setattr(self.email_branding, field, value)
+
+    return property(get, set_)
+
+
+def _template_property(event, field):
+    def row(self, create=False):
+        found = next((item for item in self.email_templates if item.event == event), None)
+        if found is None and create:
+            from .email_config import EmailTemplate
+            found = EmailTemplate(event=event)
+            self.email_templates.append(found)
+        return found
+
+    def get(self):
+        found = row(self)
+        return getattr(found, field, None) if found else None
+
+    def set_(self, value):
+        setattr(row(self, create=True), field, value)
+
+    return property(get, set_)
+
+
+for _legacy_name, _field in _EMAIL_BRANDING_FIELDS.items():
+    setattr(Settings, _legacy_name, _branding_property(_field))
+for _event in _EMAIL_EVENTS:
+    setattr(Settings, f"email_{_event}_template", _template_property(_event, "template"))
+    setattr(Settings, f"email_{_event}_subject", _template_property(_event, "subject"))
+for _event in ("request", "available", "upgrade", "failure", "correction"):
+    for _field in ("accent_color", "badge_text", "headline_text", "show_synopsis"):
+        setattr(Settings, f"email_{_event}_{_field}", _template_property(_event, _field))

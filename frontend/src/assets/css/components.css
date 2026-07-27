@@ -12,6 +12,11 @@
   padding: 16px;
 }
 
+.media-card {
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
 /* Variante « avec icone » de .metric-card (Activite Plex) : l'icone et le bloc de texte
    sont deux colonnes. Le tableau de bord obtient la meme forme via .dashboard-metrics. */
 .activity-metric-card { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; }
@@ -70,11 +75,29 @@
 
 .toolbar,
 .actions,
-.segmented,
 .form-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.toolbar,
+.actions {
+  flex-wrap: wrap;
+}
+
+.toolbar {
+  justify-content: space-between;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 /* Fondations UI communes : en-têtes, statuts et retours système. */
@@ -194,13 +217,16 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
 
 .badge,
 .language-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
   padding: 0 8px;
   border-radius: 5px;
   color: var(--text);
-  background: var(--surface-2);
+  background: rgba(20, 20, 20, .9);
   border: 1px solid var(--border);
   font-size: 0.75rem;
 }
@@ -510,7 +536,12 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.45;
+}
+
+.template-settings {
+  border-top: 1px solid var(--border);
 }
 
 .template-settings .form-section {
@@ -569,6 +600,13 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
 .unmatched-header > .panel-link {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.unmatched-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 /* ===== Ergonomie tactile ===== */

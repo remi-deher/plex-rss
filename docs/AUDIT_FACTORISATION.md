@@ -6,10 +6,10 @@ Vue/JS + 86 Ko CSS). Chaque point est **constaté**, avec fichier/ligne, pas sup
 > Remplace `docs/REFACTORING_TASKS.md`, devenu obsolète (il décrivait `api.py` à
 > 3708 lignes et `settings.html` à 3353 lignes, tous deux disparus depuis) et supprimé.
 >
-> **Avancement** — chantiers 1 à 6 du tableau de priorisation faits, plus le nettoyage
-> des fichiers morts. Chaque chantier est un commit sur `refactor/factorisation`,
-> vérifié par la suite de tests et, pour le backend, par la parité des 273 routes
-> (`scripts/dump_routes.py`). Les chantiers 7 à 14 restent à faire.
+> **Avancement** — chantiers 1 à 14 du tableau de priorisation faits, plus le nettoyage
+> des fichiers morts. Les extractions sont vérifiées par les suites backend/frontend,
+> le build Vite et, pour les découpages de routeurs, par la parité des 273 routes
+> (`scripts/dump_routes.py`).
 
 ---
 
@@ -419,14 +419,14 @@ pour les `.db`/`.coverage`.
 | ✅ 4 | Composables `useLatestRequest` / `usePolling` / `useSession` / `useDebounced` (A4) | corrige 2 incohérences (polling, 3× `/api/session`) | faible | non |
 | ✅ 5 | Helpers backend dupliqués (B5) | 4 copies de `_delete_vf_episode_cache`, 2 du rapprochement LibraryItem | faible | non |
 | ✅ 6 | Découper `models.py` en package (B4, hors `Settings`) | lisibilité, réexport = 0 import cassé | nul | non |
-| 7 | Découper `webhook.py` / `arr_api.py` / `misc_api.py` (B2, B3, B8) | 2660 lignes → ~12 modules ; parité de routes vérifiable | moyen | non |
-| 8 | Primitives `MetricCard` / `PanelCard` / `DataTable` / `TabNav` (A2) | 33 `panel-head`, 10 tableaux | moyen (visuel) | non |
-| 9 | Éclater `MediaDetailView` + `MediaRequestsTab` (A5) | rend la logique VF/saisons testable | moyen | non |
-| 10 | `queueRules.js` + réconcilier les 2 définitions de « bloqué » (A5) | corrige une divergence Dashboard/Downloads | moyen | non |
-| 11 | Nettoyage CSS (A6) | 15 sélecteurs en conflit, 48 Ko | moyen (régression visuelle) | non |
-| 12 | `ArrClient` pooling + sessions (B7) | perf sur le chemin chaud | moyen | non |
-| 13 | `_run_vf_scan` (284 l.) et `media_detail` (199 l.) (B6) | cœur métier | élevé | non |
-| 14 | Extraire les 73 colonnes email de `Settings` (B4) | dégonfle le god-model | élevé | **oui** |
+| ✅ 7 | Découper `webhook.py` / `arr_api.py` / `misc_api.py` (B2, B3, B8) | modules par domaine, parité de 273 routes | moyen | non |
+| ✅ 8 | Primitives `MetricCard` / `PanelCard` / `TabNav` / chargement et toggle (A2) | six primitives testées et adoptées dans les vues principales | moyen (visuel) | non |
+| ✅ 9 | Éclater `MediaDetailView` + `MediaRequestsTab` (A5) | composables saisons/actions + sous-composants demande | moyen | non |
+| ✅ 10 | `queueRules.js` + réconcilier les 2 définitions de « bloqué » (A5) | une partition commune Dashboard/Downloads | moyen | non |
+| ✅ 11 | Nettoyage CSS (A6) | propriétés de primitives rendues à `components.css`/SFC, conflits globaux supprimés | moyen (visuel) | non |
+| ✅ 12 | `ArrClient` pooling + sessions (B7) | pools partagés bornés et fermeture au shutdown ; context manager au démarrage | moyen | non |
+| ✅ 13 | `_run_vf_scan` et `media_detail` (B6) | scan découpé en helpers ; agrégation déplacée dans `services/media_detail.py` | élevé | non |
+| ✅ 14 | Extraire les colonnes email de `Settings` (B4) | `EmailTemplate` par événement + `EmailBranding`, façade compatible | élevé | **oui (`0089`)** |
 | ✅ — | Nettoyage des fichiers morts (C2) | 10 fichiers, dont 4 cassés | nul | non |
 
 Les items 1 à 6 étaient behavior-preserving et vérifiables mécaniquement ; ils sont

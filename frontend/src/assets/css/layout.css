@@ -218,7 +218,6 @@ button svg {
 }
 
 .drawer-head,
-.detail-row,
 .account-summary {
   display: flex;
   align-items: center;

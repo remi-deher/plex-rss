@@ -97,8 +97,7 @@ async def lifespan(app: FastAPI):
         from .database import AsyncSessionLocal
         from .models import Settings as _Settings
 
-        _db = AsyncSessionLocal()
-        try:
+        async with AsyncSessionLocal() as _db:
             _s = (await _db.execute(select(_Settings))).scalars().first()
             # Priorité à l'intervalle en secondes (polling sous la minute) ; repli sur les minutes.
             if _s and _s.poll_interval_seconds:
@@ -107,9 +106,6 @@ async def lifespan(app: FastAPI):
                 _seconds = _s.poll_interval_minutes * 60
             else:
                 _seconds = 300
-        finally:
-            await _db.close()
-
         legacy_scheduler = os.getenv("ENABLE_LEGACY_SCHEDULER", "0").lower() in {"1", "true", "yes"}
         if legacy_scheduler:
             await start_scheduler(poll_seconds=_seconds)
@@ -127,6 +123,8 @@ async def lifespan(app: FastAPI):
         logging.info("Shutting down legacy background services...")
         await stop_notif_worker()
         scheduler.shutdown()
+    from .services.arr_http_client import close_arr_clients
+    await close_arr_clients()
     await cache.close()
     logging.info("Shutdown complete.")
 

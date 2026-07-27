@@ -1,5 +1,19 @@
 # Plan — Clarifier le modèle de données : `MediaRequest` vs `LibraryItem`
 
+## Addendum 2026-07-27 — configuration email normalisée
+
+La migration `0089_normalize_email_configuration` sort de `settings` les colonnes
+de contenu et d'habillage email :
+
+- `email_templates` contient une ligne par événement (`request`, `available`,
+  `upgrade`, `failure`, etc.) avec corps, sujet et bandeau ;
+- `email_branding` contient la coquille commune et les choix de mise en page.
+
+La migration copie les valeurs existantes avant de supprimer les anciennes colonnes
+et son downgrade les restitue. `Settings` expose provisoirement des propriétés de
+compatibilité `email_*`, afin de dissocier la migration de stockage d'une réécriture
+simultanée de tous les services et endpoints.
+
 > **DÉCISION (2026-07-06) : Option B retenue et implémentée.** Table `library_items`
 > séparée, migration `0030` (backfill des lignes `plex_sync` + suppression, réversible).
 > UI : deux sections — **Bibliothèque** (`/library`, union library_items + demandes) et
