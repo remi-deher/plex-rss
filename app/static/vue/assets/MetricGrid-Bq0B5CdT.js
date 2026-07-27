@@ -1,1 +1,0 @@
-import{b as r,d as t,A as s,n as l}from"./index-DwtuXSBC.js";const i=["aria-label"],o={__name:"MetricGrid",props:{gridClass:{type:String,default:"compact-metrics"},ariaLabel:{type:String,default:""}},setup(a){return(e,c)=>(r(),t("section",{class:l(["metric-grid",a.gridClass]),"aria-label":a.ariaLabel},[s(e.$slots,"default")],10,i))}};export{o as _};
