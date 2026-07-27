@@ -14,71 +14,29 @@
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load()" />
     <UiFeedback v-if="loading && !data.summary" type="loading" message="Analyse du catalogue Plex…" />
 
-    <section class="workspace-section inventory-section">
+    <nav class="analytics-tabs" aria-label="Vues de la médiathèque">
+      <button type="button" :class="{ active: activeTab === 'table' }" @click="activeTab = 'table'">Tableau</button>
+      <button type="button" :class="{ active: activeTab === 'insights' }" @click="activeTab = 'insights'">Insights</button>
+    </nav>
+
+    <section v-if="activeTab === 'table'" class="workspace-section inventory-section">
       <header class="section-heading">
         <div><span class="eyebrow">Inventaire</span><h2>Fichiers analysés</h2></div>
         <small>{{ date(data.generated_at) }}</small>
       </header>
 
-      <div class="inventory-filters" role="search" aria-label="Filtres de l’inventaire">
-        <input
-          v-model="filters.search"
-          class="search"
-          type="search"
-          placeholder="Titre, série ou studio"
-          aria-label="Rechercher"
-        >
-        <select v-model="filters.media_type" aria-label="Type">
-          <option value="">Tous les médias</option><option value="movie">Films</option>
-          <option value="episode">Épisodes</option><option value="track">Musique</option>
-        </select>
-        <select v-model="filters.library" aria-label="Bibliothèque">
-          <option value="">Toutes les bibliothèques</option>
-          <option v-for="value in data.options?.library || []" :key="value">{{ value }}</option>
-        </select>
-        <select v-model="filters.studio" aria-label="Studio">
-          <option value="">Tous les studios</option>
-          <option v-for="value in data.options?.studio || []" :key="value">{{ value }}</option>
-        </select>
-        <select v-model="filters.video_codec" aria-label="Codec vidéo">
-          <option value="">Vidéo : tous</option>
-          <option v-for="value in data.options?.video_codec || []" :key="value">{{ value }}</option>
-        </select>
-        <select v-model="filters.audio_codec" aria-label="Codec audio">
-          <option value="">Audio : tous</option>
-          <option v-for="value in data.options?.audio_codec || []" :key="value">{{ value }}</option>
-        </select>
-        <select v-model="filters.container" aria-label="Conteneur">
-          <option value="">Conteneurs : tous</option>
-          <option v-for="value in data.options?.container || []" :key="value">{{ value }}</option>
-        </select>
-        <select v-model="filters.subtitle" aria-label="Sous-titres">
-          <option value="">Sous-titres : tous</option><option value="with">Avec</option>
-          <option value="without">Sans</option>
-        </select>
-        <select v-model="filters.watched" aria-label="Visionnage">
-          <option value="">Visionnage : tous</option><option value="yes">Déjà visionnés</option>
-          <option value="no">Jamais visionnés</option>
-        </select>
-        <input v-model.number="filters.min_size_gb" type="number" min="0" step="0.5" placeholder="Min. Go" aria-label="Poids minimal en Go">
-        <input v-model.number="filters.max_size_gb" type="number" min="0" step="0.5" placeholder="Max. Go" aria-label="Poids maximal en Go">
-        <button v-if="activeCount" type="button" class="secondary reset-button" @click="reset">
-          <RotateCcw /> Effacer
-        </button>
-      </div>
-
       <div class="inventory-meta">
         <span>{{ number(data.items?.length || 0) }} résultat(s)</span>
         <span v-if="activeCount">{{ activeCount }} filtre(s) actif(s)</span>
       </div>
-      <MediaRowsTable :items="visibleItems" />
+      <MediaRowsTable :items="visibleItems" :filters="filters" :options="data.options" :active-count="activeCount" filterable @update-filter="updateFilter" @reset="reset" />
       <button v-if="limit < (data.items?.length || 0)" type="button" class="secondary load-more" @click="limit += 100">
         Afficher 100 lignes de plus
       </button>
       <p v-if="!loading && !data.items?.length" class="empty">Aucun fichier ne correspond aux filtres.</p>
     </section>
 
-    <section class="workspace-section insights-section">
+    <section v-else class="workspace-section insights-section">
       <header class="section-heading">
         <div><span class="eyebrow">Exploration</span><h2>Insights interactifs</h2></div>
         <small>Cliquez sur une carte ou une catégorie pour actualiser le tableau.</small>
@@ -136,13 +94,14 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue';
-import { ChevronRight, FileDown, Lightbulb, RefreshCw, RotateCcw } from '@lucide/vue';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { ChevronRight, FileDown, Lightbulb, RefreshCw } from '@lucide/vue';
 
 import { api } from '@/api';
 import BreakdownPanel from '@/components/activity/BreakdownPanel.vue';
 import MetricCard from '@/components/ui/MetricCard.vue';
 import MetricGrid from '@/components/ui/MetricGrid.vue';
+import MediaRowsTable from '@/components/library/MediaRowsTable.vue';
 import { useRealtime } from '@/events';
 import {
   DEFAULT_INSIGHT,
@@ -158,26 +117,8 @@ import {
   formatInteger as number,
 } from '@/utils/format';
 
-const MediaRowsTable = defineComponent({
-  name: 'MediaRowsTable',
-  props: { items: { type: Array, default: () => [] } },
-  setup(props) {
-    const title = row => row.grandparent_title ? `${row.grandparent_title} · ${row.title}` : row.title;
-    return () => h('div', { class: 'media-rows', role: 'table', 'aria-label': 'Fichiers média' }, [
-      h('div', { class: 'media-row media-row-head', role: 'row' }, ['Titre', 'Vidéo', 'Audio', 'Sous-titres', 'Poids', 'Audience'].map(label => h('span', { role: 'columnheader' }, label))),
-      ...props.items.map(row => h('article', { class: 'media-row', role: 'row', key: `${row.rating_key}:${row.title}` }, [
-        h('div', { class: 'media-title', role: 'cell' }, [h('strong', title(row)), h('small', `${row.library || '—'} · ${row.studio || '—'}`)]),
-        h('span', { role: 'cell' }, `${row.video_codec || '—'} · ${row.video_resolution || '—'}`),
-        h('span', { role: 'cell' }, `${row.audio_codec || '—'} · ${row.audio_track_count || 0} piste(s)`),
-        h('span', { role: 'cell' }, `${row.subtitle_count || 0} · ${(row.subtitle_languages || []).join(', ') || 'aucun'}`),
-        h('span', { role: 'cell' }, bytes(row.size_bytes)),
-        h('span', { role: 'cell' }, `${row.play_count || 0} lecture(s) · ${(row.viewers || []).join(', ') || 'personne'}`),
-      ])),
-    ]);
-  },
-});
-
 const snapshot = ref({ items: [], options: {}, distributions: {} });
+const activeTab = ref('table');
 const loading = ref(false);
 const error = ref('');
 const limit = ref(100);
@@ -238,6 +179,10 @@ async function load(refresh = false) {
 function reset() {
   Object.keys(filters).forEach(key => { filters[key] = ''; });
 }
+function updateFilter({ key, value }) {
+  filters[key] = ['min_size_gb', 'max_size_gb'].includes(key) && value !== '' ? Number(value) : value;
+  limit.value = 100;
+}
 function date(value) {
   return value ? `Actualisé ${formatDateTime(value)}` : '';
 }
@@ -248,13 +193,13 @@ useRealtime(['library.analytics.updated'], () => load());
 
 <style scoped>
 .export-link{display:inline-flex;align-items:center;gap:7px;text-decoration:none}
+.analytics-tabs{display:flex;gap:4px;margin-bottom:18px;padding:4px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.analytics-tabs button{flex:1;border:0;border-radius:8px;background:transparent;color:var(--muted)}
+.analytics-tabs button.active{background:var(--surface-2);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,.16)}
 .workspace-section{display:grid;gap:16px;padding-top:4px}
-.workspace-section+.workspace-section{margin-top:18px;padding-top:28px;border-top:1px solid var(--border)}
 .section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}
 .section-heading h2{margin:3px 0 0}.section-heading small,.panel-head small{color:var(--muted)}
-.inventory-filters{display:flex;align-items:center;gap:8px;overflow-x:auto;padding:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
-.inventory-filters>*{flex:0 0 auto;min-width:130px}.inventory-filters .search{flex:1 0 240px}.inventory-filters input[type=number]{width:105px;min-width:105px}
-.inventory-filters .reset-button{min-width:auto}.inventory-meta{display:flex;gap:14px;color:var(--muted);font-size:11px}
+.inventory-meta{display:flex;gap:14px;color:var(--muted);font-size:11px}
 .analytics-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
 .insight-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .insight-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;color:var(--text);text-align:left;cursor:pointer;transition:border-color .2s,transform .2s,background .2s}
@@ -263,12 +208,8 @@ useRealtime(['library.analytics.updated'], () => load());
 .insight-card>div,.media-title{display:grid;min-width:0}.insight-card span{color:var(--muted);font-size:10px}.insight-card strong{font-size:18px}
 .analytics-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
 .insight-results{display:grid;gap:12px}.panel-head>strong{color:var(--accent)}
-:deep(.media-rows){display:grid;min-width:0;overflow-x:auto}
-:deep(.media-row){display:grid;grid-template-columns:minmax(230px,1.6fr) repeat(5,minmax(115px,1fr));gap:12px;align-items:center;min-width:900px;padding:11px 2px;border-bottom:1px solid var(--border);font-size:11px}
-:deep(.media-row-head){position:sticky;top:0;z-index:1;padding-block:8px;background:var(--surface);color:var(--muted);font-size:9px;font-weight:700;text-transform:uppercase}
-:deep(.media-row small){overflow:hidden;color:var(--muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
-:deep(.media-row strong){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.load-more{justify-self:center}
-@media(max-width:900px){.analytics-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.insight-grid{grid-template-columns:1fr}.inventory-filters{align-items:stretch}.section-heading{align-items:flex-start}}
-@media(max-width:720px){.analytics-grid{grid-template-columns:1fr}.section-heading{display:grid}.inventory-filters .search{flex-basis:200px}}
+.load-more{justify-self:center}
+@media(max-width:900px){.analytics-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.insight-grid{grid-template-columns:1fr}.section-heading{align-items:flex-start}}
+@media(max-width:720px){.analytics-grid{grid-template-columns:1fr}.section-heading{display:grid}}
 @media(max-width:420px){.analytics-metrics{grid-template-columns:1fr}}
 </style>
