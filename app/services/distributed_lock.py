@@ -46,6 +46,34 @@ async def acquire_distributed_lock(key: str, ttl: int = _DEFAULT_TTL) -> str | N
         return "redis-error"
 
 
+async def renew_distributed_lock(key: str, token: str | None, ttl: int = _DEFAULT_TTL) -> bool:
+    """Prolonge le TTL d'un verrou déjà détenu, sans le recréer (SET NX échouerait car
+    la clé existe déjà). Utilisé par les tâches de fond longue durée (ex. écouteur
+    websocket Plex) qui doivent rester seules détentrices tant qu'elles tournent.
+
+    Returns True si toujours détenteur (ou mode legacy sans Redis), False si le verrou
+    a expiré/été repris entretemps -- l'appelant doit alors cesser son activité.
+    """
+    if not token or token in ("no-redis", "redis-error"):
+        return True
+    try:
+        from redis.asyncio import Redis
+
+        redis = Redis.from_url(os.environ["REDIS_URL"], encoding="utf-8", decode_responses=True)
+        try:
+            script = (
+                "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                "return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end"
+            )
+            result = await redis.eval(script, 1, key, token, ttl)
+            return bool(result)
+        finally:
+            await redis.aclose()
+    except Exception as e:
+        logger.warning(f"Impossible de renouveler le verrou Redis '{key}': {e}")
+        return False
+
+
 async def release_distributed_lock(key: str, token: str | None) -> None:
     if not token or token in ("no-redis", "redis-error"):
         return

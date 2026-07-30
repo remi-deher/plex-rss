@@ -23,6 +23,7 @@ class PlaybackSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(default="plex")
     source_session_id: Mapped[str]
+    session_key: Mapped[Optional[int]] = mapped_column(index=True)
     user_name: Mapped[Optional[str]] = mapped_column(index=True)
     plex_user_id: Mapped[Optional[str]]
     media_type: Mapped[Optional[str]]

@@ -1,16 +1,20 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.database import get_db_async
 from app.dependencies import require_admin
 from app.main import app
 from app.models import PlaybackSession, Settings
+from app.services import playback_activity
 from app.services.playback_activity import (
+    _collect_plex_activity_unlocked,
     _deduplicate_plex_sessions,
     _analytics,
     _masked_ip,
+    _miss_counts,
     _playback_method,
     _serialize,
     _tautulli_values,
@@ -275,3 +279,103 @@ def test_tautulli_normalize_endpoint_returns_report(client):
         response = client.post("/api/playback/tautulli/normalize", json={"length": 10000})
     assert response.status_code == 200
     assert response.json() == payload
+
+
+def _plex_response(xml: str) -> MagicMock:
+    resp = MagicMock()
+    resp.text = xml
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _mock_httpx_client(get_return: MagicMock) -> AsyncMock:
+    client = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.get = AsyncMock(return_value=get_return)
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _reset_miss_counts():
+    _miss_counts.clear()
+    yield
+    _miss_counts.clear()
+
+
+ROTATED_SESSION_XML = """
+<MediaContainer size="1">
+  <Video sessionKey="5" ratingKey="123" title="Film" type="movie"
+         viewOffset="1000" duration="600000">
+    <Session id="new-key" bandwidth="1000" location="lan" />
+  </Video>
+</MediaContainer>
+"""
+
+EMPTY_SESSIONS_XML = '<MediaContainer size="0"></MediaContainer>'
+
+
+@pytest.mark.asyncio
+async def test_session_id_rotation_adopts_existing_row_via_session_key(async_db):
+    async_db.add(
+        Settings(id=1, live_activity_enabled=True, plex_url="http://plex.local:32400", plex_token="tok")
+    )
+    async_db.add(
+        PlaybackSession(
+            source="plex",
+            source_session_id="old-key",
+            session_key=5,
+            rating_key="123",
+            title="Film",
+        )
+    )
+    async_db.commit()
+
+    client = _mock_httpx_client(_plex_response(ROTATED_SESSION_XML))
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
+    ):
+        await _collect_plex_activity_unlocked()
+
+    rows = (
+        await async_db.execute(select(PlaybackSession).filter(PlaybackSession.source == "plex"))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].source_session_id == "new-key"
+    assert rows[0].session_key == 5
+    assert rows[0].ended_at is None
+
+
+@pytest.mark.asyncio
+async def test_session_missing_from_one_poll_is_not_closed_immediately(async_db):
+    async_db.add(
+        Settings(id=1, live_activity_enabled=True, plex_url="http://plex.local:32400", plex_token="tok")
+    )
+    async_db.add(
+        PlaybackSession(
+            source="plex",
+            source_session_id="sess-1",
+            session_key=7,
+            rating_key="42",
+            title="Série",
+        )
+    )
+    async_db.commit()
+
+    client = _mock_httpx_client(_plex_response(EMPTY_SESSIONS_XML))
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
+    ):
+        await _collect_plex_activity_unlocked()
+        row = (
+            await async_db.execute(
+                select(PlaybackSession).filter(PlaybackSession.source_session_id == "sess-1")
+            )
+        ).scalars().first()
+        assert row.ended_at is None, "un seul poll manqué ne doit pas clôturer la session"
+
+        await _collect_plex_activity_unlocked()
+        await async_db.refresh(row)
+        assert row.ended_at is not None, "deux ratés consécutifs doivent clôturer la session"

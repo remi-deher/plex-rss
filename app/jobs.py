@@ -495,6 +495,18 @@ async def startup(ctx: dict):
         )
     logger.info("ARQ worker ready; recovered %d pending notification(s)", len(pending_ids))
 
+    from .services.plex_activity_ws import run_alert_listener
+
+    ctx["ws_listener_task"] = asyncio.create_task(run_alert_listener())
+
+
+async def shutdown(ctx: dict):
+    task = ctx.get("ws_listener_task")
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
 
 # Cron wrappers have distinct names so the underlying jobs remain directly enqueueable.
 async def cron_watchlist(ctx: dict):
@@ -616,6 +628,7 @@ class WorkerSettings:
         cron(cron_digest, minute=None, unique=True),
     ]
     on_startup = startup
+    on_shutdown = shutdown
     redis_settings = redis_settings()
     queue_name = "plexarr:jobs"
     health_check_key = "plexarr:worker:health"

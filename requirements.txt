@@ -22,3 +22,4 @@ asyncpg==0.30.0
 redis==8.0.1
 arq==0.28.0
 tzdata==2026.2
+websockets==13.1

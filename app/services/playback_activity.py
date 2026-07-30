@@ -25,6 +25,16 @@ logger = logging.getLogger(__name__)
 _plex_collection_lock = asyncio.Lock()
 _PLEX_COLLECTION_LOCK_KEY = "plexarr:locks:playback-activity"
 
+# Tolérance aux ratés de polling avant de clôturer une session encore ouverte (hoquet
+# réseau/PMS, session momentanément absente de /status/sessions). Le websocket Plex
+# (plex_activity_ws.py) reste le signal faisant autorité et ferme immédiatement une
+# session sur un évènement "stopped" explicite -- ce compteur ne couvre que le filet de
+# sécurité du polling. Volontairement en mémoire de process (pas de colonne dédiée) :
+# une remise à zéro au redémarrage du worker n'a qu'un impact mineur (un cycle de
+# tolérance perdu au pire).
+_MISS_THRESHOLD = 2
+_miss_counts: dict[int, int] = {}
+
 
 def _percent(value: int | float, total: int | float) -> float:
     return round(value / total * 100, 1) if total else 0
@@ -502,6 +512,10 @@ def parse_plex_sessions(xml: str, *, anonymize_ips: bool = True) -> list[dict]:
         sessions.append(
             {
                 "source_session_id": session_id,
+                # Identifiant entier Plex (distinct du Session/@id ci-dessus), utilisé
+                # pour corréler avec les évènements du websocket Plex, qui n'exposent
+                # que ce sessionKey -- voir plex_activity_ws.py.
+                "session_key": _int(media.get("sessionKey")),
                 "user_name": user_attrs.get("title"),
                 "plex_user_id": user_attrs.get("id"),
                 "media_type": media.get("type"),
@@ -578,10 +592,22 @@ async def _collect_plex_activity_unlocked() -> dict:
             )
         ).scalars().all()
         existing = {row.source_session_id: row for row in rows}
+        # Repli de corrélation : le Session/@id ou TranscodeSession/@key qui compose
+        # source_session_id peut changer en cours de lecture (relance de transcodage,
+        # changement de bitrate). session_key + rating_key identifient la même lecture
+        # de façon plus stable et permettent d'"adopter" la ligne existante au lieu de
+        # la fragmenter en plusieurs sessions.
+        existing_by_key = {
+            (row.session_key, row.rating_key): row
+            for row in rows
+            if row.session_key is not None and row.rating_key is not None
+        }
         previously_active = [row for row in rows if row.ended_at is None]
         started_rows: list[PlaybackSession] = []
         for snapshot in snapshots:
             row = existing.get(snapshot["source_session_id"])
+            if row is None and snapshot.get("session_key") is not None and snapshot.get("rating_key"):
+                row = existing_by_key.get((snapshot["session_key"], snapshot["rating_key"]))
             if row is None:
                 row = PlaybackSession(
                     source="plex",
@@ -601,11 +627,19 @@ async def _collect_plex_activity_unlocked() -> dict:
             row.watched_ms = max(row.watched_ms or 0, snapshot["progress_ms"] or 0, previous_progress)
             row.watched_status = 1 if (row.progress_percent or 0) >= 85 else 0
         for row in previously_active:
-            session_id = row.source_session_id
-            if session_id not in active_ids:
-                row.ended_at = now
-                row.state = "stopped"
-                row.watched_ms = max(row.watched_ms or 0, row.progress_ms or 0)
+            if row.last_seen_at == now:
+                # Mise à jour ce cycle (correspondance directe ou adoptée via
+                # session_key+rating_key) : plus manquante, on oublie ses ratés passés.
+                _miss_counts.pop(row.id, None)
+                continue
+            misses = _miss_counts.get(row.id, 0) + 1
+            if misses < _MISS_THRESHOLD:
+                _miss_counts[row.id] = misses
+                continue
+            _miss_counts.pop(row.id, None)
+            row.ended_at = now
+            row.state = "stopped"
+            row.watched_ms = max(row.watched_ms or 0, row.progress_ms or 0)
         if settings.activity_retention_days:
             cutoff = now - timedelta(days=settings.activity_retention_days)
             await db.execute(delete(PlaybackSession).where(PlaybackSession.ended_at < cutoff))
@@ -629,6 +663,55 @@ async def collect_plex_activity() -> dict:
             return await _collect_plex_activity_unlocked()
         finally:
             await release_distributed_lock(_PLEX_COLLECTION_LOCK_KEY, token)
+
+
+async def handle_websocket_state(session_key: int, rating_key: str | None, state: str) -> dict:
+    """Traite un évènement d'état poussé par le websocket Plex (plex_activity_ws.py).
+
+    Signal faisant autorité : un "stopped" ferme la session immédiatement, sans
+    attendre qu'elle disparaisse du polling. Une session inconnue (jamais vue par le
+    polling) est ignorée ici -- c'est à l'appelant de déclencher un `collect_plex_activity`
+    pour l'enrichir avec les métadonnées complètes (codec, bande passante...) absentes
+    du message websocket.
+    """
+    now = now_utc_naive()
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(PlaybackSession).filter(
+                    PlaybackSession.source == "plex",
+                    PlaybackSession.ended_at.is_(None),
+                    PlaybackSession.session_key == session_key,
+                )
+            )
+        ).scalars().first()
+        if row is None and rating_key:
+            row = (
+                await db.execute(
+                    select(PlaybackSession).filter(
+                        PlaybackSession.source == "plex",
+                        PlaybackSession.ended_at.is_(None),
+                        PlaybackSession.rating_key == rating_key,
+                    )
+                )
+            ).scalars().first()
+        if row is None:
+            return {"status": "unknown"}
+        if state == "stopped":
+            row.ended_at = now
+            row.state = "stopped"
+            row.watched_ms = max(row.watched_ms or 0, row.progress_ms or 0)
+            _miss_counts.pop(row.id, None)
+        else:
+            row.last_seen_at = now
+            row.state = state
+        await db.commit()
+    await publish(
+        "activity.updated",
+        {"source": "websocket", "state": state, "session_key": session_key},
+        admin_only=True,
+    )
+    return {"status": "handled", "state": state}
 
 
 async def test_tautulli(url: str, api_key: str) -> tuple[bool, str]:
