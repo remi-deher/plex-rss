@@ -102,7 +102,7 @@
     </div>
 
     <h1>Politique de confidentialité</h1>
-    <p class="updated-note">Ce document décrit simplement, en langage clair, quelles données sont traitées par cette instance et pourquoi. Dernière mise à jour : 22 juillet 2026.</p>
+    <p class="updated-note">Ce document décrit simplement, en langage clair, quelles données sont traitées par cette instance et pourquoi. Dernière mise à jour : 30 juillet 2026.</p>
 
     <div class="notice-box">
       Plexarr est un logiciel auto-hébergé, développé et utilisé à titre strictement personnel,
@@ -128,6 +128,8 @@
     <ul>
       <li>Identifiant et adresse email Plex (pour créer votre compte et vous envoyer les notifications que vous avez demandées)</li>
       <li>Historique de vos demandes de films/séries et leur statut</li>
+      <li>Signalements de problème sur un média (nom du rapporteur, description)</li>
+      <li>Secrets d'authentification (mot de passe haché, secret d'authentification à deux facteurs, clé publique de passkey) — jamais lisibles en clair, y compris par l'administrateur</li>
       <li>Préférences de notification (canaux activés, granularité VF/VO)</li>
       <li>Journaux techniques (connexions, erreurs) à des fins de diagnostic, avec une durée de conservation limitée et configurable</li>
       <li>Adresse IP et horodatage de vos tentatives de connexion, à des fins de sécurité (protection contre les tentatives d'accès abusives),
@@ -168,8 +170,10 @@
     <h2>Combien de temps</h2>
     <p>Sur cette instance, les journaux de notification sont conservés
     {% if notification_retention_days %}<strong>{{ notification_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %},
-    et l'historique des tâches planifiées
-    {% if poll_history_retention_days %}<strong>{{ poll_history_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %}
+    l'historique des tâches planifiées
+    {% if poll_history_retention_days %}<strong>{{ poll_history_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %},
+    et les journaux d'audit et de diagnostic (actions admin, événements techniques)
+    {% if audit_log_retention_days %}<strong>{{ audit_log_retention_days }} jour(s)</strong>{% else %}<strong>indéfiniment</strong>{% endif %}
     (réglages visibles et modifiables par l'administrateur dans les paramètres de l'application).
     Vos données de compte et vos demandes sont conservées tant que votre compte existe.</p>
 
@@ -181,16 +185,15 @@
     <h2>Vos droits</h2>
     <p>Conformément au RGPD, vous disposez à tout moment des droits suivants sur vos données :</p>
     <ul>
-      <li><strong>Accès</strong> — obtenir une copie des données vous concernant</li>
+      <li><strong>Accès et portabilité</strong> — obtenir une copie de vos données dans un format réutilisable (export JSON, sans secret)</li>
       <li><strong>Rectification</strong> — corriger une information inexacte ou incomplète</li>
-      <li><strong>Effacement</strong> — demander la suppression de votre compte et de vos données</li>
+      <li><strong>Effacement</strong> — demander la suppression de votre compte et des données rattachées</li>
       <li><strong>Limitation</strong> — demander la suspension temporaire d'un traitement</li>
-      <li><strong>Portabilité</strong> — récupérer vos données dans un format réutilisable</li>
       <li><strong>Opposition</strong> — vous opposer à un traitement fondé sur l'intérêt légitime</li>
     </ul>
     <p>
       {% if gdpr_contact_email %}
-      Pour exercer l'un de ces droits, contactez <a href="mailto:{{ gdpr_contact_email }}">{{ gdpr_contact_email }}</a>.
+      Pour exercer l'un de ces droits, contactez <a href="mailto:{{ gdpr_contact_email }}">{{ gdpr_contact_email }}</a> : l'export et la suppression de vos données sont réalisables directement depuis l'administration de cette instance.
       {% else %}
       Pour exercer l'un de ces droits, contactez l'administrateur de cette instance.
       {% endif %}

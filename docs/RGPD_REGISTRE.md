@@ -100,5 +100,5 @@ Réglages → RGPD).
 
 ---
 
-*Dernière mise à jour du modèle : 22 juillet 2026. Adaptez et datez ce registre pour votre
+*Dernière mise à jour du modèle : 30 juillet 2026. Adaptez et datez ce registre pour votre
 instance.*
