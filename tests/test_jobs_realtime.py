@@ -173,6 +173,7 @@ async def test_job_arr_statuses_manual_run_id_triggers_silent_full_resync():
 async def test_job_arr_statuses_scheduled_cron_keeps_normal_behavior():
     """Le cycle planifié (cron_arr_statuses, sans run_id) ne doit pas devenir un resync
     complet silencieux — seul un déclenchement manuel (run_id présent) le fait."""
+
     async def _fake_run(ctx, name, function, **kwargs):
         await function()
         return {"status": "complete"}
