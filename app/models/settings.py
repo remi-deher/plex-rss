@@ -1,13 +1,16 @@
 """Configuration globale de l'application (table singleton)."""
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..crypto import EncryptedText
 from .base import Base
+
+if TYPE_CHECKING:
+    from .email_config import EmailBranding, EmailTemplate
 
 
 class Settings(Base):
