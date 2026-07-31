@@ -482,8 +482,65 @@ async def job_maintenance(ctx: dict, run_id: str, action: str):
         )
 
 
+async def record_worker_event(action: str, status: str, message: str, details: dict | None = None) -> None:
+    """Trace durable d'un évènement de cycle de vie du worker, lisible depuis l'interface.
+
+    Le worker est un process séparé (`arq app.jobs.WorkerSettings`) qui n'importe jamais
+    `app.main` : le tampon de logs consultable dans l'application est installé là-bas
+    (voir install_log_buffer) et ne capte donc rien de ce qui se passe ici. Sans cet
+    enregistrement en base, un échec de démarrage n'est visible que via `docker logs`,
+    c'est-à-dire seulement pour qui a un accès SSH à l'hôte.
+    """
+    try:
+        from .services.diagnostics import record_event
+
+        async with AsyncSessionLocal() as db:
+            await record_event(
+                db,
+                category="worker",
+                action=action,
+                status=status,
+                message=message,
+                details=details,
+            )
+            await db.commit()
+    except Exception:
+        logger.exception("Impossible de journaliser l'evenement worker '%s'", action)
+
+
+def _on_listener_exit(task: asyncio.Task) -> None:
+    """Relève la mort de l'écouteur websocket, que rien n'attend.
+
+    `asyncio.create_task` produit une tâche détachée : son exception n'est propagée
+    nulle part tant que personne ne l'attend, et le suivi temps réel de l'activité Plex
+    peut donc s'arrêter en silence. Ce callback est le seul endroit où cet échec devient
+    observable.
+    """
+    if task.cancelled():
+        return  # arrêt volontaire (shutdown), rien à signaler
+    exc = task.exception()
+    if exc is None:
+        message = "Ecouteur websocket Plex arrete sans erreur : le suivi temps reel est inactif"
+        logger.error(message)
+    else:
+        message = f"Ecouteur websocket Plex arrete sur erreur: {exc}"
+        logger.error(message, exc_info=exc)
+    with contextlib.suppress(RuntimeError):
+        # Pendant l'arrêt de la boucle, plus aucune tâche ne peut être planifiée.
+        asyncio.create_task(record_worker_event("websocket.stopped", "error", message))
+
+
 async def startup(ctx: dict):
-    await init_db()
+    try:
+        await init_db()
+    except Exception as exc:
+        # Migrations en échec : on préfère un conteneur qui redémarre visiblement à un
+        # worker qui tourne sur un schéma désynchronisé (toute requête sur une colonne
+        # manquante échouerait ensuite job par job, sans cause identifiable).
+        logger.exception("ARQ worker: initialisation base/migrations impossible")
+        await record_worker_event("startup.db", "error", f"Initialisation base/migrations echouee: {exc}")
+        raise
+
     async with AsyncSessionLocal() as db:
         pending_ids = (await db.execute(select(PendingNotification.id))).scalars().all()
     for pending_id in pending_ids:
@@ -495,9 +552,19 @@ async def startup(ctx: dict):
         )
     logger.info("ARQ worker ready; recovered %d pending notification(s)", len(pending_ids))
 
-    from .services.plex_activity_ws import run_alert_listener
+    try:
+        from .services.plex_activity_ws import run_alert_listener
+    except Exception as exc:
+        # Un import qui casse ici signale une image incomplète (dépendance absente) :
+        # c'est une erreur de build, pas un aléa réseau, donc on refuse de démarrer.
+        logger.exception("ARQ worker: ecouteur websocket Plex introuvable")
+        await record_worker_event("startup.websocket", "error", f"Import de l'ecouteur websocket impossible: {exc}")
+        raise
 
-    ctx["ws_listener_task"] = asyncio.create_task(run_alert_listener())
+    task = asyncio.create_task(run_alert_listener())
+    task.add_done_callback(_on_listener_exit)
+    ctx["ws_listener_task"] = task
+    await record_worker_event("startup.ready", "success", "Worker demarre, ecouteur websocket Plex lance")
 
 
 async def shutdown(ctx: dict):

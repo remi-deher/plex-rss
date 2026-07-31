@@ -36,6 +36,7 @@ _SETTINGS_RECHECK_INTERVAL = 30
 _BACKOFF_MIN = 5
 _BACKOFF_MAX = 60
 _HEALTHY_CONNECTION_SECONDS = 30  # au-delà, la connexion est jugée stable : reset du backoff
+_FAILURES_BEFORE_ALERT = 3  # tolère quelques coupures réseau avant d'alerter en base
 
 
 def _websocket_url(plex_url: str, plex_token: str) -> str:
@@ -83,7 +84,18 @@ async def _renew_loop(token: str) -> None:
         await renew_distributed_lock(_LOCK_KEY, token, ttl=_LOCK_TTL)
 
 
-async def _listen_once(settings: Settings) -> None:
+async def _record(action: str, status: str, message: str, details: dict | None = None) -> None:
+    """Trace durable, lisible depuis l'interface (les logs du worker n'y remontent pas).
+
+    Import différé : `app.jobs` charge ce module au démarrage du worker, un import de
+    premier niveau créerait un cycle.
+    """
+    from ..jobs import record_worker_event
+
+    await record_worker_event(action, status, message, details)
+
+
+async def _listen_once(settings: Settings, on_connected) -> None:
     """Une connexion websocket, jusqu'à déconnexion ou erreur."""
     url = _websocket_url(settings.plex_url, settings.plex_token)
     ssl_context = None
@@ -98,6 +110,7 @@ async def _listen_once(settings: Settings) -> None:
         url, ssl=ssl_context, open_timeout=15, ping_interval=20, ping_timeout=20
     ) as ws:
         logger.info("Websocket Plex connecté (%s)", settings.plex_url)
+        await on_connected()
         async for message in ws:
             await _handle_message(message)
     elapsed = asyncio.get_running_loop().time() - connected_at
@@ -112,10 +125,36 @@ async def run_alert_listener() -> None:
     """
     backoff = _BACKOFF_MIN
     token: str | None = None
+    failures = 0
+    # Dernier état porté à la connaissance de l'utilisateur ("idle"/"connected"/"failing").
+    # On n'écrit en base qu'aux transitions : sinon une instance sans Plex configuré
+    # écrirait un évènement toutes les 30 s.
+    reported: str | None = None
+
+    async def _on_connected() -> None:
+        nonlocal failures, reported
+        if reported != "connected":
+            await _record(
+                "websocket.connected",
+                "success",
+                "Ecouteur websocket Plex connecte",
+                {"plex_url": settings.plex_url, "echecs_precedents": failures},
+            )
+            reported = "connected"
+        failures = 0
+
     try:
         while True:
             settings = await _load_settings()
             if not settings or not settings.live_activity_enabled or not settings.plex_url or not settings.plex_token:
+                if reported != "idle":
+                    reported = "idle"
+                    logger.warning("Ecouteur websocket Plex inactif : activite temps reel desactivee ou Plex non configure")
+                    await _record(
+                        "websocket.idle",
+                        "warning",
+                        "Ecoute temps reel inactive : live_activity_enabled desactive ou URL/token Plex absent",
+                    )
                 await asyncio.sleep(_SETTINGS_RECHECK_INTERVAL)
                 continue
 
@@ -128,12 +167,28 @@ async def run_alert_listener() -> None:
 
             renew_task = asyncio.create_task(_renew_loop(token))
             try:
-                await _listen_once(settings)
+                await _listen_once(settings, _on_connected)
                 backoff = _BACKOFF_MIN
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("Websocket Plex déconnecté (%s), reconnexion dans %ss", exc, backoff)
+                failures += 1
+                logger.warning(
+                    "Websocket Plex deconnecte (%s), echec consecutif n%d, reconnexion dans %ss",
+                    exc,
+                    failures,
+                    backoff,
+                )
+                if failures >= _FAILURES_BEFORE_ALERT and reported != "failing":
+                    # Signalé une seule fois par série : l'utilisateur doit voir « ça ne
+                    # marche plus depuis un moment », pas une ligne toutes les minutes.
+                    reported = "failing"
+                    await _record(
+                        "websocket.failing",
+                        "error",
+                        f"Ecouteur websocket Plex en echec depuis {failures} tentatives: {exc}",
+                        {"plex_url": settings.plex_url, "derniere_erreur": str(exc)},
+                    )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, _BACKOFF_MAX)
             finally:
