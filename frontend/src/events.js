@@ -39,17 +39,31 @@ function ensureVisibilityListener() {
   });
 }
 
-export function useRealtime(types, callback) {
-  const listeners = types.map((type) => [`plexarr:${type}`, (event) => callback(type, event.detail)]);
-  const onVisible = () => callback();
+export function useRealtime(types, callback, { debounceMs = 120, refreshOnVisible = true } = {}) {
+  let timer;
+  let latestType;
+  let latestDetail;
+  const dispatch = (type, detail) => {
+    latestType = type;
+    latestDetail = detail;
+    if (!debounceMs) return callback(type, detail);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      callback(latestType, latestDetail);
+    }, debounceMs);
+  };
+  const listeners = types.map((type) => [`plexarr:${type}`, (event) => dispatch(type, event.detail)]);
+  const onVisible = () => callback(undefined, undefined);
   onMounted(() => {
     connectRealtime();
     ensureVisibilityListener();
     listeners.forEach(([name, listener]) => window.addEventListener(name, listener));
-    visibilityCallbacks.add(onVisible);
+    if (refreshOnVisible) visibilityCallbacks.add(onVisible);
   });
   onUnmounted(() => {
+    clearTimeout(timer);
     listeners.forEach(([name, listener]) => window.removeEventListener(name, listener));
-    visibilityCallbacks.delete(onVisible);
+    if (refreshOnVisible) visibilityCallbacks.delete(onVisible);
   });
 }

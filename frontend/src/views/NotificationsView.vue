@@ -32,7 +32,7 @@
 
   <TabNav :model-value="tab" :tabs="notificationTabs" aria-label="Notifications" @update:model-value="selectTab"/>
 
-  <FilterBar :active-count="activeFilterCount" :result-count="tab==='history'?total:rows.length" @reset="resetFilters">
+  <FilterBar :active-count="activeFilterCount" :result-count="total" @reset="resetFilters">
     <template #primary><input v-model="search" class="search" type="search" placeholder="Média, destinataire ou événement" aria-label="Rechercher dans les notifications"></template>
     <template #filters><div v-if="tab==='pending'&&rows.length" class="actions">
       <button class="secondary" :disabled="!selectedIds.length" @click="sendSelected"><Send/>Envoyer la sélection</button>
@@ -46,7 +46,7 @@
 
   <NotificationsTable ref="tableRef" :rows="rows" :tab="tab" :loading="loading" @resend="resend" @mark-handled="markHandled" @delete-one="deleteOne"/>
 
-  <div v-if="tab==='history'&&total>limit" class="pagination">
+  <div v-if="total>limit" class="pagination">
     <button class="secondary" :disabled="offset===0" @click="page(-1)"><ChevronLeft/>Precedent</button>
     <span>{{ offset+1 }}-{{ Math.min(offset+limit,total) }} sur {{ total }}</span>
     <button class="secondary" :disabled="offset+limit>=total" @click="page(1)">Suivant<ChevronRight/></button>
@@ -165,15 +165,13 @@ async function load() {
 
     const data = tab.value === 'history'
       ? await api(`/api/notifications/log?${q.toString()}`)
-      : await api('/api/notifications/pending');
+      : await api(`/api/notifications/pending?limit=${limit}&offset=${offset.value}`);
 
     rows.value = data.items || [];
     total.value = data.total || 0;
 
     if (tab.value === 'pending') {
       pendingTotal.value = data.total || 0;
-    } else {
-      api('/api/notifications/pending').then(x => pendingTotal.value = x.total).catch(() => {});
     }
   } catch(e) {
     error.value = e.message;
@@ -260,7 +258,12 @@ const debouncedSearch = useDebounced(() => {
 }, 300);
 watch(search, debouncedSearch);
 
-useRealtime(['notification.updated'], () => { loadHold(); load(); });
+useRealtime(['notification.updated'], () => {
+  // L'endpoint hold fournit deja le compteur de file : inutile de telecharger toute
+  // la file pending quand l'utilisateur consulte seulement l'historique.
+  loadHold();
+  load();
+}, { debounceMs: 250 });
 
 onMounted(() => {
   loadUsers();

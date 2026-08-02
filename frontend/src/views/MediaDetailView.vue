@@ -131,6 +131,8 @@ const tabs = computed(() => detail.value?.media_type === 'show'
   ? ['summary', 'audio', 'requests', 'calendar']
   : ['summary', 'requests', 'calendar']);
 const admin = ref(false);
+let loadGeneration = 0;
+let usersPromise;
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const showIssueForm = ref(false), showCorrectionForm = ref(false);
@@ -168,7 +170,7 @@ const { envelopeError, availabilityError, vfStatusError } = seasons;
 
 function tabLabel(value) { return ({ summary: 'Resume', audio: 'Saisons & épisodes', requests: 'Demandes', calendar: 'Calendrier' })[value]; }
 
-function mediaPath() {
+function mediaPath(core = false) {
   const id = route.params.id;
   if (kind.value === 'discover') {
     const p = new URLSearchParams();
@@ -176,15 +178,23 @@ function mediaPath() {
     if (route.query.id_type === 'tvdb') p.set('tvdb_id', id); else p.set('tmdb_id', id);
     return `/api/discover/detail?${p}`;
   }
-  if (kind.value === 'request') return `/api/media/detail?request_id=${id}`;
-  return `/api/media/detail?library_id=${id}`;
+  if (kind.value === 'request') return `/api/media/detail?request_id=${id}${core ? '&core=true' : ''}`;
+  return `/api/media/detail?library_id=${id}${core ? '&core=true' : ''}`;
 }
 
 async function loadUsers() {
-  try {
-    users.value = await api('/api/users');
-    correctionOptions.value = await api('/api/media/corrections/options');
-  } catch (e) {}
+  if (usersPromise) return usersPromise;
+  usersPromise = (async () => {
+    try {
+      const [userRows, options] = await Promise.all([
+        api('/api/users'),
+        api('/api/media/corrections/options'),
+      ]);
+      users.value = userRows;
+      correctionOptions.value = options;
+    } catch (e) {}
+  })();
+  return usersPromise;
 }
 
 async function loadAdminFlag() {
@@ -192,11 +202,19 @@ async function loadAdminFlag() {
 }
 
 async function load() {
+  const generation = ++loadGeneration;
   loading.value = true; error.value = '';
   seasons.reset();
+  usersPromise = undefined;
+  users.value = [];
+  correctionOptions.value = [];
   tab.value = 'summary';
   try {
-    const payload = await api(mediaPath());
+    // La fiche locale commence par une enveloppe DB minimale. Les jointures de
+    // demandes, l'historique, TMDB et le calendrier *arr arrivent ensuite sans
+    // retenir le hero derriere l'appel le plus lent.
+    const payload = await api(mediaPath(kind.value !== 'discover'));
+    if (generation !== loadGeneration) return;
     detail.value = kind.value === 'discover' ? payload : { ...payload.media, ...payload };
     if (kind.value === 'discover') {
       requesters.value = await api('/api/discover/requesters');
@@ -205,17 +223,31 @@ async function load() {
       const service = detail.value.media_type === 'show' ? 'sonarr' : 'radarr';
       folders.value = await api(`/api/${service}/folders`).catch(() => []);
     }
-  } catch (e) { error.value = e.message; } finally { loading.value = false; }
+  } catch (e) {
+    if (generation === loadGeneration) error.value = e.message;
+  } finally {
+    if (generation === loadGeneration) loading.value = false;
+  }
 
   if (kind.value !== 'discover') {
+    api(mediaPath()).then(payload => {
+      if (generation !== loadGeneration) return;
+      detail.value = {
+        ...detail.value,
+        ...(payload.media || {}),
+        ...payload,
+        media: payload.media || detail.value?.media,
+      };
+    }).catch(e => {
+      if (generation === loadGeneration) error.value = e.message;
+    });
     // Chaque appel se resout independamment -- l'enveloppe (rapide, TMDB) affiche
     // l'accordeon des qu'elle arrive, sans attendre disponibilite/VF (Sonarr/BDD),
     // qui completent ensuite les badges au fil de l'eau (voir mergedVfDetail).
     if (detail.value?.media_type === 'show') {
-      Promise.all([seasons.loadAll(), loadUsers(), loadAdminFlag()]).catch(() => {});
+      Promise.all([seasons.loadAll(), loadAdminFlag()]).catch(() => {});
     } else {
       seasons.loadMovieVf().catch(() => { envelopeError.value = true; });
-      loadUsers().catch(() => {});
       loadAdminFlag().catch(() => {});
     }
   } else {
@@ -237,7 +269,8 @@ function goBack() {
   else router.push('/library');
 }
 
-function openCorrection(scope, season, episode) {
+async function openCorrection(scope, season, episode) {
+  await loadUsers().catch(() => {});
   correctionForm.scope = scope;
   correctionForm.season_number = season;
   correctionForm.episode_number = episode;
@@ -291,6 +324,7 @@ async function sendCorrection(formPayload) {
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
+watch(tab, value => { if (value === 'requests') loadUsers().catch(() => {}); });
 watch(() => [route.params.kind, route.params.id, route.query.media_type, route.query.id_type], load);
 onMounted(load);
 </script>

@@ -25,8 +25,8 @@ async def _with_session(call: Callable) -> object:
         return await call(db)
 
 
-async def _compute_snapshot() -> dict:
-    calls: dict[str, Callable] = {
+def _snapshot_calls() -> dict[str, Callable]:
+    return {
         "counts": lambda db: metrics_api.stats_counts(db),
         "pending": lambda db: requests_api.list_pending_requests(db),
         "polls": lambda db: metrics_api.get_poll_history(limit=6, db=db),
@@ -38,10 +38,20 @@ async def _compute_snapshot() -> dict:
         "upcoming": lambda db: calendar_api.upcoming_releases(db=db, limit=8),
         "notifications": lambda db: notifications_api.list_notification_logs(limit=5, db=db),
     }
+
+
+async def _compute_snapshot(sections: set[str] | None = None) -> dict:
+    all_calls = _snapshot_calls()
+    calls = {
+        name: call for name, call in all_calls.items()
+        if sections is None or name in sections
+    }
     results = await asyncio.gather(
         *(_with_session(call) for call in calls.values()), return_exceptions=True
     )
-    payload: dict = {"next_poll": metrics_api.next_poll_info(), "errors": []}
+    payload: dict = {"errors": []}
+    if sections is None or "next_poll" in sections:
+        payload["next_poll"] = metrics_api.next_poll_info()
     for name, result in zip(calls, results):
         if isinstance(result, Exception):
             payload["errors"].append(name)
@@ -51,7 +61,14 @@ async def _compute_snapshot() -> dict:
 
 
 @router.get("/dashboard/snapshot")
-async def dashboard_snapshot(refresh: bool = Query(False)):
+async def dashboard_snapshot(
+    refresh: bool = Query(False),
+    sections: str | None = Query(None),
+):
+    if sections:
+        requested = {value.strip() for value in sections.split(",") if value.strip()}
+        allowed = set(_snapshot_calls()) | {"next_poll"}
+        return await _compute_snapshot(requested & allowed)
     if refresh:
         await cache.delete(_CACHE_KEY)
     return await cache.get_or_refresh(

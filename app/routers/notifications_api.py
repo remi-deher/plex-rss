@@ -474,10 +474,23 @@ async def update_notification_hold(body: NotificationHoldPayload, request: Reque
 
 
 @router.get("/notifications/pending")
-async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
+async def list_pending_notifications(
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db_async),
+):
+    effective_limit = min(max(limit, 1), 200)
+    effective_offset = max(offset, 0)
+    total = int(
+        (await db.execute(text("SELECT COUNT(*) FROM pending_notifications"))).scalar() or 0
+    )
     rows = (
         await db.execute(
-            text("SELECT id, created_at, event, req_id, recipients, reason FROM pending_notifications ORDER BY id DESC")
+            text(
+                "SELECT id, created_at, event, req_id, recipients, reason "
+                "FROM pending_notifications ORDER BY id DESC LIMIT :limit OFFSET :offset"
+            ),
+            {"limit": effective_limit, "offset": effective_offset},
         )
     ).fetchall()
     req_ids = []
@@ -522,7 +535,13 @@ async def list_pending_notifications(db: AsyncSession = Depends(get_db_async)):
                 "valid": is_valid,
             }
         )
-    return {"total": len(items), "invalid": invalid, "items": items}
+    return {
+        "total": total,
+        "offset": effective_offset,
+        "limit": effective_limit,
+        "invalid": invalid,
+        "items": items,
+    }
 
 
 async def _pending_rows_for_purge(db: AsyncSession, ids: list[int]) -> list:

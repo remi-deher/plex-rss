@@ -124,7 +124,11 @@ async def _run(
             await _log_job_run(name, started_at_naive, duration_ms, "complete", None)
         if event_type:
             public_signal = event_type in {"request.updated", "download.updated", "health.updated"}
-            await publish(event_type, {"source": "worker"}, admin_only=not public_signal)
+            await publish(
+                event_type,
+                {"source": "worker", "job": name},
+                admin_only=not public_signal,
+            )
         return state | {"result": result}
     except Exception as exc:
         duration_ms = (time.monotonic() - started) * 1000
@@ -359,7 +363,12 @@ async def job_plex_sync_recent(ctx: dict, force: bool = False):
         settings.plex_sync_recent_interval_minutes if settings and settings.plex_sync_recent_interval_minutes else 5
     )
     return await _run(
-        ctx, "plex-sync-recent", sync_plex_media_recent, force=force, interval_seconds=interval_minutes * 60
+        ctx,
+        "plex-sync-recent",
+        sync_plex_media_recent,
+        force=force,
+        interval_seconds=interval_minutes * 60,
+        event_type="request.updated",
     )
 
 

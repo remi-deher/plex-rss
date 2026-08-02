@@ -8,8 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..models import (
-    ArrInstance, LibraryItem, MediaIssue, MediaRequest, NotificationLog,
-    PlexUser, RequestSeasonStatus,
+    ArrInstance,
+    LibraryItem,
+    MediaIssue,
+    MediaRequest,
+    NotificationLog,
+    PlexUser,
+    RequestSeasonStatus,
 )
 from ..serializers import format_datetime, serialize_media_request
 from ..utils import async_get_or_404, wrap_image_proxy
@@ -17,6 +22,50 @@ from . import tmdb
 from .operational_projection import plex_library_projection
 
 logger = logging.getLogger(__name__)
+
+
+def _media_payload(
+    media_obj,
+    library_item: LibraryItem | None,
+    selected_request: MediaRequest | None,
+    operational: dict,
+    *,
+    arr_url: str | None,
+    backdrop_url: str | None = None,
+) -> dict:
+    return {
+        "kind": "library" if library_item else "request",
+        "library_id": library_item.id if library_item else None,
+        "request_id": selected_request.id if selected_request else None,
+        "vf_source_type": "library" if library_item else "request",
+        "vf_source_id": library_item.id if library_item else (
+            selected_request.id if selected_request else None
+        ),
+        "title": media_obj.title,
+        "year": media_obj.year,
+        "media_type": media_obj.media_type,
+        "poster_url": wrap_image_proxy(media_obj.poster_url),
+        "backdrop_url": wrap_image_proxy(backdrop_url),
+        "overview": media_obj.overview,
+        "has_vf": media_obj.has_vf,
+        "vf_granularity": media_obj.vf_granularity,
+        "arr_id": media_obj.arr_id,
+        "arr_slug": media_obj.arr_slug,
+        "arr_instance_id": media_obj.arr_instance_id,
+        "arr_url": arr_url,
+        "tmdb_id": media_obj.tmdb_id,
+        "tvdb_id": media_obj.tvdb_id,
+        "imdb_id": media_obj.imdb_id,
+        "plex_guid": media_obj.plex_guid,
+        "in_library": library_item is not None,
+        "added_at": format_datetime(library_item.added_at) if library_item else None,
+        "origin_kind": operational.get("origin_kind"),
+        "origin_label": operational.get("origin_label"),
+        "operational_status": operational.get("operational_status"),
+        "operational_status_label": operational.get("operational_status_label"),
+        "waiting_reason": operational.get("waiting_reason"),
+        "workflow_timeline": operational.get("workflow_timeline", []),
+    }
 
 
 async def build_media_detail(
@@ -27,6 +76,7 @@ async def build_media_detail(
     identity_filter: Callable[[AsyncSession, object], Awaitable[list[MediaRequest]]],
     schedule_payload: Callable[[AsyncSession, object], Awaitable[dict]],
     issue_serializer: Callable[[MediaIssue], dict],
+    core_only: bool = False,
 ) -> dict:
     """Fusionne DB, calendrier *arr et enrichissement TMDB pour l'endpoint de détail."""
     if not library_id and not request_id:
@@ -46,6 +96,29 @@ async def build_media_detail(
         if selected_request.library_item_id:
             library_item = await db.get(LibraryItem, selected_request.library_item_id)
         media_obj = library_item or selected_request
+
+    arr_url = None
+    if media_obj.arr_instance_id and media_obj.arr_slug:
+        instance = await db.get(ArrInstance, media_obj.arr_instance_id)
+        if instance:
+            entity = "movie" if media_obj.media_type == "movie" else "series"
+            arr_url = f"{instance.url.rstrip('/')}/{entity}/{media_obj.arr_slug}"
+
+    if core_only:
+        operational = (
+            serialize_media_request(selected_request, {})
+            if selected_request
+            else plex_library_projection()
+        )
+        return {
+            "media": _media_payload(
+                media_obj,
+                library_item,
+                selected_request,
+                operational,
+                arr_url=arr_url,
+            )
+        }
 
     related_requests = await identity_filter(db, media_obj)
     if selected_request and selected_request.id not in {row.id for row in related_requests}:
@@ -147,45 +220,18 @@ async def build_media_detail(
         except Exception as exc:
             logger.debug("TMDB backdrop unavailable: %s", exc)
 
-    arr_url = None
-    if media_obj.arr_instance_id and media_obj.arr_slug:
-        instance = await db.get(ArrInstance, media_obj.arr_instance_id)
-        if instance:
-            entity = "movie" if media_obj.media_type == "movie" else "series"
-            arr_url = f"{instance.url.rstrip('/')}/{entity}/{media_obj.arr_slug}"
-
     operational = request_payloads[0] if request_payloads else (
         plex_library_projection() if library_item else {}
     )
     return {
-        "media": {
-            "kind": "library" if library_item else "request",
-            "library_id": library_item.id if library_item else None,
-            "request_id": selected_request.id if selected_request else (
-                related_requests[0].id if related_requests else None
-            ),
-            "vf_source_type": "library" if library_item else "request",
-            "vf_source_id": library_item.id if library_item else (
-                selected_request.id if selected_request else None
-            ),
-            "title": media_obj.title, "year": media_obj.year,
-            "media_type": media_obj.media_type,
-            "poster_url": wrap_image_proxy(media_obj.poster_url),
-            "backdrop_url": wrap_image_proxy(backdrop_url),
-            "overview": media_obj.overview, "has_vf": media_obj.has_vf,
-            "vf_granularity": media_obj.vf_granularity, "arr_id": media_obj.arr_id,
-            "arr_slug": media_obj.arr_slug, "arr_instance_id": media_obj.arr_instance_id,
-            "arr_url": arr_url, "tmdb_id": media_obj.tmdb_id,
-            "tvdb_id": media_obj.tvdb_id, "imdb_id": media_obj.imdb_id,
-            "plex_guid": media_obj.plex_guid, "in_library": library_item is not None,
-            "added_at": format_datetime(library_item.added_at) if library_item else None,
-            "origin_kind": operational.get("origin_kind"),
-            "origin_label": operational.get("origin_label"),
-            "operational_status": operational.get("operational_status"),
-            "operational_status_label": operational.get("operational_status_label"),
-            "waiting_reason": operational.get("waiting_reason"),
-            "workflow_timeline": operational.get("workflow_timeline", []),
-        },
+        "media": _media_payload(
+            media_obj,
+            library_item,
+            selected_request or (related_requests[0] if related_requests else None),
+            operational,
+            arr_url=arr_url,
+            backdrop_url=backdrop_url,
+        ),
         "requests": request_payloads,
         "issues": [issue_serializer(issue) for issue in issues],
         "timeline": schedule["timeline"],

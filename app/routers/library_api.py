@@ -323,6 +323,7 @@ async def get_library_item(item_id: int, db: AsyncSession = Depends(get_db_async
 async def media_detail(
     library_id: Optional[int] = None,
     request_id: Optional[int] = None,
+    core: bool = False,
     db: AsyncSession = Depends(get_db_async),
 ):
     """Détail média unifié pour la modale Bibliothèque."""
@@ -335,6 +336,7 @@ async def media_detail(
         identity_filter=_media_identity_filter,
         schedule_payload=_media_schedule_payload,
         issue_serializer=_serialize_issue,
+        core_only=core,
     )
 
 @router.get("/library-metrics")

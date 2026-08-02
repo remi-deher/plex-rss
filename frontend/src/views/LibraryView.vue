@@ -268,6 +268,32 @@ function _requestListParams() {
   return p;
 }
 
+function applyRequestData(requests, stats) {
+  requestSummary.value = requests;
+  allRequestsRaw.value = requests.items || [];
+  pendingRequests.value = allRequestsRaw.value
+    .filter(x => !x.library_item_id || x.status === 'partially_available')
+    .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
+  rawMetrics.value = stats || {};
+  selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
+}
+
+function applyOrphans(orphanRows) {
+  const searchQuery = query.value.trim().toLowerCase();
+  const matching = searchQuery
+    ? orphanRows.filter(row => row.title?.toLowerCase().includes(searchQuery))
+    : orphanRows;
+  orphans.value = matching.map(x => ({ ...x, _kind: 'request' }));
+}
+
+async function refreshRequestData() {
+  const [requests, stats] = await Promise.all([
+    api(`/api/requests-list?${_requestListParams()}`),
+    api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`).catch(() => ({})),
+  ]);
+  applyRequestData(requests, stats);
+}
+
 async function load() {
   const { signal, isCurrent } = request.begin();
   const options = { signal };
@@ -302,26 +328,8 @@ async function load() {
     ]);
     if (!isCurrent()) return;
 
-    requestSummary.value = requests;
-    allRequestsRaw.value = requests.items || [];
-    const pending = allRequestsRaw.value
-      // Toute demande sans LibraryItem doit rester visible, MEME "disponible" : Radarr/
-      // Sonarr peut confirmer le telechargement (et declencher la notification) bien
-      // avant le prochain sync Plex (une fois par jour) qui cree reellement le
-      // LibraryItem -- sans ce filtre elargi, un media "disponible" mais pas encore
-      // synchronise disparaissait de la Bibliotheque jusqu'au sync suivant (jusqu'a 24h).
-      // Une demande partiellement disponible reste "en cours" meme une fois liee a un
-      // LibraryItem (library_item_id pose des qu'un episode est indexe), pour ne pas
-      // disparaitre avant d'etre reellement complete.
-      .filter(x => !x.library_item_id || x.status === 'partially_available')
-      .map(x => ({ ...x, _kind: 'request', poster_url: proxyUrl(x.poster_url) }));
-
-    const matchingOrphans = q ? orphanRows.filter(o => o.title?.toLowerCase().includes(q.toLowerCase())) : orphanRows;
-
-    pendingRequests.value = pending;
-    orphans.value = matchingOrphans.map(x => ({ ...x, _kind: 'request' }));
-    rawMetrics.value = stats;
-    selectedIds.value = selectedIds.value.filter(id => items.value.some(x => x.id === id));
+    applyRequestData(requests, stats);
+    applyOrphans(orphanRows);
   } catch (e) {
     if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   }
@@ -415,7 +423,12 @@ async function runUtility(path) {
   }
 }
 
-useRealtime(['request.updated'], load);
+useRealtime(['request.updated'], (type, event) => {
+  if (!type || ['plex-sync', 'plex-sync-recent'].includes(event?.job) || event?.library_changed) {
+    return load();
+  }
+  return refreshRequestData().catch(() => {});
+});
 // Filet de securite si le flux SSE se perd ; le garde de visibilite de usePolling evite
 // de rafraichir un onglet en arriere-plan (ce que l'ancien setInterval nu faisait).
 usePolling(load, 120000);

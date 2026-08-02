@@ -181,6 +181,28 @@ async function triggerPlexSync() {
   try { await api('/api/vff/sync-plex', { method: 'POST' }); await loadVffStatus(); } catch (e) { error.value = e.message; }
 }
 
+function applyDashboardSnapshot(snapshot) {
+  const assignments = [
+    ['counts', counts], ['pending', pending], ['polls', polls],
+    ['timeline', timeline], ['by_user', byUser], ['onboarding', onboarding],
+    ['next_poll', nextPoll], ['top_requested', topRequested],
+    ['recently_available', recentlyAvailable], ['upcoming', upcoming],
+  ];
+  assignments.forEach(([key, target]) => {
+    if (snapshot[key] !== undefined) target.value = snapshot[key];
+  });
+  if (snapshot.notifications !== undefined) {
+    recentNotifs.value = snapshot.notifications?.items ?? snapshot.notifications ?? [];
+  }
+  seconds.value = nextPoll.value?.next_run_seconds ?? null;
+  updatedAt.value = Date.now();
+}
+
+async function loadDashboardSections(sections) {
+  const snapshot = await api(`/api/dashboard/snapshot?sections=${sections.join(',')}`);
+  applyDashboardSnapshot(snapshot);
+}
+
 async function load() {
   if (loading.value) return;
   loading.value = true;
@@ -188,22 +210,11 @@ async function load() {
   const failures = [];
   try {
     const snapshot = await api('/api/dashboard/snapshot');
-    const assignments = [
-      ['counts', counts], ['pending', pending], ['polls', polls],
-      ['timeline', timeline], ['by_user', byUser], ['onboarding', onboarding],
-      ['next_poll', nextPoll], ['top_requested', topRequested],
-      ['recently_available', recentlyAvailable], ['upcoming', upcoming],
-    ];
-    assignments.forEach(([key, target]) => {
-      if (snapshot[key] !== undefined) target.value = snapshot[key];
-    });
-    recentNotifs.value = snapshot.notifications?.items ?? snapshot.notifications ?? [];
+    applyDashboardSnapshot(snapshot);
     if (snapshot.errors?.length) failures.push(...snapshot.errors);
   } catch (e) {
     failures.push('snapshot du tableau de bord');
   }
-  seconds.value = nextPoll.value?.next_run_seconds ?? null;
-
   // Les donnees externes completent la vue au fil de l'eau et ne retardent jamais le
   // premier affichage du snapshot local.
   api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
@@ -239,7 +250,17 @@ async function action(row, type) {
   } catch (e) { error.value = e.message; }
 }
 
-useRealtime(['request.updated'], load);
+useRealtime(['request.updated'], (type) => {
+  if (!type) return load();
+  return loadDashboardSections([
+    'counts', 'pending', 'timeline', 'by_user', 'top_requested',
+    'recently_available', 'upcoming', 'next_poll',
+  ]).catch(() => {});
+});
+useRealtime(['download.updated'], (type) => type ? loadDownloadQueue().catch(() => {}) : load());
+useRealtime(['notification.updated'], (type) => type
+  ? loadDashboardSections(['notifications']).catch(() => {})
+  : load());
 useRealtime(['activity.updated'], () => loadLiveActivity().catch(() => {}));
 
 // Compte a rebours et horloge : locaux, ils doivent avancer meme onglet masque pour que

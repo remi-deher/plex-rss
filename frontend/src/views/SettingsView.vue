@@ -26,31 +26,31 @@
     <EmailTemplatesPanel v-else-if="tab==='templates'"/>
     <GdprTab v-else-if="tab==='privacy'"/>
     <DataTab v-else/>
-    <FormSaveBar v-if="tab!=='templates'" :dirty="isDirty" :saving="saving" @save="save"/>
+    <FormSaveBar v-if="!standaloneTabs.has(tab)" :dirty="isDirty" :saving="saving" @save="save"/>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
 </template>
 <script setup>
-import { computed, markRaw, onMounted, onUnmounted, ref } from 'vue';
+import { computed, defineAsyncComponent, markRaw, onMounted, onUnmounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, Search, ServerCog, ShieldCheck } from '@lucide/vue';
 import SettingsOverview from '@/components/settings/SettingsOverview.vue';
-import EmailTemplatesPanel from '@/components/EmailTemplatesPanel.vue';
-import SettingsOperationsPanel from '@/components/SettingsOperationsPanel.vue';
-import ConnectionsTab from '@/components/settings/ConnectionsTab.vue';
-import WebhooksTab from '@/components/settings/WebhooksTab.vue';
-import NotificationsChannelsTab from '@/components/settings/NotificationsChannelsTab.vue';
-import NotificationsRulesTab from '@/components/settings/NotificationsRulesTab.vue';
-import LibraryTab from '@/components/settings/LibraryTab.vue';
-import DownloadsTab from '@/components/settings/DownloadsTab.vue';
-import ScheduledTasksTab from '@/components/settings/ScheduledTasksTab.vue';
-import DataTab from '@/components/settings/DataTab.vue';
-import GdprTab from '@/components/settings/GdprTab.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
 import { load, save, saving, error, message, isDirty } from '@/settingsForm';
 
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
+const ConnectionsTab = defineAsyncComponent(() => import('@/components/settings/ConnectionsTab.vue'));
+const WebhooksTab = defineAsyncComponent(() => import('@/components/settings/WebhooksTab.vue'));
+const NotificationsChannelsTab = defineAsyncComponent(() => import('@/components/settings/NotificationsChannelsTab.vue'));
+const NotificationsRulesTab = defineAsyncComponent(() => import('@/components/settings/NotificationsRulesTab.vue'));
+const LibraryTab = defineAsyncComponent(() => import('@/components/settings/LibraryTab.vue'));
+const DownloadsTab = defineAsyncComponent(() => import('@/components/settings/DownloadsTab.vue'));
+const ScheduledTasksTab = defineAsyncComponent(() => import('@/components/settings/ScheduledTasksTab.vue'));
+const SettingsOperationsPanel = defineAsyncComponent(() => import('@/components/SettingsOperationsPanel.vue'));
+const EmailTemplatesPanel = defineAsyncComponent(() => import('@/components/EmailTemplatesPanel.vue'));
+const GdprTab = defineAsyncComponent(() => import('@/components/settings/GdprTab.vue'));
+const DataTab = defineAsyncComponent(() => import('@/components/settings/DataTab.vue'));
 
 const tabs = [
   { key: 'overview', label: 'Vue d’ensemble', icon: markRaw(ServerCog) },
@@ -73,6 +73,16 @@ const tabGroups=[
 ];
 const route=useRoute(),router=useRouter();
 const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'overview');
+const standaloneTabs = new Set(['operations', 'templates']);
+let settingsLoadPromise;
+function ensureSettingsLoaded(value = tab.value) {
+  if (standaloneTabs.has(value)) return Promise.resolve();
+  if (!settingsLoadPromise) settingsLoadPromise = load().catch(error => {
+    settingsLoadPromise = undefined;
+    throw error;
+  });
+  return settingsLoadPromise;
+}
 const currentTabLabel = computed(() => tabs.find(item => item.key === tab.value)?.label || 'Vue d’ensemble');
 const sectionSearch=ref('');
 const filteredTabs=computed(()=>{const query=sectionSearch.value.trim().toLowerCase();return query?tabs.filter(item=>`${item.label} ${groupFor(item.key)}`.toLowerCase().includes(query)):[]});
@@ -86,7 +96,8 @@ onBeforeRouteUpdate(()=>!isDirty.value||askConfirm({title:'Changer de section sa
 onMounted(()=>window.addEventListener('beforeunload',warnUnsaved));
 onUnmounted(()=>window.removeEventListener('beforeunload',warnUnsaved));
 
-onMounted(load);
+watch(tab, value => ensureSettingsLoaded(value).catch(() => {}));
+onMounted(() => ensureSettingsLoaded().catch(() => {}));
 </script>
 <style scoped>
 .settings-section-select{display:none;gap:6px;color:var(--muted);font-size:12px}.settings-section-select select{width:100%}

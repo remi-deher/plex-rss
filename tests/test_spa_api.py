@@ -5,7 +5,15 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async
 from app.dependencies import require_admin, require_auth
 from app.main import app
-from app.models import ArrInstance, DownloadClient, LibraryItem, MediaRequest, RequestStatus, Settings
+from app.models import (
+    ArrInstance,
+    DownloadClient,
+    LibraryItem,
+    MediaRequest,
+    PendingNotification,
+    RequestStatus,
+    Settings,
+)
 from app.routers import arr_shared
 from app.services.email_service import DEFAULT_HEADER_BRAND, DEFAULT_REQUEST_TEMPLATE
 
@@ -96,6 +104,28 @@ def test_spa_notification_feeds_are_async(async_db):
         assert activity.json() == []
         assert pending.status_code == 200
         assert pending.json()["items"] == []
+    finally:
+        _cleanup()
+
+
+def test_pending_notifications_are_paginated(async_db):
+    request = MediaRequest(
+        plex_user_id="alice", title="Dune", media_type="movie", status=RequestStatus.pending
+    )
+    async_db.add(request)
+    async_db.flush()
+    async_db.add_all([
+        PendingNotification(event="request", req_id=request.id, recipients="[]", reason="{}")
+        for _ in range(3)
+    ])
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get("/api/notifications/pending?limit=2&offset=1")
+        assert response.status_code == 200
+        assert response.json()["total"] == 3
+        assert response.json()["offset"] == 1
+        assert len(response.json()["items"]) == 2
     finally:
         _cleanup()
 
@@ -206,6 +236,28 @@ def test_spa_media_detail_matches_requests_by_title(async_db):
         response = client.get(f"/api/media/detail?library_id={item.id}")
         assert response.status_code == 200
         assert response.json()["requests"][0]["id"] == request.id
+    finally:
+        _cleanup()
+
+
+def test_spa_media_detail_core_skips_slow_enrichment(async_db):
+    item = LibraryItem(title="Arrival", media_type="movie", year=2016, tmdb_id="329865")
+    async_db.add(item)
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        with (
+            patch("app.routers.library_api._media_identity_filter", new=AsyncMock()) as identity,
+            patch("app.routers.library_api._media_schedule_payload", new=AsyncMock()) as schedule,
+            patch("app.services.media_detail.tmdb.detail", new=AsyncMock()) as tmdb_detail,
+        ):
+            response = client.get(f"/api/media/detail?library_id={item.id}&core=true")
+        assert response.status_code == 200
+        assert response.json()["media"]["title"] == "Arrival"
+        assert set(response.json()) == {"media"}
+        identity.assert_not_awaited()
+        schedule.assert_not_awaited()
+        tmdb_detail.assert_not_awaited()
     finally:
         _cleanup()
 
