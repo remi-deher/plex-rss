@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from base64 import b64decode, b64encode
 from contextlib import asynccontextmanager
 from urllib.parse import quote
@@ -41,30 +42,31 @@ from .routers import (
     activity_api,
     api_v1,
     arr_instances_api,
-    download_clients_api,
-    prowlarr_api,
-    arr_releases_api,
     arr_queue_api,
-    manual_import_api,
-    downloads_api,
+    arr_releases_api,
     auth,
     calendar_api,
+    conflicts_api,
     corrections_api,
+    dashboard_api,
     discover_api,
+    download_clients_api,
+    downloads_api,
     email_providers_api,
     email_templates,
     events_api,
+    i18n_api,
+    image_proxy_api,
     importexport,
     issues_api,
-    library_api,
     library_analytics_api,
+    library_api,
     maintenance,
+    manual_import_api,
     metrics_api,
-    image_proxy_api,
-    onboarding_api,
-    conflicts_api,
-    i18n_api,
     notifications_api,
+    onboarding_api,
+    prowlarr_api,
     requests_api,
     scheduled_tasks_api,
     security_api,
@@ -130,7 +132,11 @@ async def lifespan(app: FastAPI):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        started_at = time.perf_counter()
         response = await call_next(request)
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        response.headers["Server-Timing"] = f'app;dur={duration_ms:.1f}'
+        response.headers["X-Response-Time-Ms"] = f"{duration_ms:.1f}"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -160,13 +166,45 @@ async def _sync_session_role(plex_user_id: str | None, username: str | None) -> 
     finally:
         await db.close()
 
+_role_cache: dict[str, tuple[float, dict | None]] = {}
+_role_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _cached_session_role(plex_user_id: str | None, username: str | None, ttl: int) -> dict | None:
+    """Dedoublonne aussi les rafales du premier affichage d'une page."""
+    key = plex_user_id or username or ""
+    cached = _role_cache.get(key)
+    now = time.monotonic()
+    if cached and now - cached[0] < ttl:
+        return cached[1]
+    lock = _role_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = _role_cache.get(key)
+        now = time.monotonic()
+        if cached and now - cached[0] < ttl:
+            return cached[1]
+        value = await _sync_session_role(plex_user_id, username)
+        _role_cache[key] = (now, value)
+        return value
+
+
 class SessionSyncMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        if request.session.get("authenticated"):
+        # Les droits sont resynchronises periodiquement, pas sur chaque ressource/API.
+        # Une page comme le dashboard emet plusieurs appels concurrents : auparavant,
+        # chacun ajoutait inutilement une lecture PostgreSQL. Le delai reste court afin
+        # qu'une revocation de droits prenne effet rapidement.
+        now = int(time.time())
+        ttl = max(5, int(os.getenv("SESSION_ROLE_SYNC_TTL_SECONDS", "60")))
+        last_sync = int(request.session.get("role_synced_at") or 0)
+        if request.session.get("authenticated") and now - last_sync >= ttl:
             try:
-                result = await _sync_session_role(request.session.get("plex_user_id"), request.session.get("username"))
+                result = await _cached_session_role(
+                    request.session.get("plex_user_id"), request.session.get("username"), ttl
+                )
                 if result:
                     request.session.update(result)
+                    request.session["role_synced_at"] = now
             except Exception:
                 pass
         return await call_next(request)
@@ -298,6 +336,7 @@ app.include_router(users_api.router)
 app.include_router(security_api.router)
 app.include_router(requests_api.router)
 app.include_router(calendar_api.router)
+app.include_router(dashboard_api.router)
 app.include_router(library_api.router)
 app.include_router(library_analytics_api.router)
 app.include_router(issues_api.router)

@@ -260,12 +260,9 @@ async def list_library(
     en incrementant `offset` (voir LibraryView.vue) plutot que de tout charger d'un coup —
     necessaire des que la bibliotheque depasse quelques centaines de medias.
     """
-    stmt = (
-        select(LibraryItem, sqlalchemy.func.max(PlexUser.custom_name), sqlalchemy.func.max(MediaRequest.plex_user), sqlalchemy.func.max(MediaRequest.plex_user_id))
-        .outerjoin(MediaRequest, MediaRequest.library_item_id == LibraryItem.id)
-        .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
-        .group_by(LibraryItem.id)
-    )
+    # Paginer d'abord la table principale. L'ancienne jointure + GROUP BY devait
+    # agréger toute la bibliothèque avant d'appliquer LIMIT, ce qui se dégradait vite.
+    stmt = select(LibraryItem)
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
     if media_type in ("movie", "show"):
@@ -276,25 +273,40 @@ async def list_library(
             .offset(max(offset, 0))
             .limit(min(limit, 500))
         )
-    ).all()
+    ).scalars().all()
+    requester_by_library: dict[int, tuple[Optional[str], Optional[str], Optional[str]]] = {}
+    item_ids = [item.id for item in items]
+    if item_ids:
+        requester_rows = (await db.execute(
+            select(
+                MediaRequest.library_item_id,
+                sqlalchemy.func.max(PlexUser.custom_name),
+                sqlalchemy.func.max(MediaRequest.plex_user),
+                sqlalchemy.func.max(MediaRequest.plex_user_id),
+            )
+            .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
+            .filter(MediaRequest.library_item_id.in_(item_ids))
+            .group_by(MediaRequest.library_item_id)
+        )).all()
+        requester_by_library = {row[0]: (row[1], row[2], row[3]) for row in requester_rows}
     return [
         {
-            "id": row[0].id,
-            "title": row[0].title,
-            "year": row[0].year,
-            "media_type": row[0].media_type,
-            "poster_url": wrap_image_proxy(row[0].poster_url),
-            "overview": row[0].overview,
-            "has_vf": row[0].has_vf,
-            "vf_granularity": row[0].vf_granularity,
-            "arr_instance_id": row[0].arr_instance_id,
-            "arr_id": row[0].arr_id,
-            "added_at": row[0].added_at.isoformat() if row[0].added_at else None,
-            "custom_name": row[1],
-            "plex_user": row[2],
-            "plex_user_id": row[3],
+            "id": item.id,
+            "title": item.title,
+            "year": item.year,
+            "media_type": item.media_type,
+            "poster_url": wrap_image_proxy(item.poster_url),
+            "overview": item.overview,
+            "has_vf": item.has_vf,
+            "vf_granularity": item.vf_granularity,
+            "arr_instance_id": item.arr_instance_id,
+            "arr_id": item.arr_id,
+            "added_at": item.added_at.isoformat() if item.added_at else None,
+            "custom_name": requester_by_library.get(item.id, (None, None, None))[0],
+            "plex_user": requester_by_library.get(item.id, (None, None, None))[1],
+            "plex_user_id": requester_by_library.get(item.id, (None, None, None))[2],
         }
-        for row in items
+        for item in items
     ]
 
 
@@ -328,69 +340,79 @@ async def media_detail(
 @router.get("/library-metrics")
 async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = Depends(get_db_async)):
     """Compteurs rapides de la bibliotheque, exploitables par une UI ou un dashboard."""
-    lib_q = select(LibraryItem)
-    req_q = select(MediaRequest)
+    from sqlalchemy import case, func
+
+    lib_filter = []
+    req_filter = []
     if media_type in ("movie", "show"):
-        lib_q = lib_q.filter(LibraryItem.media_type == media_type)
-        req_q = req_q.filter(MediaRequest.media_type == media_type)
+        lib_filter.append(LibraryItem.media_type == media_type)
+        req_filter.append(MediaRequest.media_type == media_type)
 
-    library_items = (await db.execute(lib_q)).scalars().all()
-    requests = (await db.execute(req_q)).scalars().all()
+    lib = (await db.execute(
+        select(
+            func.count(LibraryItem.id),
+            func.sum(case((LibraryItem.media_type == "movie", 1), else_=0)),
+            func.sum(case((LibraryItem.media_type == "show", 1), else_=0)),
+            func.sum(case((LibraryItem.has_vf.is_(True), 1), else_=0)),
+            func.sum(case((LibraryItem.has_vf.is_(False), 1), else_=0)),
+            func.sum(case((LibraryItem.has_vf.is_(None), 1), else_=0)),
+            func.sum(case((sqlalchemy.and_(LibraryItem.has_vf.is_(False), LibraryItem.vf_granularity == "season_partial"), 1), else_=0)),
+            func.sum(case((sqlalchemy.and_(LibraryItem.has_vf.is_(False), LibraryItem.vf_granularity == "episode_partial"), 1), else_=0)),
+        ).filter(*lib_filter)
+    )).one()
 
-    def _lib_count(predicate) -> int:
-        return sum(1 for item in library_items if predicate(item))
-
-    library_ids = [item.id for item in library_items]
-    secondary_rows = []
-    if library_ids:
-        secondary_rows = (
-            await db.execute(
-                select(VfEpisodeStatus).filter(
-                    VfEpisodeStatus.source_type == "library_item",
-                    VfEpisodeStatus.source_id.in_(library_ids),
-                    VfEpisodeStatus.has_vf.is_(True),
-                    VfEpisodeStatus.fr_is_default.is_(False),
-                )
-            )
-        ).scalars().all()
-    secondary_media_ids = {row.source_id for row in secondary_rows}
-
+    request_total = (await db.execute(
+        select(func.count(MediaRequest.id)).filter(*req_filter)
+    )).scalar() or 0
+    status_rows = (await db.execute(
+        select(MediaRequest.status, func.count(MediaRequest.id)).filter(*req_filter).group_by(MediaRequest.status)
+    )).all()
     status_counts = {"failed": 0, "pending": 0, "sent_to_arr": 0, "available": 0}
-    for req in requests:
-        status = req.status.value if hasattr(req.status, "value") else req.status
-        if status in status_counts:
-            status_counts[status] += 1
+    for status, count in status_rows:
+        key = status.value if hasattr(status, "value") else status
+        if key in status_counts:
+            status_counts[key] = count
 
-    plex_anomaly = sum(
-        1
-        for req in requests
-        if (req.status.value if hasattr(req.status, "value") else req.status) == "available"
-        and not req.library_item_id
-        and not req.is_downloading
-    )
+    plex_anomaly = (await db.execute(
+        select(func.count(MediaRequest.id)).filter(
+            *req_filter,
+            MediaRequest.status == "available",
+            MediaRequest.library_item_id.is_(None),
+            MediaRequest.is_downloading.is_not(True),
+        )
+    )).scalar() or 0
+
+    secondary = (await db.execute(
+        select(func.count(func.distinct(VfEpisodeStatus.source_id)), func.count(VfEpisodeStatus.id))
+        .join(LibraryItem, LibraryItem.id == VfEpisodeStatus.source_id)
+        .filter(
+            VfEpisodeStatus.source_type == "library_item",
+            VfEpisodeStatus.has_vf.is_(True),
+            VfEpisodeStatus.fr_is_default.is_(False),
+            *lib_filter,
+        )
+    )).one()
 
     return {
         "media_type": media_type if media_type in ("movie", "show") else "all",
-        "total": len(library_items),
+        "total": lib[0] or 0,
         "by_type": {
-            "movie": _lib_count(lambda item: item.media_type == "movie"),
-            "show": _lib_count(lambda item: item.media_type == "show"),
+            "movie": lib[1] or 0,
+            "show": lib[2] or 0,
         },
         "vf": {
-            "complete": _lib_count(lambda item: item.has_vf is True),
-            "pending": _lib_count(lambda item: item.has_vf is False),
-            "unchecked": _lib_count(lambda item: item.has_vf is None),
-            "season_partial": _lib_count(lambda item: item.has_vf is False and item.vf_granularity == "season_partial"),
-            "episode_partial": _lib_count(
-                lambda item: item.has_vf is False and item.vf_granularity == "episode_partial"
-            ),
+            "complete": lib[3] or 0,
+            "pending": lib[4] or 0,
+            "unchecked": lib[5] or 0,
+            "season_partial": lib[6] or 0,
+            "episode_partial": lib[7] or 0,
             "secondary_default": {
-                "media": len(secondary_media_ids),
-                "episodes": len(secondary_rows),
+                "media": secondary[0] or 0,
+                "episodes": secondary[1] or 0,
             },
         },
         "requests": {
-            "total": len(requests),
+            "total": request_total,
             "by_status": status_counts,
         },
         "plex_anomaly": plex_anomaly,

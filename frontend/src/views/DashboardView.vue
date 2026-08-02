@@ -185,37 +185,30 @@ async function load() {
   if (loading.value) return;
   loading.value = true;
   error.value = '';
-  const results = await Promise.allSettled([
-    api('/api/stats/counts'),
-    api('/api/requests/pending'),
-    api('/api/poll-history?limit=6'),
-    api('/api/stats/timeline'),
-    api('/api/stats/by-user'),
-    api('/api/onboarding'),
-    api('/api/next-poll'),
-    api('/api/stats/top-requested'),
-    api('/api/stats/recently-available'),
-    api('/api/upcoming?limit=8'),
-    api('/api/notifications/log?limit=5'),
-    api('/api/playback/live'),
-  ]);
-  const refs = [counts, pending, polls, timeline, byUser, onboarding, nextPoll, topRequested, recentlyAvailable, upcoming, null, liveActivity];
-  results.forEach((r, i) => {
-    if (r.status === 'fulfilled' && refs[i]) refs[i].value = r.value;
-  });
-  const failedLabels = ['compteurs','approbations','historique des tâches','activité','utilisateurs','configuration','prochaine vérification','médias demandés','disponibilités récentes','sorties à venir','notifications','lectures Plex'];
-  const failures = results.flatMap((result, index) => result.status === 'rejected' ? [failedLabels[index]] : []);
-  if (results[10].status === 'fulfilled') {
-    recentNotifs.value = results[10].value?.items ?? results[10].value ?? [];
+  const failures = [];
+  try {
+    const snapshot = await api('/api/dashboard/snapshot');
+    const assignments = [
+      ['counts', counts], ['pending', pending], ['polls', polls],
+      ['timeline', timeline], ['by_user', byUser], ['onboarding', onboarding],
+      ['next_poll', nextPoll], ['top_requested', topRequested],
+      ['recently_available', recentlyAvailable], ['upcoming', upcoming],
+    ];
+    assignments.forEach(([key, target]) => {
+      if (snapshot[key] !== undefined) target.value = snapshot[key];
+    });
+    recentNotifs.value = snapshot.notifications?.items ?? snapshot.notifications ?? [];
+    if (snapshot.errors?.length) failures.push(...snapshot.errors);
+  } catch (e) {
+    failures.push('snapshot du tableau de bord');
   }
   seconds.value = nextPoll.value?.next_run_seconds ?? null;
 
-  // Espace disque : interroge Sonarr/Radarr en direct (mis en cache stale-while-
-  // revalidate cote backend, voir metrics_api.py) -- ne doit jamais bloquer le reste
-  // du dashboard (requetes DB rapides ci-dessus), donc chargee separement, sans attendre.
+  // Les donnees externes completent la vue au fil de l'eau et ne retardent jamais le
+  // premier affichage du snapshot local.
   api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
-
-  try { await loadDownloadQueue(); } catch { failures.push('file de téléchargement'); }
+  loadDownloadQueue().catch(() => {});
+  loadLiveActivity().catch(() => {});
   updatedAt.value = Date.now();
   error.value = failures.length ? `Données indisponibles : ${failures.join(', ')}.` : '';
   loading.value = false;
