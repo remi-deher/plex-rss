@@ -1,6 +1,6 @@
 <template>
   <div class="media-artwork" :class="size">
-    <img v-if="src && !failed" :src="src" :alt="alt" loading="lazy" @error="failed=true">
+    <img v-if="src && !failed" :src="src" :alt="alt" loading="lazy" decoding="async" @error="failed=true">
     <component :is="fallbackIcon" v-else />
   </div>
 </template>

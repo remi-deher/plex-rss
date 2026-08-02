@@ -50,6 +50,7 @@ from .notifications import (
 )
 from .playback import (
     LibraryAnalyticsSnapshot,
+    PlaybackDailyAggregate,
     PlaybackSession,
 )
 from .settings import (
@@ -84,6 +85,7 @@ __all__ = [
     "NotificationMilestone",
     "PasskeyCredential",
     "PendingNotification",
+    "PlaybackDailyAggregate",
     "PlaybackSession",
     "PlexUser",
     "PollHistory",

@@ -7,12 +7,12 @@ from sqlalchemy import select
 from app.database import get_db_async
 from app.dependencies import require_admin
 from app.main import app
-from app.models import PlaybackSession, Settings
+from app.models import PlaybackDailyAggregate, PlaybackSession, Settings
 from app.services import playback_activity
 from app.services.playback_activity import (
+    _analytics,
     _collect_plex_activity_unlocked,
     _deduplicate_plex_sessions,
-    _analytics,
     _masked_ip,
     _miss_counts,
     _playback_method,
@@ -258,6 +258,38 @@ def test_activity_endpoint_returns_snapshot(client):
         response = client.get("/api/playback?days=7")
     assert response.status_code == 200
     assert response.json() == payload
+
+
+def test_statistics_builds_and_uses_daily_aggregates(client, async_db):
+    from app.utils import now_utc_naive
+
+    async_db.add(
+        PlaybackSession(
+            source_session_id="daily-aggregate",
+            title="Film agrégé",
+            user_name="Rémi",
+            media_type="movie",
+            playback_method="transcode",
+            watched_ms=3_600_000,
+            started_at=now_utc_naive(),
+            last_seen_at=now_utc_naive(),
+            ended_at=now_utc_naive(),
+        )
+    )
+    async_db.commit()
+
+    response = client.get("/api/playback/statistics?days=7")
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == {
+        "sessions": 1,
+        "watch_ms": 3_600_000,
+        "users": 1,
+        "transcodes": 1,
+        "transcode_rate": 100.0,
+    }
+    aggregate = async_db.query(PlaybackDailyAggregate).one()
+    assert aggregate.media_label == "Film agrégé"
 
 
 def test_activity_refresh_reports_plex_failure(client):

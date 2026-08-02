@@ -168,6 +168,9 @@ def wrap_image_proxy(url: str | None) -> str | None:
     has_local_ip = any(ip in url for ip in (".192.", ".168.", ".10.", ".127.", "192.168.", "10.0.", "127.0."))
     if url.startswith("http://") or (url.startswith("https://") and has_local_ip):
         import urllib.parse
-        return f"/api/image-proxy?url={urllib.parse.quote_plus(url)}"
+        return (
+            f"/api/image-proxy?url={urllib.parse.quote_plus(url)}"
+            "&width=500&quality=82&format=webp"
+        )
 
     return url

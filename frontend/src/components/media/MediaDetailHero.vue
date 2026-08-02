@@ -5,7 +5,7 @@
       <button class="mdh-back icon-button" title="Retour" aria-label="Retour" @click="$emit('back')"><ArrowLeft /></button>
       <div class="mdh-row">
         <div class="mdh-poster">
-          <img v-if="detail.poster_url" :src="detail.poster_url" alt="">
+          <img v-if="detail.poster_url" :src="detail.poster_url" alt="" decoding="async">
           <div v-else class="mdh-poster-fallback"><Film /></div>
         </div>
         <div class="mdh-info">

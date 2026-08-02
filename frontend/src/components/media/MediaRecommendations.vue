@@ -3,7 +3,7 @@
     <h3>Recommandations</h3>
     <div class="mini-media-grid">
       <button v-for="item in items" :key="`${item.media_type}:${item.tmdb_id}`" @click="$emit('open',item)">
-        <img v-if="item.poster_url" :src="item.poster_url" alt="">
+        <img v-if="item.poster_url" :src="item.poster_url" alt="" loading="lazy" decoding="async">
         <span>{{ item.title }}</span>
       </button>
     </div>

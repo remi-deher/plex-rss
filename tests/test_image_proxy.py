@@ -1,9 +1,11 @@
 """Tests unitaires pour /api/image-proxy et son cache disque (app/routers/image_proxy_api.py)."""
 
+from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.database import get_db_async as get_db
 from app.dependencies import require_auth
@@ -33,6 +35,12 @@ def _resp(status_code=200, content=b"fake-image-bytes", content_type="image/jpeg
     r.headers = {"content-type": content_type}
     r.raise_for_status = MagicMock()
     return r
+
+
+def _png(width=1200, height=800):
+    output = BytesIO()
+    Image.new("RGB", (width, height), "#336699").save(output, format="PNG")
+    return output.getvalue()
 
 
 def _fake_httpx_client(resp=None, side_effect=None):
@@ -160,5 +168,26 @@ def test_image_proxy_rejects_non_image_content_type(cache_dir, async_db):
         with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
             resp = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
         assert resp.status_code == 415
+    finally:
+        _cleanup()
+
+
+@pytest.mark.parametrize("image_format", ["webp", "avif"])
+def test_image_proxy_creates_cached_thumbnail(cache_dir, async_db, image_format):
+    client = _client(async_db)
+    fake = _fake_httpx_client(resp=_resp(content=_png(), content_type="image/png"))
+    url = f"/api/image-proxy?url=http://plex.local/poster.png&width=300&format={image_format}"
+    try:
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
+            first = client.get(url)
+            second = client.get(url, headers={"If-None-Match": first.headers["etag"]})
+        assert first.status_code == 200
+        assert first.headers["content-type"].startswith(f"image/{image_format}")
+        with Image.open(BytesIO(first.content)) as image:
+            assert image.width == 300
+            assert image.height == 200
+        assert second.status_code == 304
+        fake.get.assert_awaited_once()
+        assert len(list(cache_dir.glob("*.bin"))) == 2  # original + variante WebP
     finally:
         _cleanup()

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession as SqlSession
 from sqlalchemy.future import select
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import Session
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -142,6 +143,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        return response
+
+
+class CacheControlledStaticFiles(StaticFiles):
+    """Cache long pour les chunks Vite hashés, revalidation pour le shell SPA."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if path.startswith("assets/") or "/assets/" in scope.get("path", ""):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
 async def _sync_session_role(plex_user_id: str | None, username: str | None) -> dict | None:
@@ -315,12 +328,13 @@ async def get_open_api_endpoint(request: Request, db: SqlSession = Depends(get_d
     return get_openapi(title="Plexarr", version="1.0.0", routes=app.routes)
 
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.add_middleware(SessionSyncMiddleware)
 # Middleware de session (doit être ajouté avant les routers)
 app.add_middleware(DynamicSecureSessionMiddleware, secret_key=get_secret_key())
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-app.mount("/vue", StaticFiles(directory="app/static/vue"), name="vue")
+app.mount("/vue", CacheControlledStaticFiles(directory="app/static/vue"), name="vue")
 
 app.include_router(auth.router)
 app.include_router(activity_api.router)

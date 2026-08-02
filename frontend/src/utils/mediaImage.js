@@ -7,7 +7,7 @@
 export function proxyUrl(url) {
   if (!url) return url;
   if (url.startsWith('http://') || (url.startsWith('https://') && /\/(192\.168\.|10\.|127\.)/.test(url))) {
-    return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+    return `/api/image-proxy?url=${encodeURIComponent(url)}&width=500&quality=82&format=webp`;
   }
   return url;
 }

@@ -72,6 +72,10 @@ class DiagnosticEvent(Base):
 
 class PollHistory(Base):
     __tablename__ = "poll_history"
+    __table_args__ = (
+        Index("ix_poll_history_started_at", "started_at"),
+        Index("ix_poll_history_job_started_at", "job", "started_at"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     job: Mapped[str]  # "watchlist" | "arr_status"
     started_at: Mapped[datetime]

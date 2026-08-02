@@ -6,7 +6,7 @@
     <div class="recently-available-grid">
       <RouterLink v-for="item in items" :key="item.id" class="poster-card recent-link" :to="recentDetailPath(item)">
         <div class="poster-wrap">
-          <img v-if="item.poster_url" :src="item.poster_url" :alt="`Affiche de ${item.title}`" />
+          <img v-if="item.poster_url" :src="item.poster_url" :alt="`Affiche de ${item.title}`" loading="lazy" decoding="async" />
           <div v-else class="poster-fallback-inner"><Film /></div>
           <span class="media-type-badge" :class="item.media_type">{{ mediaTypeLabel(item.media_type) }}</span>
         </div>

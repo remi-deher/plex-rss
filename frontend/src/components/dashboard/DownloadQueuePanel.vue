@@ -3,7 +3,7 @@
     <template #action><RouterLink to="/downloads" class="panel-link">Tout voir</RouterLink></template>
     <component :is="detailPath(item)?'RouterLink':'article'" v-for="item in queue" :key="item.id||item.queue_id||`${item.instance_id}:${item.title}`" :to="detailPath(item)" class="detail-row queue-row">
       <div class="inline-row gap-10">
-        <img v-if="item.poster_url" :src="item.poster_url" class="mini-poster" :alt="`Affiche de ${item.title}`" />
+        <img v-if="item.poster_url" :src="item.poster_url" class="mini-poster" :alt="`Affiche de ${item.title}`" loading="lazy" decoding="async" />
         <div>
           <strong>{{ item.title }}</strong>
           <span>{{ item.instance }} — {{ formatDownloadProgress(item) }}</span>

@@ -1,6 +1,6 @@
 """Sessions de lecture Plex et instantanes analytiques de la mediatheque."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import Index, Text, UniqueConstraint
@@ -61,6 +61,30 @@ class PlaybackSession(Base):
     last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     ended_at: Mapped[Optional[datetime]]
     media_request_id: Mapped[Optional[int]] = mapped_column(index=True)
+
+
+class PlaybackDailyAggregate(Base):
+    """Agrégat journalier compact utilisé par les vues d'activité longue durée."""
+
+    __tablename__ = "playback_daily_aggregates"
+    __table_args__ = (
+        UniqueConstraint(
+            "day", "user_name", "media_type", "media_label", "playback_method",
+            name="uq_playback_daily_dimensions",
+        ),
+        Index("ix_playback_daily_day", "day"),
+        Index("ix_playback_daily_user_day", "user_name", "day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    day: Mapped[date]
+    user_name: Mapped[str] = mapped_column(default="")
+    media_type: Mapped[str] = mapped_column(default="")
+    media_label: Mapped[str] = mapped_column(default="")
+    playback_method: Mapped[str] = mapped_column(default="unknown")
+    sessions: Mapped[int] = mapped_column(default=0)
+    watch_ms: Mapped[int] = mapped_column(default=0)
+    transcodes: Mapped[int] = mapped_column(default=0)
 
 class LibraryAnalyticsSnapshot(Base):
     """Dernier calcul complet des insights médiathèque, prêt à être servi."""

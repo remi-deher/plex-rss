@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint, desc, text
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from ..utils import now_utc_naive
@@ -12,6 +12,18 @@ from .base import Base, FulfillmentStatus, RequestStatus
 
 class MediaRequest(Base):
     __tablename__ = "media_requests"
+    __table_args__ = (
+        Index("ix_media_requests_requested_id", "requested_at", "id"),
+        Index("ix_media_requests_status_requested", "status", "requested_at"),
+        Index("ix_media_requests_type_status", "media_type", "status"),
+        Index("ix_media_requests_arr_identity", "arr_instance_id", "arr_id"),
+        Index(
+            "ix_media_requests_next_release_at",
+            "next_release_at",
+            postgresql_where=text("next_release_at IS NOT NULL"),
+            sqlite_where=text("next_release_at IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     plex_user_id: Mapped[str] = mapped_column(index=True)
@@ -165,6 +177,10 @@ class LibraryItem(Base):
     """
 
     __tablename__ = "library_items"
+    __table_args__ = (
+        Index("ix_library_items_added_id", desc("added_at"), "title", "id"),
+        Index("ix_library_items_arr_identity", "arr_instance_id", "arr_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     title: Mapped[str]
