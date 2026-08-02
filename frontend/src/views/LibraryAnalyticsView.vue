@@ -31,14 +31,14 @@
       </div>
 
       <div class="inventory-meta">
-        <span>{{ number(data.items?.length || 0) }} résultat(s)</span>
+        <span>{{ number(tableTotal) }} résultat(s)</span>
         <span v-if="activeCount">{{ activeCount }} filtre(s) actif(s)</span>
       </div>
       <MediaRowsTable :items="visibleItems" :filters="filters" :options="data.options" @update-filter="updateFilter" />
-      <button v-if="limit < (data.items?.length || 0)" type="button" class="secondary load-more" @click="limit += 100">
+      <button v-if="tableHasMore" type="button" class="secondary load-more" :disabled="loadingMore" @click="loadTable(true)">
         Afficher 100 lignes de plus
       </button>
-      <p v-if="!loading && !data.items?.length" class="empty">Aucun fichier ne correspond aux filtres.</p>
+      <p v-if="!loading && !tableItems.length" class="empty">Aucun fichier ne correspond aux filtres.</p>
     </section>
 
     <section v-else class="workspace-section insights-section">
@@ -86,10 +86,10 @@
       <section class="panel insight-results" aria-live="polite">
         <div class="panel-head">
           <div><span class="eyebrow">Sélection active</span><h2>{{ selectedInsight.title }}</h2></div>
-          <strong>{{ number(selectedRows.length) }} fichier(s)</strong>
+          <strong>{{ number(insightTotal) }} fichier(s)</strong>
         </div>
         <MediaRowsTable :items="selectedVisibleRows" />
-        <button v-if="insightLimit < selectedRows.length" type="button" class="secondary load-more" @click="insightLimit += 100">
+        <button v-if="insightHasMore" type="button" class="secondary load-more" :disabled="loadingMore" @click="loadInsight(true)">
           Afficher 100 lignes de plus
         </button>
         <p v-if="!selectedRows.length" class="empty">Aucun fichier pour cet insight.</p>
@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ChevronRight, FileDown, Lightbulb, RefreshCw } from '@lucide/vue';
 
 import { api } from '@/api';
@@ -107,12 +107,11 @@ import BreakdownPanel from '@/components/activity/BreakdownPanel.vue';
 import MetricCard from '@/components/ui/MetricCard.vue';
 import MetricGrid from '@/components/ui/MetricGrid.vue';
 import MediaRowsTable from '@/components/library/MediaRowsTable.vue';
+import { useDebounced } from '@/composables/useDebounced';
 import { useRealtime } from '@/events';
 import {
   DEFAULT_INSIGHT,
-  analyticsForFilters,
   distributionSelection,
-  insightRows,
   insightSelection,
 } from '@/libraryAnalyticsInsights';
 import {
@@ -125,9 +124,10 @@ import {
 const snapshot = ref({ items: [], options: {}, distributions: {} });
 const activeTab = ref('table');
 const loading = ref(false);
+const loadingMore = ref(false);
 const error = ref('');
-const limit = ref(100);
-const insightLimit = ref(100);
+const tableItems = ref([]), tableTotal = ref(0), tableHasMore = ref(false);
+const insightItems = ref([]), insightTotal = ref(0), insightHasMore = ref(false);
 const selectedInsight = ref({ ...DEFAULT_INSIGHT });
 const filters = reactive({
   search: '', media_type: '', library: '', studio: '', video_codec: '',
@@ -149,12 +149,12 @@ const params = computed(() => {
   Object.entries(filters).forEach(([key, item]) => { if (item !== '' && item != null) value.set(key, item); });
   return value;
 });
-const data = computed(() => analyticsForFilters(snapshot.value, filters));
+const data = computed(() => snapshot.value);
 const activeCount = computed(() => [...params.value].length);
 const exportUrl = computed(() => `/api/library-analytics/export.csv?${params.value}`);
-const visibleItems = computed(() => (data.value.items || []).slice(0, limit.value));
-const selectedRows = computed(() => insightRows(data.value.items || [], selectedInsight.value));
-const selectedVisibleRows = computed(() => selectedRows.value.slice(0, insightLimit.value));
+const visibleItems = computed(() => tableItems.value);
+const selectedRows = computed(() => insightItems.value);
+const selectedVisibleRows = computed(() => insightItems.value);
 
 function breakdown(key) {
   return (data.value.distributions?.[key] || []).map(item => ({
@@ -163,19 +163,47 @@ function breakdown(key) {
 }
 function selectInsight(insight) {
   selectedInsight.value = insightSelection(insight);
-  insightLimit.value = 100;
+  loadInsight();
 }
 function selectDistribution(chart, value) {
   selectedInsight.value = distributionSelection(chart, value);
-  insightLimit.value = 100;
+  loadInsight();
+}
+function queryString(extra = {}) {
+  const value = new URLSearchParams(params.value);
+  Object.entries(extra).forEach(([key, item]) => { if (item !== '' && item != null) value.set(key, item); });
+  return value.toString();
+}
+async function loadTable(append = false) {
+  const offset = append ? tableItems.value.length : 0;
+  if (append) loadingMore.value = true;
+  try {
+    const page = await api(`/api/library-analytics/items?${queryString({ offset, limit: 100 })}`);
+    tableItems.value = append ? [...tableItems.value, ...(page.items || [])] : (page.items || []);
+    tableTotal.value = page.total || 0;
+    tableHasMore.value = Boolean(page.has_more);
+  } finally { loadingMore.value = false; }
+}
+async function loadInsight(append = false) {
+  const offset = append ? insightItems.value.length : 0;
+  const selection = selectedInsight.value;
+  if (append) loadingMore.value = true;
+  try {
+    const page = await api(`/api/library-analytics/items?${queryString({
+      offset, limit: 100, insight_kind: selection.kind,
+      insight_field: selection.field, insight_value: selection.value,
+    })}`);
+    insightItems.value = append ? [...insightItems.value, ...(page.items || [])] : (page.items || []);
+    insightTotal.value = page.total || 0;
+    insightHasMore.value = Boolean(page.has_more);
+  } finally { loadingMore.value = false; }
 }
 async function load(refresh = false) {
   loading.value = true;
   error.value = '';
-  limit.value = 100;
-  insightLimit.value = 100;
   try {
-    snapshot.value = await api(`/api/library-analytics?${refresh ? 'refresh=true' : ''}`);
+    snapshot.value = await api(`/api/library-analytics?${queryString(refresh ? { refresh: true } : {})}`);
+    await Promise.all([loadTable(), loadInsight()]);
   } catch (exception) {
     error.value = exception.message;
   } finally {
@@ -187,13 +215,14 @@ function reset() {
 }
 function updateFilter({ key, value }) {
   filters[key] = ['min_size_gb', 'max_size_gb'].includes(key) && value !== '' ? Number(value) : value;
-  limit.value = 100;
 }
 function date(value) {
   return value ? `Actualisé ${formatDateTime(value)}` : '';
 }
 
 onMounted(() => load());
+const reloadForFilters = useDebounced(() => load(), 250);
+watch(filters, reloadForFilters, { deep: true });
 useRealtime(['library.analytics.updated'], () => load());
 </script>
 

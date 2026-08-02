@@ -13,7 +13,7 @@ from ..dependencies import require_admin
 from ..models import ArrInstance, MediaRequest, RequestStatus
 from ..services import radarr, sonarr
 from ..utils import async_get_or_404
-from .arr_shared import _queue_cache
+from .arr_shared import invalidate_arr_queue_cache
 
 router = APIRouter(prefix="/api", tags=["arr"], dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ async def sonarr_manual_import(body: SonarrManualImportBody, db: AsyncSession = 
     # L'import Sonarr est asynchrone (commande en file) : invalide le cache de la file
     # pour que le prochain GET /arr/queue reflète l'état réel plutôt qu'une version
     # jusqu'à 60s périmée montrant encore l'item en erreur.
-    _queue_cache["data"] = None
+    await invalidate_arr_queue_cache()
     return {"status": "ok", "message": msg}
 
 @router.get("/downloads/radarr-manual-import")
@@ -189,5 +189,5 @@ async def radarr_manual_import(body: RadarrManualImportBody, db: AsyncSession = 
     )
     if not ok:
         raise HTTPException(400, msg)
-    _queue_cache["data"] = None
+    await invalidate_arr_queue_cache()
     return {"status": "ok", "message": msg}

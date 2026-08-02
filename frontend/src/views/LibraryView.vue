@@ -113,6 +113,7 @@ const PAGE_SIZE = 200;
 const libraryItemsRaw = ref([]);
 const pendingRequests = ref([]);
 const allRequestsRaw = ref([]);
+const requestSummary = ref({ total: 0, facets: { by_type: {}, sources: [], requesters: [] } });
 const orphans = ref([]);
 const rawMetrics = ref({});
 const users = ref([]);
@@ -154,8 +155,9 @@ const view = ref(localStorage.getItem('library.view') || 'grid');
 const loading = ref(false);
 const error = ref('');
 
-const sources = computed(() => [...new Set(allRequestsRaw.value.map(x => x.source).filter(Boolean))]);
+const sources = computed(() => requestSummary.value.facets?.sources || []);
 const requesters = computed(() => {
+  if (requestSummary.value.facets?.requesters?.length) return requestSummary.value.facets.requesters;
   const seen = new Map();
   for (const row of allRequestsRaw.value) {
     const id = row.plex_user_id;
@@ -205,13 +207,13 @@ const availableUnsynced = computed(() => items.value.filter(x => x._kind === 're
 // Sonarr les series, d'ou la repartition par media_type plutot qu'un champ "source"
 // dedie (source designe l'origine de la demande : Overseerr, formulaire, etc.).
 const requestsByArrCount = computed(() => {
-  const movies = allRequestsRaw.value.filter(x => x.media_type === 'movie').length;
-  const shows = allRequestsRaw.value.filter(x => x.media_type === 'show').length;
+  const movies = requestSummary.value.facets?.by_type?.movie || 0;
+  const shows = requestSummary.value.facets?.by_type?.show || 0;
   return { movies, shows };
 });
 
 const metrics = computed(() => [
-  { label: 'Demandes', value: allRequestsRaw.value.length, sub: `${requestsByArrCount.value.movies} Radarr / ${requestsByArrCount.value.shows} Sonarr` },
+  { label: 'Demandes', value: requestsByArrCount.value.movies + requestsByArrCount.value.shows, sub: `${requestsByArrCount.value.movies} Radarr / ${requestsByArrCount.value.shows} Sonarr` },
   { label: 'Dans Plex', value: (rawMetrics.value.total ?? libraryItems.value.length) + availableUnsynced.value.length },
   { label: 'En cours', value: items.value.length - libraryItems.value.length - availableUnsynced.value.length },
   { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
@@ -233,6 +235,7 @@ watch(
   },
   { deep: true },
 );
+watch([statusFilters, typeFilters, sourceFilters, requesterFilters], () => load(), { deep: true });
 
 // La frappe au clavier abandonne la requete en cours avant d'armer le delai : inutile de
 // laisser courir une recherche que l'utilisateur est deja en train de reformuler.
@@ -248,6 +251,20 @@ function _libraryParams(offset) {
   if (typeFilters.value.length === 1) p.set('media_type', typeFilters.value[0]);
   p.set('limit', PAGE_SIZE);
   p.set('offset', offset);
+  return p;
+}
+
+function _requestListParams() {
+  const p = new URLSearchParams({ limit: '500' });
+  const q = query.value.trim();
+  if (q) p.set('query', q);
+  const selectedStatuses = statusFilters.value.includes('library')
+    ? [...new Set([...statusFilters.value.filter(value => value !== 'library'), 'available', 'partially_available'])]
+    : statusFilters.value;
+  if (selectedStatuses.length) p.set('statuses', selectedStatuses.join(','));
+  if (typeFilters.value.length === 1) p.set('media_type', typeFilters.value[0]);
+  if (sourceFilters.value.length === 1) p.set('source', sourceFilters.value[0]);
+  if (requesterFilters.value.length === 1) p.set('requester', requesterFilters.value[0]);
   return p;
 }
 
@@ -278,16 +295,16 @@ async function load() {
 
   if (!isCurrent()) return;
   try {
-    const q = query.value.trim();
     const [requests, orphanRows, stats] = await Promise.all([
-      api(`/api/requests${q ? `?query=${encodeURIComponent(q)}` : ''}`, options),
+      api(`/api/requests-list?${_requestListParams()}`, options),
       api('/api/requests/orphans', options).catch(e => request.isAbort(e) ? Promise.reject(e) : []),
       api(`/api/library-metrics${typeFilters.value.length === 1 ? `?media_type=${typeFilters.value[0]}` : ''}`, options).catch(e => request.isAbort(e) ? Promise.reject(e) : {}),
     ]);
     if (!isCurrent()) return;
 
-    allRequestsRaw.value = requests;
-    const pending = requests
+    requestSummary.value = requests;
+    allRequestsRaw.value = requests.items || [];
+    const pending = allRequestsRaw.value
       // Toute demande sans LibraryItem doit rester visible, MEME "disponible" : Radarr/
       // Sonarr peut confirmer le telechargement (et declencher la notification) bien
       // avant le prochain sync Plex (une fois par jour) qui cree reellement le

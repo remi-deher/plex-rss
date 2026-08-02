@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db_async
 from ..dependencies import get_settings_or_404, require_admin
 from ..models import Settings
-from ..services.library_analytics import analytics_payload
+from ..services.library_analytics import analytics_items_payload, analytics_payload, analytics_summary_payload
 
 router = APIRouter(prefix="/api/library-analytics", tags=["library-analytics"], dependencies=[Depends(require_admin)])
 
@@ -59,7 +59,29 @@ async def get_library_analytics(
     refresh: bool = False, db: AsyncSession = Depends(get_db_async),
     settings: Settings = Depends(get_settings_or_404),
 ):
-    return await _payload(db, settings, media_type, library, studio, video_codec, audio_codec, audio_language, container, subtitle, subtitle_language, subtitle_type, watched, search, min_size_gb, max_size_gb, refresh)
+    filters = _filters(media_type, library, studio, video_codec, audio_codec, audio_language, container, subtitle, subtitle_language, subtitle_type, watched, search, min_size_gb, max_size_gb)
+    return await analytics_summary_payload(settings, db, filters, refresh)
+
+
+@router.get("/items")
+async def get_library_analytics_items(
+    media_type: Optional[str] = None, library: Optional[str] = None, studio: Optional[str] = None,
+    video_codec: Optional[str] = None, audio_codec: Optional[str] = None,
+    audio_language: Optional[str] = None, container: Optional[str] = None,
+    subtitle: Optional[str] = Query(None, pattern="^(with|without)$"),
+    subtitle_language: Optional[str] = None, subtitle_type: Optional[str] = None,
+    watched: Optional[str] = Query(None, pattern="^(yes|no)$"), search: Optional[str] = None,
+    min_size_gb: Optional[float] = Query(None, ge=0), max_size_gb: Optional[float] = Query(None, ge=0),
+    offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=500),
+    insight_kind: Optional[str] = None, insight_field: Optional[str] = None,
+    insight_value: Optional[str] = None,
+    db: AsyncSession = Depends(get_db_async), settings: Settings = Depends(get_settings_or_404),
+):
+    filters = _filters(media_type, library, studio, video_codec, audio_codec, audio_language, container, subtitle, subtitle_language, subtitle_type, watched, search, min_size_gb, max_size_gb)
+    return await analytics_items_payload(
+        settings, db, filters, offset=offset, limit=limit,
+        insight_kind=insight_kind, insight_field=insight_field, insight_value=insight_value,
+    )
 
 
 @router.get("/export.csv")

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from ..cache import cache
 from ..dependencies import require_admin
 from ..models import ArrInstance, Settings
 
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 _QUEUE_CACHE_TTL = 4.0
 _queue_cache: dict = {"data": None, "ts": 0.0}
 _direct_cache: dict = {"data": None, "ts": 0.0}
+ARR_QUEUE_CACHE_KEY = "plexarr:arr:queue:v2"
+
+
+async def invalidate_arr_queue_cache() -> None:
+    _queue_cache["data"] = None
+    _queue_cache["ts"] = 0.0
+    await cache.delete(ARR_QUEUE_CACHE_KEY)
 
 
 async def _set_single_default(db: AsyncSession, model, type_col: str, type_val: str, exclude_id: Optional[int] = None) -> None:

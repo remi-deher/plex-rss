@@ -259,3 +259,53 @@ async def analytics_payload(settings: Settings, db: AsyncSession, filters: dict[
     if not any(value is not None and value != "" for value in filters.values()):
         return payload
     return _build_payload(payload.get("items", []), payload["generated_at"], filters)
+
+
+async def analytics_summary_payload(
+    settings: Settings, db: AsyncSession, filters: dict[str, Any], refresh: bool = False
+) -> dict:
+    """Resume complet sans renvoyer les milliers de lignes du catalogue."""
+    payload = await analytics_payload(settings, db, filters, refresh)
+    return {key: value for key, value in payload.items() if key != "items"}
+
+
+async def analytics_items_payload(
+    settings: Settings,
+    db: AsyncSession,
+    filters: dict[str, Any],
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    insight_kind: str | None = None,
+    insight_field: str | None = None,
+    insight_value: str | None = None,
+) -> dict:
+    snapshot = await db.get(LibraryAnalyticsSnapshot, 1)
+    if snapshot is None:
+        payload = await refresh_library_analytics_snapshot(settings, db)
+    else:
+        try:
+            payload = json.loads(snapshot.payload_json)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = await refresh_library_analytics_snapshot(settings, db)
+    rows = apply_filters(payload.get("items", []), filters)
+    if insight_kind == "unwatched":
+        rows = [row for row in rows if not row.get("play_count")]
+    elif insight_kind == "subtitles":
+        rows = [row for row in rows if not row.get("subtitle_count")]
+    elif insight_kind == "distribution" and insight_field and insight_value is not None:
+        allowed = {"media_type", "studio", "video_codec", "audio_codec", "video_resolution", "container"}
+        if insight_field in allowed:
+            rows = [row for row in rows if str(row.get(insight_field) or "Inconnu") == insight_value]
+    if insight_kind in (None, "storage"):
+        rows.sort(key=lambda row: row.get("size_bytes") or 0, reverse=True)
+    total = len(rows)
+    page = rows[offset:offset + limit]
+    return {
+        "items": page,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(page) < total,
+        "generated_at": payload.get("generated_at"),
+    }

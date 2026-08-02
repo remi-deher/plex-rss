@@ -132,6 +132,25 @@ def test_list_requests_does_not_truncate_old_open_requests(client, db):
     assert "Very Old Still Pending" in titles
 
 
+def test_compact_request_list_is_paginated_and_exposes_facets(client, db):
+    db.add_all([
+        _req(title="Movie A", source="rss"),
+        _req(title="Show B", media_type="show", source="seer"),
+    ])
+    db.commit()
+
+    response = client.get("/api/requests-list?limit=1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["total"] == 2
+    assert payload["has_more"] is True
+    assert payload["facets"]["by_type"] == {"movie": 1, "show": 1}
+    assert payload["facets"]["sources"] == ["rss", "seer"]
+    assert "overview" not in payload["items"][0]
+
+
 # ---------------------------------------------------------------------------
 # GET /api/requests/orphans, DELETE /api/requests/orphans/{arr_type}/{instance_id}/{arr_id}
 # ---------------------------------------------------------------------------

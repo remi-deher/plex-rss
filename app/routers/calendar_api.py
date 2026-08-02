@@ -1,3 +1,4 @@
+import asyncio
 import json as _json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -125,12 +126,35 @@ _CALENDAR_SOFT_TTL = 45
 _CALENDAR_HARD_TTL = 600
 
 
-def _calendar_cache_key(
-    start: Optional[str], end: Optional[str], tracked_only: bool, type: Optional[str],
-    search: Optional[str], user: Optional[str], status: Optional[str], vf: Optional[str], source: Optional[str],
-) -> str:
-    parts = [start or "", end or "", str(tracked_only), type or "", search or "", user or "", status or "", vf or "", source or ""]
-    return "plexarr:calendar:" + "|".join(parts)
+def _calendar_cache_key(start: Optional[str], end: Optional[str]) -> str:
+    return f"plexarr:calendar:raw:v2:{start or ''}|{end or ''}"
+
+
+def _filter_calendar_events(
+    events: list[dict], tracked_only: bool, type: Optional[str], search: Optional[str],
+    user: Optional[str], status: Optional[str], vf: Optional[str], source: Optional[str],
+) -> list[dict]:
+    filtered = []
+    for event in events:
+        tracking = event.get("_tracking") or {}
+        if tracked_only and not tracking.get("originally_tracked"):
+            continue
+        if type == "movie" and event.get("type") != "movie":
+            continue
+        if type == "show" and event.get("type") != "episode":
+            continue
+        if _calendar_entry_excluded(
+            tracking,
+            search_text=search,
+            search_target=event.get("title"),
+            user=user,
+            status=status,
+            source=source,
+            vf=vf,
+        ):
+            continue
+        filtered.append({key: value for key, value in event.items() if key != "_tracking"})
+    return filtered
 
 
 @router.get("/calendar")
@@ -152,17 +176,18 @@ async def unified_calendar(
     en direct pour chaque instance a chaque appel, sans quoi le calendrier bloquait
     derriere ces appels a chaque changement de mois/filtre.
     """
-    args = (start, end, tracked_only, type, search, user, status, vf, source)
-    key = _calendar_cache_key(*args)
+    key = _calendar_cache_key(start, end)
 
     async def _background():
         async with AsyncSessionLocal() as fresh_db:
-            return await _compute_calendar(fresh_db, *args)
+            return await _compute_calendar(fresh_db, start, end, False, None, None, None, None, None, None)
 
-    return await cache.get_or_refresh(
+    raw_events = await cache.get_or_refresh(
         key, _CALENDAR_SOFT_TTL, _CALENDAR_HARD_TTL,
-        compute_sync=lambda: _compute_calendar(db, *args), compute_background=_background,
+        compute_sync=lambda: _compute_calendar(db, start, end, False, None, None, None, None, None, None),
+        compute_background=_background,
     )
+    return _filter_calendar_events(raw_events, tracked_only, type, search, user, status, vf, source)
 
 
 async def _compute_calendar(
@@ -241,11 +266,19 @@ async def _compute_calendar(
                 movies_by_tmdb[r.tmdb_id] = entry
 
     instances = (await db.execute(select(ArrInstance).filter(ArrInstance.enabled, ArrInstance.arr_type.in_(["sonarr", "radarr"])))).scalars().all()
+    remote_results = await asyncio.gather(*(
+        sonarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+        if inst.arr_type == "sonarr"
+        else radarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+        for inst in instances
+    ), return_exceptions=True)
     events = []
-    for inst in instances:
+    for inst, remote_result in zip(instances, remote_results):
         try:
+            if isinstance(remote_result, Exception):
+                raise remote_result
             if inst.arr_type == "sonarr":
-                episodes = await sonarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+                episodes = remote_result
                 for ep in episodes:
                     date = ep.get("airDateUtc")
                     if not date:
@@ -253,6 +286,7 @@ async def _compute_calendar(
                     series = ep.get("series") or {}
                     tvdb_id = str(series.get("tvdbId")) if series.get("tvdbId") else None
                     tracked = shows_by_tvdb.get(tvdb_id) if tvdb_id else None
+                    originally_tracked = bool(tracked)
                     if tracked_only and not tracked:
                         continue
 
@@ -324,16 +358,18 @@ async def _compute_calendar(
                             "tvdb_id": tvdb_id,
                             "tmdb_id": (tracked or {}).get("tmdb_id") or None,
                             "instance": inst.name,
+                            "_tracking": {**(tracked or {}), "originally_tracked": originally_tracked},
                         }
                     )
             else:
-                movies = await radarr.get_calendar(inst.url, inst.api_key, start_dt.isoformat(), end_dt.isoformat())
+                movies = remote_result
                 for m in movies:
                     release_events = _movie_release_events(m, start_dt, end_dt, now)
                     if not release_events:
                         continue
                     tmdb_id = str(m.get("tmdbId")) if m.get("tmdbId") else None
                     tracked = movies_by_tmdb.get(tmdb_id) if tmdb_id else None
+                    originally_tracked = bool(tracked)
                     if tracked_only and not tracked:
                         continue
 
@@ -406,6 +442,7 @@ async def _compute_calendar(
                                 "request_id": (tracked or {}).get("request_id"),
                                 "tmdb_id": tmdb_id,
                                 "instance": inst.name,
+                                "_tracking": {**(tracked or {}), "originally_tracked": originally_tracked},
                             }
                         )
         except Exception as e:

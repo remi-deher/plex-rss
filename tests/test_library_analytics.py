@@ -6,7 +6,9 @@ import pytest
 
 from app.models import LibraryAnalyticsSnapshot
 from app.services.library_analytics import (
+    analytics_items_payload,
     analytics_payload,
+    analytics_summary_payload,
     apply_filters,
     parse_plex_item,
     refresh_library_analytics_snapshot,
@@ -106,3 +108,26 @@ async def test_normal_request_serves_database_snapshot_without_recalculation(mon
 
     assert payload == stored
     fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_summary_and_items_do_not_return_the_whole_snapshot():
+    rows = []
+    for index in range(3):
+        row = parse_plex_item(sample_item(), "Séries", "show")
+        row.update(title=f"Episode {index}", size_bytes=(index + 1) * 100, play_count=0, viewers=[], watch_time_ms=0)
+        rows.append(row)
+    stored = {
+        "generated_at": "2026-07-26T10:00:00",
+        "summary": {"items": 3}, "insights": [], "distributions": {},
+        "largest": [], "options": {}, "items": rows,
+    }
+    db = SimpleNamespace(get=AsyncMock(return_value=LibraryAnalyticsSnapshot(payload_json=json.dumps(stored))))
+
+    summary = await analytics_summary_payload(SimpleNamespace(), db, {}, refresh=False)
+    page = await analytics_items_payload(SimpleNamespace(), db, {}, offset=0, limit=2)
+
+    assert "items" not in summary
+    assert page["total"] == 3
+    assert page["has_more"] is True
+    assert [row["title"] for row in page["items"]] == ["Episode 2", "Episode 1"]

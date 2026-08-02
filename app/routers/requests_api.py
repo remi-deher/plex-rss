@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import httpx
 import sqlalchemy
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -266,6 +266,117 @@ async def list_requests(query: Optional[str] = None, request: Request = None, db
     # Radarr). Relevee tres au-dela d'un volume realiste plutot que supprimee : garde un
     # garde-fou contre une croissance non bornee.
     return (await db.execute(q.order_by(MediaRequest.requested_at.desc()).limit(5000))).scalars().all()
+
+
+@router.get("/requests-list")
+async def list_requests_compact(
+    request: Request,
+    query: Optional[str] = None,
+    statuses: Optional[str] = None,
+    media_type: Optional[str] = None,
+    source: Optional[str] = None,
+    requester: Optional[str] = None,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Projection compacte et paginee destinee aux listes de l'interface."""
+    from sqlalchemy import func
+
+    filters = []
+    uid = _caller_plex_user_id(request, db)
+    if uid:
+        filters.append(
+            (MediaRequest.plex_user_id == uid)
+            | (MediaRequest.extra_requesters.like(f'%"plex_user_id": "{uid}"%'))
+            | (MediaRequest.extra_requesters.like(f'%"plex_user_id":"{uid}"%'))
+        )
+    if query:
+        filters.append(MediaRequest.title.ilike(f"%{query.strip()}%"))
+    status_values = [value for value in (statuses or "").split(",") if value]
+    if status_values:
+        filters.append(MediaRequest.status.in_(status_values))
+    if media_type in ("movie", "show"):
+        filters.append(MediaRequest.media_type == media_type)
+    if source:
+        filters.append(MediaRequest.source == source)
+    if requester:
+        filters.append(MediaRequest.plex_user_id == requester)
+
+    total = (await db.execute(
+        select(func.count(MediaRequest.id)).filter(*filters)
+    )).scalar() or 0
+    rows = (await db.execute(
+        select(
+            MediaRequest.id,
+            MediaRequest.title,
+            MediaRequest.year,
+            MediaRequest.media_type,
+            MediaRequest.status,
+            MediaRequest.source,
+            MediaRequest.plex_user_id,
+            MediaRequest.plex_user,
+            PlexUser.custom_name,
+            MediaRequest.poster_url,
+            MediaRequest.has_vf,
+            MediaRequest.library_item_id,
+            MediaRequest.arr_instance_id,
+            MediaRequest.arr_id,
+            MediaRequest.episodes_available_count,
+            MediaRequest.episodes_aired_count,
+        )
+        .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
+        .filter(*filters)
+        .order_by(MediaRequest.requested_at.desc(), MediaRequest.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )).all()
+
+    aggregate_filters = filters[:1] if uid else []
+    type_rows = (await db.execute(
+        select(MediaRequest.media_type, func.count(MediaRequest.id))
+        .filter(*aggregate_filters)
+        .group_by(MediaRequest.media_type)
+    )).all()
+    source_rows = (await db.execute(
+        select(MediaRequest.source).filter(*aggregate_filters, MediaRequest.source.isnot(None)).distinct()
+    )).scalars().all()
+    requester_rows = (await db.execute(
+        select(MediaRequest.plex_user_id, func.max(PlexUser.custom_name), func.max(MediaRequest.plex_user))
+        .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
+        .filter(*aggregate_filters)
+        .group_by(MediaRequest.plex_user_id)
+    )).all()
+
+    return {
+        "items": [
+            {
+                "id": row.id, "title": row.title, "year": row.year,
+                "media_type": row.media_type,
+                "status": row.status.value if hasattr(row.status, "value") else row.status,
+                "source": row.source, "plex_user_id": row.plex_user_id,
+                "plex_user": row.plex_user, "custom_name": row.custom_name,
+                "requested_by": row.custom_name or row.plex_user or row.plex_user_id,
+                "poster_url": row.poster_url, "has_vf": row.has_vf,
+                "library_item_id": row.library_item_id,
+                "arr_instance_id": row.arr_instance_id, "arr_id": row.arr_id,
+                "episodes_available_count": row.episodes_available_count,
+                "episodes_aired_count": row.episodes_aired_count,
+            }
+            for row in rows
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + len(rows) < total,
+        "facets": {
+            "by_type": {kind: count for kind, count in type_rows},
+            "sources": sorted(source_rows),
+            "requesters": [
+                {"id": row[0], "label": row[1] or row[2] or row[0]} for row in requester_rows if row[0]
+            ],
+        },
+    }
 
 
 @router.get("/requests/orphans")

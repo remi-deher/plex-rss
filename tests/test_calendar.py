@@ -220,9 +220,8 @@ async def test_calendar_is_cached_between_calls_with_same_params():
 
 
 @pytest.mark.asyncio
-async def test_calendar_cache_key_differs_per_filter():
-    """Deux appels avec des parametres differents ne doivent PAS partager le meme
-    cache -- sinon un filtre afficherait a tort le resultat d'un autre."""
+async def test_calendar_filters_share_the_same_raw_cache():
+    """Les filtres s'appliquent apres le cache brut sans rappeler Sonarr."""
     from app.cache import cache
     cache._memory.clear()
     db = _make_db()
@@ -242,4 +241,4 @@ async def test_calendar_cache_key_differs_per_filter():
     assert len(all_events) == 1
     assert len(filtered) == 1
     assert no_match == []
-    assert mock_cal.await_count == 3
+    assert mock_cal.await_count == 1
