@@ -1,6 +1,6 @@
 """Régressions de sécurité, validation et annotation du catalogue Découvrir."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -116,3 +116,66 @@ def test_trending_keeps_legacy_list_shape_by_default(client):
     assert response.status_code == 200
     assert isinstance(response.json(), list)
     assert response.json()[0]["title"] == "Film"
+
+
+def test_home_reuses_trending_for_hero_and_rail(client):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 1,
+        "total_results": 1,
+    }
+    trending = AsyncMock(return_value=payload)
+    with patch("app.routers.discover_api.tmdb.trending", new=trending):
+        response = client.get("/api/discover/home?sections=hero,trending")
+
+    assert response.status_code == 200
+    sections = response.json()["sections"]
+    assert sections["hero"]["item"]["title"] == "Film"
+    assert sections["trending"]["items"][0]["title"] == "Film"
+    assert sections["trending"]["items"][0]["requested"] is False
+    trending.assert_awaited_once_with(ANY, "all", "day", 1)
+
+
+def test_home_caches_external_catalog_but_refreshes_local_status(client, db):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 1,
+        "total_results": 1,
+    }
+    trending = AsyncMock(return_value=payload)
+    with patch("app.routers.discover_api.tmdb.trending", new=trending):
+        first = client.get("/api/discover/home?sections=trending")
+        _request(db, status=RequestStatus.pending, requested_at=now_utc_naive(), plex_user_id="user")
+        second = client.get("/api/discover/home?sections=trending")
+
+    assert first.json()["sections"]["trending"]["items"][0]["requested"] is False
+    assert second.json()["sections"]["trending"]["items"][0]["requested"] is True
+    trending.assert_awaited_once()
+
+
+def test_home_keeps_other_sections_when_one_fails(client):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 1,
+        "total_results": 1,
+    }
+    with (
+        patch("app.routers.discover_api.tmdb.trending", new=AsyncMock(return_value=payload)),
+        patch("app.routers.discover_api.tmdb.popular", new=AsyncMock(side_effect=RuntimeError("TMDB down"))),
+    ):
+        response = client.get("/api/discover/home?sections=trending,popular_movies")
+
+    assert response.status_code == 200
+    sections = response.json()["sections"]
+    assert sections["trending"]["items"][0]["title"] == "Film"
+    assert sections["popular_movies"]["items"] == []
+    assert sections["popular_movies"]["error"] == "Section temporairement indisponible."
+
+
+def test_home_rejects_unknown_sections(client):
+    response = client.get("/api/discover/home?sections=trending,unknown")
+
+    assert response.status_code == 422

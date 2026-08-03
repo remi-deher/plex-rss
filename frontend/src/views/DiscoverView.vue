@@ -77,39 +77,13 @@
     <UiFeedback v-if="loading" type="loading" message="Chargement du catalogue…" />
     <template v-else>
       <section class="media-grid discover-grid" aria-live="polite" :aria-busy="loadingMore">
-        <RouterLink
+        <MediaPosterCard
           v-for="item in displayedItems"
           :key="`${item.media_type}:${item.tmdb_id || item.id}`"
-          class="media-card discover-card"
           :to="detailPath(item)"
-          :aria-label="`${item.title || item.name}, ${item.media_type === 'show' ? 'série' : 'film'}${item.year ? `, ${item.year}` : ''}`"
-        >
-          <div class="poster-shell">
-            <img
-              v-if="item.poster_url"
-              :src="item.poster_url"
-              :alt="`Affiche de ${item.title || item.name}`"
-              loading="lazy"
-            >
-            <div v-else class="poster-fallback"><Film aria-hidden="true" /></div>
-            <div class="poster-badges">
-              <span v-if="item.available || item.in_library" class="language-tag vf">Dans Plex</span>
-              <span v-else-if="item.requested" class="language-tag unknown">{{ statusLabel(item.request_status) }}</span>
-              <span v-else class="language-tag new-media">À découvrir</span>
-            </div>
-            <div class="poster-action">
-              {{ item.available || item.in_library ? 'Voir la fiche' : item.requested ? 'Suivre la demande' : 'Demander' }}
-            </div>
-          </div>
-          <div class="discover-card-info">
-            <strong>{{ item.title || item.name }}</strong>
-            <span>
-              {{ mediaTypeLabel(item.media_type) }}
-              <template v-if="item.year"> · {{ item.year }}</template>
-              <template v-if="item.vote_average || item.vote"> · <Star aria-hidden="true" />{{ Number(item.vote_average || item.vote).toFixed(1) }}</template>
-            </span>
-          </div>
-        </RouterLink>
+          :item="item"
+          :action-label="cardActionLabel(item)"
+        />
       </section>
 
       <p v-if="!displayedItems.length" class="empty">Aucun média ne correspond à ces filtres.</p>
@@ -120,11 +94,11 @@
 
 <script setup>
 import LoadMore from '@/components/ui/LoadMore.vue';
-import { mediaTypeLabel, requestStatusLabel } from '@/utils/labels';
+import MediaPosterCard from '@/components/discover/MediaPosterCard.vue';
 import { computed, onMounted, ref } from 'vue';
 import { useDebounced } from '@/composables/useDebounced';
 import { useLatestRequest } from '@/composables/useLatestRequest';
-import { Film, Search, SlidersHorizontal, Star } from '@lucide/vue';
+import { Search, SlidersHorizontal } from '@lucide/vue';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
 
@@ -181,7 +155,11 @@ function detailPath(item) {
   return mediaDetailPath(item, kind);
 }
 
-const statusLabel = value => requestStatusLabel(value, 'Demandé');
+function cardActionLabel(item) {
+  if (item.in_library || item.library_id) return 'Voir la fiche';
+  if (item.requested || item.request_id) return 'Suivre la demande';
+  return 'Demander';
+}
 
 async function setMediaType(value) {
   mediaType.value = value;
@@ -281,5 +259,5 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.discover-command{position:sticky;top:8px;z-index:20;display:grid;gap:9px;padding:12px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(12px)}.discover-search{display:flex;align-items:center;gap:9px}.discover-search>svg{width:18px;color:var(--muted)}.discover-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:15px;outline:0}.filter-toggle{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted)}.filter-toggle svg{width:15px}.filter-toggle span{padding:2px 5px;border-radius:999px;background:var(--accent);color:#111;font-size:9px}.filter-toggle.active{color:var(--text)}.discover-sections,.discover-filters{display:flex;align-items:center;gap:6px;overflow-x:auto}.discover-sections button{padding:6px 10px;border:0;border-radius:999px;background:transparent;color:var(--muted);white-space:nowrap}.discover-sections button.active{background:var(--accent);color:#111}.discover-filters{display:none;padding-top:8px;border-top:1px solid var(--border)}.discover-filters.open{display:flex}.discover-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-top:6px}.discover-heading>div{display:grid;gap:2px}.discover-heading h2{margin:0;font-size:17px}.discover-heading>span{color:var(--muted);font-size:10px}.discover-grid{align-items:start}.discover-card{cursor:pointer;color:inherit;text-decoration:none}.poster-badges{position:absolute;top:7px;left:7px;display:grid;gap:4px}.new-media{background:rgba(15,23,42,.85);color:#fff}.poster-action{position:absolute;inset:auto 7px 7px;padding:7px;border-radius:7px;background:rgba(10,10,10,.82);color:#fff;font-size:10px;font-weight:700;text-align:center;opacity:0;transform:translateY(5px);transition:.2s}.discover-card:hover .poster-action,.discover-card:focus-visible .poster-action{opacity:1;transform:none}.discover-card-info{display:grid;gap:4px}.discover-card-info>span{display:flex;align-items:center;color:var(--muted);font-size:10px}.discover-card-info svg{width:11px;height:11px;margin-left:3px;color:var(--accent)}.load-more{display:flex;justify-content:center;padding:20px}.load-more button{display:flex;align-items:center;gap:8px}.load-more svg{width:16px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:640px){.discover-command{top:6px;padding:10px}.filter-toggle{font-size:0}.filter-toggle span{font-size:9px}.discover-filters{align-items:stretch;flex-direction:column;overflow:visible}.discover-filters .segmented{display:flex}.discover-filters .segmented button{flex:1}.discover-filters select{width:100%}.poster-action{position:static;margin-top:6px;opacity:1;transform:none}.discover-heading h2{font-size:14px}}
+.discover-command{position:sticky;top:8px;z-index:20;display:grid;gap:9px;padding:12px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(12px)}.discover-search{display:flex;align-items:center;gap:9px}.discover-search>svg{width:18px;color:var(--muted)}.discover-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:15px;outline:0}.filter-toggle{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted)}.filter-toggle svg{width:15px}.filter-toggle span{padding:2px 5px;border-radius:999px;background:var(--accent);color:#111;font-size:9px}.filter-toggle.active{color:var(--text)}.discover-sections,.discover-filters{display:flex;align-items:center;gap:6px;overflow-x:auto}.discover-sections button{padding:6px 10px;border:0;border-radius:999px;background:transparent;color:var(--muted);white-space:nowrap}.discover-sections button.active{background:var(--accent);color:#111}.discover-filters{display:none;padding-top:8px;border-top:1px solid var(--border)}.discover-filters.open{display:flex}.discover-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-top:6px}.discover-heading>div{display:grid;gap:2px}.discover-heading h2{margin:0;font-size:17px}.discover-heading>span{color:var(--muted);font-size:10px}.discover-grid{align-items:start}.load-more{display:flex;justify-content:center;padding:20px}.load-more button{display:flex;align-items:center;gap:8px}.load-more svg{width:16px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:640px){.discover-command{top:6px;padding:10px}.filter-toggle{font-size:0}.filter-toggle span{font-size:9px}.discover-filters{align-items:stretch;flex-direction:column;overflow:visible}.discover-filters .segmented{display:flex}.discover-filters .segmented button{flex:1}.discover-filters select{width:100%}.discover-heading h2{font-size:14px}}
 </style>

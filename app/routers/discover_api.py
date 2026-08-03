@@ -9,9 +9,11 @@ import logging
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import current_user, require_auth
 from ..models import LibraryItem, MediaRequest, PlexUser, Settings
@@ -21,6 +23,10 @@ from ..services import tmdb
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/discover", tags=["discover"], dependencies=[Depends(require_auth)])
+
+HOME_SECTIONS = ("hero", "trending", "popular_movies", "popular_tv", "upcoming")
+HOME_DEFAULT_SECTIONS = ",".join(HOME_SECTIONS)
+HOME_CACHE_TTL_SECONDS = 30 * 60
 
 
 async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
@@ -32,35 +38,51 @@ async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
         if it.get("tmdb_id") is not None and it.get("media_type") in ids_by_type:
             ids_by_type[it["media_type"]].add(str(it["tmdb_id"]))
 
-    lib: dict[tuple[str, str], LibraryItem] = {}
+    # Deux requêtes au total, quel que soit le nombre de médias ou de types présents.
+    # Les anciennes boucles effectuaient une requête LibraryItem et MediaRequest par type.
+    library_filters = [
+        and_(LibraryItem.media_type == media_type, LibraryItem.tmdb_id.in_(ids))
+        for media_type, ids in ids_by_type.items()
+        if ids
+    ]
+    request_filters = [
+        and_(MediaRequest.media_type == media_type, MediaRequest.tmdb_id.in_(ids))
+        for media_type, ids in ids_by_type.items()
+        if ids
+    ]
+
+    library_rows = []
+    request_rows = []
+    if library_filters:
+        library_rows = (await db.execute(select(LibraryItem).filter(or_(*library_filters)))).scalars().all()
+        request_rows = (
+            await db.execute(
+                select(MediaRequest)
+                .filter(or_(*request_filters))
+                .order_by(MediaRequest.requested_at.desc(), MediaRequest.id.desc())
+            )
+        ).scalars().all()
+
+    lib: dict[tuple[str, str], LibraryItem] = {
+        (li.media_type, li.tmdb_id): li for li in library_rows if li.tmdb_id
+    }
     reqs: dict[tuple[str, str], MediaRequest] = {}
-    for mt, ids in ids_by_type.items():
-        if not ids:
-            continue
-        for li in (await db.execute(select(LibraryItem).filter(LibraryItem.media_type == mt, LibraryItem.tmdb_id.in_(ids)))).scalars().all():
-            if li.tmdb_id:
-                lib[(mt, li.tmdb_id)] = li
-        request_rows = (await db.execute(
-            select(MediaRequest)
-            .filter(MediaRequest.media_type == mt, MediaRequest.tmdb_id.in_(ids))
-            .order_by(MediaRequest.requested_at.desc(), MediaRequest.id.desc())
-        )).scalars().all()
-        status_priority = {
-            "available": 6,
-            "partially_available": 5,
-            "sent_to_arr": 4,
-            "pending": 3,
-            "pending_approval": 2,
-            "failed": 1,
-        }
-        for req in request_rows:
-            if req.tmdb_id:
-                key = (mt, req.tmdb_id)
-                current = reqs.get(key)
-                if current is None or status_priority.get(request_status_value(req.status), 0) > status_priority.get(
-                    request_status_value(current.status), 0
-                ):
-                    reqs[key] = req
+    status_priority = {
+        "available": 6,
+        "partially_available": 5,
+        "sent_to_arr": 4,
+        "pending": 3,
+        "pending_approval": 2,
+        "failed": 1,
+    }
+    for req in request_rows:
+        if req.tmdb_id:
+            key = (req.media_type, req.tmdb_id)
+            current = reqs.get(key)
+            if current is None or status_priority.get(request_status_value(req.status), 0) > status_priority.get(
+                request_status_value(current.status), 0
+            ):
+                reqs[key] = req
 
     for it in items:
         k = (it.get("media_type"), str(it.get("tmdb_id")))
@@ -133,6 +155,86 @@ async def _annotate_page(db: AsyncSession, payload: dict) -> dict:
 def _page_response(payload: dict, paginated: bool):
     """Garde les anciens bundles compatibles pendant un déploiement progressif."""
     return payload if paginated else payload["items"]
+
+
+async def _fetch_home_section(db: AsyncSession, section: str) -> dict:
+    """Charge une section TMDB brute et la partage via Redis (avec repli mémoire).
+
+    Les annotations locales ne sont volontairement pas mises en cache : une demande ou
+    un import Plex doit changer le badge dès la requête suivante.
+    """
+    cache_key = f"plexarr:discover:home:v1:{section}"
+    cached = await cache.get_json(cache_key)
+    if cached and isinstance(cached.get("payload"), dict):
+        return cached["payload"]
+
+    if section == "trending":
+        payload = await tmdb.trending(db, "all", "day", 1)
+    elif section == "popular_movies":
+        payload = await tmdb.popular(db, "movie", 1)
+    elif section == "popular_tv":
+        payload = await tmdb.popular(db, "show", 1)
+    elif section == "upcoming":
+        payload = await tmdb.coming_soon(db, "all", 1)
+    else:  # pragma: no cover - garde interne, la validation HTTP filtre déjà ces valeurs
+        raise ValueError(f"Section d'accueil inconnue: {section}")
+
+    await cache.set_json(cache_key, {"payload": payload}, ttl_seconds=HOME_CACHE_TTL_SECONDS)
+    return payload
+
+
+def _home_error(exc: Exception) -> str:
+    if isinstance(exc, tmdb.TmdbNotConfigured):
+        return "Clé API TMDB non configurée."
+    logger.warning("Section Découvrir indisponible: %s", exc)
+    return "Section temporairement indisponible."
+
+
+@router.get("/home")
+async def get_home(
+    sections: str = Query(HOME_DEFAULT_SECTIONS, min_length=1),
+    db: AsyncSession = Depends(get_db_async),
+):
+    """Retourne les blocs de l'accueil, sans coupler leur disponibilité.
+
+    `hero` réutilise le premier résultat de `trending` : le demander avec la rangée
+    Tendances ne provoque donc aucun second appel externe.
+    """
+    requested = list(dict.fromkeys(part.strip() for part in sections.split(",") if part.strip()))
+    invalid = [section for section in requested if section not in HOME_SECTIONS]
+    if not requested or invalid:
+        allowed = ", ".join(HOME_SECTIONS)
+        raise HTTPException(422, f"Sections invalides. Valeurs acceptées : {allowed}.")
+
+    source_names = list(dict.fromkeys("trending" if section == "hero" else section for section in requested))
+    payloads: dict[str, dict] = {}
+    errors: dict[str, str] = {}
+    for source in source_names:
+        try:
+            payloads[source] = await _fetch_home_section(db, source)
+        except Exception as exc:
+            errors[source] = _home_error(exc)
+
+    all_items = [item for payload in payloads.values() for item in payload.get("items", [])]
+    await _annotate(db, all_items)
+
+    result: dict[str, dict] = {}
+    for section in requested:
+        source = "trending" if section == "hero" else section
+        if source in errors:
+            result[section] = {"error": errors[source], "item": None} if section == "hero" else {
+                "error": errors[source],
+                "items": [],
+            }
+            continue
+        payload = payloads[source]
+        result[section] = (
+            {"item": payload.get("items", [None])[0] if payload.get("items") else None}
+            if section == "hero"
+            else payload
+        )
+
+    return {"sections": result}
 
 
 @router.get("/trending")

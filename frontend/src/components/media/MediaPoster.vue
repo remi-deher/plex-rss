@@ -1,6 +1,6 @@
 <template>
   <div class="poster-shell">
-    <img v-if="posterUrl" :src="posterUrl" alt="" loading="lazy" decoding="async" @error="$event.target.style.display='none'">
+    <img v-if="posterUrl" :src="posterUrl" :alt="alt" loading="lazy" decoding="async" @error="$event.target.style.display='none'">
     <div v-else class="poster-fallback"><Film/></div>
     <slot name="badges" />
     <slot name="overlay" />
@@ -12,5 +12,6 @@ import { Film } from '@lucide/vue';
 
 defineProps({
   posterUrl: { type: String, default: null },
+  alt: { type: String, default: '' },
 });
 </script>
