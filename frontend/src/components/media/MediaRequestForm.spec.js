@@ -43,7 +43,7 @@ describe('MediaRequestForm', () => {
       },
     );
 
-    expect(wrapper.text()).toContain('Options administrateur');
+    expect(wrapper.text()).toContain('Administration');
     expect(wrapper.findAll('select')).toHaveLength(2);
   });
 
@@ -70,5 +70,48 @@ describe('MediaRequestForm', () => {
     expect(link.text()).toContain('Ouvrir dans Plex');
     expect(link.attributes('href')).toContain('app.plex.tv');
     expect(link.attributes('href')).not.toContain('X-Plex-Token');
+  });
+
+  it('affiche la chronologie opérationnelle et le détail par saison', () => {
+    const wrapper = render({
+      media_type: 'show',
+      requested: true,
+      request_id: 42,
+      operational_status: 'downloading',
+      episodes_available_count: 6,
+      episodes_total_count: 10,
+      workflow_timeline: [
+        { key: 'requested', label: 'Demandé', state: 'completed', occurred_at: '2026-08-03T10:00:00Z' },
+        { key: 'downloading', label: 'Téléchargement en cours', state: 'current' },
+        { key: 'completed', label: 'Disponible dans Plex', state: 'upcoming' },
+      ],
+      seasons: [
+        { season_number: 1, episodes_available_count: 6, episodes_total_count: 10, status: 'partially_available' },
+      ],
+    }, { currentUserId: '' });
+
+    expect(wrapper.text()).toContain('Téléchargement en cours');
+    expect(wrapper.find('.request-progress-step.done').text()).toContain('Demandé');
+    expect(wrapper.text()).toContain('6/10 épisodes disponibles');
+    expect(wrapper.find('.season-progress-track span').attributes('style')).toContain('60%');
+  });
+
+  it('garde les actions techniques dans le bloc administration', () => {
+    const wrapper = render({
+      media_type: 'movie',
+      requested: true,
+      request_id: 42,
+      request_status: 'failed',
+    }, { admin: true });
+
+    expect(wrapper.find('.request-panel-action').text()).not.toContain('Relancer');
+    expect(wrapper.find('.admin-options').text()).toContain('Relancer');
+  });
+
+  it('rend une action mobile persistante sans confirmation modale', () => {
+    const wrapper = render({ media_type: 'movie' });
+
+    expect(wrapper.find('.mobile-request-bar').exists()).toBe(true);
+    expect(wrapper.find('.mobile-request-bar button').text()).toContain('Demander ce film');
   });
 });

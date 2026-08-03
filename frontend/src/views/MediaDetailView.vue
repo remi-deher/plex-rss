@@ -27,6 +27,7 @@
           @submit="submitRequest"
           @join="joinRequest"
           @retry="requestAction(detail.request_id, 'retry')"
+          @approve="requestAction(detail.request_id, 'approve')"
         />
 
         <template v-if="kind !== 'discover'">
@@ -298,6 +299,7 @@ async function submitRequest() {
   try {
     const data = await api('/api/media/add', { method: 'POST', body: JSON.stringify({ title: detail.value.title, year: detail.value.year, media_type: detail.value.media_type, tmdb_id: detail.value.tmdb_id, tvdb_id: detail.value.tvdb_id, imdb_id: detail.value.imdb_id, poster_url: detail.value.poster_url, overview: detail.value.overview, plex_user_id: requestForm.plex_user_id, root_folder: requestForm.root_folder || null, seasons: detail.value.media_type === 'show' ? requestForm.seasons : null, auto_search: true }) });
     detail.value.requested = true;
+    detail.value.just_requested = true;
     detail.value.request_id = data.request_id || detail.value.request_id || null;
     detail.value.request_status = data.pending_approval ? 'pending_approval' : 'sent_to_arr';
     detail.value.operational_status = data.pending_approval ? 'not_submitted' : 'submitted';
@@ -305,7 +307,6 @@ async function submitRequest() {
     detail.value.waiting_reason = data.pending_approval
       ? "Un administrateur doit encore approuver la demande."
       : 'Le média est suivi et la recherche automatique est lancée.';
-    successMessage.value = data.already_existed ? 'Cette demande existait déjà.' : 'Demande envoyée.';
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 

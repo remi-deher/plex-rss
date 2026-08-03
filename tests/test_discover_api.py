@@ -11,7 +11,15 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async
 from app.dependencies import require_auth
 from app.main import app
-from app.models import FulfillmentStatus, LibraryItem, MediaRequest, PlaybackSession, PlexUser, RequestStatus
+from app.models import (
+    FulfillmentStatus,
+    LibraryItem,
+    MediaRequest,
+    PlaybackSession,
+    PlexUser,
+    RequestSeasonStatus,
+    RequestStatus,
+)
 from app.routers.discover_api import (
     _annotate,
     _guard,
@@ -115,6 +123,57 @@ async def test_join_request_adds_current_user_without_admin_access(db):
     assert result == {"ok": True, "already_joined": False, "requester_ids": ["alice", "bob"]}
     assert duplicate == {"ok": True, "already_joined": True, "requester_ids": ["alice", "bob"]}
     assert json.loads(row.extra_requesters) == [{"plex_user_id": "bob", "display_name": "Bob"}]
+
+
+def test_discover_detail_includes_request_timeline_and_season_progress(client, db):
+    row = MediaRequest(
+        plex_user_id="alice",
+        plex_user="Alice",
+        title="Série",
+        media_type="show",
+        tmdb_id="1396",
+        status=RequestStatus.sent_to_arr,
+        fulfillment_status=FulfillmentStatus.downloading,
+        episodes_available_count=6,
+        episodes_total_count=10,
+    )
+    db.add(row)
+    db.flush()
+    db.add(
+        RequestSeasonStatus(
+            request_id=row.id,
+            season_number=1,
+            episodes_available_count=6,
+            episodes_total_count=10,
+            status="partially_available",
+        )
+    )
+    db.commit()
+    tmdb_detail = {
+        "tmdb_id": 1396,
+        "media_type": "show",
+        "title": "Série",
+        "recommendations": [],
+        "similar": [],
+    }
+
+    with patch("app.routers.discover_api.tmdb.detail", new=AsyncMock(return_value=tmdb_detail)):
+        response = client.get("/api/discover/detail?media_type=show&tmdb_id=1396")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["operational_status"] == "downloading"
+    assert any(step["state"] == "current" and step["key"] == "downloading" for step in payload["workflow_timeline"])
+    assert payload["episodes_available_count"] == 6
+    assert payload["episodes_total_count"] == 10
+    assert payload["seasons"] == [
+        {
+            "season_number": 1,
+            "episodes_available_count": 6,
+            "episodes_total_count": 10,
+            "status": "partially_available",
+        }
+    ]
 
 
 def test_trending_returns_paginated_annotated_envelope(client):

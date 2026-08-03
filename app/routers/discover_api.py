@@ -17,7 +17,7 @@ from sqlalchemy.future import select
 from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import current_user, require_auth
-from ..models import LibraryItem, MediaRequest, PlaybackSession, PlexUser, Settings
+from ..models import LibraryItem, MediaRequest, PlaybackSession, PlexUser, RequestSeasonStatus, Settings
 from ..serializers import request_status_value, serialize_media_request
 from ..services import tmdb
 from ..services.operational_projection import plex_library_projection, request_operational_projection
@@ -682,6 +682,26 @@ async def get_detail(
                 serialized = serialize_media_request(req, users)
                 d["requesters"] = serialized["requesters"]
                 d["requester_ids"] = serialized["requester_ids"]
+                d["episodes_available_count"] = serialized["episodes_available_count"]
+                d["episodes_aired_count"] = serialized["episodes_aired_count"]
+                d["episodes_total_count"] = serialized["episodes_total_count"]
+                if req.media_type == "show":
+                    season_rows = (
+                        await db.execute(
+                            select(RequestSeasonStatus)
+                            .filter(RequestSeasonStatus.request_id == req.id)
+                            .order_by(RequestSeasonStatus.season_number)
+                        )
+                    ).scalars().all()
+                    d["seasons"] = [
+                        {
+                            "season_number": row.season_number,
+                            "episodes_available_count": row.episodes_available_count,
+                            "episodes_total_count": row.episodes_total_count,
+                            "status": row.status,
+                        }
+                        for row in season_rows
+                    ]
         d["recommendations"] = await _annotate(db, d.get("recommendations", []))
         d["similar"] = await _annotate(db, d.get("similar", []))
         return d
