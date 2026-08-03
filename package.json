@@ -18,7 +18,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@vue/test-utils": "^2.4.11",
-    "jsdom": "^30.0.0",
+    "jsdom": "^30.0.1",
     "vitest": "^4.1.10"
   },
   "overrides": {
