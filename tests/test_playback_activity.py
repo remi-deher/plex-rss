@@ -20,6 +20,7 @@ from app.services.playback_activity import (
     _playback_method,
     _serialize,
     import_tautulli_history,
+    live_activity_snapshot,
     recalculate_playback_locations,
     _tautulli_values,
     parse_plex_sessions,
@@ -557,6 +558,68 @@ ROTATED_SESSION_XML = """
 """
 
 EMPTY_SESSIONS_XML = '<MediaContainer size="0"></MediaContainer>'
+
+PRODUCTION_PAUSED_SESSION_XML = """
+<MediaContainer size="1">
+  <Video sessionKey="7" ratingKey="43392" title="Assassination Classroom the Movie : Our Time"
+         type="movie" viewOffset="1800000" duration="6600000" year="2026">
+    <Media audioCodec="eac3" audioDecision="copy" videoCodec="hevc"
+           videoDecision="directplay" videoResolution="1080" container="mkv">
+      <Part size="4008741339" container="mkv" />
+    </Media>
+    <User id="42" title="remi.deher" />
+    <Player address="192.168.1.25" machineIdentifier="honor-magicpad-2" platform="Android"
+            product="Plex for Android (Mobile)" state="paused" title="HONOR MagicPad2" />
+    <Session bandwidth="12800" id="f9y6-production-session" location="lan" />
+  </Video>
+</MediaContainer>
+"""
+
+
+@pytest.mark.asyncio
+async def test_live_collection_persists_a_production_like_paused_plex_session(async_db):
+    async_db.add(
+        Settings(id=1, live_activity_enabled=True, plex_url="http://plex.local:32400", plex_token="tok")
+    )
+    async_db.commit()
+
+    client = _mock_httpx_client(_plex_response(PRODUCTION_PAUSED_SESSION_XML))
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
+    ):
+        result = await _collect_plex_activity_unlocked()
+
+    snapshot = await live_activity_snapshot(db=async_db)
+    assert result == {"status": "complete", "active": 1}
+    assert snapshot["enabled"] is True
+    assert snapshot["configured"] is True
+    assert len(snapshot["active"]) == 1
+    session = snapshot["active"][0]
+    assert session["state"] == "paused"
+    assert session["player"] == "HONOR MagicPad2"
+    assert session["media_size_bytes"] == 4008741339
+    assert session["ended_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_live_collection_does_not_hide_its_configuration_state(async_db):
+    async_db.add(
+        Settings(id=1, live_activity_enabled=False, plex_url="http://plex.local:32400", plex_token="tok")
+    )
+    async_db.commit()
+
+    client = _mock_httpx_client(_plex_response(PRODUCTION_PAUSED_SESSION_XML))
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client) as client_factory,
+    ):
+        result = await _collect_plex_activity_unlocked()
+
+    snapshot = await live_activity_snapshot(db=async_db)
+    assert result == {"status": "disabled", "active": 0}
+    assert snapshot == {"active": [], "enabled": False, "configured": True}
+    client_factory.assert_not_called()
 
 
 @pytest.mark.asyncio

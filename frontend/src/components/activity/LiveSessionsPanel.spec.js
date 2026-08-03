@@ -50,6 +50,15 @@ describe('LiveSessionsPanel', () => {
   it('affiche un état vide sans lecture', () => {
     expect(render([]).text()).toContain('Aucune lecture en cours');
   });
+
+  it('explique clairement pourquoi aucune lecture ne remonte quand la collecte est désactivée', () => {
+    const wrapper = render([], { collectionEnabled: false });
+
+    expect(wrapper.text()).toContain('Collecte en direct désactivée');
+    expect(wrapper.text()).toContain('Aucune lecture Plex ne peut apparaître');
+    expect(wrapper.text()).not.toContain('Aucune lecture en cours');
+    expect(wrapper.get('.live-disabled a').text()).toBe('Activer la collecte');
+  });
 });
 
 describe('LiveSessionsPanel — état de lecture', () => {

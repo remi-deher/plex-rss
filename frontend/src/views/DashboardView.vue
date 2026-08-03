@@ -27,7 +27,7 @@
         />
       </MetricGrid>
       <div class="dashboard-focus-grid">
-        <LiveSessionsPanel :sessions="liveActivity.active||[]" interactive @select="selectedSession=$event" />
+        <LiveSessionsPanel :sessions="liveActivity.active||[]" :collection-enabled="liveActivity.enabled!==false" interactive @select="selectedSession=$event" />
         <DownloadQueuePanel :queue="downloadQueue" :loading="loadingQueue" />
         <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
         <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />

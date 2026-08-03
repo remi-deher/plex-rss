@@ -19,7 +19,7 @@
           <MetricCard card-class="activity-metric-card" label="Temps regardé" :value="formatDuration(summary.watch_ms)" detail="durée cumulée" :icon="Clock3"/>
           <MetricCard card-class="activity-metric-card" label="Transcodage" :value="`${summary.transcode_rate||0} %`" :detail="`${summary.transcodes||0} sessions`" :icon="Cpu"/>
         </MetricGrid>
-        <LiveSessionsPanel :sessions="data.active" interactive @select="selectedSession=$event"/>
+        <LiveSessionsPanel :sessions="data.active" :collection-enabled="data.liveEnabled" interactive @select="selectedSession=$event"/>
         <div class="activity-grid">
           <DailyActivityChart :points="chart"/>
           <UserRankingPanel :users="data.users" :format-duration="formatDuration"/>
@@ -31,7 +31,7 @@
           <div><span class="live-indicator"><i></i>{{ data.active.length }} active{{ data.active.length>1?'s':'' }}</span><h2>Flux en direct</h2><p>Suivez la progression et ouvrez une session pour consulter son diagnostic complet.</p></div>
           <span class="live-updated">Actualisé {{ relativeUpdate }}</span>
         </section>
-        <LiveSessionsPanel :sessions="data.active" :show-link="false" interactive @select="selectedSession=$event"/>
+        <LiveSessionsPanel :sessions="data.active" :collection-enabled="data.liveEnabled" :show-link="false" interactive @select="selectedSession=$event"/>
       </template>
 
       <template v-else-if="currentView==='history'">
@@ -164,7 +164,7 @@ const route=useRoute(),router=useRouter();
 const allowedViews=['overview','live','history','stats','quality','users'];
 const currentView=computed(()=>allowedViews.includes(route.query.view)?route.query.view:'overview');
 const days=ref(Number(route.query.days)||30),loading=ref(false),loaded=ref(false),error=ref('');
-const data=ref({active:[],history:[],daily:[],users:[],summary:{}});
+const data=ref({active:[],liveEnabled:true,liveConfigured:true,history:[],daily:[],users:[],summary:{}});
 const selectedSession=ref(null),historySearch=ref(''),methodFilter=ref(''),typeFilter=ref(''),updatedAt=ref(Date.now()),clock=ref(Date.now());
 const summary=computed(()=>data.value.summary||{});
 const analytics=computed(()=>data.value.analytics||{});
@@ -181,7 +181,7 @@ const averageWatch=computed(()=>summary.value.sessions?Math.round((summary.value
 const relativeUpdate=computed(()=>{const seconds=Math.max(0,Math.floor((clock.value-updatedAt.value)/1000));return seconds<5?'à l’instant':`il y a ${seconds} s`});
 const filteredHistory=computed(()=>data.value.history.filter(item=>{
   const needle=historySearch.value.trim().toLowerCase();
-  const haystack=[displayTitle(item),item.user_name,item.player,item.product,item.platform,item.address].filter(Boolean).join(' ').toLowerCase();
+  const haystack=[displayTitle(item),item.user_name,item.player,item.product,item.platform,item.address,item.geo_city,item.geo_region,item.geo_country,item.geo_country_code].filter(Boolean).join(' ').toLowerCase();
   return (!needle||haystack.includes(needle))&&(!methodFilter.value||item.playback_method===methodFilter.value)&&(!typeFilter.value||item.media_type===typeFilter.value);
 }));
 const historyFilterCount=computed(()=>[historySearch.value,methodFilter.value,typeFilter.value].filter(Boolean).length);
@@ -198,7 +198,11 @@ const STATISTICS_CACHE_MAX_AGE_MS=6*60*60*1000;
 const statisticsCacheKey=()=>`activity:statistics:${days.value}`;
 
 function applySnapshot(snapshot,{savedAt=Date.now()}={}){
-  data.value=snapshot;
+  data.value={
+    ...snapshot,
+    liveEnabled:snapshot.enabled ?? snapshot.liveEnabled ?? data.value.liveEnabled ?? true,
+    liveConfigured:snapshot.configured ?? snapshot.liveConfigured ?? data.value.liveConfigured ?? true,
+  };
   if(selectedSession.value){
     const candidates=[...(snapshot.active||[]),...(snapshot.history||[])];
     const fresh=candidates.find(item=>item.source===selectedSession.value.source&&item.session_id===selectedSession.value.session_id);
@@ -208,7 +212,12 @@ function applySnapshot(snapshot,{savedAt=Date.now()}={}){
   updatedAt.value=savedAt;
 }
 function applyLive(snapshot){
-  data.value={...data.value,active:snapshot.active||[]};
+  data.value={
+    ...data.value,
+    active:snapshot.active||[],
+    liveEnabled:snapshot.enabled!==false,
+    liveConfigured:snapshot.configured!==false,
+  };
   if(selectedSession.value){
     const fresh=(snapshot.active||[]).find(item=>item.source===selectedSession.value.source&&item.session_id===selectedSession.value.session_id);
     if(fresh)selectedSession.value=fresh;

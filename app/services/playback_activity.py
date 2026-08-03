@@ -1336,6 +1336,7 @@ async def live_activity_snapshot(db=None) -> dict:
     if db is None:
         async with AsyncSessionLocal() as owned_db:
             return await live_activity_snapshot(db=owned_db)
+    settings = (await db.execute(select(Settings))).scalars().first()
     active = (
         await db.execute(
             select(PlaybackSession)
@@ -1343,7 +1344,12 @@ async def live_activity_snapshot(db=None) -> dict:
             .order_by(PlaybackSession.started_at.desc())
         )
     ).scalars().all()
-    return {"active": [_serialize(row) for row in active]}
+    configured = bool(settings and settings.plex_url and settings.plex_token)
+    return {
+        "active": [_serialize(row) for row in active],
+        "enabled": bool(settings and settings.live_activity_enabled and configured),
+        "configured": configured,
+    }
 
 
 async def activity_statistics(days: int = 30, db=None, refresh: bool = False) -> dict:

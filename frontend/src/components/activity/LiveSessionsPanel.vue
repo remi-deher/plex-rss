@@ -63,13 +63,21 @@
         </footer>
       </article>
     </div>
+    <div v-else-if="!collectionEnabled" class="live-disabled" role="status">
+      <PowerOff/>
+      <div>
+        <strong>Collecte en direct désactivée</strong>
+        <span>Aucune lecture Plex ne peut apparaître tant que ce réglage est désactivé.</span>
+      </div>
+      <RouterLink :to="{path:'/settings',query:{tab:'connections'}}" class="secondary">Activer la collecte</RouterLink>
+    </div>
     <p v-else class="empty">Aucune lecture en cours.</p>
   </section>
 </template>
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Loader, MapPin, Monitor, Network, Pause, Smartphone, Tablet, Tv } from '@lucide/vue';
+import { Loader, MapPin, Monitor, Network, Pause, PowerOff, Smartphone, Tablet, Tv } from '@lucide/vue';
 import MediaArtwork from './MediaArtwork.vue';
 import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
 import { usePolling } from '@/composables/usePolling';
@@ -79,6 +87,7 @@ const props = defineProps({
   sessions: { type: Array, default: () => [] },
   showLink: { type: Boolean, default: true },
   interactive: { type: Boolean, default: false },
+  collectionEnabled: { type: Boolean, default: true },
 });
 const emit = defineEmits(['select']);
 
@@ -212,6 +221,7 @@ function formatRemaining(session) {
 
 <style scoped>
 .live-panel{grid-column:1/-1}
+.live-disabled{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;margin-top:14px;padding:16px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));border-radius:12px;background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}.live-disabled>svg{width:22px;height:22px;color:var(--accent)}.live-disabled>div{display:grid;gap:4px}.live-disabled strong{font-size:14px}.live-disabled span{color:color-mix(in srgb,var(--text) 72%,transparent);font-size:12px;line-height:1.45}.live-disabled .secondary{white-space:nowrap}
 .eyebrow{display:flex;align-items:center;gap:6px}
 .eyebrow i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12)}
 .eyebrow i.idle{background:var(--muted);box-shadow:0 0 0 4px rgba(148,163,184,.1)}
@@ -250,6 +260,7 @@ function formatRemaining(session) {
 .live-bandwidth{font-variant-numeric:tabular-nums}
 
 @media(max-width:560px){
+  .live-disabled{grid-template-columns:auto minmax(0,1fr);align-items:start}.live-disabled .secondary{grid-column:1/-1;width:100%;min-height:44px}
   .live-list{grid-template-columns:1fr}
   .live-footer{grid-template-columns:minmax(0,1fr) auto auto}.live-quality{display:none}
 }
