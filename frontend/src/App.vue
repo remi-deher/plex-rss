@@ -57,7 +57,7 @@
         <span class="menu-label">Compte</span>
         <RouterLink to="/profile" title="Profil"><UserRound />Profil</RouterLink>
         <a href="/privacy" title="Confidentialite"><ShieldCheck />Confidentialite</a>
-        <a href="/logout" title="Deconnexion"><LogOut />Deconnexion</a>
+        <a href="/logout" title="Deconnexion" @click="clearCache"><LogOut />Deconnexion</a>
       </div>
     </aside>
 
@@ -101,7 +101,7 @@
               <span class="menu-label">Compte</span>
               <RouterLink to="/profile" @click="closeMoreMenu"><UserRound />Profil</RouterLink>
               <a href="/privacy"><ShieldCheck />Confidentialite</a>
-              <a href="/logout"><LogOut />Deconnexion</a>
+              <a href="/logout" @click="clearCache"><LogOut />Deconnexion</a>
             </div>
           </div>
         </div>
@@ -120,6 +120,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
 import { Activity, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
+import { clearCache, syncCacheOwner } from "@/cache";
 import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
@@ -156,11 +157,15 @@ function showPlaybackToasts(event){
     toastTimers.set(id,setTimeout(()=>dismissToast(id),7000));
   }
 }
+// Un import complet a remplace toute la base : tout ce que cet onglet affiche, et tout ce
+// qu'il a mis en cache, reference des lignes qui n'existent plus. On purge et on recharge
+// plutot que de laisser l'utilisateur agir sur des donnees fantomes.
+function onMigrationCompleted(){clearCache();window.location.reload()}
 watch(()=>route.fullPath,closeMoreMenu);
 watch(isMoreOpen,open=>{document.body.classList.toggle('modal-open',open)});
 useModalA11y(mobileMoreRef,isMoreOpen,closeMoreMenu);
-onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);session.value=await loadSession();if(session.value)connectRealtime()});
-onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);toastTimers.forEach(clearTimeout)});
+onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
+onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);window.removeEventListener('plexarr:migration.completed',onMigrationCompleted);toastTimers.forEach(clearTimeout)});
 </script>
 
 <style scoped>

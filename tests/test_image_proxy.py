@@ -7,25 +7,37 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import app.routers.image_proxy_api as image_proxy_api
 from app.database import get_db_async as get_db
 from app.dependencies import require_auth
 from app.main import app
 from app.models import Settings
 
+_REAL_SESSION_FACTORY = image_proxy_api.AsyncSessionLocal
+
 
 def _client(db):
     """Client de test authentifié, avec un Settings.plex_url="http://plex.local" pour
-    que l'allow-list de _allowed_image_hosts accepte les URLs de test ci-dessous."""
+    que l'allow-list de _allowed_image_hosts accepte les URLs de test ci-dessous.
+
+    `_allowed_image_hosts` ouvre sa propre session (elle n'est plus injectée dans la
+    route, pour ne pas payer une connexion par vignette servie depuis le cache disque) :
+    on lui fournit donc celle du test, et on vide son cache d'hôtes — global au module,
+    il fuiterait d'un test à l'autre."""
     db.add(Settings(plex_url="http://plex.local"))
     db.commit()
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
+    image_proxy_api.AsyncSessionLocal = lambda: db
+    image_proxy_api._allowed_hosts_cache = (0.0, set())
     return TestClient(app, raise_server_exceptions=False)
 
 
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(get_db, None)
+    image_proxy_api.AsyncSessionLocal = _REAL_SESSION_FACTORY
+    image_proxy_api._allowed_hosts_cache = (0.0, set())
 
 
 def _resp(status_code=200, content=b"fake-image-bytes", content_type="image/jpeg"):
@@ -189,5 +201,64 @@ def test_image_proxy_creates_cached_thumbnail(cache_dir, async_db, image_format)
         assert second.status_code == 304
         fake.get.assert_awaited_once()
         assert len(list(cache_dir.glob("*.bin"))) == 2  # original + variante WebP
+    finally:
+        _cleanup()
+
+
+def test_image_proxy_cache_hit_opens_no_db_session(cache_dir, async_db):
+    """Une vignette servie depuis le cache disque ne doit ouvrir aucune connexion DB.
+
+    L'allow-list d'hôtes était auparavant injectée dans la route (`Depends(get_db_async)`),
+    donc payée à chaque image : une grille de bibliothèque de 200 affiches ouvrait
+    200 sessions dans l'unique process uvicorn. Elle est désormais résolue depuis le cache
+    d'hôtes du module, et la session n'est ouverte que pour le remplir.
+    """
+    client = _client(async_db)
+    fake = _fake_httpx_client(resp=_resp())
+    sessions_opened = []
+    try:
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
+            first = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
+        assert first.status_code == 200
+
+        def _counting_factory():
+            sessions_opened.append(1)
+            return async_db
+
+        # Les deux voies d'accès à la base sont comptées : la fabrique de session du
+        # module *et* la dépendance FastAPI, pour que le test échoue aussi si la route
+        # revenait à injecter `Depends(get_db_async)`.
+        image_proxy_api.AsyncSessionLocal = _counting_factory
+        app.dependency_overrides[get_db] = _counting_factory
+
+        second = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
+        assert second.status_code == 200
+        assert sessions_opened == []
+    finally:
+        _cleanup()
+
+
+def test_image_proxy_etag_is_stable_across_requests(cache_dir, async_db):
+    """L'ETag ne dépend plus du hachage de l'image entière mais de la variante et de sa
+    date de mise en cache : il doit rester identique tant que le fichier ne change pas,
+    sinon le navigateur retéléchargerait toutes les affiches à chaque affichage."""
+    client = _client(async_db)
+    fake = _fake_httpx_client(resp=_resp())
+    try:
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
+            first = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
+        etag = first.headers["etag"]
+        assert etag
+
+        again = client.get("/api/image-proxy?url=http://plex.local/poster.jpg")
+        assert again.headers["etag"] == etag
+
+        not_modified = client.get(
+            "/api/image-proxy?url=http://plex.local/poster.jpg",
+            headers={"If-None-Match": etag},
+        )
+        assert not_modified.status_code == 304
+        assert not_modified.content == b""
+        assert not_modified.headers["etag"] == etag
     finally:
         _cleanup()

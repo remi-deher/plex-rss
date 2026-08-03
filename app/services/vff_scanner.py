@@ -646,6 +646,11 @@ def _start_scan_state(state: dict[str, Any]) -> None:
         "total_items": 0,
         "error": None,
     })
+    # Apres le passage a "running" : la tache de diffusion s'arrete des qu'elle observe un
+    # etat au repos (voir vff_progress.notify_vff_progress).
+    from .vff_progress import notify_vff_progress
+
+    notify_vff_progress()
 
 
 def _vf_candidate_filters(only_unseen: bool, force: bool):
@@ -714,7 +719,13 @@ async def _scan_candidate_group(
     return {result["id"]: result for result in results}
 
 
-async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, force: bool = False) -> None:
+async def _run_vf_scan(
+    only_unseen: bool,
+    state: dict[str, Any],
+    label: str,
+    force: bool = False,
+    section: str | None = None,
+) -> None:
     """Cœur du job VFF : détecte la présence de VF sur les médias disponibles et notifie.
 
     - Première analyse d'un média (has_vf IS NULL) :
@@ -736,8 +747,19 @@ async def _run_vf_scan(only_unseen: bool, state: dict[str, Any], label: str, for
     (`_invalidate_vf_cache`) avant d'appeler cette fonction.
 
     La détection Plex (plexapi) est bloquante : elle est déportée dans un thread.
+
+    `section` : nom de la section d'état partagé (voir services/scan_state.py) quand ce
+    scan est visible depuis les autres process. Sans lui, la garde « déjà en cours »
+    ci-dessous ne voit que ce process — et le cron ARQ du worker doublonnait avec un
+    déclenchement manuel venu du conteneur web.
     """
-    if state["status"] == "running":
+    if section is not None:
+        from . import scan_state
+
+        already_running = await scan_state.is_running(section, state)
+    else:
+        already_running = state["status"] == "running"
+    if already_running:
         logger.info(f"VFF ({label}) : un scan est déjà en cours, skip")
         return
 
@@ -946,7 +968,9 @@ async def check_vf_statuses(force: bool = False) -> None:
     """Scan complet : tous les médias en attente de VF (`has_vf IS NULL` ou `False`),
     sur l'intervalle long (`vff_recheck_interval_minutes`). `force=True` (scan manuel
     "Forcer l'analyse complète") re-scanne aussi les médias déjà marqués VF."""
-    await _run_vf_scan(only_unseen=False, state=vff_scan_state, label="complet", force=force)
+    await _run_vf_scan(
+        only_unseen=False, state=vff_scan_state, label="complet", force=force, section="scan"
+    )
 
 
 async def check_new_vf_availability() -> None:

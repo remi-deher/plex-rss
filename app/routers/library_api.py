@@ -246,10 +246,17 @@ async def plex_sections(db: AsyncSession = Depends(get_db_async)):
         return []
 
 
+def _split_values(raw: Optional[str]) -> list[str]:
+    return [value.strip() for value in (raw or "").split(",") if value.strip()]
+
+
 @router.get("/library")
 async def list_library(
     query: Optional[str] = None,
     media_type: Optional[str] = None,
+    media_types: Optional[str] = None,
+    vf: Optional[str] = None,
+    requesters: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
     db: AsyncSession = Depends(get_db_async),
@@ -259,14 +266,41 @@ async def list_library(
     `limit` est plafonne a 500 par appel ; le client pagine avec des appels successifs
     en incrementant `offset` (voir LibraryView.vue) plutot que de tout charger d'un coup —
     necessaire des que la bibliotheque depasse quelques centaines de medias.
+
+    Tous les filtres de la page sont appliques ici, en SQL. Ils l'etaient auparavant en
+    JavaScript sur la page deja chargee : au-dela du premier lot, « VF uniquement » ne
+    filtrait que les 200 premiers medias et masquait tout le reste de la bibliotheque.
+
+    `media_types` / `requesters` acceptent plusieurs valeurs separees par des virgules
+    (`media_type` reste accepte pour une valeur unique).
     """
     # Paginer d'abord la table principale. L'ancienne jointure + GROUP BY devait
     # agréger toute la bibliothèque avant d'appliquer LIMIT, ce qui se dégradait vite.
     stmt = select(LibraryItem)
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
-    if media_type in ("movie", "show"):
-        stmt = stmt.filter(LibraryItem.media_type == media_type)
+    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show")]
+    if media_type in ("movie", "show") and media_type not in selected_types:
+        selected_types.append(media_type)
+    if selected_types:
+        stmt = stmt.filter(LibraryItem.media_type.in_(selected_types))
+    if vf == "vf":
+        stmt = stmt.filter(LibraryItem.has_vf.is_(True))
+    elif vf == "vo":
+        stmt = stmt.filter(LibraryItem.has_vf.is_(False))
+    elif vf == "unchecked":
+        stmt = stmt.filter(LibraryItem.has_vf.is_(None))
+    selected_requesters = _split_values(requesters)
+    if selected_requesters:
+        # Un media Plex n'a pas de demandeur en propre : il en herite des demandes qui
+        # pointent dessus (y compris les demandeurs secondaires, voir extra_requesters
+        # cote requests_api).
+        stmt = stmt.filter(
+            sqlalchemy.exists().where(
+                MediaRequest.library_item_id == LibraryItem.id,
+                MediaRequest.plex_user_id.in_(selected_requesters),
+            )
+        )
     items = (
         await db.execute(
             stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title, LibraryItem.id)

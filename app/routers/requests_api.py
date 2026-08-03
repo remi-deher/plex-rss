@@ -274,13 +274,30 @@ async def list_requests_compact(
     query: Optional[str] = None,
     statuses: Optional[str] = None,
     media_type: Optional[str] = None,
+    media_types: Optional[str] = None,
     source: Optional[str] = None,
+    sources: Optional[str] = None,
     requester: Optional[str] = None,
+    requesters: Optional[str] = None,
+    vf: Optional[str] = None,
+    strict_partial: bool = False,
     limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Projection compacte et paginee destinee aux listes de l'interface."""
+    """Projection compacte et paginee destinee aux listes de l'interface.
+
+    Les variantes plurielles (`media_types`, `sources`, `requesters`) acceptent plusieurs
+    valeurs separees par des virgules ; les singuliers restent acceptes. La page
+    Bibliotheque n'envoyait auparavant ces filtres que lorsqu'une seule valeur etait
+    selectionnee et affinait le reste en JavaScript, ce qui devenait faux des que la liste
+    depassait une page.
+
+    `strict_partial` : restreint les series « partiellement disponible » a celles qui ont
+    reellement du retard sur ce qui est deja diffuse. Une serie garde ce statut tant
+    qu'elle n'a pas fini de diffuser (voir arr_tracker.is_show_partial), meme quand elle
+    est a jour -- ce raffinement etait applique cote client.
+    """
     from sqlalchemy import func
 
     filters = []
@@ -293,15 +310,51 @@ async def list_requests_compact(
         )
     if query:
         filters.append(MediaRequest.title.ilike(f"%{query.strip()}%"))
-    status_values = [value for value in (statuses or "").split(",") if value]
+    def _split(raw: Optional[str]) -> list[str]:
+        return [value.strip() for value in (raw or "").split(",") if value.strip()]
+
+    status_values = _split(statuses)
     if status_values:
-        filters.append(MediaRequest.status.in_(status_values))
-    if media_type in ("movie", "show"):
-        filters.append(MediaRequest.media_type == media_type)
-    if source:
-        filters.append(MediaRequest.source == source)
-    if requester:
-        filters.append(MediaRequest.plex_user_id == requester)
+        if strict_partial and "partially_available" in status_values:
+            others = [value for value in status_values if value != "partially_available"]
+            partial_clause = sqlalchemy.and_(
+                MediaRequest.status == "partially_available",
+                MediaRequest.episodes_aired_count.is_not(None),
+                MediaRequest.episodes_aired_count > 0,
+                MediaRequest.episodes_available_count < MediaRequest.episodes_aired_count,
+            )
+            filters.append(
+                sqlalchemy.or_(MediaRequest.status.in_(others), partial_clause)
+                if others
+                else partial_clause
+            )
+        else:
+            filters.append(MediaRequest.status.in_(status_values))
+
+    type_values = [value for value in _split(media_types) if value in ("movie", "show")]
+    if media_type in ("movie", "show") and media_type not in type_values:
+        type_values.append(media_type)
+    if type_values:
+        filters.append(MediaRequest.media_type.in_(type_values))
+
+    source_values = _split(sources)
+    if source and source not in source_values:
+        source_values.append(source)
+    if source_values:
+        filters.append(MediaRequest.source.in_(source_values))
+
+    requester_values = _split(requesters)
+    if requester and requester not in requester_values:
+        requester_values.append(requester)
+    if requester_values:
+        filters.append(MediaRequest.plex_user_id.in_(requester_values))
+
+    if vf == "vf":
+        filters.append(MediaRequest.has_vf.is_(True))
+    elif vf == "vo":
+        filters.append(MediaRequest.has_vf.is_(False))
+    elif vf == "unchecked":
+        filters.append(MediaRequest.has_vf.is_(None))
 
     total = (await db.execute(
         select(func.count(MediaRequest.id)).filter(*filters)

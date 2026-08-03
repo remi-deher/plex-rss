@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted } from "vue";
 
-const TYPES = ["request.updated", "download.updated", "health.updated", "job.updated", "notification.updated", "activity.updated", "library.analytics.updated"];
+const TYPES = ["request.updated", "download.updated", "health.updated", "job.updated", "notification.updated", "activity.updated", "library.analytics.updated", "vff.updated", "migration.completed"];
 let source;
 
 export function connectRealtime() {

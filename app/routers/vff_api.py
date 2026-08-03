@@ -364,15 +364,26 @@ async def vff_scan_all(force: bool = False, db: AsyncSession = Depends(get_db_as
 
 
 @router.get("/vff/scan-status")
-def get_vff_scan_status():
-    """Retourne l'état actuel de l'analyse VFF en arrière-plan."""
-    return vff_scan_state
+async def get_vff_scan_status():
+    """État actuel de l'analyse VFF, quel que soit le process qui la mène.
+
+    Le cron ARQ lance ce scan dans le conteneur worker : lire le dict local de ce
+    process-ci renverrait « inactif » pendant toute sa durée (voir services/scan_state.py).
+    """
+    from ..services import scan_state
+
+    return await scan_state.resolve("scan", vff_scan_state)
 
 
 @router.post("/vff/sync-plex", dependencies=[Depends(require_admin)])
 async def vff_sync_plex():
     """Déclenche immédiatement la synchronisation de la bibliothèque Plex en arrière-plan."""
-    if plex_sync_state["status"] == "running":
+    from ..services import scan_state
+
+    # Consulte aussi l'état partagé : une synchronisation menée par le worker ARQ n'est pas
+    # visible dans le dict local de ce process-ci, et on en lancerait une seconde en
+    # parallèle sur la même bibliothèque.
+    if await scan_state.is_running("sync", plex_sync_state):
         return {"status": "already_running"}
 
     asyncio.create_task(sync_plex_media())
@@ -380,9 +391,11 @@ async def vff_sync_plex():
 
 
 @router.get("/vff/sync-status")
-def get_vff_sync_status():
-    """Retourne l'état actuel de la synchronisation de la bibliothèque Plex."""
-    return plex_sync_state
+async def get_vff_sync_status():
+    """État actuel de la synchronisation Plex, quel que soit le process qui la mène."""
+    from ..services import scan_state
+
+    return await scan_state.resolve("sync", plex_sync_state)
 
 
 @router.post("/requests/{request_id}/vff-scan", dependencies=[Depends(require_admin)])

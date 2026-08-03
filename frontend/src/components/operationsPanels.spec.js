@@ -38,7 +38,7 @@ describe('panneaux opérationnels', () => {
       global: { stubs: { RouterLink } },
     });
 
-    expect(wrapper.findAll('.detail-row')).toHaveLength(2);
+    expect(wrapper.findAll('.queue-row')).toHaveLength(2);
   });
 
   it('ouvre une carte de bibliothèque avec Entrée ou Espace', async () => {

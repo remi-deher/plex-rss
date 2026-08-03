@@ -76,6 +76,7 @@ import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 import { proxyUrl } from '@/utils/mediaImage';
 import { api } from '@/api';
+import { readCache, writeCache } from '@/cache';
 import { useRealtime } from '@/events';
 import { useConfirm } from '@/composables/useConfirm';
 import { useDebounced } from '@/composables/useDebounced';
@@ -167,34 +168,34 @@ const requesters = computed(() => {
   return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
 });
 
-// Une serie "partially_available" reste dans ce statut tant qu'elle n'a pas fini de
-// diffuser (voir arr_tracker.is_show_partial cote backend), meme quand elle est deja a
-// jour sur tout ce qui est reellement sorti -- sans ce filtre, "Partiellement disponible"
-// affiche des series qui n'ont en realite rien de manquant cote Sonarr.
-function matchesStatusFilter(item) {
-  if (!statusFilters.value.length) return true;
-  if (item.orphan) return statusFilters.value.includes('orphan');
-  // "Dans Plex" couvre les LibraryItem synces, les demandes "disponible" (Radarr/Sonarr
-  // a confirme avant le prochain sync Plex quotidien), et desormais aussi les series
-  // "partiellement disponible" : au moins un episode est deja regardable, inutile
-  // d'attendre que Sonarr ait tout recupere pour la considerer "dans Plex".
-  const countsAsLibrary = item._kind === 'library'
-    || (item._kind === 'request' && (item.status === 'available' || item.status === 'partially_available'));
-  if (countsAsLibrary && statusFilters.value.includes('library')) return true;
-  if (!statusFilters.value.includes(item.status)) return false;
-  if (item.status !== 'partially_available') return true;
-  return Boolean(item.episodes_aired_count) && item.episodes_available_count < item.episodes_aired_count;
+// La bibliotheque n'est concernee que si le filtre de statut inclut « Dans Plex » (ou
+// n'en selectionne aucun). Un LibraryItem n'a par ailleurs pas de `source` -- c'est un
+// media Plex, pas une demande : des qu'un filtre par source est actif, aucun ne peut
+// correspondre, autant ne pas demander la page du tout.
+const wantsLibraryItems = computed(() =>
+  (!statusFilters.value.length || statusFilters.value.includes('library'))
+  && !sourceFilters.value.length
+);
+
+// Les medias Plex et les demandes sont desormais filtres en SQL (voir _libraryParams et
+// _requestListParams) : les refiltrer ici ne changerait rien au mieux, et donnait un
+// resultat faux des que la liste depassait une page -- « VF uniquement » ne filtrait que
+// les 200 premiers medias charges et masquait tout le reste de la bibliotheque.
+//
+// Les orphelins restent filtres localement : ils viennent de Sonarr/Radarr en un seul
+// bloc, sans pagination, donc le filtrage client y est exact.
+function matchesOrphanFilters(item) {
+  if (statusFilters.value.length && !statusFilters.value.includes('orphan')) return false;
+  if (typeFilters.value.length && !typeFilters.value.includes(item.media_type)) return false;
+  if (vf.value === 'vf' && item.has_vf !== true) return false;
+  if (vf.value === 'vo' && item.has_vf !== false) return false;
+  if (vf.value === 'unchecked' && item.has_vf != null) return false;
+  if (sourceFilters.value.length && !sourceFilters.value.includes(item.source)) return false;
+  if (requesterFilters.value.length && !requesterFilters.value.includes(item.plex_user_id)) return false;
+  return true;
 }
 
-const filtered = computed(() => items.value.filter(item =>
-  matchesStatusFilter(item) &&
-  (!typeFilters.value.length || typeFilters.value.includes(item.media_type)) &&
-  (vf.value !== 'vf' || item.has_vf === true) &&
-  (vf.value !== 'vo' || item.has_vf === false) &&
-  (vf.value !== 'unchecked' || item.has_vf == null) &&
-  (!sourceFilters.value.length || sourceFilters.value.includes(item.source)) &&
-  (!requesterFilters.value.length || requesterFilters.value.includes(item.plex_user_id))
-));
+const filtered = computed(() => items.value.filter(item => !item.orphan || matchesOrphanFilters(item)));
 
 const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
 // Demandes "disponibles" ou "partiellement disponibles" sans LibraryItem affiche (son
@@ -235,7 +236,10 @@ watch(
   },
   { deep: true },
 );
-watch([statusFilters, typeFilters, sourceFilters, requesterFilters], () => load(), { deep: true });
+// `vf` fait partie de la liste depuis que le filtre est applique en SQL : tant qu'il ne
+// servait qu'au filtrage client, le changer suffisait a recalculer `filtered` sans
+// rechargement -- ce n'est plus le cas.
+watch([statusFilters, typeFilters, sourceFilters, requesterFilters, vf], () => load(), { deep: true });
 
 // La frappe au clavier abandonne la requete en cours avant d'armer le delai : inutile de
 // laisser courir une recherche que l'utilisateur est deja en train de reformuler.
@@ -248,7 +252,9 @@ function onSearch() {
 function _libraryParams(offset) {
   const p = new URLSearchParams();
   if (query.value.trim()) p.set('query', query.value.trim());
-  if (typeFilters.value.length === 1) p.set('media_type', typeFilters.value[0]);
+  if (typeFilters.value.length) p.set('media_types', typeFilters.value.join(','));
+  if (vf.value) p.set('vf', vf.value);
+  if (requesterFilters.value.length) p.set('requesters', requesterFilters.value.join(','));
   p.set('limit', PAGE_SIZE);
   p.set('offset', offset);
   return p;
@@ -258,17 +264,36 @@ function _requestListParams() {
   const p = new URLSearchParams({ limit: '500' });
   const q = query.value.trim();
   if (q) p.set('query', q);
+  // « Dans Plex » couvre les LibraryItem synces, les demandes « disponible » (Radarr/Sonarr
+  // a confirme avant le prochain sync Plex quotidien) et les series « partiellement
+  // disponible » : au moins un episode est deja regardable.
   const selectedStatuses = statusFilters.value.includes('library')
     ? [...new Set([...statusFilters.value.filter(value => value !== 'library'), 'available', 'partially_available'])]
     : statusFilters.value;
   if (selectedStatuses.length) p.set('statuses', selectedStatuses.join(','));
-  if (typeFilters.value.length === 1) p.set('media_type', typeFilters.value[0]);
-  if (sourceFilters.value.length === 1) p.set('source', sourceFilters.value[0]);
-  if (requesterFilters.value.length === 1) p.set('requester', requesterFilters.value[0]);
+  // Une serie garde le statut « partiellement disponible » tant qu'elle n'a pas fini de
+  // diffuser, meme a jour sur tout ce qui est sorti. Ce raffinement ne s'applique que si
+  // l'utilisateur a explicitement choisi ce statut : sous « Dans Plex », une serie a jour
+  // doit rester visible.
+  if (statusFilters.value.includes('partially_available') && !statusFilters.value.includes('library')) {
+    p.set('strict_partial', 'true');
+  }
+  if (typeFilters.value.length) p.set('media_types', typeFilters.value.join(','));
+  if (sourceFilters.value.length) p.set('sources', sourceFilters.value.join(','));
+  if (requesterFilters.value.length) p.set('requesters', requesterFilters.value.join(','));
+  if (vf.value) p.set('vf', vf.value);
   return p;
 }
 
+// Le cache SWR est indexe sur les parametres reellement envoyes : les charges utiles
+// dependent des filtres, repeindre celles d'un autre filtre serait faux.
+const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+function _cacheKey() {
+  return `library:${_libraryParams(0)}|${_requestListParams()}`;
+}
+
 function applyRequestData(requests, stats) {
+  if (!requests) return;
   requestSummary.value = requests;
   allRequestsRaw.value = requests.items || [];
   pendingRequests.value = allRequestsRaw.value
@@ -284,6 +309,21 @@ function applyOrphans(orphanRows) {
     ? orphanRows.filter(row => row.title?.toLowerCase().includes(searchQuery))
     : orphanRows;
   orphans.value = matching.map(x => ({ ...x, _kind: 'request' }));
+}
+
+function applyLibraryPage(library) {
+  libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
+  libraryOffset.value = library.length;
+  hasMoreLibrary.value = wantsLibraryItems.value && library.length === PAGE_SIZE;
+}
+
+/** Repeint la derniere vue connue pour ces filtres, avant le premier aller-retour reseau. */
+function primeFromCache() {
+  const cached = readCache(_cacheKey(), { maxAgeMs: CACHE_MAX_AGE_MS });
+  if (!cached?.requests) return;
+  applyLibraryPage(cached.library || []);
+  applyRequestData(cached.requests, cached.stats);
+  applyOrphans(cached.orphans || []);
 }
 
 async function refreshRequestData() {
@@ -307,12 +347,16 @@ async function load() {
   // interrogent Sonarr/Radarr en direct (cache court cote backend, voir
   // arr_orphans.py) : avant, tout restait bloque derriere ce seul appel via
   // Promise.all, donnant l'impression d'un rechargement complet a chaque visite.
+  let libraryPage = null;
   try {
-    const library = await api(`/api/library?${_libraryParams(0)}`, options);
+    // Aucun media Plex ne peut correspondre aux filtres courants : on economise l'appel
+    // plutot que de charger une page qui serait entierement ecartee.
+    const library = wantsLibraryItems.value
+      ? await api(`/api/library?${_libraryParams(0)}`, options)
+      : [];
     if (!isCurrent()) return;
-    libraryItemsRaw.value = library.map(x => ({ ...x, _kind: 'library' }));
-    libraryOffset.value = library.length;
-    hasMoreLibrary.value = library.length === PAGE_SIZE;
+    libraryPage = library;
+    applyLibraryPage(library);
   } catch (e) {
     if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   } finally {
@@ -330,6 +374,9 @@ async function load() {
 
     applyRequestData(requests, stats);
     applyOrphans(orphanRows);
+    // Ecrit une fois les deux vagues arrivees : le cache represente ainsi une page
+    // complete, jamais un etat intermediaire sans demandes ni orphelins.
+    if (libraryPage) writeCache(_cacheKey(), { library: libraryPage, requests, stats, orphans: orphanRows });
   } catch (e) {
     if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   }
@@ -433,6 +480,7 @@ useRealtime(['request.updated'], (type, event) => {
 // de rafraichir un onglet en arriere-plan (ce que l'ancien setInterval nu faisait).
 usePolling(load, 120000);
 onMounted(async () => {
+  primeFromCache();
   isAdmin.value = isAdminSession(await loadSession());
   await load();
   loadUsers();

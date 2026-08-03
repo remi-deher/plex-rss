@@ -143,6 +143,7 @@ import { usePolling } from '@/composables/usePolling';
 import { useRoute,useRouter } from 'vue-router';
 import { Activity, CheckCircle2,CircleStop,Clock3,Cpu,Gauge,HardDrive,History,MonitorPlay,PlayCircle,Radio,RefreshCw,Repeat2,Search,Timer,Tv,Users,Zap } from '@lucide/vue';
 import { api } from '@/api';
+import { readCacheEntry, writeCache } from '@/cache';
 import { useRealtime } from '@/events';
 import MetricCard from '@/components/ui/MetricCard.vue';
 import ActivityHeatmap from '@/components/activity/ActivityHeatmap.vue';
@@ -190,7 +191,13 @@ const codecBreakdown=computed(()=>(analytics.value.quality?.codecs||[]).map(item
 const transcodeReasonBreakdown=computed(()=>(analytics.value.quality?.transcode_reasons||[]).map(item=>({label:item.label,value:item.count})));
 const bandwidthBreakdown=computed(()=>(analytics.value.bandwidth?.by_user||[]).map(item=>({label:item.name,value:Math.round(item.average_kbps/100)/10,suffix:' Mb/s',detail:`Pic ${formatBandwidth(item.peak_kbps)}`})));
 
-function applySnapshot(snapshot){
+// Seules les statistiques sont mises en cache, jamais les sessions `active` : repeindre
+// une lecture « en cours » terminee depuis serait un contresens, alors qu'une tendance
+// sur 30 jours vieille de quelques minutes reste juste.
+const STATISTICS_CACHE_MAX_AGE_MS=6*60*60*1000;
+const statisticsCacheKey=()=>`activity:statistics:${days.value}`;
+
+function applySnapshot(snapshot,{savedAt=Date.now()}={}){
   data.value=snapshot;
   if(selectedSession.value){
     const candidates=[...(snapshot.active||[]),...(snapshot.history||[])];
@@ -198,7 +205,7 @@ function applySnapshot(snapshot){
     if(fresh)selectedSession.value=fresh;
   }
   loaded.value=true;
-  updatedAt.value=Date.now();
+  updatedAt.value=savedAt;
 }
 function applyLive(snapshot){
   data.value={...data.value,active:snapshot.active||[]};
@@ -208,9 +215,13 @@ function applyLive(snapshot){
   }
   updatedAt.value=Date.now();
 }
-function applyStatistics(snapshot){applySnapshot({...snapshot,active:data.value.active||[]})}
+function applyStatistics(snapshot,options){applySnapshot({...snapshot,active:data.value.active||[]},options)}
+function primeFromCache(){
+  const entry=readCacheEntry(statisticsCacheKey(),{maxAgeMs:STATISTICS_CACHE_MAX_AGE_MS});
+  if(entry)applyStatistics(entry.data,{savedAt:entry.savedAt});
+}
 async function loadLive(silent=true){try{applyLive(await api('/api/playback/live'))}catch(e){if(!silent)error.value=e.message}}
-async function loadStatistics(silent=true,refresh=false){try{applyStatistics(await api(`/api/playback/statistics?days=${days.value}${refresh?'&refresh=true':''}`))}catch(e){if(!silent)error.value=e.message}}
+async function loadStatistics(silent=true,refresh=false){try{const statistics=await api(`/api/playback/statistics?days=${days.value}${refresh?'&refresh=true':''}`);applyStatistics(statistics);writeCache(statisticsCacheKey(),statistics)}catch(e){if(!silent)error.value=e.message}}
 async function load(silent=false){
   if(loading.value)return;
   if(!silent){loading.value=true;error.value=''}
@@ -220,6 +231,7 @@ async function load(silent=false){
       api('/api/playback/live'),
     ]);
     applyStatistics(statistics);
+    writeCache(statisticsCacheKey(),statistics);
     applyLive(live);
   }catch(e){if(!silent)error.value=e.message}
   finally{if(!silent)loading.value=false}
@@ -239,7 +251,7 @@ useRealtime(['activity.updated'],()=>loadLive());
 usePolling(()=>clock.value=Date.now(),1000,{whenVisible:false});
 usePolling(()=>loadLive(),10000);
 usePolling(()=>loadStatistics(),60000);
-onMounted(()=>load());
+onMounted(()=>{primeFromCache();load()});
 </script>
 
 <style scoped>

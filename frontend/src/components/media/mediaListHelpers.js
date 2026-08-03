@@ -6,6 +6,7 @@ export {
   REQUEST_STATUSES as STATUSES,
   mediaTypePluralLabel as typeLabel,
   requestStatusLabel as statusLabel,
+  requestStatusShortLabel as statusShortLabel,
 } from '@/utils/labels';
 export { proxyUrl } from '@/utils/mediaImage';
 

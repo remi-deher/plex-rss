@@ -43,6 +43,21 @@ export function requestStatusLabel(value, fallback) {
   return REQUEST_STATUS_LABELS[value] || fallback || value;
 }
 
+/** Libellés courts, pour les badges épinglés sur une affiche.
+ *
+ *  Sur une carte de bibliothèque en largeur téléphone, « Partiellement disponible »
+ *  demande 161 px pour 150 px disponibles : le libellé complet y est tronqué (« …disponib… »),
+ *  donc illisible. Seuls les statuts réellement trop longs ont une forme courte ; les
+ *  autres retombent sur le libellé normal. */
+export const REQUEST_STATUS_SHORT_LABELS = {
+  partially_available: 'Partiel',
+  orphan: 'Suivi *arr',
+};
+
+export function requestStatusShortLabel(value, fallback) {
+  return REQUEST_STATUS_SHORT_LABELS[value] || requestStatusLabel(value, fallback);
+}
+
 /** « Film » / « Série » — au singulier, pour une fiche ou une ligne de tableau. */
 export function mediaTypeLabel(value) {
   return value === 'show' ? 'Série' : 'Film';

@@ -189,7 +189,11 @@ async def sync_plex_media():
     Enregistre les nouveaux médias en statut disponible avec la source "plex_sync".
     """
     _reset_if_stale()
-    if plex_sync_state["status"] == "running":
+    # Consulte aussi l'etat partage : une synchronisation menee par l'autre process (cron
+    # ARQ cote worker, declenchement manuel cote web) est invisible du dict local.
+    from . import scan_state
+
+    if await scan_state.is_running("sync", plex_sync_state):
         logger.info("VFF Sync : une synchronisation est déjà en cours, skip")
         return
 
@@ -199,6 +203,11 @@ async def sync_plex_media():
     plex_sync_state["items_synced"] = 0
     plex_sync_state["total_items"] = 0
     plex_sync_state["error"] = None
+    # Apres le passage a "running" : la tache de diffusion s'arrete des qu'elle observe un
+    # etat au repos (voir vff_progress.notify_vff_progress).
+    from .vff_progress import notify_vff_progress
+
+    notify_vff_progress()
 
     db: AsyncSession = AsyncSessionLocal()
     try:
@@ -265,7 +274,9 @@ async def sync_plex_media_recent():
     plex_sync_state que le scan complet : les deux ne tournent jamais en meme temps.
     """
     _reset_if_stale()
-    if plex_sync_state["status"] == "running":
+    from . import scan_state
+
+    if await scan_state.is_running("sync", plex_sync_state):
         logger.info("VFF Sync (recent) : une synchronisation est déjà en cours, skip")
         return
 
@@ -275,6 +286,11 @@ async def sync_plex_media_recent():
     plex_sync_state["items_synced"] = 0
     plex_sync_state["total_items"] = 0
     plex_sync_state["error"] = None
+    # Apres le passage a "running" : la tache de diffusion s'arrete des qu'elle observe un
+    # etat au repos (voir vff_progress.notify_vff_progress).
+    from .vff_progress import notify_vff_progress
+
+    notify_vff_progress()
 
     db: AsyncSession = AsyncSessionLocal()
     try:

@@ -2,9 +2,13 @@
   <div class="media-card interactive" :class="{list:view==='list'}" role="link" tabindex="0" :aria-label="`Ouvrir la fiche de ${item.title}`" @click="handleOpen" @keydown.enter.prevent="handleOpen" @keydown.space.prevent="handleOpen">
     <MediaPoster :poster-url="item.poster_url">
       <template #badges>
-        <span v-if="item._kind==='library'" class="language-tag" :class="item.has_vf===true?'vf':item.has_vf===false?'vo':'unknown'">{{ item.has_vf===true?'VF':item.has_vf===false?'VO':'?' }}</span>
-        <span v-else class="badge status-tag" :class="item.status">{{ statusLabel(item.status) }}</span>
-        <span v-if="requesterLabel(item)" class="requester-tag">👤 {{ requesterLabel(item) }}</span>
+        <!-- En vue liste, l'affiche n'est qu'une vignette de 64 px : y epingler un badge
+             texte le tronque forcement (« Partiellement disponible » demande ~152 px).
+             Les badges passent alors dans le corps de la carte, ci-dessous. La case a
+             cocher, elle, tient dans tous les cas. -->
+        <template v-if="view!=='list'">
+          <span v-for="badge in badges" :key="badge.key" :class="badge.cls">{{ badge.label }}</span>
+        </template>
         <label v-if="isAdmin && item._kind==='request' && !item.orphan" class="select-tag" @click.stop>
           <input :checked="selected" :disabled="busy" type="checkbox" :aria-label="`Sélectionner ${item.title}`" @change="$emit('toggle-select', item.id)">
         </label>
@@ -17,9 +21,9 @@
         <template v-if="item.orphan"> · Suivi {{ item.orphan_source==='sonarr'?'Sonarr':'Radarr' }}</template>
         <template v-else-if="item._kind==='request' && item.source"> · {{ item.source }}</template>
       </span>
-      <template v-if="view==='list'">
-        <span v-if="requesterLabel(item)" class="requester-tag inline" style="margin-top: 4px;">👤 {{ requesterLabel(item) }}</span>
-      </template>
+      <div v-if="view==='list'" class="badge-row card-badges">
+        <span v-for="badge in badges" :key="badge.key" :class="badge.cls">{{ badge.label }}</span>
+      </div>
       <div v-if="item._kind==='request'" class="card-actions" @click.stop>
         <template v-if="item.orphan">
           <button v-if="isAdmin" class="icon-button danger" :disabled="busy" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
@@ -35,13 +39,13 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { RotateCcw, Search, Trash2, X } from '@lucide/vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
 import MediaPoster from '@/components/media/MediaPoster.vue';
-import { statusLabel } from '@/components/media/mediaListHelpers';
+import { statusLabel, statusShortLabel } from '@/components/media/mediaListHelpers';
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -82,6 +86,29 @@ async function handleOpen() {
 function requesterLabel(item) {
   return item.custom_name || item.requested_by || item.plex_user || item.plex_user_id || '';
 }
+
+/**
+ * Badges de la carte, definis une seule fois : la vue grille les superpose a l'affiche,
+ * la vue liste les affiche dans le corps. Le demandeur etait auparavant rendu deux fois
+ * en vue liste (une version epinglee sur la vignette *et* une version en ligne).
+ */
+const badges = computed(() => {
+  const item = props.item;
+  const list = [];
+  if (item._kind === 'library') {
+    const label = item.has_vf === true ? 'VF' : item.has_vf === false ? 'VO' : '?';
+    const variant = item.has_vf === true ? 'vf' : item.has_vf === false ? 'vo' : 'unknown';
+    list.push({ key: 'langue', cls: `language-tag ${variant}`, label });
+  } else {
+    // Libelle court en vue grille (badge epingle sur l'affiche, largeur contrainte) ;
+    // libelle complet en vue liste, ou le badge est dans le corps de la carte.
+    const label = props.view === 'list' ? statusLabel(item.status) : statusShortLabel(item.status);
+    list.push({ key: 'statut', cls: `badge status-tag ${item.status}`, label });
+  }
+  const requester = requesterLabel(item);
+  if (requester) list.push({ key: 'demandeur', cls: 'requester-tag', label: `👤 ${requester}` });
+  return list;
+});
 </script>
 
 <style scoped>
@@ -99,6 +126,15 @@ function requesterLabel(item) {
   position: absolute;
   top: 8px;
   left: 8px;
+  /* Sur l'affiche, le libelle ne doit pas deborder de la largeur disponible. */
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Badges en vue liste : dans le corps de la carte, ou ils ont la place de s'afficher. */
+.card-badges {
+  margin-top: 5px;
 }
 .poster-shell .select-tag {
   position: absolute;

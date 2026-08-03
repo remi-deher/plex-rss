@@ -317,3 +317,53 @@ def test_episodes_vf_status_is_pure_db_read(db, client):
     data = resp.json()
     seasons = {s["season_number"]: s["episodes"] for s in data["seasons"]}
     assert seasons[1] == {"1": "vf", "2": "vo"}
+
+
+# ---------------------------------------------------------------------------
+# Etat de scan partage entre process (voir app/services/scan_state.py)
+# ---------------------------------------------------------------------------
+
+
+def test_scan_status_surfaces_a_scan_running_in_another_process(client):
+    """Régression : le cron ARQ lance le scan VFF dans le conteneur worker. Cet endpoint,
+    servi par le conteneur web, répondait « inactif » pendant toute sa durée parce qu'il
+    lisait un dict de module local au process."""
+    from app.services import scan_state
+
+    worker_state = {"status": "running", "items_scanned": 7, "total_items": 21, "error": None}
+    with patch.object(scan_state, "read_section", AsyncMock(return_value=worker_state)):
+        resp = client.get("/api/vff/scan-status")
+
+    assert resp.status_code == 200
+    assert resp.json() == worker_state
+
+
+def test_scan_status_prefers_the_local_run(client):
+    """Quand c'est ce process-ci qui scanne, son dict local est plus frais que la copie
+    partagée (écrite au plus une fois par cycle)."""
+    from app.services import scan_state
+
+    backup = dict(vff_scan_state)
+    stale_shared = {"status": "running", "items_scanned": 1, "total_items": 21}
+    try:
+        vff_scan_state.update({"status": "running", "items_scanned": 19, "total_items": 21})
+        with patch.object(scan_state, "read_section", AsyncMock(return_value=stale_shared)):
+            resp = client.get("/api/vff/scan-status")
+        assert resp.json()["items_scanned"] == 19
+    finally:
+        vff_scan_state.clear()
+        vff_scan_state.update(backup)
+
+
+def test_sync_plex_refuses_when_another_process_is_already_syncing(client):
+    """Sans état partagé, un déclenchement manuel doublonnait avec la synchronisation
+    lancée par le cron du worker, sur la même bibliothèque Plex."""
+    from app.services import scan_state
+
+    with patch.object(
+        scan_state, "read_section", AsyncMock(return_value={"status": "running"})
+    ), patch("app.routers.vff_api.sync_plex_media", AsyncMock()) as sync:
+        resp = client.post("/api/vff/sync-plex")
+
+    assert resp.json() == {"status": "already_running"}
+    sync.assert_not_called()

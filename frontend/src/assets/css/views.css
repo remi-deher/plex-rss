@@ -359,12 +359,29 @@ td {
   position: relative;
 }
 
-/* Badges sur affiche (statut + VF/VO) : remplace le texte colore sur fond translucide
-   generique par un remplissage plein propre a chaque statut -- sur une affiche deja
-   chargee visuellement, un badge "texte vert sur gris" se noie facilement, un badge
-   "fond vert plein, texte blanc" se detache immediatement au premier coup d'oeil. */
-.poster-shell .status-tag,
-.poster-shell .language-tag {
+/* Superposition sur affiche : le seul cas ou un badge sort du flux. Les autres tags de la
+   carte (statut, selection, demandeur) ont deja leur propre regle de placement, c'est le
+   badge de langue qui dependait du `position: absolute` global.
+   Enfant *direct* uniquement : la page Decouvrir empile ses badges dans un conteneur
+   `.poster-badges` qui gere deja son placement, et les rendre absolus a l'interieur les
+   sortait de ce conteneur -- de largeur nulle une fois vide, ce qui tronquait chaque
+   libelle a la largeur de ses seules marges. */
+.poster-shell > .language-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Badges statut + VF/VO : remplissage plein propre a chaque statut, plutot que le texte
+   colore sur fond translucide generique -- sur une affiche deja chargee visuellement, un
+   badge "texte vert sur gris" se noie, un badge "fond vert plein, texte blanc" se detache
+   au premier coup d'oeil.
+   L'habillage n'est plus reserve a `.poster-shell` : en vue liste ces memes badges sont
+   rendus dans le corps de la carte (l'affiche n'y est qu'une vignette de 64 px), et ils
+   doivent y avoir la meme apparence. Seuls le placement et l'ombre restent propres a la
+   superposition sur affiche. */
+.status-tag,
+.language-tag {
   padding: 3px 9px;
   font-size: 0.78rem;
   font-weight: 700;
@@ -372,23 +389,27 @@ td {
   border: none;
   color: #fff;
   background: rgba(39, 39, 42, .95);
+}
+
+.poster-shell .status-tag,
+.poster-shell .language-tag {
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
 }
 
-.poster-shell .status-tag.available,
-.poster-shell .status-tag.sent_to_arr,
-.poster-shell .language-tag.vf {
+.status-tag.available,
+.status-tag.sent_to_arr,
+.language-tag.vf {
   background: rgba(22, 163, 74, .95);
 }
 
-.poster-shell .status-tag.failed,
-.poster-shell .status-tag.rejected,
-.poster-shell .language-tag.vo {
+.status-tag.failed,
+.status-tag.rejected,
+.language-tag.vo {
   background: rgba(220, 38, 38, .95);
 }
 
-.poster-shell .status-tag.pending_approval,
-.poster-shell .status-tag.partially_available {
+.status-tag.pending_approval,
+.status-tag.partially_available {
   color: #1a1200;
   background: rgba(245, 179, 26, .97);
 }

@@ -100,6 +100,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Un enfant de ligne flex ne se retrecit jamais sous la taille de son contenu par defaut.
+   Sans cela, un titre long pousse le badge voisin hors de la ligne au lieu de se laisser
+   tronquer -- c'est le debordement mesure sur les panneaux du tableau de bord. */
+.detail-row > * {
+  min-width: 0;
+}
+
 /* Fondations UI communes : en-têtes, statuts et retours système. */
 .ui-page-header {
   display: flex;
@@ -215,13 +222,25 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   .ui-filter-sheet footer .primary { grid-row: 1; }
 }
 
+/* Badge dans le flux, par defaut.
+ *
+ * Cette regle etait `position: absolute; top: 8px; right: 8px`, ecrite pour le seul cas
+ * du badge epingle sur une affiche -- mais elle s'appliquait a *tous* les badges de
+ * l'application. Consequence : dans une liste ou une ligne de panneau, chaque badge
+ * sortait du flux et venait se caler au meme endroit que ses voisins, d'ou les
+ * chevauchements. La superposition sur affiche est desormais demandee explicitement,
+ * la ou elle est voulue (voir `.poster-shell` dans views.css).
+ *
+ * `flex: none` : dans une ligne flex, un badge ne doit jamais etre comprime au point de
+ * tronquer son libelle -- c'est le titre voisin qui cede la place.
+ */
 .badge,
 .language-tag {
-  position: absolute;
-  top: 8px;
-  right: 8px;
   display: inline-flex;
+  flex: none;
   align-items: center;
+  gap: 5px;
+  max-width: 100%;
   min-height: 24px;
   padding: 0 8px;
   border-radius: 5px;
@@ -229,6 +248,16 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   background: rgba(20, 20, 20, .9);
   border: 1px solid var(--border);
   font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* Un conteneur de badges les espace et les fait passer a la ligne plutot que deborder. */
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .badge.available,

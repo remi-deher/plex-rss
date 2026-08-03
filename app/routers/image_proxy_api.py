@@ -13,10 +13,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..database import get_db_async
+from ..database import AsyncSessionLocal
 from ..dependencies import require_auth
 from ..models import ArrInstance, Settings
 from ..utils import safe_error_message
@@ -28,12 +27,16 @@ _STATIC_ALLOWED_IMAGE_HOSTS = {"image.tmdb.org"}
 _allowed_hosts_cache: tuple[float, set[str]] = (0.0, set())
 _allowed_hosts_lock = asyncio.Lock()
 
-async def _allowed_image_hosts(db: AsyncSession) -> set[str]:
+async def _allowed_image_hosts() -> set[str]:
     """Hôtes vers lesquels /api/image-proxy est autorisé à faire une requête.
 
     Limité aux hôtes explicitement configurés par l'admin (serveur Plex, instances
     *arr) plus le CDN TMDB, afin d'empêcher un utilisateur authentifié d'utiliser ce
     proxy pour atteindre des hôtes internes/externes arbitraires (SSRF).
+
+    La session DB est ouverte ici, seulement quand le cache (60 s) est froid, plutot
+    qu'injectee dans la route : une grille de posters declenchait sinon une connexion par
+    image, y compris pour les requetes servies depuis le cache disque.
     """
     global _allowed_hosts_cache
     if time.monotonic() - _allowed_hosts_cache[0] < 60:
@@ -42,17 +45,18 @@ async def _allowed_image_hosts(db: AsyncSession) -> set[str]:
         if time.monotonic() - _allowed_hosts_cache[0] < 60:
             return set(_allowed_hosts_cache[1])
         hosts = set(_STATIC_ALLOWED_IMAGE_HOSTS)
-        settings = (await db.execute(select(Settings))).scalars().first()
-        if settings and settings.plex_url:
-            host = urlparse(settings.plex_url).hostname
-            if host:
-                hosts.add(host.lower())
-        instances = (await db.execute(select(ArrInstance))).scalars().all()
-        for inst in instances:
-            if inst.url:
-                host = urlparse(inst.url).hostname
+        async with AsyncSessionLocal() as db:
+            settings = (await db.execute(select(Settings))).scalars().first()
+            if settings and settings.plex_url:
+                host = urlparse(settings.plex_url).hostname
                 if host:
                     hosts.add(host.lower())
+            instances = (await db.execute(select(ArrInstance))).scalars().all()
+            for inst in instances:
+                if inst.url:
+                    host = urlparse(inst.url).hostname
+                    if host:
+                        hosts.add(host.lower())
         _allowed_hosts_cache = (time.monotonic(), hosts)
         return set(hosts)
 
@@ -68,6 +72,21 @@ def _image_cache_paths(url: str) -> tuple[str, str]:
         _os.path.join(_IMAGE_CACHE_DIR, f"{digest}.meta"),
     )
 
+def _read_image_meta(url: str) -> tuple[str, float] | None:
+    """Lit le seul fichier .meta (quelques octets), sans toucher a l'image elle-meme.
+
+    Permet de trancher fraicheur et ETag avant de payer la lecture du binaire : sur une
+    grille de posters, la quasi-totalite des requetes se termine en 304.
+    """
+    _, meta_path = _image_cache_paths(url)
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            content_type, cached_at = f.read().split("\n", 1)
+        return content_type, float(cached_at)
+    except Exception:
+        return None
+
+
 def _read_image_cache(url: str) -> tuple[bytes, str, float] | None:
     content_path, meta_path = _image_cache_paths(url)
     try:
@@ -79,14 +98,16 @@ def _read_image_cache(url: str) -> tuple[bytes, str, float] | None:
     except Exception:
         return None
 
-def _write_image_cache(url: str, content: bytes, content_type: str) -> None:
+def _write_image_cache(url: str, content: bytes, content_type: str, cached_at: float) -> None:
+    """`cached_at` est fourni par l'appelant plutot que pris ici : il entre dans l'ETag,
+    qui doit designer exactement la version ecrite sur disque."""
     try:
         _os.makedirs(_IMAGE_CACHE_DIR, exist_ok=True)
         content_path, meta_path = _image_cache_paths(url)
         with open(content_path, "wb") as f:
             f.write(content)
         with open(meta_path, "w", encoding="utf-8") as f:
-            f.write(f"{content_type}\n{time.time()}")
+            f.write(f"{content_type}\n{cached_at}")
     except Exception as e:
         logger.warning(f"Cache image : écriture impossible pour {url}: {e}")
 
@@ -116,15 +137,23 @@ def _transform_image(
         raise ValueError(f"Transformation d'image impossible: {exc}") from exc
 
 
-def _image_response(content: bytes, content_type: str, request: Request) -> Response:
-    etag = f'"{hashlib.sha256(content).hexdigest()}"'
-    headers = {
-        "Cache-Control": "private, max-age=86400, stale-while-revalidate=604800",
-        "ETag": etag,
-    }
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers=headers)
-    return Response(content=content, media_type=content_type, headers=headers)
+_CACHE_HEADERS = {"Cache-Control": "private, max-age=86400, stale-while-revalidate=604800"}
+
+
+def _variant_etag(variant_key: str, cached_at: float) -> str:
+    """ETag derive de l'identite de la variante et de sa date de mise en cache.
+
+    `variant_key` designe deja un contenu unique (URL source + dimensions + qualite +
+    format) et `cached_at` change a chaque re-telechargement : hacher ces quelques octets
+    suffit, la ou hacher l'image entiere coutait un SHA-256 sur plusieurs centaines de Ko
+    a chaque requete, y compris celles qui repartent en 304.
+    """
+    digest = hashlib.sha256(f"{variant_key}|{cached_at}".encode("utf-8")).hexdigest()
+    return f'"{digest}"'
+
+
+def _image_response(content: bytes, content_type: str, etag: str) -> Response:
+    return Response(content=content, media_type=content_type, headers={**_CACHE_HEADERS, "ETag": etag})
 
 @router.get("/image-proxy", dependencies=[Depends(require_auth)])
 async def image_proxy(
@@ -134,29 +163,42 @@ async def image_proxy(
     height: int | None = Query(None, ge=32, le=1600),
     quality: int = Query(82, ge=40, le=95),
     image_format: str = Query("original", alias="format", pattern="^(original|webp|avif)$"),
-    db: AsyncSession = Depends(get_db_async),
 ):
     """Proxy, redimensionne et met en cache les affiches de l'interface."""
     parsed = urlparse(url or "")
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise HTTPException(400, "URL image invalide")
-    allowed_hosts = await _allowed_image_hosts(db)
+    allowed_hosts = await _allowed_image_hosts()
     if not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
         raise HTTPException(400, "Hôte d'image non autorisé")
     safe_url = urlunparse(parsed)
     variant_key = _variant_key(safe_url, width, height, quality, image_format)
 
-    cached = await asyncio.to_thread(_read_image_cache, variant_key)
-    if cached and time.time() - cached[2] < _IMAGE_CACHE_TTL:
-        return _image_response(cached[0], cached[1], request)
+    async def _serve_if_cached() -> Response | None:
+        """Sert la variante depuis le cache disque, en 304 si le navigateur l'a deja."""
+        meta = await asyncio.to_thread(_read_image_meta, variant_key)
+        if not meta or time.time() - meta[1] >= _IMAGE_CACHE_TTL:
+            return None
+        content_type, cached_at = meta
+        etag = _variant_etag(variant_key, cached_at)
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers={**_CACHE_HEADERS, "ETag": etag})
+        cached = await asyncio.to_thread(_read_image_cache, variant_key)
+        if not cached:
+            return None
+        return _image_response(cached[0], cached[1], etag)
+
+    response = await _serve_if_cached()
+    if response is not None:
+        return response
 
     # Une seule récupération/transformation à la fois par variante, même lors du rendu
     # simultané de plusieurs cartes qui utilisent la même affiche.
     lock = _image_locks.setdefault(variant_key, asyncio.Lock())
     async with lock:
-        cached = await asyncio.to_thread(_read_image_cache, variant_key)
-        if cached and time.time() - cached[2] < _IMAGE_CACHE_TTL:
-            return _image_response(cached[0], cached[1], request)
+        response = await _serve_if_cached()
+        if response is not None:
+            return response
 
         source = await asyncio.to_thread(_read_image_cache, safe_url)
         if not source or time.time() - source[2] >= _IMAGE_CACHE_TTL:
@@ -171,9 +213,10 @@ async def image_proxy(
                 ).split(";")[0].strip().lower()
                 if not content_type.startswith("image/"):
                     raise HTTPException(415, "La ressource n'est pas une image")
-                source = (upstream.content, content_type, time.time())
+                fetched_at = time.time()
+                source = (upstream.content, content_type, fetched_at)
                 await asyncio.to_thread(
-                    _write_image_cache, safe_url, upstream.content, content_type
+                    _write_image_cache, safe_url, upstream.content, content_type, fetched_at
                 )
             except HTTPException:
                 raise
@@ -188,7 +231,7 @@ async def image_proxy(
                     exc,
                 )
 
-        content, content_type, _ = source
+        content, content_type, variant_cached_at = source
         if width or height or image_format != "original":
             try:
                 content, content_type = await asyncio.to_thread(
@@ -196,7 +239,8 @@ async def image_proxy(
                 )
             except ValueError as exc:
                 raise HTTPException(415, str(exc)) from exc
+            variant_cached_at = time.time()
             await asyncio.to_thread(
-                _write_image_cache, variant_key, content, content_type
+                _write_image_cache, variant_key, content, content_type, variant_cached_at
             )
-        return _image_response(content, content_type, request)
+        return _image_response(content, content_type, _variant_etag(variant_key, variant_cached_at))

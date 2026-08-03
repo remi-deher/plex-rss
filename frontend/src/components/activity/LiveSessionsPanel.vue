@@ -1,18 +1,53 @@
 <template>
   <section class="panel live-panel">
     <div class="panel-head">
-      <div><span class="eyebrow"><i></i>En direct</span><h2>Lectures Plex</h2></div>
-      <RouterLink v-if="showLink" :to="{path:'/activity',query:{view:'live'}}">Voir l’activité</RouterLink>
+      <div>
+        <span class="eyebrow"><i :class="{ idle: !playingCount }"></i>En direct</span>
+        <h2>Lectures Plex</h2>
+        <p v-if="sessions.length" class="live-summary">{{ summary }}</p>
+      </div>
+      <!-- `.panel-link` : meme pastille fantome que les autres panneaux du tableau de bord
+           (« Tout voir », « Voir le calendrier »...). Ce lien etait le seul rendu en texte
+           nu, sans etat au survol ni la cible tactile de 44 px que components.css garantit
+           aux `.panel-link` sur ecran tactile. -->
+      <RouterLink v-if="showLink" :to="{path:'/activity',query:{view:'live'}}" class="panel-link">Voir l’activité</RouterLink>
     </div>
+
     <div v-if="sessions.length" class="live-list">
-      <article v-for="session in sessions" :key="session.session_id" class="live-session" :class="{interactive}" @click="select(session)" @keydown.enter="select(session)" @keydown.space.prevent="select(session)" :tabindex="interactive?0:undefined" :role="interactive?'button':undefined">
-        <MediaArtwork :src="session.thumb_url" :alt="displayTitle(session)" :type="session.media_type" size="small"/>
-        <div class="live-main">
-          <div><strong>{{ displayTitle(session) }}</strong><span>{{ session.user_name }} · {{ session.player || session.platform || 'Plex' }}</span></div>
-          <div class="progress-track"><i :style="{width:`${session.progress||0}%`}"></i></div>
-          <small>{{ Math.round(session.progress||0) }} % · {{ formatRemaining(session) }}</small>
+      <article
+        v-for="session in sessions"
+        :key="session.session_id"
+        class="live-session"
+        :class="{ interactive, paused: isPaused(session) }"
+        :tabindex="interactive?0:undefined"
+        :role="interactive?'button':undefined"
+        @click="select(session)"
+        @keydown.enter="select(session)"
+        @keydown.space.prevent="select(session)"
+      >
+        <div class="live-art">
+          <MediaArtwork :src="session.thumb_url" :alt="displayTitle(session)" :type="session.media_type" size="small"/>
+          <span v-if="stateIcon(session)" class="live-state" :title="stateLabel(session)">
+            <component :is="stateIcon(session)" />
+          </span>
         </div>
-        <div class="live-meta"><span>{{ session.quality || 'Auto' }}</span><PlaybackMethodBadge :method="session.playback_method"/></div>
+
+        <div class="live-main">
+          <div>
+            <strong>{{ displayTitle(session) }}</strong>
+            <span>{{ subtitle(session) }}</span>
+          </div>
+          <div class="progress-track"><i :class="{ paused: isPaused(session) }" :style="{width:`${percent(session)}%`}"></i></div>
+          <small>{{ percent(session) }} % · {{ formatRemaining(session) }}</small>
+        </div>
+
+        <div class="live-meta">
+          <span v-if="session.quality || locationLabel(session)" class="live-quality">
+            {{ session.quality || 'Auto' }}<template v-if="locationLabel(session)"> · {{ locationLabel(session) }}</template>
+          </span>
+          <PlaybackMethodBadge :method="session.playback_method" :title="decisionDetail(session)" />
+          <span v-if="session.bandwidth_kbps" class="live-bandwidth">{{ formatBandwidth(session.bandwidth_kbps) }}</span>
+        </div>
       </article>
     </div>
     <p v-else class="empty">Aucune lecture en cours.</p>
@@ -20,15 +55,152 @@
 </template>
 
 <script setup>
+import { computed, ref, watch } from 'vue';
+import { Loader, Pause } from '@lucide/vue';
 import MediaArtwork from './MediaArtwork.vue';
 import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
-const props=defineProps({sessions:{type:Array,default:()=>[]},showLink:{type:Boolean,default:true},interactive:{type:Boolean,default:false}});
-const emit=defineEmits(['select']);
-function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:item.title}
-function select(session){if(props.interactive)emit('select',session)}
-function formatRemaining(session){const remaining=Math.max(0,(session.duration_ms||0)-(session.progress_ms||0));if(!remaining)return 'Durée inconnue';const minutes=Math.ceil(remaining/60000);return minutes<60?`${minutes} min restantes`:`${Math.floor(minutes/60)} h ${minutes%60} min restantes`}
+import { usePolling } from '@/composables/usePolling';
+import { formatBandwidth } from '@/utils/format';
+
+const props = defineProps({
+  sessions: { type: Array, default: () => [] },
+  showLink: { type: Boolean, default: true },
+  interactive: { type: Boolean, default: false },
+});
+const emit = defineEmits(['select']);
+
+// Interpolation locale de la progression.
+//
+// `progress_ms` ne change qu'a l'arrivee de nouvelles donnees (evenement SSE
+// `activity.updated`, publie par l'ecouteur websocket Plex et par la collecte periodique).
+// Entre deux, la barre restait figee : une lecture en cours donnait exactement la meme
+// image qu'une lecture a l'arret. On avance donc l'affichage a la seconde, en repartant de
+// la derniere valeur connue des que le serveur en envoie une nouvelle -- l'estimation ne
+// derive pas, elle est corrigee a chaque rafraichissement.
+const receivedAt = ref(Date.now());
+const now = ref(Date.now());
+watch(() => props.sessions, () => { receivedAt.value = Date.now(); now.value = Date.now(); });
+usePolling(() => { now.value = Date.now(); }, 1000);
+
+function isPaused(session) {
+  return ['paused', 'buffering'].includes(String(session.state || '').toLowerCase());
+}
+
+function elapsedMs(session) {
+  const base = session.progress_ms || 0;
+  // Une lecture en pause ou en mise en memoire tampon n'avance pas.
+  if (String(session.state || 'playing').toLowerCase() !== 'playing') return base;
+  const projected = base + (now.value - receivedAt.value);
+  return session.duration_ms ? Math.min(projected, session.duration_ms) : projected;
+}
+
+function percent(session) {
+  if (session.duration_ms) return Math.min(100, Math.round((elapsedMs(session) / session.duration_ms) * 100));
+  return Math.min(100, Math.round(session.progress || 0));
+}
+
+const playingCount = computed(() => props.sessions.filter(session => !isPaused(session)).length);
+
+/** Synthese d'en-tete : l'essentiel du panneau lisible sans parcourir les lignes. */
+const summary = computed(() => {
+  const total = props.sessions.length;
+  const parts = [`${total} lecture${total > 1 ? 's' : ''}`];
+  const paused = total - playingCount.value;
+  if (paused) parts.push(`${paused} en pause`);
+  const bandwidth = props.sessions.reduce((sum, session) => sum + (session.bandwidth_kbps || 0), 0);
+  if (bandwidth) parts.push(formatBandwidth(bandwidth));
+  const transcodes = props.sessions.filter(session => session.playback_method === 'transcode').length;
+  if (transcodes) parts.push(`${transcodes} transcodage${transcodes > 1 ? 's' : ''}`);
+  return parts.join(' · ');
+});
+
+const STATE_ICONS = { paused: Pause, buffering: Loader };
+const STATE_LABELS = { paused: 'En pause', buffering: 'Mise en mémoire tampon' };
+
+function stateIcon(session) {
+  return STATE_ICONS[String(session.state || '').toLowerCase()] || null;
+}
+
+function stateLabel(session) {
+  return STATE_LABELS[String(session.state || '').toLowerCase()] || 'En lecture';
+}
+
+/** `lan` / `wan` cote Plex : un flux distant est le cas couteux, il merite d'etre visible. */
+function locationLabel(session) {
+  const value = String(session.location || '').toLowerCase();
+  if (value === 'lan') return 'Local';
+  if (value === 'wan') return 'Distant';
+  return '';
+}
+
+/** Detail du transcodage : le badge dit *que* ca transcode, ceci dit *pourquoi*. */
+const DECISION_LABELS = { transcode: 'transcodée', copy: 'copiée', directplay: 'directe' };
+function decisionDetail(session) {
+  const parts = [];
+  if (session.video_decision) parts.push(`Vidéo ${DECISION_LABELS[session.video_decision] || session.video_decision}`);
+  if (session.audio_decision) parts.push(`Audio ${DECISION_LABELS[session.audio_decision] || session.audio_decision}`);
+  if (session.subtitle_decision) {
+    parts.push(`Sous-titres ${DECISION_LABELS[session.subtitle_decision] || session.subtitle_decision}`);
+  }
+  return parts.join(' · ');
+}
+
+function subtitle(session) {
+  return [session.user_name, session.player || session.platform || 'Plex'].filter(Boolean).join(' · ');
+}
+
+function displayTitle(item) {
+  return item.grandparent_title ? `${item.grandparent_title} · ${item.title}` : item.title;
+}
+
+function select(session) {
+  if (props.interactive) emit('select', session);
+}
+
+function formatRemaining(session) {
+  if (isPaused(session)) return stateLabel(session);
+  if (!session.duration_ms) return 'Durée inconnue';
+  const remaining = Math.max(0, session.duration_ms - elapsedMs(session));
+  const minutes = Math.ceil(remaining / 60000);
+  if (minutes < 1) return 'bientôt terminé';
+  return minutes < 60
+    ? `${minutes} min restantes`
+    : `${Math.floor(minutes / 60)} h ${minutes % 60} min restantes`;
+}
 </script>
 
 <style scoped>
-.live-panel{grid-column:1/-1}.eyebrow{display:flex;align-items:center;gap:6px}.eyebrow i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12)}.panel-head a{color:var(--accent);font-size:12px}.live-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:12px}.live-session{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}.live-session.interactive{cursor:pointer;transition:border-color .15s,transform .15s}.live-session.interactive:hover,.live-session.interactive:focus-visible{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-1px);outline:none}.live-main{display:grid;gap:6px;min-width:0}.live-main>div:first-child{display:grid}.live-main strong,.live-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.live-main span,.live-main small{color:var(--muted);font-size:10px}.progress-track{height:4px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.1)}.progress-track i{display:block;height:100%;background:var(--accent)}.live-meta{display:grid;justify-items:end;gap:6px}.live-meta>span{color:var(--muted);font-size:10px}@media(max-width:480px){.live-list{grid-template-columns:1fr}.live-meta>span{display:none}}
+.live-panel{grid-column:1/-1}
+.eyebrow{display:flex;align-items:center;gap:6px}
+.eyebrow i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12)}
+.eyebrow i.idle{background:var(--muted);box-shadow:0 0 0 4px rgba(148,163,184,.1)}
+.live-summary{margin:3px 0 0;color:var(--muted);font-size:11px}
+.live-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:12px}
+.live-session{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}
+.live-session.paused{opacity:.72}
+.live-session.interactive{cursor:pointer;transition:border-color .15s,transform .15s}
+.live-session.interactive:hover,.live-session.interactive:focus-visible{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-1px);outline:none}
+
+.live-art{position:relative;display:flex}
+/* Pastille d'etat sur la vignette : une lecture en pause etait jusqu'ici indiscernable
+   d'une lecture en cours. */
+.live-state{position:absolute;right:-4px;bottom:-4px;display:grid;place-items:center;width:17px;height:17px;border-radius:50%;background:rgba(10,10,10,.92);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.live-state svg{width:10px;height:10px}
+
+.live-main{display:grid;gap:6px;min-width:0}
+.live-main>div:first-child{display:grid;min-width:0}
+.live-main strong,.live-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-main span,.live-main small{color:var(--muted);font-size:10px}
+.progress-track{height:4px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.1)}
+.progress-track i{display:block;height:100%;background:var(--accent);transition:width 1s linear}
+.progress-track i.paused{background:var(--muted);transition:none}
+
+.live-meta{display:grid;justify-items:end;gap:5px}
+.live-quality,.live-bandwidth{color:var(--muted);font-size:10px;white-space:nowrap}
+.live-bandwidth{font-variant-numeric:tabular-nums}
+
+@media(max-width:480px){
+  .live-list{grid-template-columns:1fr}
+  .live-quality{display:none}
+}
 </style>

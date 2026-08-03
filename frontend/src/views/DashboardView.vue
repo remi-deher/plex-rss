@@ -28,7 +28,7 @@
       </MetricGrid>
       <div class="dashboard-focus-grid">
         <LiveSessionsPanel :sessions="liveActivity.active||[]" />
-        <DownloadQueuePanel :queue="downloadQueue.slice(0,5)" :loading="loadingQueue" />
+        <DownloadQueuePanel :queue="downloadQueue" :loading="loadingQueue" />
         <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
         <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />
       </div>
@@ -83,9 +83,14 @@ import ActiveUsersPanel from '@/components/dashboard/ActiveUsersPanel.vue';
 import RecentNotificationsPanel from '@/components/dashboard/RecentNotificationsPanel.vue';
 import ScanStatusPanel from '@/components/dashboard/ScanStatusPanel.vue';
 import LiveSessionsPanel from '@/components/activity/LiveSessionsPanel.vue';
-import { api } from '@/api';
+import { api, streamEvents } from '@/api';
+import { readCacheEntry, writeCache } from '@/cache';
 import { useRealtime } from '@/events';
 import { queueCounts } from '@/downloads/queueRules';
+
+const SNAPSHOT_CACHE_KEY = 'dashboard:snapshot';
+// Au-dela, mieux vaut l'ecran de chargement qu'un etat qui n'a plus rien a voir.
+const SNAPSHOT_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 const counts = ref({});
 const pending = ref([]);
@@ -173,6 +178,19 @@ async function loadVffStatus() {
   if (countsData) vffCounts.value = countsData;
 }
 
+/**
+ * Progression poussee par le backend (voir app/services/vff_progress.py). Le payload
+ * porte l'etat complet : aucun aller-retour supplementaire n'est necessaire. Les
+ * compteurs ne sont joints qu'en fin de scan, les conserver sinon.
+ */
+function applyVffEvent(detail) {
+  const payload = detail?.payload;
+  if (!payload) return;
+  if (payload.scan) vffScan.value = payload.scan;
+  if (payload.sync) plexSync.value = payload.sync;
+  if (payload.counts) vffCounts.value = payload.counts;
+}
+
 async function triggerVffScan() {
   try { await api('/api/vff/scan', { method: 'POST' }); await loadVffStatus(); } catch (e) { error.value = e.message; }
 }
@@ -181,7 +199,7 @@ async function triggerPlexSync() {
   try { await api('/api/vff/sync-plex', { method: 'POST' }); await loadVffStatus(); } catch (e) { error.value = e.message; }
 }
 
-function applyDashboardSnapshot(snapshot) {
+function applyDashboardSnapshot(snapshot, { savedAt = Date.now() } = {}) {
   const assignments = [
     ['counts', counts], ['pending', pending], ['polls', polls],
     ['timeline', timeline], ['by_user', byUser], ['onboarding', onboarding],
@@ -194,13 +212,42 @@ function applyDashboardSnapshot(snapshot) {
   if (snapshot.notifications !== undefined) {
     recentNotifs.value = snapshot.notifications?.items ?? snapshot.notifications ?? [];
   }
-  seconds.value = nextPoll.value?.next_run_seconds ?? null;
-  updatedAt.value = Date.now();
+  // Uniquement quand la section est presente : le flux envoie les sections une par une, et
+  // reappliquer l'ancienne valeur a chaque trame ferait sauter le compte a rebours en
+  // arriere, annulant les decrements de la seconde ecoulee.
+  if (snapshot.next_poll !== undefined) {
+    seconds.value = nextPoll.value?.next_run_seconds ?? null;
+  }
+  updatedAt.value = savedAt;
+}
+
+/**
+ * Repeint immediatement le dernier snapshot connu, avant meme le premier aller-retour
+ * reseau. `next_poll` est volontairement ecarte : le compte a rebours « prochaine
+ * verification dans X » serait faux (il a continue de tourner cote serveur pendant que la
+ * page n'etait pas montee) et repartirait a l'envers a l'arrivee de la vraie valeur.
+ */
+function primeFromCache() {
+  const entry = readCacheEntry(SNAPSHOT_CACHE_KEY, { maxAgeMs: SNAPSHOT_CACHE_MAX_AGE_MS });
+  if (!entry) return;
+  applyDashboardSnapshot({ ...entry.data, next_poll: undefined }, { savedAt: entry.savedAt });
+}
+
+/**
+ * Fusionne avec l'existant plutot que d'ecraser : `loadDashboardSections` ne renvoie que
+ * les sections demandees, et un rafraichissement cible ne doit pas amputer le snapshot
+ * mis en cache pour le prochain montage de la page.
+ */
+function cacheSnapshot(snapshot) {
+  const previous = readCacheEntry(SNAPSHOT_CACHE_KEY, { maxAgeMs: SNAPSHOT_CACHE_MAX_AGE_MS })?.data;
+  const { errors, ...sections } = snapshot;
+  writeCache(SNAPSHOT_CACHE_KEY, { ...(previous || {}), ...sections });
 }
 
 async function loadDashboardSections(sections) {
   const snapshot = await api(`/api/dashboard/snapshot?sections=${sections.join(',')}`);
   applyDashboardSnapshot(snapshot);
+  cacheSnapshot(snapshot);
 }
 
 async function load() {
@@ -208,12 +255,29 @@ async function load() {
   loading.value = true;
   error.value = '';
   const failures = [];
+  // Chaque section s'affiche des qu'elle arrive, sans attendre la plus lente des dix.
+  function applyChunk(chunk) {
+    if (chunk.errors?.length) {
+      failures.push(...chunk.errors);
+      return;
+    }
+    applyDashboardSnapshot(chunk);
+    cacheSnapshot(chunk);
+  }
+
   try {
-    const snapshot = await api('/api/dashboard/snapshot');
-    applyDashboardSnapshot(snapshot);
-    if (snapshot.errors?.length) failures.push(...snapshot.errors);
-  } catch (e) {
-    failures.push('snapshot du tableau de bord');
+    await streamEvents('/api/dashboard/snapshot/stream', applyChunk);
+  } catch (streamError) {
+    // Repli d'un bloc : proxy qui tamponne, navigateur sans ReadableStream, coupure
+    // reseau en cours de flux. Les sections deja recues restent affichees.
+    try {
+      const snapshot = await api('/api/dashboard/snapshot');
+      applyDashboardSnapshot(snapshot);
+      cacheSnapshot(snapshot);
+      if (snapshot.errors?.length) failures.push(...snapshot.errors);
+    } catch (e) {
+      failures.push('snapshot du tableau de bord');
+    }
   }
   // Les donnees externes completent la vue au fil de l'eau et ne retardent jamais le
   // premier affichage du snapshot local.
@@ -262,6 +326,13 @@ useRealtime(['notification.updated'], (type) => type
   ? loadDashboardSections(['notifications']).catch(() => {})
   : load());
 useRealtime(['activity.updated'], () => loadLiveActivity().catch(() => {}));
+// Remplace un sondage a 5 s (3 appels HTTP, soit 36 requetes/minute en permanence, meme
+// au repos). `type` absent = retour sur l'onglet apres une possible perte du flux SSE :
+// on resynchronise alors par un appel unique.
+useRealtime(['vff.updated'], (type, detail) => {
+  if (!type) return loadVffStatus().catch(() => {});
+  applyVffEvent(detail);
+});
 
 // Compte a rebours et horloge : locaux, ils doivent avancer meme onglet masque pour que
 // « prochaine verification dans X » soit juste au retour sur l'onglet.
@@ -269,10 +340,10 @@ usePolling(() => {
   if (seconds.value > 0) seconds.value--;
   clock.value = Date.now();
 }, 1000, { whenVisible: false });
-usePolling(loadVffStatus, 5000);
 usePolling(load, 60000);
 
 onMounted(async () => {
+  primeFromCache();
   await load();
   await loadVffStatus();
 });
