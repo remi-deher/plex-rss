@@ -181,7 +181,7 @@ const averageWatch=computed(()=>summary.value.sessions?Math.round((summary.value
 const relativeUpdate=computed(()=>{const seconds=Math.max(0,Math.floor((clock.value-updatedAt.value)/1000));return seconds<5?'à l’instant':`il y a ${seconds} s`});
 const filteredHistory=computed(()=>data.value.history.filter(item=>{
   const needle=historySearch.value.trim().toLowerCase();
-  const haystack=[displayTitle(item),item.user_name,item.player,item.platform].filter(Boolean).join(' ').toLowerCase();
+  const haystack=[displayTitle(item),item.user_name,item.player,item.product,item.platform,item.address].filter(Boolean).join(' ').toLowerCase();
   return (!needle||haystack.includes(needle))&&(!methodFilter.value||item.playback_method===methodFilter.value)&&(!typeFilter.value||item.media_type===typeFilter.value);
 }));
 const historyFilterCount=computed(()=>[historySearch.value,methodFilter.value,typeFilter.value].filter(Boolean).length);

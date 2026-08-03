@@ -36,6 +36,15 @@ def test_media_detail_route_is_served_not_404(async_db):
         _cleanup()
 
 
+def test_activity_route_with_query_is_served_not_404(async_db):
+    client = _client(async_db)
+    try:
+        response = client.get("/activity?view=history")
+        assert response.status_code == 200
+    finally:
+        _cleanup()
+
+
 def test_unknown_spa_root_still_404s(async_db):
     """Un chemin de premier niveau non enregistré doit toujours 404 (pas de faille par
     laquelle n'importe quelle route arbitraire serait servie comme du SPA)."""

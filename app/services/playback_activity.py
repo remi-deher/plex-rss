@@ -23,7 +23,7 @@ from ..models import PlaybackDailyAggregate, PlaybackSession, Settings
 from ..realtime import publish
 from ..utils import now_utc_naive, wrap_image_proxy
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
-from .ip_geolocation import lookup_ip_location
+from .ip_geolocation import lookup_ip_location, lookup_ip_locations
 
 logger = logging.getLogger(__name__)
 _plex_collection_lock = asyncio.Lock()
@@ -38,6 +38,25 @@ _PLEX_COLLECTION_LOCK_KEY = "plexarr:locks:playback-activity"
 # tolérance perdu au pire).
 _MISS_THRESHOLD = 2
 _miss_counts: dict[int, int] = {}
+_GEO_FIELDS = (
+    "geo_status",
+    "geo_city",
+    "geo_region",
+    "geo_country",
+    "geo_country_code",
+    "geo_lat",
+    "geo_lon",
+)
+
+
+def _has_preserved_location(row: PlaybackSession) -> bool:
+    return row.geo_status in {"resolved", "local", "anonymized"} or any(
+        getattr(row, field) is not None for field in _GEO_FIELDS[1:]
+    )
+
+
+def _row_location(row: PlaybackSession) -> dict:
+    return {field: getattr(row, field) for field in _GEO_FIELDS}
 
 
 def _percent(value: int | float, total: int | float) -> float:
@@ -477,6 +496,48 @@ def _serialize(row: PlaybackSession) -> dict:
     }
 
 
+def _tautulli_row_id(item: dict) -> str:
+    """Return the identifier of one history row, not its grouped reference."""
+    return str(item.get("row_id") or item.get("id") or item.get("reference_id") or "")
+
+
+def _tautulli_session_values(item: dict, settings: Settings, location: dict) -> dict:
+    values = _tautulli_values(item)
+    started = _dt_from_epoch(item.get("started")) or now_utc_naive()
+    stopped = _dt_from_epoch(item.get("stopped"))
+    return {
+        "user_name": item.get("friendly_name") or item.get("user"),
+        "media_type": item.get("media_type"),
+        "title": item.get("title") or "Lecture Plex",
+        "grandparent_title": item.get("grandparent_title"),
+        "parent_title": item.get("parent_title"),
+        "year": _int(item.get("year")),
+        "rating_key": str(item.get("rating_key") or "") or None,
+        "library_section_title": item.get("section_name"),
+        "thumb_url": item.get("thumb"),
+        "player_title": item.get("player"),
+        "platform": item.get("platform"),
+        "product": item.get("product"),
+        "player_address": _masked_ip(
+            item.get("ip_address"), settings.activity_anonymize_ips
+        ),
+        "state": "stopped",
+        "quality": item.get("quality_profile") or item.get("video_resolution"),
+        "video_codec": item.get("video_codec"),
+        "audio_codec": item.get("audio_codec"),
+        "container": item.get("container"),
+        "subtitle_decision": item.get("subtitle_decision"),
+        "stream_location": item.get("location"),
+        "bandwidth_kbps": _int(item.get("bandwidth")),
+        "media_size_bytes": _int(item.get("file_size") or item.get("media_size")),
+        "started_at": started,
+        "last_seen_at": stopped or started,
+        "ended_at": stopped or started + timedelta(milliseconds=values["watched_ms"]),
+        **values,
+        **location,
+    }
+
+
 def _thumb_url(row: PlaybackSession) -> str | None:
     plex_thumb_path = _plex_thumb_path(row)
     if plex_thumb_path:
@@ -592,15 +653,17 @@ async def _collect_plex_activity_unlocked() -> dict:
         # transition de lecteur/transcodage). Sans déduplication, la boucle ajoutait
         # deux objets ORM portant la même clé unique avant le premier flush.
         snapshots = _deduplicate_plex_sessions(snapshots)
-        locations = await asyncio.gather(*(
-            lookup_ip_location(
-                snapshot.get("player_address"),
-                anonymized=settings.activity_anonymize_ips,
+        locations = await lookup_ip_locations(
+            {snapshot.get("player_address") for snapshot in snapshots},
+            db=db,
+            anonymized=settings.activity_anonymize_ips,
+        )
+        for snapshot in snapshots:
+            address = str(snapshot.get("player_address") or "").strip()
+            snapshot.update(
+                locations.get(address)
+                or await lookup_ip_location(None, anonymized=settings.activity_anonymize_ips)
             )
-            for snapshot in snapshots
-        ))
-        for snapshot, location in zip(snapshots, locations, strict=True):
-            snapshot.update(location)
         now = now_utc_naive()
         active_ids = {item["source_session_id"] for item in snapshots}
         rows = (
@@ -642,13 +705,10 @@ async def _collect_plex_activity_unlocked() -> dict:
                 db.add(row)
                 started_rows.append(row)
                 existing[row.source_session_id] = row
-            if snapshot.get("geo_status") == "unavailable" and row.geo_status == "resolved":
-                # Une panne ponctuelle du lookup ne doit pas effacer la derniere
-                # localisation valide. Le cache GeoIP retentera en arriere-plan.
-                for key in (
-                    "geo_status", "geo_city", "geo_region", "geo_country",
-                    "geo_country_code", "geo_lat", "geo_lon",
-                ):
+            if _has_preserved_location(row):
+                # Le lieu appartient à la session historique : une résolution plus
+                # récente de la même IP ne doit jamais réécrire cette valeur.
+                for key in _GEO_FIELDS:
                     snapshot.pop(key, None)
             previous_progress = row.progress_ms or snapshot["progress_ms"] or 0
             for key, value in snapshot.items():
@@ -775,7 +835,7 @@ async def test_tautulli(url: str, api_key: str) -> tuple[bool, str]:
         return False, f"Connexion Tautulli impossible: {exc}"
 
 
-async def _tautulli_locations(rows: list[dict], *, anonymized: bool) -> dict[str, dict]:
+async def _tautulli_locations(rows: list[dict], *, db, anonymized: bool) -> dict[str, dict]:
     """Resout une seule fois chaque IP distincte d'un lot Tautulli.
 
     Un historique de 10 000 lectures contient generalement peu d'adresses distinctes.
@@ -787,17 +847,7 @@ async def _tautulli_locations(rows: list[dict], *, anonymized: bool) -> dict[str
         for item in rows
     }
     addresses.discard("")
-    if anonymized:
-        location = await lookup_ip_location(None, anonymized=True)
-        return {address: location for address in addresses}
-
-    semaphore = asyncio.Semaphore(8)
-
-    async def resolve(address: str) -> tuple[str, dict]:
-        async with semaphore:
-            return address, await lookup_ip_location(address)
-
-    return dict(await asyncio.gather(*(resolve(address) for address in addresses)))
+    return await lookup_ip_locations(addresses, db=db, anonymized=anonymized)
 
 
 async def import_tautulli_history(*, length: int = 1000) -> dict:
@@ -814,6 +864,7 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     "length": min(max(length, 1), 10000),
                     "order_column": "date",
                     "order_dir": "desc",
+                    "grouping": 0,
                 },
             )
             response.raise_for_status()
@@ -823,80 +874,55 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
         rows = payload.get("data", {}).get("data") or []
         locations = await _tautulli_locations(
             rows,
+            db=db,
             anonymized=settings.activity_anonymize_ips,
         )
         imported = 0
+        updated = 0
         imported_days: set[date] = set()
+        existing_rows = (
+            await db.execute(
+                select(PlaybackSession).filter(PlaybackSession.source == "tautulli")
+            )
+        ).scalars().all()
+        existing_by_reference = {row.source_session_id: row for row in existing_rows}
         for item in rows:
-            reference = str(item.get("reference_id") or item.get("row_id") or item.get("id") or "")
+            reference = _tautulli_row_id(item)
             if not reference:
                 continue
-            exists = (
-                await db.execute(
-                    select(PlaybackSession.id).filter(
-                        PlaybackSession.source == "tautulli",
-                        PlaybackSession.source_session_id == reference,
-                    )
-                )
-            ).scalar()
-            if exists:
-                continue
-            started = _dt_from_epoch(item.get("started")) or now_utc_naive()
-            stopped = _dt_from_epoch(item.get("stopped"))
-            values = _tautulli_values(item)
             raw_address = str(item.get("ip_address") or "").strip()
             location = locations.get(raw_address) or await lookup_ip_location(
                 None,
                 anonymized=settings.activity_anonymize_ips,
             )
-            db.add(
-                PlaybackSession(
+            session_values = _tautulli_session_values(item, settings, location)
+            session = existing_by_reference.get(reference)
+            if session is not None and _has_preserved_location(session):
+                for field in _GEO_FIELDS:
+                    session_values.pop(field, None)
+            if session is None:
+                session = PlaybackSession(
                     source="tautulli",
                     source_session_id=reference,
-                    user_name=item.get("friendly_name") or item.get("user"),
-                    media_type=item.get("media_type"),
-                    title=item.get("title") or "Lecture Plex",
-                    grandparent_title=item.get("grandparent_title"),
-                    parent_title=item.get("parent_title"),
-                    year=_int(item.get("year")),
-                    rating_key=str(item.get("rating_key") or "") or None,
-                    library_section_title=item.get("section_name"),
-                    thumb_url=item.get("thumb"),
-                    player_title=item.get("player"),
-                    platform=item.get("platform"),
-                    product=item.get("product"),
-                    player_address=_masked_ip(item.get("ip_address"), settings.activity_anonymize_ips),
-                    state="stopped",
-                    video_decision=values["video_decision"],
-                    audio_decision=values["audio_decision"],
-                    playback_method=values["playback_method"],
-                    quality=item.get("quality_profile") or item.get("video_resolution"),
-                    video_codec=item.get("video_codec"),
-                    audio_codec=item.get("audio_codec"),
-                    container=item.get("container"),
-                    subtitle_decision=item.get("subtitle_decision"),
-                    stream_location=item.get("location"),
-                    bandwidth_kbps=_int(item.get("bandwidth")),
-                    media_size_bytes=_int(item.get("file_size") or item.get("media_size")),
-                    duration_ms=values["duration_ms"],
-                    watched_ms=values["watched_ms"],
-                    progress_ms=values["progress_ms"],
-                    progress_percent=values["progress_percent"],
-                    watched_status=values["watched_status"],
-                    group_count=values["group_count"],
-                    source_group_ids=values["source_group_ids"],
-                    started_at=started,
-                    last_seen_at=stopped or started,
-                    ended_at=stopped or started + timedelta(milliseconds=values["watched_ms"]),
-                    **location,
+                    **session_values,
                 )
-            )
-            imported_days.add(started.date())
-            imported += 1
+                db.add(session)
+                existing_by_reference[reference] = session
+                imported += 1
+                imported_days.add(session_values["started_at"].date())
+            elif any(getattr(session, key) != value for key, value in session_values.items()):
+                for key, value in session_values.items():
+                    setattr(session, key, value)
+                updated += 1
+                imported_days.add(session_values["started_at"].date())
         await db.commit()
         await _rebuild_daily_aggregates(db, imported_days)
-    await publish("activity.updated", {"imported": imported, "source": "tautulli"}, admin_only=True)
-    return {"imported": imported, "received": len(rows)}
+    await publish(
+        "activity.updated",
+        {"imported": imported, "updated": updated, "source": "tautulli"},
+        admin_only=True,
+    )
+    return {"imported": imported, "updated": updated, "received": len(rows)}
 
 
 async def normalize_tautulli_history(*, length: int = 10000) -> dict:
@@ -914,6 +940,7 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
                     "length": min(max(length, 1), 10000),
                     "order_column": "date",
                     "order_dir": "desc",
+                    "grouping": 0,
                 },
             )
             response.raise_for_status()
@@ -924,10 +951,11 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
         rows = payload.get("data", {}).get("data") or []
         locations = await _tautulli_locations(
             rows,
+            db=db,
             anonymized=settings.activity_anonymize_ips,
         )
         references = {
-            str(item.get("reference_id") or item.get("row_id") or item.get("id") or ""): item
+            _tautulli_row_id(item): item
             for item in rows
         }
         references.pop("", None)
@@ -959,7 +987,8 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
                     raw_address,
                     settings.activity_anonymize_ips,
                 )
-                updates.update(locations[raw_address])
+                if not _has_preserved_location(session):
+                    updates.update(locations[raw_address])
             if any(getattr(session, key) != value for key, value in updates.items()):
                 for key, value in updates.items():
                     setattr(session, key, value)
@@ -974,6 +1003,64 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
         "matched": len(existing),
         "received": len(rows),
         "unmatched": max(0, len(references) - len(existing)),
+    }
+
+
+async def recalculate_playback_locations() -> dict:
+    """Complète les lieux manquants sans modifier ceux déjà attachés aux sessions."""
+    async with AsyncSessionLocal() as db:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        rows = (
+            await db.execute(
+                select(PlaybackSession).filter(PlaybackSession.player_address.is_not(None))
+            )
+        ).scalars().all()
+        addresses = {
+            str(row.player_address).strip()
+            for row in rows
+            if str(row.player_address or "").strip()
+        }
+        seeds = {}
+        for row in rows:
+            address = str(row.player_address or "").strip()
+            if address and row.geo_status in {"resolved", "local"}:
+                seeds.setdefault(address, _row_location(row))
+
+        anonymized = bool(settings and settings.activity_anonymize_ips)
+        locations = await lookup_ip_locations(
+            addresses,
+            db=db,
+            anonymized=anonymized,
+            seed_locations=seeds,
+        )
+        updated = 0
+        preserved = 0
+        unresolved = 0
+        for row in rows:
+            if _has_preserved_location(row):
+                preserved += 1
+                continue
+            location = locations.get(str(row.player_address or "").strip())
+            if not location or location.get("geo_status") not in {"resolved", "local"}:
+                unresolved += 1
+                continue
+            for field, value in location.items():
+                setattr(row, field, value)
+            updated += 1
+        await db.commit()
+
+    await publish(
+        "activity.updated",
+        {"locations_updated": updated, "source": "geoip"},
+        admin_only=True,
+    )
+    return {
+        "sessions": len(rows),
+        "addresses": len(addresses),
+        "updated": updated,
+        "preserved": preserved,
+        "unresolved": unresolved,
+        "anonymized": anonymized,
     }
 
 

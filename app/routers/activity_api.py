@@ -16,6 +16,7 @@ from ..services.playback_activity import (
     import_tautulli_history,
     live_activity_snapshot,
     normalize_tautulli_history,
+    recalculate_playback_locations,
     test_tautulli,
 )
 
@@ -104,3 +105,11 @@ async def normalize_tautulli(data: TautulliImportRequest):
         return await normalize_tautulli_history(length=data.length)
     except Exception as exc:
         raise HTTPException(502, f"Normalisation Tautulli impossible : {exc}") from exc
+
+
+@router.post("/locations/recalculate")
+async def recalculate_locations():
+    try:
+        return await recalculate_playback_locations()
+    except Exception as exc:
+        raise HTTPException(502, f"Recalcul des localisations impossible : {exc}") from exc

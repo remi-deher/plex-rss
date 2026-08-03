@@ -27,4 +27,15 @@ describe('SessionLocationMap', () => {
     expect(wrapper.find('iframe').exists()).toBe(false);
     expect(wrapper.text()).toContain('Désactivez l’anonymisation');
   });
+
+  it('affiche uniquement local comme lieu pour une IP privée', () => {
+    const wrapper = mount(SessionLocationMap, { props: { session: {
+      address: '192.168.1.25',
+      geo_status: 'local',
+      geo_country: 'local',
+    } } });
+
+    expect(wrapper.get('.location-head strong').text()).toBe('local');
+    expect(wrapper.find('iframe').exists()).toBe(false);
+  });
 });

@@ -16,6 +16,7 @@
       <select v-model.number="importLength"><option :value="500">500 sessions</option><option :value="2000">2 000 sessions</option><option :value="10000">Tout (10 000 max.)</option></select>
       <button class="secondary" :disabled="busy" @click="runImport"><History/>Importer</button>
       <button class="secondary" :disabled="busy" @click="normalizeHistory"><RefreshCw/>Normaliser l'historique</button>
+      <button class="secondary" :disabled="busy" @click="recalculateLocations"><MapPinned/>Recalculer les lieux</button>
     </div>
     <p v-if="status" class="connection-result">{{ status }}</p>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)"/>
@@ -24,7 +25,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { History, PlugZap, RefreshCw } from '@lucide/vue';
+import { History, MapPinned, PlugZap, RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
 import { form, save, secretsPresent } from '@/settingsForm';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -55,6 +56,20 @@ async function normalizeHistory(){
     await save();
     const result=await api('/api/playback/tautulli/normalize',{method:'POST',body:JSON.stringify({length:10000})});
     status.value=`${result.normalized} session(s) corrigée(s) sur ${result.matched} retrouvée(s).`;
+  }catch(error){status.value=error.message}
+  finally{busy.value=false}
+}
+async function recalculateLocations(){
+  if(!await askConfirm({
+    title:"Recalculer les localisations ?",
+    message:"Les sessions sans lieu seront complétées à partir de leur IP. Les localisations déjà enregistrées seront conservées.",
+    confirmLabel:"Recalculer",
+  }))return;
+  busy.value=true;status.value='';
+  try{
+    await save();
+    const result=await api('/api/playback/locations/recalculate',{method:'POST'});
+    status.value=`${result.updated} session(s) complétée(s), ${result.preserved} localisation(s) conservée(s), pour ${result.addresses} IP distincte(s).`;
   }catch(error){status.value=error.message}
   finally{busy.value=false}
 }

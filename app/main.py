@@ -375,6 +375,7 @@ app.include_router(events_api.router)
 
 SPA_INDEX = os.path.join("app", "static", "vue", "index.html")
 SPA_ROOTS = {
+    "activity",
     "dashboard",
     "discover",
     "downloads",

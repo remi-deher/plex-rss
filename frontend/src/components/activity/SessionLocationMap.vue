@@ -33,7 +33,7 @@ const hasCoordinates = computed(() => props.session.geo_lat != null && props.ses
   && Number.isFinite(latitude.value) && Number.isFinite(longitude.value));
 const locationLabel = computed(() => {
   if (props.session.geo_status === 'anonymized') return 'Adresse anonymisée';
-  if (props.session.geo_status === 'local') return 'Réseau local';
+  if (props.session.geo_status === 'local') return 'local';
   return [props.session.geo_city, props.session.geo_region, props.session.geo_country_code || props.session.geo_country]
     .filter(Boolean).join(', ') || 'Localisation inconnue';
 });

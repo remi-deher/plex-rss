@@ -70,6 +70,24 @@ class PlaybackSession(Base):
     media_request_id: Mapped[Optional[int]] = mapped_column(index=True)
 
 
+class PlaybackIpLocation(Base):
+    """Localisation GeoIP persistante, identifiée par un condensat de l'adresse."""
+
+    __tablename__ = "playback_ip_locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    address_hash: Mapped[str] = mapped_column(unique=True, index=True)
+    geo_status: Mapped[str]
+    geo_city: Mapped[Optional[str]]
+    geo_region: Mapped[Optional[str]]
+    geo_country: Mapped[Optional[str]]
+    geo_country_code: Mapped[Optional[str]]
+    geo_lat: Mapped[Optional[float]]
+    geo_lon: Mapped[Optional[float]]
+    created_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+    last_used_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
+
+
 class PlaybackDailyAggregate(Base):
     """Agrégat journalier compact utilisé par les vues d'activité longue durée."""
 

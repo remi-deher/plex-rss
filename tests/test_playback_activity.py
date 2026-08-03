@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import asyncpg
 from app.database import get_db_async
 from app.dependencies import require_admin
 from app.main import app
-from app.models import PlaybackDailyAggregate, PlaybackSession, Settings
+from app.models import PlaybackDailyAggregate, PlaybackIpLocation, PlaybackSession, Settings
 from app.services import playback_activity
 from app.services.playback_activity import (
     _analytics,
@@ -20,6 +20,7 @@ from app.services.playback_activity import (
     _playback_method,
     _serialize,
     import_tautulli_history,
+    recalculate_playback_locations,
     _tautulli_values,
     parse_plex_sessions,
 )
@@ -184,15 +185,6 @@ async def test_tautulli_import_persists_anonymized_ip_and_geo_status(async_db):
         patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
         patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
         patch.object(playback_activity, "publish", new=AsyncMock()),
-        patch.object(playback_activity, "lookup_ip_location", new=AsyncMock(return_value={
-            "geo_status": "anonymized",
-            "geo_city": None,
-            "geo_region": None,
-            "geo_country": None,
-            "geo_country_code": None,
-            "geo_lat": None,
-            "geo_lon": None,
-        })) as lookup,
     ):
         result = await import_tautulli_history(length=1)
 
@@ -200,7 +192,123 @@ async def test_tautulli_import_persists_anonymized_ip_and_geo_status(async_db):
     assert result["imported"] == 1
     assert stored.player_address == "82.64.10.0"
     assert stored.geo_status == "anonymized"
-    lookup.assert_awaited_once_with(None, anonymized=True)
+
+
+@pytest.mark.asyncio
+async def test_tautulli_import_expands_grouped_history_without_double_counting(async_db):
+    async_db.add(
+        Settings(id=1, tautulli_url="http://tautulli.local", tautulli_api_key="secret")
+    )
+    async_db.add(
+        PlaybackSession(
+            source="tautulli",
+            source_session_id="10",
+            title="Ancien groupe",
+            watched_ms=3_000_000,
+            group_count=2,
+        )
+    )
+    async_db.commit()
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "response": {
+            "result": "success",
+            "data": {
+                "data": [
+                    {
+                        "reference_id": "10",
+                        "row_id": "11",
+                        "title": "Lecture récente",
+                        "started": 1_786_003_600,
+                        "stopped": 1_786_005_400,
+                        "play_duration": 1800,
+                        "group_count": 1,
+                    },
+                    {
+                        "reference_id": "10",
+                        "row_id": "10",
+                        "title": "Lecture ancienne",
+                        "started": 1_786_000_000,
+                        "stopped": 1_786_001_200,
+                        "play_duration": 1200,
+                        "group_count": 1,
+                    },
+                ]
+            },
+        }
+    }
+    client = _mock_httpx_client(response)
+
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
+        patch.object(playback_activity, "publish", new=AsyncMock()),
+        patch.object(
+            playback_activity,
+            "lookup_ip_location",
+            new=AsyncMock(return_value={"geo_status": "missing"}),
+        ),
+    ):
+        result = await import_tautulli_history(length=10000)
+
+    rows = async_db.query(PlaybackSession).order_by(PlaybackSession.source_session_id).all()
+    assert result == {"imported": 1, "updated": 1, "received": 2}
+    assert [row.source_session_id for row in rows] == ["10", "11"]
+    assert [row.watched_ms for row in rows] == [1_200_000, 1_800_000]
+    assert [row.group_count for row in rows] == [1, 1]
+    assert client.get.await_args.kwargs["params"]["grouping"] == 0
+
+
+@pytest.mark.asyncio
+async def test_location_recalculation_fills_missing_and_preserves_existing(async_db):
+    async_db.add(Settings(id=1, activity_anonymize_ips=False))
+    async_db.add_all([
+        PlaybackSession(
+            source="tautulli",
+            source_session_id="located",
+            title="Localisation historique",
+            player_address="82.64.10.20",
+            geo_status="resolved",
+            geo_city="Paris historique",
+            geo_country="France",
+        ),
+        PlaybackSession(
+            source="tautulli",
+            source_session_id="missing",
+            title="Sans localisation",
+            player_address="82.64.10.20",
+        ),
+        PlaybackSession(
+            source="plex",
+            source_session_id="local",
+            title="Lecture locale",
+            player_address="192.168.1.25",
+        ),
+    ])
+    async_db.commit()
+
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity, "publish", new=AsyncMock()),
+        patch(
+            "app.services.ip_geolocation.lookup_ip_location",
+            wraps=playback_activity.lookup_ip_location,
+        ) as lookup,
+    ):
+        result = await recalculate_playback_locations()
+
+    located = async_db.query(PlaybackSession).filter_by(source_session_id="located").one()
+    missing = async_db.query(PlaybackSession).filter_by(source_session_id="missing").one()
+    local = async_db.query(PlaybackSession).filter_by(source_session_id="local").one()
+    assert located.geo_city == "Paris historique"
+    assert missing.geo_city == "Paris historique"
+    assert local.geo_status == "local"
+    assert local.geo_country == "local"
+    assert result["updated"] == 2
+    assert result["preserved"] == 1
+    assert async_db.query(PlaybackIpLocation).count() == 2
+    assert lookup.await_count == 1
 
 
 def test_analytics_uses_tautulli_watched_status_and_grouping():
@@ -395,6 +503,24 @@ def test_tautulli_normalize_endpoint_returns_report(client):
         new=AsyncMock(return_value=payload),
     ):
         response = client.post("/api/playback/tautulli/normalize", json={"length": 10000})
+    assert response.status_code == 200
+    assert response.json() == payload
+
+
+def test_location_recalculation_endpoint_returns_report(client):
+    payload = {
+        "sessions": 20,
+        "addresses": 4,
+        "updated": 12,
+        "preserved": 7,
+        "unresolved": 1,
+        "anonymized": False,
+    }
+    with patch(
+        "app.routers.activity_api.recalculate_playback_locations",
+        new=AsyncMock(return_value=payload),
+    ):
+        response = client.post("/api/playback/locations/recalculate")
     assert response.status_code == 200
     assert response.json() == payload
 

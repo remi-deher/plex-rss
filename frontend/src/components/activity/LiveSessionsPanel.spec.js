@@ -39,7 +39,8 @@ describe('LiveSessionsPanel', () => {
 
     expect(wrapper.text()).toContain('Foundation · Épisode 1');
     expect(wrapper.get('.live-user').text()).toContain('Rémi');
-    expect(wrapper.get('.live-title').text()).toContain('Télévision');
+    expect(wrapper.get('.live-client').text()).toContain('Télévision');
+    expect(wrapper.get('.live-client').text()).toContain('82.64.10.20');
     expect(wrapper.text()).toContain('Transcodage');
     expect(wrapper.get('.progress-track i').attributes('style')).toContain('42%');
     expect(wrapper.get('.live-location').text()).toContain('Paris, FR');
