@@ -383,12 +383,14 @@ td {
 .status-tag,
 .language-tag {
   padding: 3px 9px;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.25;
   letter-spacing: 0.01em;
   border: none;
   color: #fff;
-  background: rgba(39, 39, 42, .95);
+  background: #27272a;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .55);
 }
 
 .poster-shell .status-tag,
@@ -399,13 +401,13 @@ td {
 .status-tag.available,
 .status-tag.sent_to_arr,
 .language-tag.vf {
-  background: rgba(22, 163, 74, .95);
+  background: #166534;
 }
 
 .status-tag.failed,
 .status-tag.rejected,
 .language-tag.vo {
-  background: rgba(220, 38, 38, .95);
+  background: #991b1b;
 }
 
 .status-tag.pending_approval,

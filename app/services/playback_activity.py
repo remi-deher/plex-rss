@@ -916,29 +916,9 @@ async def _rebuild_daily_aggregates(db, days: set[date]) -> None:
     """Reconstruit uniquement les jours affectés par une collecte ou un import."""
     if not days:
         return
-    day_expr = func.date(PlaybackSession.started_at)
     await db.execute(delete(PlaybackDailyAggregate).where(PlaybackDailyAggregate.day.in_(days)))
     rows = (
-        await db.execute(
-            select(
-                day_expr,
-                func.coalesce(PlaybackSession.user_name, ""),
-                func.coalesce(PlaybackSession.media_type, ""),
-                func.coalesce(PlaybackSession.grandparent_title, PlaybackSession.title, ""),
-                func.coalesce(PlaybackSession.playback_method, "unknown"),
-                func.count(PlaybackSession.id),
-                func.coalesce(func.sum(PlaybackSession.watched_ms), 0),
-                func.sum(case((PlaybackSession.playback_method == "transcode", 1), else_=0)),
-            )
-            .filter(day_expr.in_(days))
-            .group_by(
-                day_expr,
-                func.coalesce(PlaybackSession.user_name, ""),
-                func.coalesce(PlaybackSession.media_type, ""),
-                func.coalesce(PlaybackSession.grandparent_title, PlaybackSession.title, ""),
-                func.coalesce(PlaybackSession.playback_method, "unknown"),
-            )
-        )
+        await db.execute(_daily_aggregate_query(days))
     ).all()
     db.add_all([
         PlaybackDailyAggregate(
@@ -949,6 +929,40 @@ async def _rebuild_daily_aggregates(db, days: set[date]) -> None:
         for row in rows
     ])
     await db.commit()
+
+
+def _daily_aggregate_query(days: set[date]):
+    """Construit l'agrégation avec les mêmes expressions dans SELECT et GROUP BY.
+
+    PostgreSQL compare aussi les paramètres liés des expressions de regroupement. Si
+    chaque ``coalesce`` est recréé dans ``group_by()``, SQLAlchemy génère deux séries de
+    paramètres (par exemple ``$1`` et ``$9``) et PostgreSQL refuse la requête, même si
+    leurs valeurs sont identiques.
+    """
+    day_expr = func.date(PlaybackSession.started_at)
+    user_expr = func.coalesce(PlaybackSession.user_name, "")
+    media_type_expr = func.coalesce(PlaybackSession.media_type, "")
+    media_label_expr = func.coalesce(
+        PlaybackSession.grandparent_title, PlaybackSession.title, ""
+    )
+    playback_method_expr = func.coalesce(PlaybackSession.playback_method, "unknown")
+    dimensions = (
+        day_expr,
+        user_expr,
+        media_type_expr,
+        media_label_expr,
+        playback_method_expr,
+    )
+    return (
+        select(
+            *dimensions,
+            func.count(PlaybackSession.id),
+            func.coalesce(func.sum(PlaybackSession.watched_ms), 0),
+            func.sum(case((PlaybackSession.playback_method == "transcode", 1), else_=0)),
+        )
+        .filter(day_expr.in_(days))
+        .group_by(*dimensions)
+    )
 
 
 async def _ensure_daily_aggregates(db, start_day: date, end_day: date) -> None:

@@ -20,10 +20,10 @@
               <span class="badge warning">VF Partiel</span>
             </template>
             <template v-else-if="detail.vf_granularity === 'vo'">
-              <span class="badge">VO</span>
+              <span class="badge mdh-language-vo">VO</span>
             </template>
             <template v-else-if="detail.has_vf">
-              <span class="badge available">VF</span>
+              <span class="badge available mdh-language-vf">VF</span>
             </template>
           </div>
           <p v-if="detail.waiting_reason" class="mdh-waiting">{{ detail.waiting_reason }}</p>
@@ -126,6 +126,28 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
+}
+.mdh-badges > .badge {
+  min-height: 28px;
+  padding: 3px 10px;
+  border-color: rgba(255, 255, 255, .22);
+  background: #27272a;
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 800;
+  line-height: 1.25;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .55);
+}
+.mdh-badges > .badge.available,
+.mdh-badges > .mdh-language-vf {
+  border-color: #22c55e;
+  background: #166534;
+  color: #fff;
+}
+.mdh-badges > .mdh-language-vo {
+  border-color: #ef4444;
+  background: #991b1b;
+  color: #fff;
 }
 .mdh-overview {
   max-width: 760px;

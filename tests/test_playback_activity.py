@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import BigInteger, select
+from sqlalchemy.dialects.postgresql import asyncpg
 
 from app.database import get_db_async
 from app.dependencies import require_admin
@@ -12,6 +13,7 @@ from app.services import playback_activity
 from app.services.playback_activity import (
     _analytics,
     _collect_plex_activity_unlocked,
+    _daily_aggregate_query,
     _deduplicate_plex_sessions,
     _masked_ip,
     _miss_counts,
@@ -307,6 +309,19 @@ def test_statistics_builds_and_uses_daily_aggregates(client, async_db):
     }
     aggregate = async_db.query(PlaybackDailyAggregate).one()
     assert aggregate.media_label == "Film agrégé"
+
+
+def test_daily_aggregate_query_reuses_grouping_parameters_for_postgresql():
+    from datetime import date
+
+    statement = _daily_aggregate_query({date(2026, 8, 3)})
+    sql = str(statement.compile(dialect=asyncpg.dialect()))
+
+    select_clause, group_by_clause = sql.split(" GROUP BY ", 1)
+    for parameter in ("$1::VARCHAR", "$2::VARCHAR", "$3::VARCHAR", "$4::VARCHAR"):
+        assert parameter in select_clause
+        assert parameter in group_by_clause
+    assert "$9::VARCHAR" not in sql
 
 
 def test_activity_refresh_reports_plex_failure(client):
