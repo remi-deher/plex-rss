@@ -98,7 +98,7 @@ function scroll(direction) {
 .rail-actions svg { width: 16px; }
 .media-rail-track {
   display: grid;
-  grid-auto-columns: clamp(132px, 16vw, 190px);
+  grid-auto-columns: clamp(164px, 18vw, 220px);
   grid-auto-flow: column;
   gap: 14px;
   padding: 2px 2px 10px;
@@ -110,6 +110,6 @@ function scroll(direction) {
 .media-rail-track > * { scroll-snap-align: start; }
 @media (max-width: 640px) {
   .rail-actions button { display: none; }
-  .media-rail-track { grid-auto-columns: minmax(128px, 42vw); margin-right: -12px; }
+  .media-rail-track { grid-auto-columns: minmax(150px, 46vw); margin-right: -12px; }
 }
 </style>

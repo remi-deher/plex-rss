@@ -22,6 +22,10 @@ function session(overrides = {}) {
     quality: '4k',
     location: 'lan',
     bandwidth_kbps: 8000,
+    address: '82.64.10.20',
+    geo_status: 'resolved',
+    geo_city: 'Paris',
+    geo_country_code: 'FR',
     ...overrides,
   };
 }
@@ -34,9 +38,12 @@ describe('LiveSessionsPanel', () => {
     const wrapper = render([session()]);
 
     expect(wrapper.text()).toContain('Foundation · Épisode 1');
-    expect(wrapper.text()).toContain('Rémi · Télévision');
+    expect(wrapper.get('.live-user').text()).toContain('Rémi');
+    expect(wrapper.get('.live-title').text()).toContain('Télévision');
     expect(wrapper.text()).toContain('Transcodage');
     expect(wrapper.get('.progress-track i').attributes('style')).toContain('42%');
+    expect(wrapper.get('.live-location').text()).toContain('Paris, FR');
+    expect(wrapper.get('.live-art .media-artwork').classes()).toContain('medium');
   });
 
   it('affiche un état vide sans lecture', () => {
@@ -80,6 +87,11 @@ describe('LiveSessionsPanel — bande passante, réseau et transcodage', () => {
     expect(render([session({ location: 'wan' })]).get('.live-quality').text()).toContain('Distant');
     // Valeur absente : pas de séparateur orphelin.
     expect(render([session({ location: null })]).get('.live-quality').text().trim()).toBe('4k');
+  });
+
+  it('indique pourquoi le lookup est absent quand les IP sont anonymisées', () => {
+    const wrapper = render([session({ geo_status: 'anonymized', geo_city: null, geo_country_code: null })]);
+    expect(wrapper.get('.live-location').text()).toContain('IP anonymisée');
   });
 
   it('explique la raison du transcodage en infobulle', () => {

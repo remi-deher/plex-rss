@@ -25,29 +25,38 @@
         @keydown.enter="select(session)"
         @keydown.space.prevent="select(session)"
       >
+        <div v-if="session.thumb_url" class="live-backdrop" :style="{backgroundImage:`url(${session.thumb_url})`}" aria-hidden="true"></div>
+        <div class="live-card-body">
         <div class="live-art">
-          <MediaArtwork :src="session.thumb_url" :alt="displayTitle(session)" :type="session.media_type" size="small"/>
+          <MediaArtwork :src="session.thumb_url" :alt="displayTitle(session)" :type="session.media_type" size="medium"/>
           <span v-if="stateIcon(session)" class="live-state" :title="stateLabel(session)">
             <component :is="stateIcon(session)" />
           </span>
         </div>
 
         <div class="live-main">
-          <div>
+          <div class="live-user">
+            <span class="live-avatar">{{ initials(session.user_name) }}</span>
+            <span>{{ session.user_name || 'Utilisateur Plex' }}</span>
+            <component :is="deviceIcon(session)" class="live-device" :aria-label="session.player || session.platform || 'Lecteur Plex'" />
+          </div>
+          <div class="live-title">
             <strong>{{ displayTitle(session) }}</strong>
-            <span>{{ subtitle(session) }}</span>
+            <span>{{ mediaSubtitle(session) }}</span>
           </div>
           <div class="progress-track"><i :class="{ paused: isPaused(session) }" :style="{width:`${percent(session)}%`}"></i></div>
-          <small>{{ percent(session) }} % · {{ formatRemaining(session) }}</small>
+          <div class="live-progress-label"><small>{{ percent(session) }} %</small><small>{{ formatRemaining(session) }}</small></div>
+        </div>
         </div>
 
-        <div class="live-meta">
+        <footer class="live-footer">
+          <span class="live-location" :title="session.address || geoLabel(session)"><MapPin/>{{ geoLabel(session) }}</span>
           <span v-if="session.quality || locationLabel(session)" class="live-quality">
             {{ session.quality || 'Auto' }}<template v-if="locationLabel(session)"> · {{ locationLabel(session) }}</template>
           </span>
           <PlaybackMethodBadge :method="session.playback_method" :title="decisionDetail(session)" />
           <span v-if="session.bandwidth_kbps" class="live-bandwidth">{{ formatBandwidth(session.bandwidth_kbps) }}</span>
-        </div>
+        </footer>
       </article>
     </div>
     <p v-else class="empty">Aucune lecture en cours.</p>
@@ -56,7 +65,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { Loader, Pause } from '@lucide/vue';
+import { Loader, MapPin, Monitor, Pause, Smartphone, Tablet, Tv } from '@lucide/vue';
 import MediaArtwork from './MediaArtwork.vue';
 import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
 import { usePolling } from '@/composables/usePolling';
@@ -145,8 +154,28 @@ function decisionDetail(session) {
   return parts.join(' · ');
 }
 
-function subtitle(session) {
-  return [session.user_name, session.player || session.platform || 'Plex'].filter(Boolean).join(' · ');
+function mediaSubtitle(session) {
+  return [session.parent_title, session.year, session.player || session.platform || 'Plex'].filter(Boolean).join(' · ');
+}
+
+function initials(name) {
+  return String(name || '?').split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+}
+
+function deviceIcon(session) {
+  const value = [session.platform, session.player, session.product].filter(Boolean).join(' ').toLowerCase();
+  if (/iphone|android|mobile/.test(value)) return Smartphone;
+  if (/ipad|tablet/.test(value)) return Tablet;
+  if (/tv|roku|shield|chromecast|firestick/.test(value)) return Tv;
+  return Monitor;
+}
+
+function geoLabel(session) {
+  if (session.geo_status === 'anonymized') return 'IP anonymisée';
+  if (session.geo_status === 'local') return 'Réseau local';
+  const location = [session.geo_city, session.geo_region, session.geo_country_code || session.geo_country]
+    .filter(Boolean).join(', ');
+  return location || session.address || 'Localisation inconnue';
 }
 
 function displayTitle(item) {
@@ -175,32 +204,40 @@ function formatRemaining(session) {
 .eyebrow i{width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12)}
 .eyebrow i.idle{background:var(--muted);box-shadow:0 0 0 4px rgba(148,163,184,.1)}
 .live-summary{margin:3px 0 0;color:var(--muted);font-size:11px}
-.live-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:12px}
-.live-session{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}
-.live-session.paused{opacity:.72}
+.live-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-top:14px}
+.live-session{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:14px;background:var(--surface-2);box-shadow:0 10px 30px rgba(0,0,0,.15)}
+.live-session.paused .live-card-body{opacity:.76}
 .live-session.interactive{cursor:pointer;transition:border-color .15s,transform .15s}
-.live-session.interactive:hover,.live-session.interactive:focus-visible{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));transform:translateY(-1px);outline:none}
+.live-session.interactive:hover,.live-session.interactive:focus-visible{border-color:color-mix(in srgb,var(--accent) 55%,var(--border));transform:translateY(-2px);outline:none}
+.live-backdrop{position:absolute;inset:-20px;background-position:center;background-size:cover;opacity:.11;filter:blur(24px);transform:scale(1.15);pointer-events:none}
+.live-card-body{position:relative;display:grid;grid-template-columns:54px minmax(0,1fr);gap:14px;padding:14px}
 
 .live-art{position:relative;display:flex}
 /* Pastille d'etat sur la vignette : une lecture en pause etait jusqu'ici indiscernable
    d'une lecture en cours. */
-.live-state{position:absolute;right:-4px;bottom:-4px;display:grid;place-items:center;width:17px;height:17px;border-radius:50%;background:rgba(10,10,10,.92);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.live-state{position:absolute;right:-5px;bottom:-5px;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;background:rgba(10,10,10,.94);color:#fff;box-shadow:0 1px 6px rgba(0,0,0,.6)}
 .live-state svg{width:10px;height:10px}
 
-.live-main{display:grid;gap:6px;min-width:0}
-.live-main>div:first-child{display:grid;min-width:0}
-.live-main strong,.live-main span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.live-main span,.live-main small{color:var(--muted);font-size:10px}
-.progress-track{height:4px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.1)}
+.live-main{display:flex;flex-direction:column;min-width:0}
+.live-user{display:flex;align-items:center;gap:7px;min-width:0;color:var(--muted);font-size:10px}
+.live-user>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-avatar{display:grid;flex:none;place-items:center;width:24px;height:24px;border:2px solid color-mix(in srgb,var(--surface) 80%,transparent);border-radius:50%;background:color-mix(in srgb,var(--accent) 18%,var(--surface));color:var(--accent);font-size:8px;font-weight:850}
+.live-device{width:15px;height:15px;margin-left:auto;color:var(--muted)}
+.live-title{display:grid;min-width:0;margin:9px 0 auto}
+.live-title strong,.live-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-title strong{font-size:13px}.live-title span{margin-top:2px;color:var(--muted);font-size:10px}
+.progress-track{height:5px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.1)}
 .progress-track i{display:block;height:100%;background:var(--accent);transition:width 1s linear}
 .progress-track i.paused{background:var(--muted);transition:none}
+.live-progress-label{display:flex;justify-content:space-between;margin-top:5px;color:var(--muted);font-size:10px}
 
-.live-meta{display:grid;justify-items:end;gap:5px}
+.live-footer{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:8px;align-items:center;padding:9px 14px;border-top:1px solid var(--border);background:color-mix(in srgb,var(--surface) 70%,transparent)}
+.live-location{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden;color:var(--muted);font-size:10px;text-overflow:ellipsis;white-space:nowrap}.live-location svg{flex:none;width:13px;height:13px;color:var(--accent)}
 .live-quality,.live-bandwidth{color:var(--muted);font-size:10px;white-space:nowrap}
 .live-bandwidth{font-variant-numeric:tabular-nums}
 
-@media(max-width:480px){
+@media(max-width:560px){
   .live-list{grid-template-columns:1fr}
-  .live-quality{display:none}
+  .live-footer{grid-template-columns:minmax(0,1fr) auto auto}.live-quality{display:none}
 }
 </style>

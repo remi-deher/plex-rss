@@ -27,7 +27,7 @@
         />
       </MetricGrid>
       <div class="dashboard-focus-grid">
-        <LiveSessionsPanel :sessions="liveActivity.active||[]" />
+        <LiveSessionsPanel :sessions="liveActivity.active||[]" interactive @select="selectedSession=$event" />
         <DownloadQueuePanel :queue="downloadQueue" :loading="loadingQueue" />
         <RecentJobsPanel :polls="polls" :next-poll="nextPoll" :countdown="countdown" />
         <ScanStatusPanel :vff-scan="vffScan" :plex-sync="plexSync" :vff-counts="vffCounts" @scan-vff="triggerVffScan" @sync-plex="triggerPlexSync" />
@@ -59,6 +59,7 @@
         <section><header><span>Communication</span><h3>Derniers envois</h3></header><div class="dashboard-grid"><RecentNotificationsPanel :notifications="recentNotifs"/></div></section>
       </div>
     </details>
+    <SessionDetailDrawer v-if="selectedSession" :session="selectedSession" @close="selectedSession=null"/>
   </div>
 </template>
 
@@ -83,6 +84,7 @@ import ActiveUsersPanel from '@/components/dashboard/ActiveUsersPanel.vue';
 import RecentNotificationsPanel from '@/components/dashboard/RecentNotificationsPanel.vue';
 import ScanStatusPanel from '@/components/dashboard/ScanStatusPanel.vue';
 import LiveSessionsPanel from '@/components/activity/LiveSessionsPanel.vue';
+import SessionDetailDrawer from '@/components/activity/SessionDetailDrawer.vue';
 import { api, streamEvents } from '@/api';
 import { readCacheEntry, writeCache } from '@/cache';
 import { useRealtime } from '@/events';
@@ -116,6 +118,7 @@ const upcoming = ref([]);
 const recentNotifs = ref([]);
 const downloadQueue = ref([]);
 const liveActivity = ref({ active: [] });
+const selectedSession = ref(null);
 const loadingQueue = ref(false);
 const mediaView = ref('recent');
 const updatedAt = ref(null);
@@ -174,6 +177,10 @@ async function loadDownloadQueue() {
 async function loadLiveActivity() {
   const value = await api('/api/playback/live');
   liveActivity.value = value;
+  if (selectedSession.value) {
+    const fresh = (value.active || []).find(item => item.session_id === selectedSession.value.session_id);
+    selectedSession.value = fresh || null;
+  }
 }
 
 async function loadVffStatus() {

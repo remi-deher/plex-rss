@@ -23,6 +23,7 @@ from ..models import PlaybackDailyAggregate, PlaybackSession, Settings
 from ..realtime import publish
 from ..utils import now_utc_naive, wrap_image_proxy
 from .distributed_lock import acquire_distributed_lock, release_distributed_lock
+from .ip_geolocation import lookup_ip_location
 
 logger = logging.getLogger(__name__)
 _plex_collection_lock = asyncio.Lock()
@@ -447,6 +448,13 @@ def _serialize(row: PlaybackSession) -> dict:
         "container": row.container,
         "subtitle_decision": row.subtitle_decision,
         "location": row.stream_location,
+        "geo_status": row.geo_status,
+        "geo_city": row.geo_city,
+        "geo_region": row.geo_region,
+        "geo_country": row.geo_country,
+        "geo_country_code": row.geo_country_code,
+        "geo_lat": row.geo_lat,
+        "geo_lon": row.geo_lon,
         "bandwidth_kbps": row.bandwidth_kbps,
         "media_size_bytes": row.media_size_bytes,
         "progress_ms": row.progress_ms,
@@ -584,6 +592,15 @@ async def _collect_plex_activity_unlocked() -> dict:
         # transition de lecteur/transcodage). Sans déduplication, la boucle ajoutait
         # deux objets ORM portant la même clé unique avant le premier flush.
         snapshots = _deduplicate_plex_sessions(snapshots)
+        locations = await asyncio.gather(*(
+            lookup_ip_location(
+                snapshot.get("player_address"),
+                anonymized=settings.activity_anonymize_ips,
+            )
+            for snapshot in snapshots
+        ))
+        for snapshot, location in zip(snapshots, locations, strict=True):
+            snapshot.update(location)
         now = now_utc_naive()
         active_ids = {item["source_session_id"] for item in snapshots}
         rows = (
@@ -625,6 +642,14 @@ async def _collect_plex_activity_unlocked() -> dict:
                 db.add(row)
                 started_rows.append(row)
                 existing[row.source_session_id] = row
+            if snapshot.get("geo_status") == "unavailable" and row.geo_status == "resolved":
+                # Une panne ponctuelle du lookup ne doit pas effacer la derniere
+                # localisation valide. Le cache GeoIP retentera en arriere-plan.
+                for key in (
+                    "geo_status", "geo_city", "geo_region", "geo_country",
+                    "geo_country_code", "geo_lat", "geo_lon",
+                ):
+                    snapshot.pop(key, None)
             previous_progress = row.progress_ms or snapshot["progress_ms"] or 0
             for key, value in snapshot.items():
                 setattr(row, key, value)
@@ -750,6 +775,31 @@ async def test_tautulli(url: str, api_key: str) -> tuple[bool, str]:
         return False, f"Connexion Tautulli impossible: {exc}"
 
 
+async def _tautulli_locations(rows: list[dict], *, anonymized: bool) -> dict[str, dict]:
+    """Resout une seule fois chaque IP distincte d'un lot Tautulli.
+
+    Un historique de 10 000 lectures contient generalement peu d'adresses distinctes.
+    La deduplication et la limite de concurrence evitent toutefois de lancer des milliers
+    d'appels simultanes lors d'un gros import.
+    """
+    addresses = {
+        str(item.get("ip_address") or "").strip()
+        for item in rows
+    }
+    addresses.discard("")
+    if anonymized:
+        location = await lookup_ip_location(None, anonymized=True)
+        return {address: location for address in addresses}
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def resolve(address: str) -> tuple[str, dict]:
+        async with semaphore:
+            return address, await lookup_ip_location(address)
+
+    return dict(await asyncio.gather(*(resolve(address) for address in addresses)))
+
+
 async def import_tautulli_history(*, length: int = 1000) -> dict:
     async with AsyncSessionLocal() as db:
         settings = (await db.execute(select(Settings))).scalars().first()
@@ -771,6 +821,10 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
         if payload.get("result") != "success":
             raise ValueError(payload.get("message") or "Import Tautulli refusé.")
         rows = payload.get("data", {}).get("data") or []
+        locations = await _tautulli_locations(
+            rows,
+            anonymized=settings.activity_anonymize_ips,
+        )
         imported = 0
         imported_days: set[date] = set()
         for item in rows:
@@ -790,6 +844,11 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
             started = _dt_from_epoch(item.get("started")) or now_utc_naive()
             stopped = _dt_from_epoch(item.get("stopped"))
             values = _tautulli_values(item)
+            raw_address = str(item.get("ip_address") or "").strip()
+            location = locations.get(raw_address) or await lookup_ip_location(
+                None,
+                anonymized=settings.activity_anonymize_ips,
+            )
             db.add(
                 PlaybackSession(
                     source="tautulli",
@@ -829,6 +888,7 @@ async def import_tautulli_history(*, length: int = 1000) -> dict:
                     started_at=started,
                     last_seen_at=stopped or started,
                     ended_at=stopped or started + timedelta(milliseconds=values["watched_ms"]),
+                    **location,
                 )
             )
             imported_days.add(started.date())
@@ -862,6 +922,10 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
             raise ValueError(payload.get("message") or "Normalisation Tautulli refusée.")
 
         rows = payload.get("data", {}).get("data") or []
+        locations = await _tautulli_locations(
+            rows,
+            anonymized=settings.activity_anonymize_ips,
+        )
         references = {
             str(item.get("reference_id") or item.get("row_id") or item.get("id") or ""): item
             for item in rows
@@ -889,6 +953,13 @@ async def normalize_tautulli_history(*, length: int = 10000) -> dict:
                 "subtitle_decision": item.get("subtitle_decision") or session.subtitle_decision,
                 "bandwidth_kbps": _int(item.get("bandwidth")) or session.bandwidth_kbps,
             }
+            raw_address = str(item.get("ip_address") or "").strip()
+            if raw_address:
+                updates["player_address"] = _masked_ip(
+                    raw_address,
+                    settings.activity_anonymize_ips,
+                )
+                updates.update(locations[raw_address])
             if any(getattr(session, key) != value for key, value in updates.items()):
                 for key, value in updates.items():
                     setattr(session, key, value)

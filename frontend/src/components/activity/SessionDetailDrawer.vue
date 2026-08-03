@@ -22,6 +22,8 @@
       <article><span>Dernier signal</span><strong>{{ relativeDate(session.last_seen_at) }}</strong><small>{{ session.state==='paused'?'lecture en pause':'session synchronisée' }}</small></article>
     </div>
 
+    <SessionLocationMap :session="session"/>
+
     <section class="stream-route">
       <span class="eyebrow">Chemin du flux</span>
       <div>
@@ -41,7 +43,7 @@
         <div><dt>Vidéo</dt><dd>{{ decisionLabel(session.video_decision) }}<template v-if="session.video_codec"> · {{ session.video_codec.toUpperCase() }}</template></dd></div>
         <div><dt>Audio</dt><dd>{{ decisionLabel(session.audio_decision) }}<template v-if="session.audio_codec"> · {{ session.audio_codec.toUpperCase() }}</template></dd></div>
         <div><dt>Débit</dt><dd>{{ formatBandwidth(session.bandwidth_kbps) }}</dd></div>
-        <div><dt>Réseau</dt><dd>{{ session.address || 'Adresse masquée' }}</dd></div>
+        <div><dt>Réseau</dt><dd>{{ networkLabel(session) }}</dd></div>
         <div><dt>Durée totale</dt><dd>{{ formatDuration(session.duration_ms) }}</dd></div>
         <div><dt>Temps visionné</dt><dd>{{ formatDuration(session.progress_ms || session.watched_ms) }}</dd></div>
       </dl>
@@ -68,6 +70,7 @@ import { MonitorPlay, Server, Workflow } from '@lucide/vue';
 import DrawerShell from '@/components/DrawerShell.vue';
 import MediaArtwork from './MediaArtwork.vue';
 import PlaybackMethodBadge from './PlaybackMethodBadge.vue';
+import SessionLocationMap from './SessionLocationMap.vue';
 defineProps({ session: { type: Object, required: true } });
 defineEmits(['close']);
 function displayTitle(item){return item.grandparent_title?`${item.grandparent_title} · ${item.title}`:(item.title||'Session Plex')}
@@ -80,6 +83,7 @@ function mediaTypeLabel(value){return {movie:'Film',episode:'Épisode',track:'Mu
 function stateLabel(value){return {playing:'Lecture',paused:'En pause',buffering:'Mise en mémoire'}[value]||value||'Terminée'}
 function decisionLabel(value){return {transcode:'Transcodage',copy:'Copie directe',directplay:'Lecture directe'}[String(value||'').toLowerCase()]||'—'}
 function methodLabel(value){return {transcode:'Transcodage',direct_stream:'Remux direct',direct_play:'Aucune conversion'}[value]||'Lecture Plex'}
+function networkLabel(item){const scope=item.location==='lan'?'Local':item.location==='wan'?'Distant':null;const place=[item.geo_city,item.geo_country_code||item.geo_country].filter(Boolean).join(', ');return [scope,place,item.address].filter(Boolean).join(' · ')||'Adresse masquée'}
 </script>
 
 <style scoped>

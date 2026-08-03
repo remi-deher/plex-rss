@@ -19,6 +19,7 @@ from app.services.playback_activity import (
     _miss_counts,
     _playback_method,
     _serialize,
+    import_tautulli_history,
     _tautulli_values,
     parse_plex_sessions,
 )
@@ -147,6 +148,59 @@ def test_tautulli_values_do_not_turn_missing_play_duration_into_full_watch():
     assert values["progress_ms"] is None
     assert values["duration_ms"] is None
     assert values["playback_method"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_tautulli_import_persists_anonymized_ip_and_geo_status(async_db):
+    async_db.add(
+        Settings(
+            id=1,
+            tautulli_url="http://tautulli.local",
+            tautulli_api_key="secret",
+            activity_anonymize_ips=True,
+        )
+    )
+    async_db.commit()
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json.return_value = {
+        "response": {
+            "result": "success",
+            "data": {"data": [{
+                "reference_id": "tautulli-with-ip",
+                "title": "Film distant",
+                "media_type": "movie",
+                "ip_address": "82.64.10.20",
+                "location": "wan",
+                "started": 1_786_000_000,
+                "stopped": 1_786_003_600,
+                "play_duration": 3600,
+            }]},
+        }
+    }
+    client = _mock_httpx_client(response)
+
+    with (
+        patch.object(playback_activity, "AsyncSessionLocal", return_value=async_db),
+        patch.object(playback_activity.httpx, "AsyncClient", return_value=client),
+        patch.object(playback_activity, "publish", new=AsyncMock()),
+        patch.object(playback_activity, "lookup_ip_location", new=AsyncMock(return_value={
+            "geo_status": "anonymized",
+            "geo_city": None,
+            "geo_region": None,
+            "geo_country": None,
+            "geo_country_code": None,
+            "geo_lat": None,
+            "geo_lon": None,
+        })) as lookup,
+    ):
+        result = await import_tautulli_history(length=1)
+
+    stored = async_db.query(PlaybackSession).filter_by(source_session_id="tautulli-with-ip").one()
+    assert result["imported"] == 1
+    assert stored.player_address == "82.64.10.0"
+    assert stored.geo_status == "anonymized"
+    lookup.assert_awaited_once_with(None, anonymized=True)
 
 
 def test_analytics_uses_tautulli_watched_status_and_grouping():

@@ -48,6 +48,13 @@ class PlaybackSession(Base):
     container: Mapped[Optional[str]]
     subtitle_decision: Mapped[Optional[str]]
     stream_location: Mapped[Optional[str]]
+    geo_status: Mapped[Optional[str]]
+    geo_city: Mapped[Optional[str]]
+    geo_region: Mapped[Optional[str]]
+    geo_country: Mapped[Optional[str]]
+    geo_country_code: Mapped[Optional[str]]
+    geo_lat: Mapped[Optional[float]]
+    geo_lon: Mapped[Optional[float]]
     bandwidth_kbps: Mapped[Optional[int]]
     media_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger)
     progress_ms: Mapped[Optional[int]] = mapped_column(BigInteger)
