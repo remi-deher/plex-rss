@@ -10,7 +10,14 @@ from app.database import get_db_async
 from app.dependencies import require_auth
 from app.main import app
 from app.models import LibraryItem, MediaRequest, PlaybackSession, RequestStatus
-from app.routers.discover_api import _annotate, _guard, _personalization_seeds, _personalized_sections
+from app.routers.discover_api import (
+    _annotate,
+    _guard,
+    _most_requested_section,
+    _personalization_seeds,
+    _personalized_sections,
+    _recent_plex_section,
+)
 from app.utils import now_utc_naive
 
 
@@ -338,3 +345,41 @@ async def test_personalization_keeps_followed_series_with_an_upcoming_episode(db
     followed = payload["sections"]["followed_series"]["items"]
     assert [item["title"] for item in followed] == ["Breaking Bad"]
     assert followed[0]["next_episode_to_air"]["season_number"] == 6
+
+
+@pytest.mark.asyncio
+async def test_recent_plex_uses_an_opaque_poster_url(db):
+    item = LibraryItem(
+        title="Film Plex",
+        media_type="movie",
+        poster_url="https://plex.local/library/metadata/42/thumb?X-Plex-Token=secret",
+    )
+    db.add(item)
+    db.commit()
+
+    payload = await _recent_plex_section(db)
+
+    poster_url = payload["items"][0]["poster_url"]
+    assert poster_url.startswith(f"/api/image-proxy/library/{item.id}?")
+    assert "X-Plex-Token" not in poster_url
+
+
+@pytest.mark.asyncio
+async def test_most_requested_uses_an_opaque_poster_url(db):
+    row = MediaRequest(
+        plex_user_id="user-1",
+        plex_user="Moi",
+        title="Film demandé",
+        media_type="movie",
+        poster_url="https://plex.local/library/metadata/42/thumb?X-Plex-Token=secret",
+        extra_requesters='["user-2"]',
+        status=RequestStatus.pending,
+    )
+    db.add(row)
+    db.commit()
+
+    payload = await _most_requested_section(db)
+
+    poster_url = payload["items"][0]["poster_url"]
+    assert poster_url.startswith(f"/api/image-proxy/request/{row.id}?")
+    assert "X-Plex-Token" not in poster_url

@@ -11,7 +11,7 @@ import app.routers.image_proxy_api as image_proxy_api
 from app.database import get_db_async as get_db
 from app.dependencies import require_auth
 from app.main import app
-from app.models import Settings
+from app.models import LibraryItem, Settings
 
 _REAL_SESSION_FACTORY = image_proxy_api.AsyncSessionLocal
 
@@ -101,6 +101,28 @@ def test_image_proxy_fetches_and_caches(cache_dir, async_db):
         fake.get.assert_awaited_once()
         assert cache_dir.exists()
         assert len(list(cache_dir.glob("*.bin"))) == 1
+    finally:
+        _cleanup()
+
+
+def test_library_image_proxy_hides_signed_plex_url(cache_dir, async_db):
+    item = LibraryItem(
+        title="Film",
+        media_type="movie",
+        poster_url="https://plex.local/library/metadata/42/thumb?X-Plex-Token=secret",
+    )
+    async_db.add(item)
+    async_db.commit()
+    client = _client(async_db)
+    fake = _fake_httpx_client(resp=_resp(content=_png(), content_type="image/png"))
+    try:
+        with patch("app.routers.image_proxy_api.httpx.AsyncClient", return_value=fake):
+            resp = client.get(f"/api/image-proxy/library/{item.id}")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("image/webp")
+        upstream_url = fake.get.await_args.args[0]
+        assert "X-Plex-Token=secret" in upstream_url
+        assert "X-Plex-Token" not in str(resp.request.url)
     finally:
         _cleanup()
 

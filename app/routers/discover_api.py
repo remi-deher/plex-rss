@@ -215,7 +215,11 @@ async def _recent_plex_section(db: AsyncSession, limit: int = 20) -> dict:
                 "title": row.title,
                 "year": row.year,
                 "overview": row.overview or "",
-                "poster_url": row.poster_url,
+                "poster_url": (
+                    f"/api/image-proxy/library/{row.id}?width=500&quality=82&format=webp"
+                    if row.poster_url
+                    else None
+                ),
                 "library_id": row.id,
                 "in_library": True,
                 "available": True,
@@ -255,7 +259,11 @@ async def _most_requested_section(db: AsyncSession, limit: int = 20) -> dict:
                 "title": row.title,
                 "year": row.year,
                 "overview": row.overview or "",
-                "poster_url": row.poster_url,
+                "poster_url": (
+                    f"/api/image-proxy/request/{row.id}?width=500&quality=82&format=webp"
+                    if row.poster_url
+                    else None
+                ),
                 "library_id": row.library_item_id,
                 "request_id": row.id,
                 "in_library": row.library_item_id is not None,

@@ -17,7 +17,7 @@ from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
 from ..dependencies import require_auth
-from ..models import ArrInstance, Settings
+from ..models import ArrInstance, LibraryItem, MediaRequest, Settings
 from ..utils import safe_error_message
 
 router = APIRouter(prefix="/api", tags=["misc"])
@@ -244,3 +244,55 @@ async def image_proxy(
                 _write_image_cache, variant_key, content, content_type, variant_cached_at
             )
         return _image_response(content, content_type, _variant_etag(variant_key, variant_cached_at))
+
+
+@router.get("/image-proxy/library/{library_item_id}", dependencies=[Depends(require_auth)])
+async def library_image_proxy(
+    request: Request,
+    library_item_id: int,
+    width: int | None = Query(500, ge=32, le=1600),
+    height: int | None = Query(None, ge=32, le=1600),
+    quality: int = Query(82, ge=40, le=95),
+    image_format: str = Query("webp", alias="format", pattern="^(original|webp|avif)$"),
+):
+    """Sert une affiche Plex sans révéler son URL signée au navigateur."""
+    async with AsyncSessionLocal() as db:
+        item = (
+            await db.execute(select(LibraryItem).filter(LibraryItem.id == library_item_id))
+        ).scalars().first()
+    if not item or not item.poster_url:
+        raise HTTPException(404, "Affiche introuvable")
+    return await image_proxy(
+        request=request,
+        url=item.poster_url,
+        width=width,
+        height=height,
+        quality=quality,
+        image_format=image_format,
+    )
+
+
+@router.get("/image-proxy/request/{request_id}", dependencies=[Depends(require_auth)])
+async def request_image_proxy(
+    request: Request,
+    request_id: int,
+    width: int | None = Query(500, ge=32, le=1600),
+    height: int | None = Query(None, ge=32, le=1600),
+    quality: int = Query(82, ge=40, le=95),
+    image_format: str = Query("webp", alias="format", pattern="^(original|webp|avif)$"),
+):
+    """Sert l'affiche d'une demande sans révéler son éventuelle URL Plex signée."""
+    async with AsyncSessionLocal() as db:
+        media_request = (
+            await db.execute(select(MediaRequest).filter(MediaRequest.id == request_id))
+        ).scalars().first()
+    if not media_request or not media_request.poster_url:
+        raise HTTPException(404, "Affiche introuvable")
+    return await image_proxy(
+        request=request,
+        url=media_request.poster_url,
+        width=width,
+        height=height,
+        quality=quality,
+        image_format=image_format,
+    )
