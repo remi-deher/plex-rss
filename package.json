@@ -8,7 +8,7 @@
     "test:unit:watch": "vitest"
   },
   "dependencies": {
-    "@lucide/vue": "^1.27.0",
+    "@lucide/vue": "^1.28.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "qrcode": "^1.5.4",
     "vite": "^7.0.4",
