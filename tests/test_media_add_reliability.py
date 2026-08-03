@@ -25,11 +25,13 @@ async def test_create_pending_request_without_ids_does_not_crash():
         result = await _create_pending_request(db, body)
         assert result["ok"] is True
         assert result["already_existed"] is False
+        assert result["request_id"] == result["id"]
 
         # Une seconde demande pour le même titre doit être déduplifiée, pas planter.
         result2 = await _create_pending_request(db, body)
         assert result2["already_existed"] is True
         assert result2["id"] == result["id"]
+        assert result2["request_id"] == result["request_id"]
     finally:
         db.close()
 

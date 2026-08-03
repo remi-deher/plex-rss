@@ -15,7 +15,7 @@ export const form = reactive({
   live_activity_enabled: true, activity_retention_days: 365, activity_anonymize_ips: true,
   tautulli_enabled: false, tautulli_url: '', tautulli_api_key: '',
   seer_enabled: false, seer_url: '', seer_api_key: '', seer_mode: 'observer', seer_send_requests: false, seer_fallback_arr: false, seer_suppress_notifications: true,
-  tmdb_api_key: '', tmdb_enabled: true,
+  tmdb_api_key: '', tmdb_enabled: true, tmdb_region: 'FR',
   webhook_secret: '', public_base_url: '',
   gdpr_contact_name: '', gdpr_contact_email: '',
   email_enabled: false, smtp_from: '', admin_notification_email: '', notify_import_blocked: true,

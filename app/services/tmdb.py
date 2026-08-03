@@ -31,6 +31,20 @@ LANG = "fr-FR"
 REGION = "FR"
 CACHE_TTL = timedelta(hours=12)
 
+CURATED_DISCOVERY_SOURCES = (
+    {"id": 8, "name": "Netflix", "kind": "provider"},
+    {"id": 9, "name": "Prime Video", "kind": "provider"},
+    {"id": 337, "name": "Disney+", "kind": "provider"},
+    {"id": 381, "name": "Canal+", "kind": "provider"},
+    {"id": 350, "name": "Apple TV+", "kind": "provider"},
+    {"id": 1899, "name": "Max", "kind": "provider"},
+    {"id": 49, "name": "HBO", "kind": "network"},
+    {"id": 41077, "name": "A24", "kind": "company"},
+    {"id": 3, "name": "Pixar", "kind": "company"},
+    {"id": 174, "name": "Warner Bros.", "kind": "company"},
+    {"id": 3172, "name": "Blumhouse", "kind": "company"},
+)
+
 
 class TmdbNotConfigured(Exception):
     """Levée quand aucune clé API TMDB n'est configurée."""
@@ -51,6 +65,10 @@ def _poster(path: Optional[str], size: str = "w342") -> Optional[str]:
 
 
 def _backdrop(path: Optional[str], size: str = "w780") -> Optional[str]:
+    return f"{IMG_BASE}/{size}{path}" if path else None
+
+
+def _logo(path: Optional[str], size: str = "w154") -> Optional[str]:
     return f"{IMG_BASE}/{size}{path}" if path else None
 
 
@@ -186,20 +204,28 @@ async def trending(db: AsyncSession, media_type: str = "all", window: str = "wee
     return _norm_page(data, forced)
 
 
-async def popular(db: AsyncSession, media_type: str, page: int = 1) -> dict:
+async def popular(db: AsyncSession, media_type: str, page: int = 1, region: str = REGION) -> dict:
     if media_type == "all":
-        return _merge_pages(await popular(db, "movie", page), await popular(db, "show", page), page)
+        return _merge_pages(
+            await popular(db, "movie", page, region),
+            await popular(db, "show", page, region),
+            page,
+        )
     mt = "movie" if media_type == "movie" else "tv"
-    data = await _get(db, f"/{mt}/popular", {"page": page, "region": REGION})
+    data = await _get(db, f"/{mt}/popular", {"page": page, "region": region})
     return _norm_page(data, mt)
 
 
-async def coming_soon(db: AsyncSession, media_type: str, page: int = 1) -> dict:
+async def coming_soon(db: AsyncSession, media_type: str, page: int = 1, region: str = REGION) -> dict:
     """Films : upcoming ; Séries : on_the_air."""
     if media_type == "all":
-        return _merge_pages(await coming_soon(db, "movie", page), await coming_soon(db, "show", page), page)
+        return _merge_pages(
+            await coming_soon(db, "movie", page, region),
+            await coming_soon(db, "show", page, region),
+            page,
+        )
     if media_type == "movie":
-        data = await _get(db, "/movie/upcoming", {"page": page, "region": REGION})
+        data = await _get(db, "/movie/upcoming", {"page": page, "region": region})
         return _norm_page(data, "movie")
     data = await _get(db, "/tv/on_the_air", {"page": page})
     return _norm_page(data, "tv")
@@ -215,18 +241,93 @@ async def genres(db: AsyncSession, media_type: str) -> list[dict]:
 
 
 async def discover(
-    db: AsyncSession, media_type: str, genre: Optional[int] = None, sort_by: str = "popularity.desc", page: int = 1
+    db: AsyncSession,
+    media_type: str,
+    genre: Optional[int] = None,
+    sort_by: str = "popularity.desc",
+    page: int = 1,
+    region: str = REGION,
 ) -> dict:
     if media_type == "all":
         return _merge_pages(
-            await discover(db, "movie", genre, sort_by, page),
-            await discover(db, "show", genre, sort_by, page),
+            await discover(db, "movie", genre, sort_by, page, region),
+            await discover(db, "show", genre, sort_by, page, region),
             page,
         )
     mt = "movie" if media_type == "movie" else "tv"
-    params = {"page": page, "sort_by": sort_by, "region": REGION}
+    params = {"page": page, "sort_by": sort_by, "region": region}
     if genre:
         params["with_genres"] = genre
+    data = await _get(db, f"/discover/{mt}", params)
+    return _norm_page(data, mt)
+
+
+async def discovery_sources(db: AsyncSession, region: str = REGION) -> list[dict]:
+    """Retourne une courte sélection éditoriale de plateformes, réseaux et studios."""
+    movie_providers = await _get(db, "/watch/providers/movie", {"watch_region": region})
+    tv_providers = await _get(db, "/watch/providers/tv", {"watch_region": region})
+    providers = {
+        int(provider["provider_id"]): provider
+        for provider in [*movie_providers.get("results", []), *tv_providers.get("results", [])]
+        if provider.get("provider_id") is not None
+    }
+
+    result = []
+    for source in CURATED_DISCOVERY_SOURCES:
+        item = dict(source)
+        if item["kind"] == "provider":
+            provider = providers.get(item["id"])
+            if not provider:
+                continue
+            item["name"] = provider.get("provider_name") or item["name"]
+            item["logo_url"] = _logo(provider.get("logo_path"))
+        else:
+            item["logo_url"] = None
+        result.append(item)
+    return result
+
+
+async def discover_by_source(
+    db: AsyncSession,
+    kind: str,
+    source_id: int,
+    media_type: str = "all",
+    page: int = 1,
+    region: str = REGION,
+) -> dict:
+    """Découvre des médias par plateforme, réseau de diffusion ou studio."""
+    if kind == "network":
+        if media_type == "movie":
+            return {"items": [], "page": page, "total_pages": 1, "total_results": 0}
+        media_type = "show"
+    if media_type == "all":
+        return _merge_pages(
+            await discover_by_source(db, kind, source_id, "movie", page, region),
+            await discover_by_source(db, kind, source_id, "show", page, region),
+            page,
+        )
+
+    mt = "movie" if media_type == "movie" else "tv"
+    params: dict[str, str | int] = {
+        "page": page,
+        "sort_by": "popularity.desc",
+        "region": region,
+    }
+    if kind == "provider":
+        params.update(
+            {
+                "watch_region": region,
+                "with_watch_providers": source_id,
+                "with_watch_monetization_types": "flatrate|free|ads",
+            }
+        )
+    elif kind == "network":
+        params["with_networks"] = source_id
+    elif kind == "company":
+        params["with_companies"] = source_id
+    else:
+        raise ValueError(f"Type de source inconnu: {kind}")
+
     data = await _get(db, f"/discover/{mt}", params)
     return _norm_page(data, mt)
 

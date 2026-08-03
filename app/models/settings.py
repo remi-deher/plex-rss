@@ -104,6 +104,8 @@ class Settings(Base):
     # --- TMDB (catalogue de découverte) ---
     tmdb_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText)
     tmdb_enabled: Mapped[bool] = mapped_column(default=True)
+    # Région ISO 3166-1 utilisée pour les sorties et fournisseurs de streaming.
+    tmdb_region: Mapped[str] = mapped_column(default="FR")
 
     # --- Seer ---
     seer_url: Mapped[Optional[str]]

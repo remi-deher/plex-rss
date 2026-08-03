@@ -8,6 +8,7 @@ import FilterBar from "./components/ui/FilterBar.vue";
 import FormSaveBar from "./components/ui/FormSaveBar.vue";
 const DashboardView = () => import("./views/DashboardView.vue");
 const DiscoverView = () => import("./views/DiscoverView.vue");
+const DiscoverSourceView = () => import("./views/DiscoverSourceView.vue");
 const DownloadsView = () => import("./views/DownloadsView.vue");
 const ActivityView = () => import("./views/ActivityView.vue");
 const LibraryAnalyticsView = () => import("./views/LibraryAnalyticsView.vue");
@@ -43,6 +44,7 @@ window.addEventListener("vite:preloadError", event => {
 const routes = [
   { path: "/", redirect: "/dashboard" },
   { path: "/dashboard", component: DashboardView },
+  { path: "/discover/source/:kind/:id", component: DiscoverSourceView },
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },

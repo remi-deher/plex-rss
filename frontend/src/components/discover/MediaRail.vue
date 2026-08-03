@@ -20,6 +20,9 @@
         :item="item"
         :to="itemPath(item)"
         :action-label="actionLabel(item)"
+        :requestable="allowRequest && canRequest(item)"
+        :request-busy="requesting.includes(itemKey(item))"
+        @request="$emit('request', $event)"
       />
     </div>
     <p v-else class="empty">Aucun média à afficher.</p>
@@ -40,8 +43,10 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   moreTo: { type: [String, Object], default: '' },
+  allowRequest: { type: Boolean, default: false },
+  requesting: { type: Array, default: () => [] },
 });
-defineEmits(['retry']);
+defineEmits(['retry', 'request']);
 
 const track = ref(null);
 const headingId = computed(() => `rail-${props.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`);
@@ -54,6 +59,12 @@ function actionLabel(item) {
   if (item.in_library || item.library_id) return 'Voir la fiche';
   if (item.requested || item.request_id) return 'Suivre la demande';
   return 'Demander';
+}
+function itemKey(item) {
+  return `${item.media_type}:${item.tmdb_id || item.id}`;
+}
+function canRequest(item) {
+  return !item.in_library && !item.library_id && !item.requested && !item.request_id;
 }
 function scroll(direction) {
   track.value?.scrollBy({ left: direction * Math.max(track.value.clientWidth * .8, 280), behavior: 'smooth' });

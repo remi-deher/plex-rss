@@ -5,6 +5,7 @@ local (déjà dans la bibliothèque Plex, déjà demandé, disponible) en recoup
 les tmdb_id avec LibraryItem et MediaRequest.
 """
 
+import json
 import logging
 from typing import Literal, Optional
 
@@ -24,7 +25,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/discover", tags=["discover"], dependencies=[Depends(require_auth)])
 
-HOME_SECTIONS = ("hero", "trending", "popular_movies", "popular_tv", "upcoming")
+HOME_SECTIONS = (
+    "hero",
+    "trending",
+    "popular_movies",
+    "popular_tv",
+    "upcoming",
+    "recent_plex",
+    "most_requested",
+)
 HOME_DEFAULT_SECTIONS = ",".join(HOME_SECTIONS)
 HOME_CACHE_TTL_SECONDS = 30 * 60
 
@@ -157,13 +166,19 @@ def _page_response(payload: dict, paginated: bool):
     return payload if paginated else payload["items"]
 
 
-async def _fetch_home_section(db: AsyncSession, section: str) -> dict:
+async def _discovery_region(db: AsyncSession) -> str:
+    settings = (await db.execute(select(Settings))).scalars().first()
+    region = ((settings.tmdb_region if settings else None) or tmdb.REGION).strip().upper()
+    return region if len(region) == 2 and region.isalpha() else tmdb.REGION
+
+
+async def _fetch_home_section(db: AsyncSession, section: str, region: str) -> dict:
     """Charge une section TMDB brute et la partage via Redis (avec repli mémoire).
 
     Les annotations locales ne sont volontairement pas mises en cache : une demande ou
     un import Plex doit changer le badge dès la requête suivante.
     """
-    cache_key = f"plexarr:discover:home:v1:{section}"
+    cache_key = f"plexarr:discover:home:v2:{region}:{section}"
     cached = await cache.get_json(cache_key)
     if cached and isinstance(cached.get("payload"), dict):
         return cached["payload"]
@@ -171,16 +186,88 @@ async def _fetch_home_section(db: AsyncSession, section: str) -> dict:
     if section == "trending":
         payload = await tmdb.trending(db, "all", "day", 1)
     elif section == "popular_movies":
-        payload = await tmdb.popular(db, "movie", 1)
+        payload = await tmdb.popular(db, "movie", 1, region)
     elif section == "popular_tv":
-        payload = await tmdb.popular(db, "show", 1)
+        payload = await tmdb.popular(db, "show", 1, region)
     elif section == "upcoming":
-        payload = await tmdb.coming_soon(db, "all", 1)
+        payload = await tmdb.coming_soon(db, "all", 1, region)
     else:  # pragma: no cover - garde interne, la validation HTTP filtre déjà ces valeurs
         raise ValueError(f"Section d'accueil inconnue: {section}")
 
     await cache.set_json(cache_key, {"payload": payload}, ttl_seconds=HOME_CACHE_TTL_SECONDS)
     return payload
+
+
+async def _recent_plex_section(db: AsyncSession, limit: int = 20) -> dict:
+    rows = (
+        await db.execute(
+            select(LibraryItem)
+            .order_by(LibraryItem.added_at.desc(), LibraryItem.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "tmdb_id": row.tmdb_id,
+                "media_type": row.media_type,
+                "title": row.title,
+                "year": row.year,
+                "overview": row.overview or "",
+                "poster_url": row.poster_url,
+                "library_id": row.id,
+                "in_library": True,
+                "available": True,
+                "requested": False,
+                "request_id": None,
+            }
+            for row in rows
+        ],
+        "page": 1,
+        "total_pages": 1,
+        "total_results": len(rows),
+    }
+
+
+async def _most_requested_section(db: AsyncSession, limit: int = 20) -> dict:
+    rows = (
+        await db.execute(
+            select(MediaRequest).filter(
+                MediaRequest.extra_requesters.isnot(None),
+                MediaRequest.extra_requesters != "[]",
+            )
+        )
+    ).scalars().all()
+    ranked = []
+    for row in rows:
+        try:
+            requester_count = 1 + len(json.loads(row.extra_requesters or "[]"))
+        except (TypeError, ValueError):
+            requester_count = 1
+        if requester_count < 2:
+            continue
+        status = request_status_value(row.status)
+        ranked.append(
+            {
+                "tmdb_id": row.tmdb_id,
+                "media_type": row.media_type,
+                "title": row.title,
+                "year": row.year,
+                "overview": row.overview or "",
+                "poster_url": row.poster_url,
+                "library_id": row.library_item_id,
+                "request_id": row.id,
+                "in_library": row.library_item_id is not None,
+                "available": row.library_item_id is not None or status in ("available", "partially_available"),
+                "requested": True,
+                "request_status": status,
+                "is_downloading": bool(row.is_downloading),
+                "requester_count": requester_count,
+            }
+        )
+    ranked.sort(key=lambda item: (item["requester_count"], item["request_id"]), reverse=True)
+    items = ranked[:limit]
+    return {"items": items, "page": 1, "total_pages": 1, "total_results": len(items)}
 
 
 def _home_error(exc: Exception) -> str:
@@ -206,16 +293,34 @@ async def get_home(
         allowed = ", ".join(HOME_SECTIONS)
         raise HTTPException(422, f"Sections invalides. Valeurs acceptées : {allowed}.")
 
-    source_names = list(dict.fromkeys("trending" if section == "hero" else section for section in requested))
+    region = await _discovery_region(db)
+    external_sections = {"trending", "popular_movies", "popular_tv", "upcoming"}
+    source_names = list(
+        dict.fromkeys(
+            "trending" if section == "hero" else section
+            for section in requested
+            if section == "hero" or section in external_sections
+        )
+    )
     payloads: dict[str, dict] = {}
     errors: dict[str, str] = {}
     for source in source_names:
         try:
-            payloads[source] = await _fetch_home_section(db, source)
+            payloads[source] = await _fetch_home_section(db, source, region)
         except Exception as exc:
             errors[source] = _home_error(exc)
 
-    all_items = [item for payload in payloads.values() for item in payload.get("items", [])]
+    if "recent_plex" in requested:
+        payloads["recent_plex"] = await _recent_plex_section(db)
+    if "most_requested" in requested:
+        payloads["most_requested"] = await _most_requested_section(db)
+
+    all_items = [
+        item
+        for source, payload in payloads.items()
+        if source in external_sections
+        for item in payload.get("items", [])
+    ]
     await _annotate(db, all_items)
 
     result: dict[str, dict] = {}
@@ -235,6 +340,43 @@ async def get_home(
         )
 
     return {"sections": result}
+
+
+@router.get("/sources")
+async def get_sources(db: AsyncSession = Depends(get_db_async)):
+    region = await _discovery_region(db)
+    cache_key = f"plexarr:discover:sources:v1:{region}"
+    cached = await cache.get_json(cache_key)
+    if cached and isinstance(cached.get("items"), list):
+        return {"region": region, "items": cached["items"]}
+    try:
+        items = await tmdb.discovery_sources(db, region)
+        await cache.set_json(cache_key, {"items": items}, ttl_seconds=HOME_CACHE_TTL_SECONDS)
+        return {"region": region, "items": items}
+    except Exception as exc:
+        _guard(exc)
+
+
+@router.get("/source/{kind}/{source_id}")
+async def get_source_media(
+    kind: Literal["provider", "network", "company"],
+    source_id: int,
+    media_type: Literal["all", "movie", "show"] = "all",
+    page: int = Query(1, ge=1, le=500),
+    db: AsyncSession = Depends(get_db_async),
+):
+    region = await _discovery_region(db)
+    cache_key = f"plexarr:discover:source:v1:{region}:{kind}:{source_id}:{media_type}:{page}"
+    try:
+        cached = await cache.get_json(cache_key)
+        if cached and isinstance(cached.get("payload"), dict):
+            payload = cached["payload"]
+        else:
+            payload = await tmdb.discover_by_source(db, kind, source_id, media_type, page, region)
+            await cache.set_json(cache_key, {"payload": payload}, ttl_seconds=HOME_CACHE_TTL_SECONDS)
+        return await _annotate_page(db, payload)
+    except Exception as exc:
+        _guard(exc)
 
 
 @router.get("/trending")
@@ -260,7 +402,7 @@ async def get_popular(
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        payload = await _annotate_page(db, await tmdb.popular(db, media_type, page))
+        payload = await _annotate_page(db, await tmdb.popular(db, media_type, page, await _discovery_region(db)))
         return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
@@ -274,7 +416,10 @@ async def get_coming_soon(
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        payload = await _annotate_page(db, await tmdb.coming_soon(db, media_type, page))
+        payload = await _annotate_page(
+            db,
+            await tmdb.coming_soon(db, media_type, page, await _discovery_region(db)),
+        )
         return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)
@@ -298,7 +443,10 @@ async def get_discover(
     db: AsyncSession = Depends(get_db_async),
 ):
     try:
-        payload = await _annotate_page(db, await tmdb.discover(db, media_type, genre, sort_by, page))
+        payload = await _annotate_page(
+            db,
+            await tmdb.discover(db, media_type, genre, sort_by, page, await _discovery_region(db)),
+        )
         return _page_response(payload, paginated)
     except Exception as e:
         _guard(e)

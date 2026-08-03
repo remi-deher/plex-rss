@@ -303,6 +303,50 @@ async def test_search_by_type_uses_specific_tmdb_endpoint(db):
     assert result["items"][0]["media_type"] == "show"
 
 
+@pytest.mark.asyncio
+async def test_discovery_sources_keeps_curated_providers_available_in_region(db):
+    provider_payload = {
+        "results": [
+            {"provider_id": 8, "provider_name": "Netflix", "logo_path": "/netflix.jpg"},
+            {"provider_id": 337, "provider_name": "Disney Plus", "logo_path": "/disney.jpg"},
+        ]
+    }
+    with patch("app.services.tmdb._get", new=AsyncMock(side_effect=[provider_payload, {"results": []}])):
+        result = await tmdb.discovery_sources(db, "FR")
+
+    netflix = next(source for source in result if source["id"] == 8)
+    assert netflix["kind"] == "provider"
+    assert netflix["logo_url"] == "https://image.tmdb.org/t/p/w154/netflix.jpg"
+    assert any(source["name"] == "A24" and source["kind"] == "company" for source in result)
+    assert not any(source["name"] == "Prime Video" for source in result)
+
+
+@pytest.mark.asyncio
+async def test_discover_by_provider_applies_region_and_streaming_filters(db):
+    payload = {"page": 1, "total_pages": 1, "total_results": 1, "results": [{"id": 1, "title": "Film"}]}
+    get = AsyncMock(return_value=payload)
+    with patch("app.services.tmdb._get", new=get):
+        result = await tmdb.discover_by_source(db, "provider", 8, "movie", 1, "FR")
+
+    params = get.await_args.args[2]
+    assert get.await_args.args[1] == "/discover/movie"
+    assert params["watch_region"] == "FR"
+    assert params["with_watch_providers"] == 8
+    assert params["with_watch_monetization_types"] == "flatrate|free|ads"
+    assert result["items"][0]["media_type"] == "movie"
+
+
+@pytest.mark.asyncio
+async def test_discover_by_network_is_limited_to_series(db):
+    get = AsyncMock(return_value={"page": 1, "total_pages": 1, "total_results": 0, "results": []})
+    with patch("app.services.tmdb._get", new=get):
+        await tmdb.discover_by_source(db, "network", 49, "all", 1, "FR")
+
+    assert get.await_count == 1
+    assert get.await_args.args[1] == "/discover/tv"
+    assert get.await_args.args[2]["with_networks"] == 49
+
+
 # ---------------------------------------------------------------------------
 # get_tv_seasons_overview / get_tv_season_episodes (enveloppe saisons/episodes,
 # independante de Sonarr/Radarr/Plex -- voir vff_api._episodes_envelope_payload)

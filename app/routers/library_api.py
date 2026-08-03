@@ -708,7 +708,13 @@ async def _create_pending_request(db: AsyncSession, body: "MediaAddRequest") -> 
         ).scalars().first()
     if existing:
         # Média déjà connu : on ne recrée pas de doublon en attente.
-        return {"ok": True, "pending_approval": True, "already_existed": True, "id": existing.id}
+        return {
+            "ok": True,
+            "pending_approval": True,
+            "already_existed": True,
+            "id": existing.id,
+            "request_id": existing.id,
+        }
 
     user_id = body.plex_user_id or "manual"
     user_label = user_id
@@ -733,7 +739,13 @@ async def _create_pending_request(db: AsyncSession, body: "MediaAddRequest") -> 
     )
     db.add(req)
     await db.commit()
-    return {"ok": True, "pending_approval": True, "already_existed": False, "id": req.id}
+    return {
+        "ok": True,
+        "pending_approval": True,
+        "already_existed": False,
+        "id": req.id,
+        "request_id": req.id,
+    }
 
 
 @router.post("/media/add")
@@ -862,6 +874,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
     # sinon → suivi par check_arr_statuses via l'instance *arr enregistrée.
     source_val = "seer" if via == "seer" else "manual_search"
 
+    request_row = existing
     if not existing:
         user_id = body.plex_user_id or "manual"
         user_label = "Recherche manuelle"
@@ -888,6 +901,7 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
         )
         db.add(req)
         await db.flush()
+        request_row = req
         await transition_request(db, req, "submitted", source=via)
         await db.commit()
         update_request_context(req, request_source=source_val)
@@ -930,4 +944,11 @@ async def media_add(body: MediaAddRequest, request: Request, db: AsyncSession = 
 
         await dispatch_transition_notification(s, existing, db, "submitted")
 
-    return {"ok": True, "via": via, "already_existed": already, "id": arr_id, "search_triggered": search_triggered}
+    return {
+        "ok": True,
+        "via": via,
+        "already_existed": already,
+        "id": arr_id,
+        "request_id": request_row.id if request_row else None,
+        "search_triggered": search_triggered,
+    }

@@ -21,7 +21,7 @@ describe('MediaPosterCard', () => {
   it('rend une carte accessible et son action', () => {
     const wrapper = mountCard();
 
-    expect(wrapper.get('a').attributes('aria-label')).toContain('Film test');
+    expect(wrapper.get('.discover-poster-link').attributes('aria-label')).toContain('Film test');
     expect(wrapper.get('img').attributes('alt')).toBe('Affiche de Film test');
     expect(wrapper.text()).toContain('Demander');
   });
@@ -32,5 +32,21 @@ describe('MediaPosterCard', () => {
     expect(wrapper.text()).toContain('Dans Plex');
     expect(wrapper.text()).not.toContain('VF');
     expect(wrapper.text()).not.toContain('VO');
+  });
+
+  it('émet une demande depuis un bouton distinct du lien de fiche', async () => {
+    const wrapper = mount(MediaPosterCard, {
+      props: {
+        item: { tmdb_id: 42, media_type: 'movie', title: 'Film test' },
+        to: '/media/discover/42',
+        actionLabel: 'Demander',
+        requestable: true,
+      },
+      global: { stubs: { RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } },
+    });
+
+    await wrapper.get('button[aria-label="Demander Film test"]').trigger('click');
+
+    expect(wrapper.emitted('request')).toHaveLength(1);
   });
 });

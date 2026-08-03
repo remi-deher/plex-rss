@@ -179,3 +179,35 @@ def test_home_rejects_unknown_sections(client):
     response = client.get("/api/discover/home?sections=trending,unknown")
 
     assert response.status_code == 422
+
+
+def test_sources_return_configured_region_and_curated_items(client, db):
+    from app.models import Settings
+
+    db.add(Settings(tmdb_api_key="key", tmdb_region="BE"))
+    db.commit()
+    sources = [{"id": 8, "kind": "provider", "name": "Netflix", "logo_url": None}]
+    discover_sources = AsyncMock(return_value=sources)
+    with patch("app.routers.discover_api.tmdb.discovery_sources", new=discover_sources):
+        response = client.get("/api/discover/sources")
+
+    assert response.status_code == 200
+    assert response.json() == {"region": "BE", "items": sources}
+    discover_sources.assert_awaited_once_with(ANY, "BE")
+
+
+def test_source_media_is_annotated_and_paginated(client):
+    payload = {
+        "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],
+        "page": 1,
+        "total_pages": 2,
+        "total_results": 21,
+    }
+    discover = AsyncMock(return_value=payload)
+    with patch("app.routers.discover_api.tmdb.discover_by_source", new=discover):
+        response = client.get("/api/discover/source/provider/8?media_type=movie&page=1")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["requested"] is False
+    assert response.json()["total_pages"] == 2
+    discover.assert_awaited_once_with(ANY, "provider", 8, "movie", 1, "FR")

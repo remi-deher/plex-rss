@@ -1,28 +1,40 @@
 <template>
-  <RouterLink
-    class="media-card discover-card discover-media-card"
-    :to="to"
-    :aria-label="accessibleLabel"
-  >
-    <MediaPoster :poster-url="item.poster_url" :alt="`Affiche de ${title}`">
-      <template #badges>
-        <div class="discover-card-badges">
-          <MediaStatusBadge :item="item" />
-        </div>
-      </template>
-      <template v-if="actionLabel" #overlay>
-        <div class="discover-card-action">{{ actionLabel }}</div>
-      </template>
-    </MediaPoster>
-    <div class="discover-card-info">
+  <article class="media-card discover-card discover-media-card">
+    <div class="discover-poster-wrap">
+      <RouterLink :to="to" :aria-label="accessibleLabel" class="discover-poster-link">
+        <MediaPoster :poster-url="item.poster_url" :alt="`Affiche de ${title}`">
+          <template #badges>
+            <div class="discover-card-badges">
+              <MediaStatusBadge :item="item" />
+            </div>
+          </template>
+          <template v-if="actionLabel && !requestable" #overlay>
+            <div class="discover-card-action">{{ actionLabel }}</div>
+          </template>
+        </MediaPoster>
+      </RouterLink>
+      <button
+        v-if="requestable"
+        type="button"
+        class="discover-card-action request-action"
+        :disabled="requestBusy"
+        :aria-label="`Demander ${title}`"
+        @click="$emit('request', item)"
+      >
+        {{ requestBusy ? 'Envoi…' : 'Demander' }}
+      </button>
+    </div>
+    <RouterLink :to="to" class="discover-info-link" :aria-label="`Voir la fiche de ${title}`">
+      <div class="discover-card-info">
       <strong>{{ title }}</strong>
       <span>
         {{ mediaTypeLabel(item.media_type) }}
         <template v-if="item.year"> · {{ item.year }}</template>
         <template v-if="rating"> · <Star aria-hidden="true" />{{ rating }}</template>
       </span>
-    </div>
-  </RouterLink>
+      </div>
+    </RouterLink>
+  </article>
 </template>
 
 <script setup>
@@ -36,7 +48,10 @@ const props = defineProps({
   item: { type: Object, required: true },
   to: { type: [String, Object], required: true },
   actionLabel: { type: String, default: '' },
+  requestable: { type: Boolean, default: false },
+  requestBusy: { type: Boolean, default: false },
 });
+defineEmits(['request']);
 
 const title = computed(() => props.item.title || props.item.name || 'Sans titre');
 const rating = computed(() => {
@@ -52,17 +67,20 @@ const accessibleLabel = computed(() => [
 
 <style scoped>
 .discover-media-card {
+  position: relative;
   min-width: 0;
   color: inherit;
-  cursor: pointer;
-  text-decoration: none;
 }
+.discover-poster-wrap { position: relative; }
+.discover-poster-link,
+.discover-info-link { display: block; color: inherit; text-decoration: none; }
 .discover-card-badges {
   position: absolute;
   top: 7px;
   left: 7px;
   right: 7px;
   display: flex;
+  padding: 0;
   pointer-events: none;
 }
 .discover-card-action {
@@ -80,9 +98,15 @@ const accessibleLabel = computed(() => [
   transition: opacity .2s, transform .2s;
 }
 .discover-media-card:hover .discover-card-action,
-.discover-media-card:focus-visible .discover-card-action {
+.discover-media-card:focus-within .discover-card-action {
   opacity: 1;
   transform: none;
+}
+.request-action {
+  z-index: 2;
+  width: calc(100% - 14px);
+  border: 1px solid rgba(255, 255, 255, .22);
+  cursor: pointer;
 }
 .discover-card-info {
   display: grid;

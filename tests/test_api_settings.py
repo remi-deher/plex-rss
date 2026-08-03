@@ -130,6 +130,22 @@ def test_update_settings_updates_field(async_db):
         _cleanup()
 
 
+def test_update_settings_accepts_two_letter_tmdb_region(async_db):
+    settings = _default_settings()
+    async_db.add(settings)
+    async_db.commit()
+    client = _client_with_db(async_db)
+    try:
+        with patch("app.routers.settings_api.update_poll_interval"):
+            resp = client.put("/api/settings", json={"tmdb_region": "BE"})
+        assert resp.status_code == 200
+        assert settings.tmdb_region == "BE"
+        invalid = client.put("/api/settings", json={"tmdb_region": "France"})
+        assert invalid.status_code == 422
+    finally:
+        _cleanup()
+
+
 def test_update_settings_retention_zero_means_unlimited(async_db):
     """0 pour les retentions journaux/polling doit se traduire par None (illimite)."""
     settings = _default_settings()

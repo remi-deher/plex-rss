@@ -6,7 +6,7 @@ from typing import Optional
 import httpx
 import sqlalchemy
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -124,6 +124,7 @@ class SettingsUpdate(BaseModel):
     # --- TMDB (découverte) ---
     tmdb_api_key: Optional[str] = None
     tmdb_enabled: Optional[bool] = None
+    tmdb_region: Optional[str] = Field(default=None, pattern=r"^[A-Za-z]{2}$")
     # --- Retention & Purges ---
     notification_log_retention_days: Optional[int] = None
     poll_history_retention_days: Optional[int] = None

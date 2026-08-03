@@ -16,7 +16,8 @@ function media(id, title = `Média ${id}`) {
   return { tmdb_id: id, media_type: 'movie', title, year: 2025, vote: 7, poster_url: `/poster-${id}.jpg` };
 }
 
-function mountView() {
+function mountView({ home = false } = {}) {
+  window.history.replaceState({}, '', home ? '/discover' : '/discover?mode=explore');
   return mount(DiscoverView, {
     global: {
       stubs: {
@@ -35,6 +36,7 @@ describe('DiscoverView', () => {
   beforeEach(() => {
     apiMock.mockReset();
     window.matchMedia = vi.fn(() => ({ matches: false }));
+    window.history.replaceState({}, '', '/discover?mode=explore');
   });
 
   afterEach(() => {
@@ -103,9 +105,56 @@ describe('DiscoverView', () => {
     const wrapper = mountView();
     await flushPromises();
 
-    const card = wrapper.get('a.discover-card');
+    const card = wrapper.get('.discover-card a.discover-poster-link');
     expect(card.attributes('href')).toContain('/media/discover/1');
     expect(card.attributes('aria-label')).toContain('Film test');
     expect(wrapper.get('img').attributes('alt')).toBe('Affiche de Film test');
+  });
+
+  it('charge indépendamment le hero, les rangées et les diffuseurs de l’accueil', async () => {
+    apiMock.mockImplementation(path => {
+      if (path.includes('sections=hero,trending')) {
+        return Promise.resolve({ sections: { hero: { item: media(1, 'À la une') }, trending: { items: [media(1)] } } });
+      }
+      if (path.includes('/home?sections=')) {
+        const name = path.split('sections=')[1];
+        return Promise.resolve({ sections: { [name]: { items: name === 'popular_movies' ? [media(2, 'Populaire')] : [] } } });
+      }
+      if (path.includes('/sources')) {
+        return Promise.resolve({ region: 'FR', items: [{ id: 8, kind: 'provider', name: 'Netflix' }] });
+      }
+      return Promise.resolve(page([]));
+    });
+
+    const wrapper = mountView({ home: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('À la une');
+    expect(wrapper.text()).toContain('Populaire');
+    expect(wrapper.text()).toContain('Diffuseurs & studios');
+    expect(wrapper.text()).toContain('Netflix');
+  });
+
+  it('demande directement un média sans langue, profil ni dossier', async () => {
+    apiMock.mockImplementation((path, options) => {
+      if (path.includes('/genres')) return Promise.resolve([]);
+      if (path === '/api/session') return Promise.resolve({ plex_user_id: 'user-1' });
+      if (path === '/api/media/add') return Promise.resolve({ request_id: 9, pending_approval: false });
+      return Promise.resolve(page([media(1, 'Film test')]));
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.get('button[aria-label="Demander Film test"]').trigger('click');
+    await flushPromises();
+
+    const [, options] = apiMock.mock.calls.find(([path]) => path === '/api/media/add');
+    const body = JSON.parse(options.body);
+    expect(body.plex_user_id).toBe('user-1');
+    expect(body.auto_search).toBe(true);
+    expect(body).not.toHaveProperty('quality_profile_id');
+    expect(body).not.toHaveProperty('root_folder');
+    expect(body).not.toHaveProperty('seasons');
+    expect(wrapper.text()).toContain('Demandé');
   });
 });
