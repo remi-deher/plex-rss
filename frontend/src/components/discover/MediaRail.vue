@@ -13,7 +13,14 @@
     </header>
     <MediaRailSkeleton v-if="loading" />
     <UiFeedback v-else-if="error" type="error" :message="error" retry @retry="$emit('retry')" />
-    <div v-else-if="items.length" ref="track" class="media-rail-track">
+    <div
+      v-else-if="items.length"
+      ref="track"
+      class="media-rail-track"
+      role="region"
+      tabindex="0"
+      :aria-label="`${title}, ${items.length} médias`"
+    >
       <MediaPosterCard
         v-for="item in items"
         :key="`${item.media_type}:${item.tmdb_id || item.id}`"

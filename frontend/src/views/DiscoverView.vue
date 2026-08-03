@@ -101,6 +101,54 @@
           :requesting="requesting"
           @retry="loadHomeSection('most_requested')"
         />
+
+        <section v-if="personalized.loading || personalized.available || personalized.error" class="personalized-discovery" aria-labelledby="personalized-heading">
+          <header class="personalized-header">
+            <div>
+              <span class="eyebrow">Selon votre historique Plex</span>
+              <h2 id="personalized-heading">Pour vous</h2>
+              <p v-if="personalized.seeds.length">Inspiré par {{ personalized.seeds.map(item => item.title).join(', ') }}</p>
+            </div>
+            <div class="personalized-options" aria-label="Préférences de recommandation">
+              <label><input v-model="hideAvailable" type="checkbox" @change="reloadPersonalized"> Masquer les médias dans Plex</label>
+              <label><input v-model="hideWatched" type="checkbox" @change="reloadPersonalized"> Masquer les médias déjà vus</label>
+            </div>
+          </header>
+          <UiFeedback v-if="personalized.error" type="error" :message="personalized.error" retry @retry="loadPersonalized" />
+          <MediaRail
+            v-else
+            title="Parce que vous avez regardé…"
+            :items="personalized.recommended.items"
+            :loading="personalized.loading"
+            allow-request
+            :requesting="requesting"
+            @request="requestMedia"
+          />
+          <MediaRail
+            v-if="personalized.preferred_genres.items.length"
+            title="Dans vos genres préférés"
+            :items="personalized.preferred_genres.items"
+            allow-request
+            :requesting="requesting"
+            @request="requestMedia"
+          />
+          <MediaRail
+            v-if="personalized.unwatched_popular.items.length"
+            title="Populaires et jamais vus"
+            :items="personalized.unwatched_popular.items"
+            allow-request
+            :requesting="requesting"
+            @request="requestMedia"
+          />
+          <MediaRail
+            v-if="personalized.followed_series.items.length"
+            title="Nouveaux épisodes de vos séries suivies"
+            :items="personalized.followed_series.items"
+            allow-request
+            :requesting="requesting"
+            @request="requestMedia"
+          />
+        </section>
       </div>
     </template>
 
@@ -151,11 +199,17 @@
             <option value="">Tous les genres</option>
             <option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
           </select>
-          <select v-model="availability" aria-label="Disponibilité">
+          <select v-model="availability" aria-label="Disponibilité" @change="reload">
             <option value="">Tous les états</option>
             <option value="available">Disponible sur Plex</option>
             <option value="requested">Déjà demandé</option>
             <option value="new">À demander</option>
+          </select>
+          <select v-model="sourceKey" aria-label="Diffuseur ou studio" @change="selectSource">
+            <option value="">Tous les diffuseurs et studios</option>
+            <option v-for="source in sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">
+              {{ source.name }}
+            </option>
           </select>
           <button v-if="activeFilterCount" class="secondary" @click="resetFilters">Réinitialiser</button>
         </div>
@@ -192,7 +246,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { Search, SlidersHorizontal } from '@lucide/vue';
 import { api } from '@/api';
 import DiscoverHero from '@/components/discover/DiscoverHero.vue';
@@ -206,13 +260,18 @@ import { mediaRequestKey, useDirectMediaRequest } from '@/composables/useDirectM
 import { useLatestRequest } from '@/composables/useLatestRequest';
 import { mediaDetailPath } from '@/mediaUrl';
 
-const mode = ref(new URLSearchParams(window.location.search).get('mode') === 'explore' ? 'explore' : 'home');
+const initialParams = new URLSearchParams(window.location.search);
+const initialMode = window.location.pathname === '/discover/explore' || initialParams.get('mode') === 'explore';
+const validMediaTypes = new Set(['all', 'movie', 'show']);
+const validSections = new Set(['trending', 'popular', 'coming-soon', 'genres']);
+const mode = ref(initialMode ? 'explore' : 'home');
 const items = ref([]);
-const query = ref('');
-const mediaType = ref('all');
-const section = ref('trending');
-const genre = ref('');
-const availability = ref('');
+const query = ref(initialParams.get('q') || '');
+const mediaType = ref(validMediaTypes.has(initialParams.get('type')) ? initialParams.get('type') : 'all');
+const section = ref(validSections.has(initialParams.get('section')) ? initialParams.get('section') : 'trending');
+const genre = ref(initialParams.get('genre') || '');
+const availability = ref(['available', 'requested', 'new'].includes(initialParams.get('availability')) ? initialParams.get('availability') : '');
+const sourceKey = ref(initialParams.get('source') || '');
 const genres = ref([]);
 const loading = ref(false);
 const loadingMore = ref(false);
@@ -227,6 +286,22 @@ const sourcesRegion = ref('');
 const sourcesLoading = ref(true);
 const sourcesError = ref('');
 const homeLoaded = ref(false);
+const hideAvailable = ref(localStorage.getItem('discover.hideAvailable') === 'true');
+const hideWatched = ref(localStorage.getItem('discover.hideWatched') === 'true');
+
+function emptyPersonalizedRail() {
+  return { items: [] };
+}
+const personalized = reactive({
+  available: false,
+  loading: false,
+  error: '',
+  seeds: [],
+  recommended: emptyPersonalizedRail(),
+  preferred_genres: emptyPersonalizedRail(),
+  unwatched_popular: emptyPersonalizedRail(),
+  followed_series: emptyPersonalizedRail(),
+});
 
 function sectionState() {
   return { item: null, items: [], loading: true, error: '' };
@@ -259,7 +334,7 @@ const sectionDescription = computed(() => ({
   'coming-soon': 'Les prochaines sorties à surveiller',
   genres: 'Explorez le catalogue par univers',
 })[section.value]);
-const activeFilterCount = computed(() => [mediaType.value !== 'all', genre.value, availability.value].filter(Boolean).length);
+const activeFilterCount = computed(() => [mediaType.value !== 'all', genre.value, availability.value, sourceKey.value].filter(Boolean).length);
 const displayedItems = computed(() => items.value.filter(item => {
   if (availability.value === 'available') return item.available || item.in_library;
   if (availability.value === 'requested') return item.requested && !item.available && !item.in_library;
@@ -275,6 +350,9 @@ function updateMatchingMedia(changed, update) {
   for (const state of Object.values(home)) {
     if (state.item && mediaRequestKey(state.item) === key) Object.assign(state.item, update);
     for (const item of state.items) if (mediaRequestKey(item) === key) Object.assign(item, update);
+  }
+  for (const name of ['recommended', 'preferred_genres', 'unwatched_popular', 'followed_series']) {
+    for (const item of personalized[name].items) if (mediaRequestKey(item) === key) Object.assign(item, update);
   }
 }
 function detailPath(item) {
@@ -300,13 +378,42 @@ function showHome() {
 }
 async function showExplorer() {
   mode.value = 'explore';
-  window.history.replaceState(window.history.state, '', '/discover?mode=explore');
-  if (!genres.value.length) await loadGenres();
+  syncExplorerUrl();
+  if (!genres.value.length) loadGenres();
+  if (!sources.value.length) loadSources();
   await load();
 }
 function startSearch() {
   mode.value = 'explore';
+  syncExplorerUrl();
   scheduleSearch();
+}
+
+function syncExplorerUrl() {
+  if (mode.value !== 'explore') return;
+  const params = new URLSearchParams();
+  if (query.value.trim()) params.set('q', query.value.trim());
+  if (mediaType.value !== 'all') params.set('type', mediaType.value);
+  if (section.value !== 'trending') params.set('section', section.value);
+  if (genre.value) params.set('genre', genre.value);
+  if (availability.value) params.set('availability', availability.value);
+  if (sourceKey.value) params.set('source', sourceKey.value);
+  const suffix = params.toString();
+  window.history.replaceState(window.history.state, '', `/discover/explore${suffix ? `?${suffix}` : ''}`);
+}
+
+function applyExplorerUrl() {
+  if (window.location.pathname !== '/discover/explore') return;
+  const params = new URLSearchParams(window.location.search);
+  mode.value = 'explore';
+  query.value = params.get('q') || '';
+  mediaType.value = validMediaTypes.has(params.get('type')) ? params.get('type') : 'all';
+  section.value = validSections.has(params.get('section')) ? params.get('section') : 'trending';
+  genre.value = params.get('genre') || '';
+  availability.value = ['available', 'requested', 'new'].includes(params.get('availability')) ? params.get('availability') : '';
+  sourceKey.value = params.get('source') || '';
+  loadGenres();
+  load();
 }
 
 async function loadHomeGroup() {
@@ -354,6 +461,36 @@ function loadHome() {
   loadHomeGroup();
   for (const name of ['popular_movies', 'popular_tv', 'upcoming', 'recent_plex', 'most_requested']) loadHomeSection(name);
   loadSources();
+  loadPersonalized();
+}
+
+async function loadPersonalized() {
+  personalized.loading = true;
+  personalized.error = '';
+  try {
+    const params = new URLSearchParams({
+      hide_available: String(hideAvailable.value),
+      hide_watched: String(hideWatched.value),
+    });
+    const payload = await api(`/api/discover/personalized?${params}`);
+    personalized.available = Boolean(payload.available);
+    personalized.seeds = payload.seeds || [];
+    personalized.error = payload.error || '';
+    for (const name of ['recommended', 'preferred_genres', 'unwatched_popular', 'followed_series']) {
+      personalized[name].items = payload.sections?.[name]?.items || [];
+    }
+  } catch (loadError) {
+    personalized.available = true;
+    personalized.error = loadError.message;
+  } finally {
+    personalized.loading = false;
+  }
+}
+
+function reloadPersonalized() {
+  localStorage.setItem('discover.hideAvailable', String(hideAvailable.value));
+  localStorage.setItem('discover.hideWatched', String(hideWatched.value));
+  loadPersonalized();
 }
 
 async function setMediaType(value) {
@@ -366,12 +503,19 @@ function setSection(value) {
   section.value = value;
   query.value = '';
   genre.value = '';
+  sourceKey.value = '';
+  reload();
+}
+function selectSource() {
+  query.value = '';
+  genre.value = '';
   reload();
 }
 async function resetFilters() {
   mediaType.value = 'all';
   genre.value = '';
   availability.value = '';
+  sourceKey.value = '';
   section.value = 'trending';
   await loadGenres();
   await reload();
@@ -388,12 +532,17 @@ function endpoint(targetPage) {
   const pagination = `page=${targetPage}&paginated=true`;
   const q = query.value.trim();
   if (q) return `/api/discover/search?query=${encodeURIComponent(q)}&${type}&${pagination}`;
+  if (sourceKey.value) {
+    const [kind, id] = sourceKey.value.split(':');
+    return `/api/discover/source/${kind}/${id}?${type}&${pagination}`;
+  }
   if (section.value === 'trending') return `/api/discover/trending?${type}&${pagination}`;
   if (section.value === 'popular') return `/api/discover/popular?${type}&${pagination}`;
   if (section.value === 'coming-soon') return `/api/discover/coming-soon?${type}&${pagination}`;
   return `/api/discover/discover?${type}&${pagination}${genre.value ? `&genre=${genre.value}` : ''}`;
 }
 async function load({ append = false } = {}) {
+  syncExplorerUrl();
   const targetPage = append ? page.value + 1 : 1;
   const { signal, isCurrent } = append ? request.extend() : request.begin();
   if (append) loadingMore.value = true;
@@ -429,13 +578,16 @@ function loadMore() { if (!loadingMore.value && hasMore.value) load({ append: tr
 const debouncedReload = useDebounced(reload, 300);
 function scheduleSearch() {
   request.abort();
+  syncExplorerUrl();
   debouncedReload();
 }
 
 onMounted(() => {
+  window.addEventListener('popstate', applyExplorerUrl);
   if (mode.value === 'home') loadHome();
   else showExplorer();
 });
+onBeforeUnmount(() => window.removeEventListener('popstate', applyExplorerUrl));
 </script>
 
 <style scoped>
@@ -453,6 +605,13 @@ onMounted(() => {
 .discover-sources header > span { font-size: .75rem; }
 .source-track { display: grid; grid-auto-columns: clamp(145px, 18vw, 210px); grid-auto-flow: column; gap: 12px; padding-bottom: 8px; overflow-x: auto; scroll-snap-type: x proximity; }
 .source-track > * { scroll-snap-align: start; }
+.personalized-discovery { display: grid; gap: 22px; padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%); }
+.personalized-header { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
+.personalized-header h2 { margin: 2px 0 0; font-size: 1.25rem; }
+.personalized-header p { max-width: 680px; margin: 5px 0 0; color: var(--muted); font-size: .78rem; }
+.personalized-options { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.personalized-options label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .75rem; cursor: pointer; }
+.personalized-options input { accent-color: var(--accent); }
 .discover-command{position:sticky;top:8px;z-index:20;display:grid;gap:9px;padding:12px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(12px)}.discover-search{display:flex;align-items:center;gap:9px}.discover-search>svg{width:18px;color:var(--muted)}.discover-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:15px;outline:0}.filter-toggle{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--muted)}.filter-toggle svg{width:15px}.filter-toggle span{padding:2px 5px;border-radius:999px;background:var(--accent);color:#111;font-size:9px}.filter-toggle.active{color:var(--text)}.discover-sections,.discover-filters{display:flex;align-items:center;gap:6px;overflow-x:auto}.discover-sections button{padding:6px 10px;border:0;border-radius:999px;background:transparent;color:var(--muted);white-space:nowrap}.discover-sections button.active{background:var(--accent);color:#111}.discover-filters{display:none;padding-top:8px;border-top:1px solid var(--border)}.discover-filters.open{display:flex}.discover-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-top:6px}.discover-heading>div{display:grid;gap:2px}.discover-heading h2{margin:0;font-size:17px}.discover-heading>span{color:var(--muted);font-size:10px}.discover-grid{align-items:start}.load-more{display:flex;justify-content:center;padding:20px}.load-more button{display:flex;align-items:center;gap:8px}.load-more svg{width:16px}
-@media(max-width:640px){.discover-mode{width:100%}.discover-mode button{flex:1}.discover-command{top:6px;padding:10px}.filter-toggle{font-size:0}.filter-toggle span{font-size:9px}.discover-filters{align-items:stretch;flex-direction:column;overflow:visible}.discover-filters .segmented{display:flex}.discover-filters .segmented button{flex:1}.discover-filters select{width:100%}.discover-heading h2{font-size:14px}.source-track{grid-auto-columns:minmax(145px,52vw);margin-right:-12px}}
+@media(max-width:640px){.discover-mode{width:100%}.discover-mode button{flex:1}.discover-command{top:6px;padding:10px}.filter-toggle{font-size:0}.filter-toggle span{font-size:9px}.discover-filters{align-items:stretch;flex-direction:column;overflow:visible}.discover-filters .segmented{display:flex}.discover-filters .segmented button{flex:1}.discover-filters select{width:100%}.discover-heading h2{font-size:14px}.source-track{grid-auto-columns:minmax(145px,52vw);margin-right:-12px}.personalized-discovery{padding:14px}.personalized-header{display:grid}.personalized-options{display:grid}}
 </style>

@@ -16,8 +16,8 @@ function media(id, title = `Média ${id}`) {
   return { tmdb_id: id, media_type: 'movie', title, year: 2025, vote: 7, poster_url: `/poster-${id}.jpg` };
 }
 
-function mountView({ home = false } = {}) {
-  window.history.replaceState({}, '', home ? '/discover' : '/discover?mode=explore');
+function mountView({ home = false, url = '' } = {}) {
+  window.history.replaceState({}, '', url || (home ? '/discover' : '/discover/explore'));
   return mount(DiscoverView, {
     global: {
       stubs: {
@@ -36,7 +36,8 @@ describe('DiscoverView', () => {
   beforeEach(() => {
     apiMock.mockReset();
     window.matchMedia = vi.fn(() => ({ matches: false }));
-    window.history.replaceState({}, '', '/discover?mode=explore');
+    window.history.replaceState({}, '', '/discover/explore');
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -156,5 +157,54 @@ describe('DiscoverView', () => {
     expect(body).not.toHaveProperty('root_folder');
     expect(body).not.toHaveProperty('seasons');
     expect(wrapper.text()).toContain('Demandé');
+  });
+
+  it('restaure les filtres Explorer depuis une URL partageable', async () => {
+    apiMock.mockImplementation(path => {
+      if (path.includes('/genres')) return Promise.resolve([]);
+      if (path.includes('/sources')) return Promise.resolve({ region: 'FR', items: [{ id: 8, kind: 'provider', name: 'Netflix' }] });
+      if (path.includes('/source/provider/8')) return Promise.resolve(page([media(8, 'Netflix movie')]));
+      return Promise.resolve(page([]));
+    });
+
+    const wrapper = mountView({ url: '/discover/explore?type=movie&availability=new&source=provider%3A8' });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Netflix movie');
+    expect(wrapper.get('select[aria-label="Diffuseur ou studio"]').element.value).toBe('provider:8');
+    expect(apiMock.mock.calls.some(([path]) => path.includes('/source/provider/8?media_type=movie'))).toBe(true);
+    expect(window.location.pathname).toBe('/discover/explore');
+    expect(window.location.search).toContain('availability=new');
+  });
+
+  it('affiche les recommandations personnalisées sans bloquer les autres rangées', async () => {
+    apiMock.mockImplementation(path => {
+      if (path.includes('/personalized')) {
+        return Promise.resolve({
+          available: true,
+          seeds: [media(1, 'Dune')],
+          sections: {
+            recommended: { items: [media(2, 'Arrival')] },
+            preferred_genres: { items: [] },
+            unwatched_popular: { items: [] },
+            followed_series: { items: [] },
+          },
+        });
+      }
+      if (path.includes('sections=hero,trending')) return Promise.resolve({ sections: { hero: { item: media(3) }, trending: { items: [] } } });
+      if (path.includes('/home?sections=')) {
+        const name = path.split('sections=')[1];
+        return Promise.resolve({ sections: { [name]: { items: [] } } });
+      }
+      if (path.includes('/sources')) return Promise.resolve({ region: 'FR', items: [] });
+      return Promise.resolve(page([]));
+    });
+
+    const wrapper = mountView({ home: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Pour vous');
+    expect(wrapper.text()).toContain('Inspiré par Dune');
+    expect(wrapper.text()).toContain('Arrival');
   });
 });

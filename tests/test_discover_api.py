@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async
 from app.dependencies import require_auth
 from app.main import app
-from app.models import MediaRequest, RequestStatus
-from app.routers.discover_api import _annotate, _guard
+from app.models import LibraryItem, MediaRequest, PlaybackSession, RequestStatus
+from app.routers.discover_api import _annotate, _guard, _personalization_seeds, _personalized_sections
 from app.utils import now_utc_naive
 
 
@@ -211,3 +211,130 @@ def test_source_media_is_annotated_and_paginated(client):
     assert response.json()["items"][0]["requested"] is False
     assert response.json()["total_pages"] == 2
     discover.assert_awaited_once_with(ANY, "provider", 8, "movie", 1, "FR")
+
+
+@pytest.mark.asyncio
+async def test_personalization_uses_only_the_current_plex_users_history(db):
+    from datetime import timedelta
+
+    now = now_utc_naive()
+    db.add_all(
+        [
+            LibraryItem(title="Dune", year=2021, media_type="movie", tmdb_id="438631"),
+            LibraryItem(title="Arrival", year=2016, media_type="movie", tmdb_id="329865"),
+            PlaybackSession(
+                source="tautulli",
+                source_session_id="mine",
+                plex_user_id="user-1",
+                user_name="Moi",
+                media_type="movie",
+                title="Dune",
+                year=2021,
+                started_at=now,
+                ended_at=now + timedelta(hours=2),
+            ),
+            PlaybackSession(
+                source="tautulli",
+                source_session_id="other",
+                plex_user_id="user-2",
+                user_name="Autre",
+                media_type="movie",
+                title="Arrival",
+                year=2016,
+                started_at=now,
+                ended_at=now + timedelta(hours=2),
+            ),
+        ]
+    )
+    db.commit()
+
+    seeds, watched = await _personalization_seeds(db, "user-1")
+
+    assert [seed["title"] for seed in seeds] == ["Dune"]
+    assert watched == {("movie", "438631")}
+
+
+@pytest.mark.asyncio
+async def test_personalization_filters_watched_and_available_media(db):
+    from datetime import timedelta
+
+    now = now_utc_naive()
+    db.add_all(
+        [
+            LibraryItem(title="Dune", year=2021, media_type="movie", tmdb_id="438631"),
+            LibraryItem(title="Déjà dans Plex", year=2025, media_type="movie", tmdb_id="2"),
+            PlaybackSession(
+                source="plex",
+                source_session_id="seed",
+                plex_user_id="user-1",
+                user_name="Moi",
+                media_type="movie",
+                title="Dune",
+                year=2021,
+                started_at=now,
+                ended_at=now + timedelta(hours=2),
+            ),
+        ]
+    )
+    db.commit()
+    recommendations = [
+        {"tmdb_id": 2, "media_type": "movie", "title": "Déjà dans Plex", "genre_ids": [878]},
+        {"tmdb_id": 3, "media_type": "movie", "title": "Nouveau", "genre_ids": [878]},
+    ]
+    empty_page = {"items": [], "page": 1, "total_pages": 1, "total_results": 0}
+
+    with (
+        patch(
+            "app.routers.discover_api.tmdb.detail",
+            new=AsyncMock(return_value={"recommendations": recommendations}),
+        ),
+        patch("app.routers.discover_api.tmdb.discover", new=AsyncMock(return_value=empty_page)),
+        patch("app.routers.discover_api.tmdb.popular", new=AsyncMock(return_value=empty_page)),
+    ):
+        payload = await _personalized_sections(db, "user-1", hide_available=True, hide_watched=True)
+
+    assert payload["available"] is True
+    assert [item["title"] for item in payload["sections"]["recommended"]["items"]] == ["Nouveau"]
+
+
+@pytest.mark.asyncio
+async def test_personalization_keeps_followed_series_with_an_upcoming_episode(db):
+    from datetime import timedelta
+
+    now = now_utc_naive()
+    db.add_all(
+        [
+            LibraryItem(title="Breaking Bad", year=2008, media_type="show", tmdb_id="1396"),
+            PlaybackSession(
+                source="tautulli",
+                source_session_id="show-seed",
+                plex_user_id="user-1",
+                user_name="Moi",
+                media_type="episode",
+                title="Pilot",
+                grandparent_title="Breaking Bad",
+                year=2008,
+                started_at=now,
+                ended_at=now + timedelta(minutes=55),
+            ),
+        ]
+    )
+    db.commit()
+    detail = {
+        "tmdb_id": 1396,
+        "media_type": "show",
+        "title": "Breaking Bad",
+        "next_episode_to_air": {"air_date": "2026-08-10", "season_number": 6},
+        "recommendations": [],
+    }
+    empty_page = {"items": [], "page": 1, "total_pages": 1, "total_results": 0}
+
+    with (
+        patch("app.routers.discover_api.tmdb.detail", new=AsyncMock(return_value=detail)),
+        patch("app.routers.discover_api.tmdb.popular", new=AsyncMock(return_value=empty_page)),
+    ):
+        payload = await _personalized_sections(db, "user-1", hide_available=True, hide_watched=True)
+
+    followed = payload["sections"]["followed_series"]["items"]
+    assert [item["title"] for item in followed] == ["Breaking Bad"]
+    assert followed[0]["next_episode_to_air"]["season_number"] == 6

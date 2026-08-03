@@ -359,6 +359,7 @@ async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
             "runtime": data.get("runtime") or (data.get("episode_run_time") or [None])[0],
             "status": data.get("status"),
             "number_of_seasons": data.get("number_of_seasons"),
+            "next_episode_to_air": data.get("next_episode_to_air"),
             "recommendations": _norm_list(data.get("recommendations") or {}, mt),
             "similar": _norm_list(data.get("similar") or {}, mt),
         }

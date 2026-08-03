@@ -17,7 +17,7 @@ from sqlalchemy.future import select
 from ..cache import cache
 from ..database import get_db_async
 from ..dependencies import current_user, require_auth
-from ..models import LibraryItem, MediaRequest, PlexUser, Settings
+from ..models import LibraryItem, MediaRequest, PlaybackSession, PlexUser, Settings
 from ..serializers import request_status_value, serialize_media_request
 from ..services import tmdb
 
@@ -36,6 +36,7 @@ HOME_SECTIONS = (
 )
 HOME_DEFAULT_SECTIONS = ",".join(HOME_SECTIONS)
 HOME_CACHE_TTL_SECONDS = 30 * 60
+PERSONALIZATION_SEED_LIMIT = 3
 
 
 async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
@@ -268,6 +269,176 @@ async def _most_requested_section(db: AsyncSession, limit: int = 20) -> dict:
     ranked.sort(key=lambda item: (item["requester_count"], item["request_id"]), reverse=True)
     items = ranked[:limit]
     return {"items": items, "page": 1, "total_pages": 1, "total_results": len(items)}
+
+
+def _media_key(item: dict) -> tuple[str, str]:
+    return item.get("media_type") or "", str(item.get("tmdb_id") or "")
+
+
+def _merge_unique_media(groups: list[list[dict]], excluded: set[tuple[str, str]], limit: int = 20) -> list[dict]:
+    merged: list[dict] = []
+    seen = set(excluded)
+    for group in groups:
+        for item in group:
+            key = _media_key(item)
+            if not key[1] or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+async def _personalization_seeds(db: AsyncSession, plex_user_id: str, limit: int = PERSONALIZATION_SEED_LIMIT):
+    sessions = (
+        await db.execute(
+            select(PlaybackSession)
+            .filter(
+                PlaybackSession.plex_user_id == plex_user_id,
+                PlaybackSession.ended_at.isnot(None),
+            )
+            .order_by(PlaybackSession.started_at.desc(), PlaybackSession.id.desc())
+            .limit(60)
+        )
+    ).scalars().all()
+    if not sessions:
+        return [], set()
+
+    library_rows = (await db.execute(select(LibraryItem).filter(LibraryItem.tmdb_id.isnot(None)))).scalars().all()
+    library_by_identity = {
+        (row.media_type, row.title.casefold().strip(), row.year): row
+        for row in library_rows
+        if row.title and row.tmdb_id
+    }
+    library_by_title = {
+        (row.media_type, row.title.casefold().strip()): row
+        for row in library_rows
+        if row.title and row.tmdb_id
+    }
+    seeds = []
+    seed_keys: set[tuple[str, str]] = set()
+    watched: set[tuple[str, str]] = set()
+    for session in sessions:
+        media_type = "show" if session.media_type in ("show", "episode") else "movie"
+        title = session.grandparent_title if media_type == "show" else session.title
+        if not title:
+            continue
+        row = library_by_identity.get((media_type, title.casefold().strip(), session.year))
+        if not row:
+            # Les imports Tautulli ne fournissent pas toujours l'année : le titre reste
+            # un repli raisonnable, limité aux médias déjà identifiés dans Plex.
+            row = library_by_title.get((media_type, title.casefold().strip()))
+        if not row:
+            continue
+        key = (row.media_type, str(row.tmdb_id))
+        watched.add(key)
+        if key not in seed_keys and len(seeds) < limit:
+            seeds.append(
+                {
+                    "tmdb_id": row.tmdb_id,
+                    "media_type": row.media_type,
+                    "title": row.title,
+                    "year": row.year,
+                    "library_id": row.id,
+                }
+            )
+            seed_keys.add(key)
+    return seeds, watched
+
+
+async def _personalized_sections(
+    db: AsyncSession,
+    plex_user_id: str,
+    *,
+    hide_available: bool = False,
+    hide_watched: bool = False,
+) -> dict:
+    seeds, watched = await _personalization_seeds(db, plex_user_id)
+    if not seeds:
+        return {"available": False, "seeds": [], "sections": {}}
+    excluded = watched if hide_watched else {_media_key(seed) for seed in seeds}
+
+    recommendation_groups: list[list[dict]] = []
+    series_groups: list[list[dict]] = []
+    genre_counts: dict[int, int] = {}
+    for seed in seeds:
+        try:
+            detail = await tmdb.detail(db, seed["media_type"], int(seed["tmdb_id"]))
+        except Exception as exc:
+            logger.warning("Recommandations TMDB indisponibles pour %s: %s", seed["tmdb_id"], exc)
+            continue
+        recommendations = detail.get("recommendations") or detail.get("similar") or []
+        recommendation_groups.append(recommendations)
+        if seed["media_type"] == "show" and detail.get("next_episode_to_air"):
+            series_groups.append([detail])
+        for item in recommendations:
+            for genre_id in item.get("genre_ids") or []:
+                genre_counts[int(genre_id)] = genre_counts.get(int(genre_id), 0) + 1
+
+    recommended = _merge_unique_media(recommendation_groups, excluded)
+    # Cette rangée conserve volontairement la série déjà présente : elle signale
+    # précisément son prochain épisode, même quand les contenus vus sont masqués.
+    followed_series = _merge_unique_media(series_groups, set(), 12)
+    preferred_genre = max(genre_counts, key=genre_counts.get) if genre_counts else None
+    preferred = []
+    if preferred_genre:
+        try:
+            payload = await tmdb.discover(db, "all", preferred_genre, "popularity.desc", 1, await _discovery_region(db))
+            preferred = _merge_unique_media([payload.get("items", [])], excluded)
+        except Exception as exc:
+            logger.warning("Section genres préférés indisponible: %s", exc)
+
+    popular = []
+    try:
+        payload = await tmdb.popular(db, "all", 1, await _discovery_region(db))
+        popular = _merge_unique_media([payload.get("items", [])], excluded)
+    except Exception as exc:
+        logger.warning("Section jamais vus indisponible: %s", exc)
+
+    all_items = [*recommended, *preferred, *popular, *followed_series]
+    await _annotate(db, all_items)
+    if hide_available:
+        for items in (recommended, preferred, popular):
+            items[:] = [item for item in items if not item.get("available") and not item.get("in_library")]
+    return {
+        "available": True,
+        "seeds": seeds,
+        "sections": {
+            "recommended": {"items": recommended},
+            "preferred_genres": {"items": preferred},
+            "unwatched_popular": {"items": popular},
+            "followed_series": {"items": followed_series},
+        },
+    }
+
+
+@router.get("/personalized")
+async def get_personalized(
+    request: Request,
+    hide_available: bool = False,
+    hide_watched: bool = False,
+    db: AsyncSession = Depends(get_db_async),
+):
+    caller = current_user(request, db)
+    plex_user_id = caller.get("plex_user_id") if caller else None
+    if not plex_user_id:
+        return {"available": False, "seeds": [], "sections": {}}
+    try:
+        return await _personalized_sections(
+            db,
+            plex_user_id,
+            hide_available=hide_available,
+            hide_watched=hide_watched,
+        )
+    except Exception as exc:
+        logger.warning("Personnalisation Découvrir indisponible: %s", exc)
+        return {
+            "available": True,
+            "seeds": [],
+            "sections": {},
+            "error": "Les recommandations personnalisées sont temporairement indisponibles.",
+        }
 
 
 def _home_error(exc: Exception) -> str:

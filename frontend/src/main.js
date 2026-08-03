@@ -45,6 +45,7 @@ const routes = [
   { path: "/", redirect: "/dashboard" },
   { path: "/dashboard", component: DashboardView },
   { path: "/discover/source/:kind/:id", component: DiscoverSourceView },
+  { path: "/discover/explore", component: DiscoverView },
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },
