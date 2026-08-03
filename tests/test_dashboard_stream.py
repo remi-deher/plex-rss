@@ -95,6 +95,26 @@ def test_each_frame_carries_a_single_section(async_db):
         _cleanup()
 
 
+def test_stream_can_exclude_deferred_sections(async_db):
+    client = _client(async_db)
+    try:
+        with patch.object(
+            dashboard_api,
+            "_snapshot_calls",
+            _fake_calls({"primary": 0, "supervision": 0}),
+        ):
+            response = client.get(
+                "/api/dashboard/snapshot/stream?sections=primary,next_poll"
+            )
+
+        payloads = _frames(response.text)
+        assert "next_poll" in payloads[0]
+        assert {"primary": {"section": "primary"}} in payloads
+        assert not any("supervision" in payload for payload in payloads)
+    finally:
+        _cleanup()
+
+
 def test_a_failing_section_does_not_abort_the_others(async_db):
     """Une section en échec est signalée à part ; le reste du tableau de bord s'affiche."""
 

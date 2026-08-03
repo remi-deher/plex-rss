@@ -51,9 +51,9 @@
       <UpcomingReleasesPanel v-else :items="upcoming" />
     </section>
 
-    <details class="dashboard-secondary" open>
+    <details class="dashboard-secondary" :open="supervisionOpen" @toggle="onSupervisionToggle">
       <summary><div><span>Supervision</span><strong>Vue d’ensemble</strong></div><ChevronDown/></summary>
-      <div class="dashboard-secondary-content dashboard-supervision-groups">
+      <div v-if="supervisionLoaded" class="dashboard-secondary-content dashboard-supervision-groups">
         <section><header><span>Santé</span><h3>Infrastructure</h3></header><div class="dashboard-grid"><HealthGrid/><DiskSpacePanel :volumes="diskSpace"/></div></section>
         <section><header><span>Usage</span><h3>Bibliothèque et utilisateurs</h3></header><div class="dashboard-grid"><RequestsBreakdownPanel :counts="counts"/><TopRequestedPanel :items="topRequested"/><ActiveUsersPanel :users="byUser"/></div></section>
         <section><header><span>Communication</span><h3>Derniers envois</h3></header><div class="dashboard-grid"><RecentNotificationsPanel :notifications="recentNotifs"/></div></section>
@@ -89,6 +89,12 @@ import { useRealtime } from '@/events';
 import { queueCounts } from '@/downloads/queueRules';
 
 const SNAPSHOT_CACHE_KEY = 'dashboard:snapshot';
+const SUPERVISION_OPEN_KEY = 'dashboard.supervisionOpen';
+const PRIMARY_SECTIONS = [
+  'pending', 'polls', 'timeline', 'onboarding', 'recently_available',
+  'upcoming', 'next_poll',
+];
+const SUPERVISION_SECTIONS = ['counts', 'top_requested', 'by_user', 'notifications'];
 // Au-dela, mieux vaut l'ecran de chargement qu'un etat qui n'a plus rien a voir.
 const SNAPSHOT_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
@@ -117,6 +123,9 @@ const clock = ref(Date.now());
 const vffScan = ref({ status: 'idle', items_scanned: 0, total_items: 0, finished_at: null });
 const plexSync = ref({ status: 'idle', items_synced: 0, total_items: 0, finished_at: null });
 const vffCounts = ref({});
+const supervisionOpen = ref(localStorage.getItem(SUPERVISION_OPEN_KEY) === 'true');
+const supervisionLoaded = ref(false);
+const supervisionLoading = ref(false);
 
 const showOnboarding = ref(localStorage.getItem('hide_onboarding') !== 'true');
 function dismissOnboarding() {
@@ -250,11 +259,37 @@ async function loadDashboardSections(sections) {
   cacheSnapshot(snapshot);
 }
 
+async function loadSupervision() {
+  if (supervisionLoading.value) return;
+  supervisionLoaded.value = true;
+  supervisionLoading.value = true;
+  try {
+    await Promise.all([
+      loadDashboardSections(SUPERVISION_SECTIONS),
+      api('/api/disk-space').then(value => { diskSpace.value = value; }),
+    ]);
+  } catch (e) {
+    error.value = e.message;
+  } finally {
+    supervisionLoading.value = false;
+  }
+}
+
+function onSupervisionToggle(event) {
+  const open = event.currentTarget.open;
+  supervisionOpen.value = open;
+  localStorage.setItem(SUPERVISION_OPEN_KEY, String(open));
+  if (open && !supervisionLoaded.value) loadSupervision();
+}
+
 async function load() {
   if (loading.value) return;
   loading.value = true;
   error.value = '';
   const failures = [];
+  const sections = supervisionLoaded.value
+    ? [...PRIMARY_SECTIONS, ...SUPERVISION_SECTIONS]
+    : PRIMARY_SECTIONS;
   // Chaque section s'affiche des qu'elle arrive, sans attendre la plus lente des dix.
   function applyChunk(chunk) {
     if (chunk.errors?.length) {
@@ -266,12 +301,15 @@ async function load() {
   }
 
   try {
-    await streamEvents('/api/dashboard/snapshot/stream', applyChunk);
+    await streamEvents(
+      `/api/dashboard/snapshot/stream?sections=${sections.join(',')}`,
+      applyChunk,
+    );
   } catch (streamError) {
     // Repli d'un bloc : proxy qui tamponne, navigateur sans ReadableStream, coupure
     // reseau en cours de flux. Les sections deja recues restent affichees.
     try {
-      const snapshot = await api('/api/dashboard/snapshot');
+      const snapshot = await api(`/api/dashboard/snapshot?sections=${sections.join(',')}`);
       applyDashboardSnapshot(snapshot);
       cacheSnapshot(snapshot);
       if (snapshot.errors?.length) failures.push(...snapshot.errors);
@@ -281,7 +319,6 @@ async function load() {
   }
   // Les donnees externes completent la vue au fil de l'eau et ne retardent jamais le
   // premier affichage du snapshot local.
-  api('/api/disk-space').then(v => { diskSpace.value = v; }).catch(() => {});
   loadDownloadQueue().catch(() => {});
   loadLiveActivity().catch(() => {});
   updatedAt.value = Date.now();
@@ -317,13 +354,13 @@ async function action(row, type) {
 useRealtime(['request.updated'], (type) => {
   if (!type) return load();
   return loadDashboardSections([
-    'counts', 'pending', 'timeline', 'by_user', 'top_requested',
-    'recently_available', 'upcoming', 'next_poll',
+    'pending', 'timeline', 'recently_available', 'upcoming', 'next_poll',
+    ...(supervisionLoaded.value ? ['counts', 'by_user', 'top_requested'] : []),
   ]).catch(() => {});
 });
 useRealtime(['download.updated'], (type) => type ? loadDownloadQueue().catch(() => {}) : load());
 useRealtime(['notification.updated'], (type) => type
-  ? loadDashboardSections(['notifications']).catch(() => {})
+  ? supervisionLoaded.value && loadDashboardSections(['notifications']).catch(() => {})
   : load());
 useRealtime(['activity.updated'], () => loadLiveActivity().catch(() => {}));
 // Remplace un sondage a 5 s (3 appels HTTP, soit 36 requetes/minute en permanence, meme
@@ -346,5 +383,6 @@ onMounted(async () => {
   primeFromCache();
   await load();
   await loadVffStatus();
+  if (supervisionOpen.value) await loadSupervision();
 });
 </script>

@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import BigInteger, select
 
 from app.database import get_db_async
 from app.dependencies import require_admin
@@ -73,6 +73,23 @@ def test_parse_plex_sessions_normalizes_live_session():
     assert session["subtitle_decision"] == "burn"
     assert session["stream_location"] == "lan"
     assert session["media_size_bytes"] == 12884901888
+
+
+def test_playback_session_round_trips_media_size_above_int32(async_db):
+    media_size = 4_008_741_339
+    row = PlaybackSession(
+        source_session_id="large-media",
+        title="Film 4K",
+        media_size_bytes=media_size,
+    )
+    async_db.add(row)
+    async_db.commit()
+    async_db.expire_all()
+
+    stored = async_db.query(PlaybackSession).filter_by(source_session_id="large-media").one()
+
+    assert stored.media_size_bytes == media_size
+    assert isinstance(PlaybackSession.__table__.c.media_size_bytes.type, BigInteger)
 
 
 def test_parse_plex_sessions_can_keep_full_ip():

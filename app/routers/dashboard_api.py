@@ -83,7 +83,7 @@ def _frame(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-async def _stream_sections() -> AsyncIterator[str]:
+async def _stream_sections(sections: set[str] | None = None) -> AsyncIterator[str]:
     async def _named(name: str, call: Callable):
         try:
             return name, await _with_session(call), None
@@ -91,9 +91,14 @@ async def _stream_sections() -> AsyncIterator[str]:
             return name, None, exc
 
     # Simple coup d'oeil au scheduler, sans I/O : part immediatement.
-    yield _frame({"next_poll": metrics_api.next_poll_info()})
+    if sections is None or "next_poll" in sections:
+        yield _frame({"next_poll": metrics_api.next_poll_info()})
 
-    calls = _snapshot_calls()
+    calls = {
+        name: call
+        for name, call in _snapshot_calls().items()
+        if sections is None or name in sections
+    }
     tasks = [asyncio.create_task(_named(name, call)) for name, call in calls.items()]
     collected: dict = {}
     errors: list[str] = []
@@ -114,20 +119,24 @@ async def _stream_sections() -> AsyncIterator[str]:
 
     # Alimente le meme cache que /dashboard/snapshot, pour qu'un rafraichissement cible ou
     # un repli reparte d'une valeur chaude au lieu de tout recalculer.
-    if collected and not errors:
+    if sections is None and collected and not errors:
         payload = {**collected, "next_poll": metrics_api.next_poll_info(), "errors": []}
         await cache.set_json(_CACHE_KEY, {"value": payload, "cached_at": time.time()}, ttl_seconds=60)
 
 
 @router.get("/dashboard/snapshot/stream")
-async def dashboard_snapshot_stream():
+async def dashboard_snapshot_stream(sections: str | None = Query(None)):
     """Emet chaque section du tableau de bord des qu'elle est prete.
 
     Les dix lectures partent en parallele, comme avant ; ce qui change est qu'on n'attend
     plus la plus lente pour afficher les neuf autres.
     """
+    requested = None
+    if sections:
+        allowed = set(_snapshot_calls()) | {"next_poll"}
+        requested = {value.strip() for value in sections.split(",") if value.strip()} & allowed
     return StreamingResponse(
-        _stream_sections(),
+        _stream_sections(requested),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store",

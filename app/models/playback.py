@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Index, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Index, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..utils import now_utc_naive
@@ -23,7 +23,7 @@ class PlaybackSession(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(default="plex")
     source_session_id: Mapped[str]
-    session_key: Mapped[Optional[int]] = mapped_column(index=True)
+    session_key: Mapped[Optional[int]] = mapped_column(BigInteger, index=True)
     user_name: Mapped[Optional[str]] = mapped_column(index=True)
     plex_user_id: Mapped[Optional[str]]
     media_type: Mapped[Optional[str]]
@@ -49,14 +49,14 @@ class PlaybackSession(Base):
     subtitle_decision: Mapped[Optional[str]]
     stream_location: Mapped[Optional[str]]
     bandwidth_kbps: Mapped[Optional[int]]
-    media_size_bytes: Mapped[Optional[int]]
-    progress_ms: Mapped[Optional[int]]
-    duration_ms: Mapped[Optional[int]]
+    media_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger)
+    progress_ms: Mapped[Optional[int]] = mapped_column(BigInteger)
+    duration_ms: Mapped[Optional[int]] = mapped_column(BigInteger)
     progress_percent: Mapped[Optional[float]]
     watched_status: Mapped[Optional[float]]
     group_count: Mapped[int] = mapped_column(default=1)
     source_group_ids: Mapped[Optional[str]]
-    watched_ms: Mapped[int] = mapped_column(default=0)
+    watched_ms: Mapped[int] = mapped_column(BigInteger, default=0)
     started_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     last_seen_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     ended_at: Mapped[Optional[datetime]]
