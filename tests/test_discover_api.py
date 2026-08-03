@@ -1,5 +1,7 @@
 """Régressions de sécurité, validation et annotation du catalogue Découvrir."""
 
+import json
+
 from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
@@ -9,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db_async
 from app.dependencies import require_auth
 from app.main import app
-from app.models import LibraryItem, MediaRequest, PlaybackSession, RequestStatus
+from app.models import FulfillmentStatus, LibraryItem, MediaRequest, PlaybackSession, PlexUser, RequestStatus
 from app.routers.discover_api import (
     _annotate,
     _guard,
@@ -18,6 +20,7 @@ from app.routers.discover_api import (
     _personalized_sections,
     _recent_plex_section,
 )
+from app.routers.requests_api import join_request
 from app.utils import now_utc_naive
 
 
@@ -86,12 +89,32 @@ async def test_annotation_prefers_most_advanced_request_status(db):
         requested_at=now_utc_naive() - timedelta(days=1),
         plex_user_id="advanced",
     )
+    advanced.fulfillment_status = FulfillmentStatus.submitted
+    advanced.plex_guid = "plex://movie/advanced"
+    db.commit()
 
     result = await _annotate(db, [{"tmdb_id": 42, "media_type": "movie"}])
 
     assert result[0]["request_id"] == advanced.id
     assert result[0]["request_id"] != recent.id
     assert result[0]["request_status"] == "sent_to_arr"
+    assert result[0]["operational_status"] == "submitted"
+    assert result[0]["plex_guid"] == "plex://movie/advanced"
+
+
+@pytest.mark.asyncio
+async def test_join_request_adds_current_user_without_admin_access(db):
+    row = _request(db, status=RequestStatus.sent_to_arr, requested_at=now_utc_naive(), plex_user_id="alice")
+    db.add(PlexUser(plex_user_id="bob", display_name="Bob", enabled=True))
+    db.commit()
+
+    with patch("app.routers.requests_api.current_user", return_value={"plex_user_id": "bob", "role": "user"}):
+        result = await join_request(row.id, object(), db)
+        duplicate = await join_request(row.id, object(), db)
+
+    assert result == {"ok": True, "already_joined": False, "requester_ids": ["alice", "bob"]}
+    assert duplicate == {"ok": True, "already_joined": True, "requester_ids": ["alice", "bob"]}
+    assert json.loads(row.extra_requesters) == [{"plex_user_id": "bob", "display_name": "Bob"}]
 
 
 def test_trending_returns_paginated_annotated_envelope(client):

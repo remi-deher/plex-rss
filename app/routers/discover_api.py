@@ -20,6 +20,7 @@ from ..dependencies import current_user, require_auth
 from ..models import LibraryItem, MediaRequest, PlaybackSession, PlexUser, Settings
 from ..serializers import request_status_value, serialize_media_request
 from ..services import tmdb
+from ..services.operational_projection import plex_library_projection, request_operational_projection
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,11 @@ async def _annotate(db: AsyncSession, items: list[dict]) -> list[dict]:
         # Anomalie : *arr dit "disponible" mais absent de la bibliothèque Plex synchronisée,
         # à condition qu'il ne soit pas encore en cours de téléchargement/import.
         it["plex_anomaly"] = bool(req and st == "available" and not li and not req.is_downloading)
+        it["plex_guid"] = li.plex_guid if li else (req.plex_guid if req else None)
+        if li:
+            it.update(plex_library_projection())
+        elif req:
+            it.update(request_operational_projection(req))
     return items
 
 
@@ -673,7 +679,9 @@ async def get_detail(
                     u.plex_user_id: (u.custom_name or u.display_name or u.plex_user_id)
                     for u in (await db.execute(select(PlexUser))).scalars().all()
                 }
-                d["requesters"] = serialize_media_request(req, users)["requesters"]
+                serialized = serialize_media_request(req, users)
+                d["requesters"] = serialized["requesters"]
+                d["requester_ids"] = serialized["requester_ids"]
         d["recommendations"] = await _annotate(db, d.get("recommendations", []))
         d["similar"] = await _annotate(db, d.get("similar", []))
         return d

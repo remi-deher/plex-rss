@@ -186,6 +186,36 @@ class RequestersUpdate(BaseModel):
     requester_ids: list[str]
 
 
+@router.post("/requests/{request_id}/join")
+async def join_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
+    """Ajoute l'utilisateur connecté aux demandeurs sans exposer les contrôles admin."""
+    caller = current_user(request, db)
+    if not caller:
+        raise HTTPException(status_code=401, detail="Une session utilisateur est requise.")
+    uid = caller.get("plex_user_id")
+    if not uid and caller.get("id"):
+        user = (await db.execute(select(PlexUser).filter(PlexUser.id == caller["id"]))).scalars().first()
+        uid = user.plex_user_id if user else None
+    if not uid:
+        raise HTTPException(status_code=403, detail="Impossible d'identifier le compte demandeur.")
+
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    try:
+        extras = _json.loads(req.extra_requesters or "[]")
+    except Exception:
+        extras = []
+    requester_ids = [req.plex_user_id] + [row.get("plex_user_id") for row in extras if row.get("plex_user_id")]
+    if uid in requester_ids:
+        return {"ok": True, "already_joined": True, "requester_ids": requester_ids}
+
+    user = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == uid))).scalars().first()
+    display_name = (user.custom_name or user.display_name or user.plex_user_id) if user else uid
+    extras.append({"plex_user_id": uid, "display_name": display_name})
+    req.extra_requesters = _json.dumps(extras, ensure_ascii=False)
+    await db.commit()
+    return {"ok": True, "already_joined": False, "requester_ids": [*requester_ids, uid]}
+
+
 @router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_admin)])
 async def update_requesters(request_id: int, body: RequestersUpdate, db: AsyncSession = Depends(get_db_async)):
     """Définit la liste des demandeurs d'une demande (le 1er = demandeur principal,

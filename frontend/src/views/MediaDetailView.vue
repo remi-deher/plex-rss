@@ -16,13 +16,17 @@
         <UiFeedback v-if="successMessage" type="success" :message="successMessage" dismissible @dismiss="successMessage=''"/>
 
         <MediaRequestForm
-          v-if="canRequest"
+          v-if="kind === 'discover'"
           :detail="detail"
           :form="requestForm"
           :requesters="requesters"
           :folders="folders"
           :busy="busy"
+          :admin="admin"
+          :current-user-id="sessionUserId"
           @submit="submitRequest"
+          @join="joinRequest"
+          @retry="requestAction(detail.request_id, 'retry')"
         />
 
         <template v-if="kind !== 'discover'">
@@ -131,6 +135,7 @@ const tabs = computed(() => detail.value?.media_type === 'show'
   ? ['summary', 'audio', 'requests', 'calendar']
   : ['summary', 'requests', 'calendar']);
 const admin = ref(false);
+const sessionUserId = ref('');
 let loadGeneration = 0;
 let usersPromise;
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
@@ -144,7 +149,6 @@ const kind = computed(() => route.params.kind);
 
 const statusLabel = computed(() => detail.value?.operational_status_label || (detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || ''));
 const statusClass = computed(() => detail.value?.available || detail.value?.in_library ? 'available' : 'pending');
-const canRequest = computed(() => kind.value === 'discover' && !detail.value?.available && !detail.value?.in_library && !detail.value?.requested);
 const seasonNumbers = computed(() => Array.from({ length: Number(detail.value?.number_of_seasons || 0) + 1 }, (_, i) => i));
 const recommendations = computed(() => [...(detail.value?.recommendations || []), ...(detail.value?.similar || [])].slice(0, 6));
 const addableUsers = computed(() => {
@@ -217,11 +221,22 @@ async function load() {
     if (generation !== loadGeneration) return;
     detail.value = kind.value === 'discover' ? payload : { ...payload.media, ...payload };
     if (kind.value === 'discover') {
-      requesters.value = await api('/api/discover/requesters');
-      requestForm.plex_user_id = requesters.value[0]?.plex_user_id || '';
+      const session = await loadSession();
+      admin.value = isAdminSession(session);
+      sessionUserId.value = session?.plex_user_id || '';
+      if (admin.value) {
+        const service = detail.value.media_type === 'show' ? 'sonarr' : 'radarr';
+        [requesters.value, folders.value] = await Promise.all([
+          api('/api/discover/requesters'),
+          api(`/api/${service}/folders`).catch(() => []),
+        ]);
+      } else {
+        requesters.value = [];
+        folders.value = [];
+      }
+      requestForm.plex_user_id = requesters.value.find(user => user.plex_user_id === sessionUserId.value)?.plex_user_id
+        || sessionUserId.value || requesters.value[0]?.plex_user_id || '';
       requestForm.seasons = seasonNumbers.value.filter(season => season !== 0);
-      const service = detail.value.media_type === 'show' ? 'sonarr' : 'radarr';
-      folders.value = await api(`/api/${service}/folders`).catch(() => []);
     }
   } catch (e) {
     if (generation === loadGeneration) error.value = e.message;
@@ -250,8 +265,6 @@ async function load() {
       seasons.loadMovieVf().catch(() => { envelopeError.value = true; });
       loadAdminFlag().catch(() => {});
     }
-  } else {
-    loadAdminFlag().catch(() => {});
   }
 }
 
@@ -285,7 +298,24 @@ async function submitRequest() {
   try {
     const data = await api('/api/media/add', { method: 'POST', body: JSON.stringify({ title: detail.value.title, year: detail.value.year, media_type: detail.value.media_type, tmdb_id: detail.value.tmdb_id, tvdb_id: detail.value.tvdb_id, imdb_id: detail.value.imdb_id, poster_url: detail.value.poster_url, overview: detail.value.overview, plex_user_id: requestForm.plex_user_id, root_folder: requestForm.root_folder || null, seasons: detail.value.media_type === 'show' ? requestForm.seasons : null, auto_search: true }) });
     detail.value.requested = true;
+    detail.value.request_id = data.request_id || detail.value.request_id || null;
     detail.value.request_status = data.pending_approval ? 'pending_approval' : 'sent_to_arr';
+    detail.value.operational_status = data.pending_approval ? 'not_submitted' : 'submitted';
+    detail.value.operational_status_label = data.pending_approval ? "En attente d'approbation" : 'Transmis à Sonarr / Radarr';
+    detail.value.waiting_reason = data.pending_approval
+      ? "Un administrateur doit encore approuver la demande."
+      : 'Le média est suivi et la recherche automatique est lancée.';
+    successMessage.value = data.already_existed ? 'Cette demande existait déjà.' : 'Demande envoyée.';
+  } catch (e) { error.value = e.message; } finally { busy.value = false; }
+}
+
+async function joinRequest() {
+  if (!detail.value?.request_id || !sessionUserId.value) return;
+  busy.value = true; error.value = '';
+  try {
+    const data = await api(`/api/requests/${detail.value.request_id}/join`, { method: 'POST' });
+    detail.value.requester_ids = data.requester_ids;
+    successMessage.value = data.already_joined ? 'Cette demande est déjà dans votre suivi.' : 'Demande ajoutée à votre suivi.';
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
 }
 
