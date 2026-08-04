@@ -10,7 +10,9 @@
     </PageHeader>
 
     <div class="calendar-command-bar">
-      <div class="segmented calendar-view-switch" aria-label="Mode d'affichage">
+      <!-- La grille mensuelle ne tient pas sous 640px : le sélecteur disparaît
+           plutôt que de laisser un bouton « Mois » qui n'affiche rien. -->
+      <div v-if="!compact" class="segmented calendar-view-switch" aria-label="Mode d'affichage">
         <button :class="{active:view==='agenda'}" @click="view='agenda'"><List/>Agenda</button>
         <button :class="{active:view==='month'}" @click="view='month'"><CalendarDays/>Mois</button>
       </div>
@@ -46,14 +48,16 @@
 
 <script setup>
 import { formatLongDay as longDate, formatMonthYear } from '@/utils/format';
-import { computed,nextTick,onMounted,ref,watch } from 'vue';
+import { computed,nextTick,onBeforeUnmount,onMounted,ref,watch } from 'vue';
 import { CalendarDays,ChevronLeft,ChevronRight,List,RefreshCw } from '@lucide/vue';
 import { api } from '@/api';
 import { useRouter } from 'vue-router';
 import { mediaDetailPath } from '@/mediaUrl';
 const router=useRouter();
 const events=ref([]),search=ref(''),type=ref(''),tracked=ref(false),loading=ref(false),error=ref(''),cursor=ref(new Date());
-const view=ref(localStorage.getItem('calendar.view')||(window.matchMedia('(max-width:640px)').matches?'agenda':'month'));
+const compactQuery=window.matchMedia('(max-width:640px)');
+const compact=ref(compactQuery.matches);
+const view=ref(localStorage.getItem('calendar.view')||(compact.value?'agenda':'month'));
 const todayStr=localIso(new Date()),weekLabels=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 const bounds=computed(()=>{const y=cursor.value.getFullYear(),m=cursor.value.getMonth();return {start:new Date(y,m,1),end:new Date(y,m+1,1)}});
 const periodLabel=computed(()=>formatMonthYear(cursor.value));
@@ -62,7 +66,9 @@ const eventsByDate=computed(()=>{const map=new Map();filtered.value.forEach(e=>{
 const grouped=computed(()=>[...eventsByDate.value].map(([date,items])=>({date,events:items})));
 const monthCells=computed(()=>{const start=bounds.value.start,first=(start.getDay()+6)%7,cells=[];for(let i=-first;i<42-first;i++){const d=new Date(start.getFullYear(),start.getMonth(),i+1),date=localIso(d);cells.push({key:date,date,day:d.getDate(),current:d.getMonth()===start.getMonth(),events:eventsByDate.value.get(date)||[]})}return cells});
 const activeFilterCount=computed(()=>[search.value,type.value,tracked.value].filter(Boolean).length);
-watch(view,value=>localStorage.setItem('calendar.view',value));
+// Le repli force en mode compact ne doit pas ecraser la preference de l'utilisateur
+// sur grand ecran : on ne memorise que les choix faits depuis le selecteur.
+watch(view,value=>{if(!compact.value)localStorage.setItem('calendar.view',value)});
 function localIso(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function formatTime(v){if(!v)return '';const d=new Date(v);if(isNaN(d.getTime())||v.endsWith('T00:00:00Z')||v.endsWith('T00:00:00.000Z'))return '';return d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}
 function eventKey(event){return `${event.instance}:${event.date}:${event.title}:${event.subtitle}`}
@@ -74,10 +80,16 @@ function resetFilters(){search.value='';type.value='';tracked.value=false;load()
 async function load(){loading.value=true;error.value='';try{events.value=await api(`/api/calendar?start=${localIso(bounds.value.start)}&end=${localIso(bounds.value.end)}&tracked_only=${tracked.value}`);if(view.value==='agenda')nextTick(()=>setTimeout(()=>{let el=document.getElementById(`date-${todayStr}`);if(!el){const upcoming=grouped.value.find(g=>g.date>=todayStr);if(upcoming)el=document.getElementById(`date-${upcoming.date}`)}el?.scrollIntoView({behavior:'smooth',block:'start'})},100))}catch(e){error.value=e.message}finally{loading.value=false}}
 function move(delta){cursor.value=new Date(cursor.value.getFullYear(),cursor.value.getMonth()+delta,1);load()}
 function today(){cursor.value=new Date();load()}
-onMounted(()=>{if(window.matchMedia('(max-width:640px)').matches)view.value='agenda';load()});
+function applyCompact(matches){if(matches===compact.value)return;compact.value=matches;view.value=matches?'agenda':(localStorage.getItem('calendar.view')||'month')}
+function syncCompact(){applyCompact(compactQuery.matches)}
+// Rotation d'ecran, fenetre redimensionnee, vue partagee sur tablette : on ecoute
+// `change` (l'API dediee) et `resize` en filet, certains contextes n'emettant que
+// l'un des deux.
+onMounted(()=>{compact.value=!compactQuery.matches;syncCompact();compactQuery.addEventListener('change',syncCompact);window.addEventListener('resize',syncCompact);load()});
+onBeforeUnmount(()=>{compactQuery.removeEventListener('change',syncCompact);window.removeEventListener('resize',syncCompact)});
 </script>
 
 <style scoped>
-.calendar-navigation,.calendar-command-bar,.calendar-legend{display:flex;align-items:center;gap: var(--space-2)}.calendar-command-bar{align-items:stretch}.calendar-command-bar :deep(.ui-filter-bar){flex:1}.calendar-view-switch button{gap: var(--space-2);min-width:92px}.calendar-view-switch svg{width:15px}.calendar-legend{justify-content:flex-end;color:var(--muted);font-size:var(--fs-xs)}.calendar-legend span{display:flex;align-items:center;gap: var(--space-1)}.calendar-legend i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.calendar-legend i.available{background:var(--success)}.calendar-legend i.tracked{background:var(--accent)}.month-calendar-shell{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);scrollbar-width:thin;overscroll-behavior-x:contain}.month-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-width:0}.month-weekday{position:sticky;top:0;z-index:2;padding:8px;text-align:center;border-bottom:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:var(--fs-xs);font-weight:700;text-transform:uppercase}.month-cell{min-width:0;min-height:132px;padding:8px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:rgba(255,255,255,.008);overflow:hidden}.month-cell:nth-child(7n){border-right:0}.month-cell:nth-last-child(-n+7){border-bottom:0}.month-cell.outside{opacity:.35}.month-cell.today{background:rgba(229,160,13,.06);box-shadow:inset 0 0 0 1px rgba(229,160,13,.3)}.month-cell header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.month-cell header>span{color:var(--text);font-weight:700}.month-cell header small{color:var(--accent);font-size:var(--fs-xs)}.month-event,.month-more{display:flex;align-items:center;gap: var(--space-1);width:100%;min-width:0;margin:3px 0;padding:4px 5px;border:0;border-left:2px solid var(--muted);border-radius:var(--radius-xs);background:rgba(255,255,255,.035);color:var(--text);font-size:var(--fs-xs);text-align:left;cursor:pointer}.month-event.available{border-color:var(--success)}.month-event.pending{border-color:var(--accent)}.month-event span{flex:0 0 auto;font-size:var(--fs-xs)}.month-event strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs)}.month-more{display:block;border:0;background:transparent;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-badge{display:inline-flex;margin-left:7px;padding:3px 6px;border-radius:var(--radius-pill);background:rgba(229,160,13,.12);font-size:var(--fs-xs)}@media(max-width:900px){.month-calendar{min-width:760px}.month-cell{min-height:112px;padding:6px}.calendar-command-bar{display:grid;grid-template-columns:1fr}.calendar-view-switch{justify-self:start}.calendar-legend{justify-content:flex-start}}@media(max-width:640px){.calendar-navigation{width:100%;justify-content:space-between}.calendar-command-bar{position:sticky;top:8px;z-index:20;padding:8px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}.calendar-command-bar :deep(.ui-filter-bar){position:static;padding:0;border:0;background:transparent}.calendar-view-switch{width:100%}.calendar-view-switch button{flex:1}.month-calendar-shell{display:none}}
+.calendar-navigation,.calendar-command-bar,.calendar-legend{display:flex;align-items:center;gap: var(--space-2)}.calendar-command-bar{align-items:stretch}.calendar-command-bar :deep(.ui-filter-bar){flex:1}.calendar-view-switch button{gap: var(--space-2);min-width:92px}.calendar-view-switch svg{width:15px}.calendar-legend{justify-content:flex-end;color:var(--muted);font-size:var(--fs-xs)}.calendar-legend span{display:flex;align-items:center;gap: var(--space-1)}.calendar-legend i{width:7px;height:7px;border-radius:50%;background:var(--muted)}.calendar-legend i.available{background:var(--success)}.calendar-legend i.tracked{background:var(--accent)}.month-calendar-shell{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);scrollbar-width:thin;overscroll-behavior-x:contain}.month-calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-width:0}.month-weekday{position:sticky;top:0;z-index:2;padding:8px;text-align:center;border-bottom:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:var(--fs-xs);font-weight:700;text-transform:uppercase}.month-cell{min-width:0;min-height:132px;padding:8px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:rgba(255,255,255,.008);overflow:hidden}.month-cell:nth-child(7n){border-right:0}.month-cell:nth-last-child(-n+7){border-bottom:0}.month-cell.outside{opacity:.35}.month-cell.today{background:rgba(229,160,13,.06);box-shadow:inset 0 0 0 1px rgba(229,160,13,.3)}.month-cell header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.month-cell header>span{color:var(--text);font-weight:700}.month-cell header small{color:var(--accent);font-size:var(--fs-xs)}.month-event,.month-more{display:flex;align-items:center;gap: var(--space-1);width:100%;min-width:0;margin:3px 0;padding:4px 5px;border:0;border-left:2px solid var(--muted);border-radius:var(--radius-xs);background:rgba(255,255,255,.035);color:var(--text);font-size:var(--fs-xs);text-align:left;cursor:pointer}.month-event.available{border-color:var(--success)}.month-event.pending{border-color:var(--accent)}.month-event span{flex:0 0 auto;font-size:var(--fs-xs)}.month-event strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs)}.month-more{display:block;border:0;background:transparent;color:var(--accent);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-badge{display:inline-flex;margin-left:7px;padding:3px 6px;border-radius:var(--radius-pill);background:rgba(229,160,13,.12);font-size:var(--fs-xs)}@media(max-width:900px){.month-calendar{min-width:760px}.month-cell{min-height:112px;padding:6px}.calendar-command-bar{display:grid;grid-template-columns:1fr}.calendar-view-switch{justify-self:start}.calendar-legend{justify-content:flex-start}}@media(max-width:640px){.calendar-navigation{width:100%;justify-content:space-between}.calendar-command-bar{position:sticky;top:8px;z-index:20;padding:8px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}.calendar-command-bar :deep(.ui-filter-bar){position:static;padding:0;border:0;background:transparent}.calendar-view-switch{width:100%}.calendar-view-switch button{flex:1}}
 @media(max-width:640px){.calendar-view-switch button:last-child{display:none}}
 </style>
