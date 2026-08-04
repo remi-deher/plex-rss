@@ -253,12 +253,10 @@ defineEmits([
   gap: var(--space-1);
   min-width: 200px;
   padding: 6px;
-  background: var(--surface);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 :deep(.requester-menu button) {
   display: flex;

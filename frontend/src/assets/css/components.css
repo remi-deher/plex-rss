@@ -4,8 +4,6 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--panel-radius);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .panel {
@@ -331,12 +329,10 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   gap: var(--space-3);
   margin-bottom: 16px;
   padding: 10px;
-  background: var(--surface);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--panel-radius);
   box-shadow: 0 10px 28px rgba(0, 0, 0, .2);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 
 .filter-row {
@@ -362,8 +358,6 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--panel-radius);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .filter-label {
@@ -450,12 +444,10 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   max-height: 300px;
   overflow-y: auto;
   padding: 8px;
-  background: var(--surface);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 
 .multi-select-menu .check {
@@ -531,11 +523,9 @@ input:invalid:not(:placeholder-shown),textarea:invalid:not(:placeholder-shown),s
   z-index: 41;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--surface);
+  background: var(--surface-3);
   border: 1px solid var(--border);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   border-radius: var(--panel-radius, 16px);
   inset: calc(5vh + var(--safe-top)) auto auto 50%;
   width: min(680px, calc(100% - 24px));

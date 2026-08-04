@@ -1,0 +1,1 @@
+import{o as u,a2 as i}from"./index-DDLDoFs8.js";function s(n,r,{whenVisible:o=!0,immediate:a=!1}={}){let e;function t(){o&&document.hidden||n()}return u(()=>{a&&t(),e=setInterval(t,r)}),i(()=>clearInterval(e)),{stop:()=>clearInterval(e)}}export{s as u};

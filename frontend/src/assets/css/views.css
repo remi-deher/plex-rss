@@ -188,7 +188,7 @@ input[type="checkbox"]:focus-visible {
   padding: 4px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius-md);
-  background: rgba(22, 22, 26, 0.6);
+  background: var(--surface-2);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   display: inline-flex;
@@ -639,8 +639,6 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: var(--panel-radius);
   box-shadow: 0 10px 28px rgba(0, 0, 0, .2);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 
 @media (max-width: 600px) {
@@ -1092,7 +1090,7 @@ button:disabled {
 .dashboard-action-center.clear { gap: 0; padding-block: 12px; }
 .dashboard-action-center.clear .dashboard-section-head p { display: none; }
 .dashboard-action-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-3); }
-.action-stack { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: rgba(8,8,11,.28); }
+.action-stack { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-sunken); }
 .action-stack.is-danger { border-color: rgba(239,68,68,.2); }
 .action-stack-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: 2px 2px 10px; }
 .action-stack-head > div { display: grid; gap: var(--space-1); }
@@ -1106,7 +1104,7 @@ button:disabled {
 .action-summary-link > div { display: grid; gap: var(--space-1); }
 .action-summary-link strong { color: var(--text); font-size: var(--fs-sm); }
 
-.dashboard-secondary { border: 1px solid var(--border); border-radius: var(--radius-md); background: rgba(18,18,20,.45); overflow: hidden; }
+.dashboard-secondary { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-sunken); overflow: hidden; }
 .dashboard-secondary summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: 58px; padding: 12px 16px; cursor: pointer; list-style: none; }
 .dashboard-secondary summary::-webkit-details-marker { display: none; }
 .dashboard-secondary summary > div { display: grid; gap: var(--space-1); }

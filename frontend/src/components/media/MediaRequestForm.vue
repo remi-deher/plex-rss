@@ -302,7 +302,7 @@ function formatStepDate(value) {
     padding: 8px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    background: var(--surface-glass);
     box-shadow: 0 12px 34px rgba(0, 0, 0, .42);
     backdrop-filter: blur(16px);
   }

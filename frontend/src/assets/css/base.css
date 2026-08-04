@@ -1,8 +1,21 @@
 :root {
   color-scheme: dark;
   --bg: #09090b;
-  --surface: rgba(18, 18, 20, 0.88);
-  --surface-2: rgba(30, 30, 35, 0.92);
+  /* Elevation. Les surfaces etaient semi-transparentes (0,88 et 0,92) et
+     s'empilaient : un panneau n'avait pas de couleur propre, elle dependait de ce
+     qu'il y avait derriere -- fond, autre panneau, affiche, degrade. D'ou une
+     separation faible entre les blocs. Les paliers sont desormais opaques, donc
+     stables quel que soit le parent, et calibres pour que deux niveaux voisins se
+     distinguent : ~1,11 a 1,20 de rapport de contraste entre eux, contre 1,03 pour
+     les couleurs que produisaient les anciens alphas. --muted reste au-dessus du
+     seuil AA sur le niveau le plus clair (4,96:1). */
+  --surface-sunken: #0b0b0e; /* niveau 0 — zones en creux, sections repliables */
+  --surface: #18181d; /* niveau 1 — panneaux */
+  --surface-2: #25252c; /* niveau 2 — blocs imbriques, controles */
+  --surface-3: #32323a; /* niveau 3 — menus, tiroirs, modales */
+  /* Reserve aux barres flottantes au-dessus du contenu qui defile, ou la
+     transparence est fonctionnelle. Seul cas ou `backdrop-filter` a un effet. */
+  --surface-glass: rgba(24, 24, 29, 0.92);
   --border: rgba(255, 255, 255, 0.08);
   --text: #f4f4f5;
   --muted: #a1a1aa;
