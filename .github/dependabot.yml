@@ -17,6 +17,10 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    ignore:
+      # arq 0.28 exige redis < 6 : la majeure suivante casse l'installation.
+      - dependency-name: redis
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"

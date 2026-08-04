@@ -17,7 +17,10 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
+      # Les montées de version majeures sont fusionnées à la main : elles
+      # peuvent casser une contrainte transitive (ex. redis 8 vs arq < 6).
       - name: Enable auto-merge for Dependabot PRs
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

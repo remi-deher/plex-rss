@@ -11,6 +11,8 @@ on:
       - "alembic/**"
       - "ruff.toml"
       - "frontend/**"
+      - "requirements.txt"
+      - "requirements-dev.txt"
   pull_request:
     paths:
       - "app/**"
@@ -18,6 +20,8 @@ on:
       - "alembic/**"
       - "ruff.toml"
       - "frontend/**"
+      - "requirements.txt"
+      - "requirements-dev.txt"
 
 jobs:
   ruff:

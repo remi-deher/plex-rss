@@ -35,12 +35,12 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: {} });
     }
   });
-  await page.goto("/discover", { waitUntil: "domcontentloaded" });
+  await page.goto("/discover/explore", { waitUntil: "domcontentloaded" });
 });
 
 test("charge progressivement le catalogue et conserve des liens accessibles", async ({ page }) => {
   await expect(page.locator(".discover-card")).toHaveCount(2);
-  await expect(page.locator(".discover-card").first()).toHaveAttribute("href", /\/media\/discover\/1/);
+  await expect(page.locator(".discover-poster-link").first()).toHaveAttribute("href", /\/media\/discover\/1/);
 
   await page.getByRole("button", { name: "Charger plus de médias" }).click();
 
@@ -63,9 +63,10 @@ test("applique le filtre Films à une recherche", async ({ page }, testInfo) => 
 
 test("reste utilisable au clavier et sur mobile", async ({ page }, testInfo) => {
   const firstCard = page.locator(".discover-card").first();
-  await firstCard.focus();
-  await expect(firstCard).toBeFocused();
+  const firstLink = firstCard.locator(".discover-poster-link");
+  await firstLink.focus();
+  await expect(firstLink).toBeFocused();
   if (testInfo.project.name === "mobile") {
-    await expect(firstCard.locator(".poster-action")).toBeVisible();
+    await expect(firstCard.locator(".discover-card-action")).toBeVisible();
   }
 });
