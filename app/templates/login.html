@@ -424,10 +424,13 @@
       try {
         const resolved = new URL(value, location.origin);
         if (resolved.origin !== location.origin) return '/';
+        // Reconstruit depuis l'URL résolue plutôt que de renvoyer la valeur brute :
+        // seule une cible de même origine peut en sortir.
+        const path = resolved.pathname + resolved.search + resolved.hash;
+        return path.startsWith('/') && !path.startsWith('//') ? path : '/';
       } catch (e) {
         return '/';
       }
-      return value;
     }
     const plexBtn = document.getElementById('btn-plex');
     const plexStatus = document.getElementById('plex-status');

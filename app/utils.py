@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any, Protocol, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import HTTPException
@@ -55,7 +55,11 @@ def safe_redirect_path(value: str | None, default: str = "/") -> str:
     parsed = urlsplit(value)
     if parsed.scheme or parsed.netloc:
         return default
-    return value
+    # La valeur retournée est reconstruite depuis les composants analysés plutôt que
+    # renvoyée telle quelle : ni scheme ni netloc ne peuvent survivre à urlunsplit ici,
+    # même si urlsplit et le navigateur devaient diverger sur une entrée exotique.
+    rebuilt = urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+    return rebuilt if rebuilt.startswith("/") and not rebuilt.startswith("//") else default
 
 
 async def async_get_or_404(

@@ -550,4 +550,5 @@ async def test_smtp(body: SmtpTestRequest, db: AsyncSession = Depends(get_db_asy
         )
         return {"success": True, "message": f"Email envoyé à {body.recipient}"}
     except Exception as e:
-        return {"success": False, "message": str(e)}
+        logger.exception("Echec du test SMTP")
+        return {"success": False, "message": safe_error_message(e)}
