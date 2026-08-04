@@ -17,11 +17,11 @@
   <section class="panel table-wrap table-cards rich">
     <table>
       <thead>
-        <tr><th><input type="checkbox" :checked="allSelected" @change="toggleAll"></th><th>Utilisateur</th><th>Notifications</th><th>Source</th><th>Role</th><th>Demandes</th><th>Dernière activité</th><th></th></tr>
+        <tr><th><label class="select-tag"><input type="checkbox" :checked="allSelected" aria-label="Selectionner tous les utilisateurs" @change="toggleAll"></label></th><th>Utilisateur</th><th>Notifications</th><th>Source</th><th>Role</th><th>Demandes</th><th>Dernière activité</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="user in rows" :key="user.id">
-          <td class="card-select"><input v-model="selectedIds" type="checkbox" :value="user.id"></td>
+          <td class="card-select"><label class="select-tag"><input v-model="selectedIds" type="checkbox" :value="user.id" :aria-label="`Selectionner ${displayName(user)}`"></label></td>
           <td class="card-title"><button class="text-button" @click="$emit('open',user.id)"><strong>{{ displayName(user) }}</strong><small>{{ user.plex_user_id }} · {{ user.enabled?'Actif':'Désactivé' }}</small></button></td>
           <td data-label="Notifications"><div class="user-notification-cell"><span :class="['status-dot',notificationState(user)]"></span><div>{{ user.notification_email||user.plex_email||user.notify_admin?'Via administrateur':'Aucun destinataire' }}<small v-if="user.has_notification_error">Échec récent</small></div></div></td>
           <td data-label="Source">{{ user.source||'plex' }}</td>

@@ -37,10 +37,15 @@
     </div>
 
     <div v-else class="calendar-agenda">
-      <section v-for="group in grouped" :key="group.date" :id="'date-' + group.date" class="calendar-day" :class="{today:group.date===todayStr}">
+      <section v-for="group in shownGroups" :key="group.date" :id="'date-' + group.date" class="calendar-day" :class="{today:group.date===todayStr}">
         <h2>{{ longDate(group.date) }}<span v-if="group.date===todayStr" class="today-badge">Aujourd'hui</span></h2>
         <div class="calendar-events"><article v-for="event in group.events" :key="eventKey(event)" class="calendar-event" :class="{interactive:event.library_item_id||event.request_id}" :role="event.library_item_id||event.request_id?'link':undefined" :tabindex="event.library_item_id||event.request_id?0:undefined" :aria-label="event.library_item_id||event.request_id?`Ouvrir la fiche de ${event.title}`:undefined" @click="openDetail(event)" @keydown.enter.prevent="openDetail(event)" @keydown.space.prevent="openDetail(event)"><img v-if="event.poster_url" :src="event.poster_url" alt="" loading="lazy" decoding="async"><div><strong>{{ event.title }}</strong><span><span v-if="formatTime(event.date)" class="time-text">{{ formatTime(event.date) }} · </span>{{ event.subtitle }} · {{ event.instance }}</span></div><span class="badge" :class="eventState(event)">{{ eventLabel(event) }}</span></article></div>
       </section>
+      <LoadMore
+        :has-more="shownGroups.length < grouped.length"
+        :label="`Afficher plus de jours (${shownGroups.length} sur ${grouped.length})`"
+        @load="visibleDays += DAYS_PAGE"
+      />
     </div>
     <p v-if="!loading&&!filtered.length" class="empty">Aucune sortie sur cette periode.</p>
   </div>
@@ -53,6 +58,7 @@ import { CalendarDays,ChevronLeft,ChevronRight,List,RefreshCw } from '@lucide/vu
 import { api } from '@/api';
 import { useRouter } from 'vue-router';
 import { mediaDetailPath } from '@/mediaUrl';
+import LoadMore from '@/components/ui/LoadMore.vue';
 const router=useRouter();
 const events=ref([]),search=ref(''),type=ref(''),tracked=ref(false),loading=ref(false),error=ref(''),cursor=ref(new Date());
 const compactQuery=window.matchMedia('(max-width:640px)');
@@ -64,6 +70,12 @@ const periodLabel=computed(()=>formatMonthYear(cursor.value));
 const filtered=computed(()=>events.value.filter(e=>(!search.value||e.title.toLowerCase().includes(search.value.toLowerCase()))&&(!type.value||e.type===type.value)));
 const eventsByDate=computed(()=>{const map=new Map();filtered.value.forEach(e=>{const key=e.date.slice(0,10);if(!map.has(key))map.set(key,[]);map.get(key).push(e)});return map});
 const grouped=computed(()=>[...eventsByDate.value].map(([date,items])=>({date,events:items})));
+// Un mois charge rendait tous ses jours d'un coup : ~49 ecrans de defilement sur
+// telephone. On n'affiche qu'une tranche de jours, etendue a la demande.
+const DAYS_PAGE=7;
+const visibleDays=ref(DAYS_PAGE);
+const shownGroups=computed(()=>grouped.value.slice(0,visibleDays.value));
+watch(grouped,()=>{visibleDays.value=DAYS_PAGE});
 const monthCells=computed(()=>{const start=bounds.value.start,first=(start.getDay()+6)%7,cells=[];for(let i=-first;i<42-first;i++){const d=new Date(start.getFullYear(),start.getMonth(),i+1),date=localIso(d);cells.push({key:date,date,day:d.getDate(),current:d.getMonth()===start.getMonth(),events:eventsByDate.value.get(date)||[]})}return cells});
 const activeFilterCount=computed(()=>[search.value,type.value,tracked.value].filter(Boolean).length);
 // Le repli force en mode compact ne doit pas ecraser la preference de l'utilisateur
@@ -75,9 +87,13 @@ function eventKey(event){return `${event.instance}:${event.date}:${event.title}:
 function eventState(event){return event.has_file?'available':event.tracked?'pending':''}
 function eventLabel(event){return event.has_file?'Disponible':event.tracked?'Suivi':'Catalogue'}
 function openDetail(event){if(event.library_item_id)router.push(mediaDetailPath({id:event.library_item_id},'library'));else if(event.request_id)router.push(mediaDetailPath({id:event.request_id},'request'))}
-function showDay(date){view.value='agenda';nextTick(()=>document.getElementById(`date-${date}`)?.scrollIntoView({behavior:'smooth',block:'start'}))}
+// La liste est fenetree : une date ciblee peut se trouver hors de la tranche rendue.
+// On elargit la fenetre jusqu'a elle avant de tenter le defilement.
+function revealDate(date){const i=grouped.value.findIndex(g=>g.date===date);if(i<0)return false;if(i>=visibleDays.value)visibleDays.value=i+DAYS_PAGE;return true}
+function scrollToDate(date){if(!revealDate(date))return;nextTick(()=>document.getElementById(`date-${date}`)?.scrollIntoView({behavior:'smooth',block:'start'}))}
+function showDay(date){view.value='agenda';scrollToDate(date)}
 function resetFilters(){search.value='';type.value='';tracked.value=false;load()}
-async function load(){loading.value=true;error.value='';try{events.value=await api(`/api/calendar?start=${localIso(bounds.value.start)}&end=${localIso(bounds.value.end)}&tracked_only=${tracked.value}`);if(view.value==='agenda')nextTick(()=>setTimeout(()=>{let el=document.getElementById(`date-${todayStr}`);if(!el){const upcoming=grouped.value.find(g=>g.date>=todayStr);if(upcoming)el=document.getElementById(`date-${upcoming.date}`)}el?.scrollIntoView({behavior:'smooth',block:'start'})},100))}catch(e){error.value=e.message}finally{loading.value=false}}
+async function load(){loading.value=true;error.value='';try{events.value=await api(`/api/calendar?start=${localIso(bounds.value.start)}&end=${localIso(bounds.value.end)}&tracked_only=${tracked.value}`);if(view.value==='agenda')nextTick(()=>setTimeout(()=>{const target=grouped.value.find(g=>g.date>=todayStr);if(target)scrollToDate(target.date)},100))}catch(e){error.value=e.message}finally{loading.value=false}}
 function move(delta){cursor.value=new Date(cursor.value.getFullYear(),cursor.value.getMonth()+delta,1);load()}
 function today(){cursor.value=new Date();load()}
 function applyCompact(matches){if(matches===compact.value)return;compact.value=matches;view.value=matches?'agenda':(localStorage.getItem('calendar.view')||'month')}

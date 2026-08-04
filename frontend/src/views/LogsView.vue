@@ -18,8 +18,13 @@
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
     <section class="panel table-wrap table-cards rich">
       <table><thead><tr><th>Date</th><th>Section</th><th>Description</th><th>Résultat</th></tr></thead>
-        <tbody><tr v-for="row in filtered" :key="keyOf(row)"><td data-label="Date">{{ dateOf(row) }}</td><td data-label="Section"><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td class="card-title"><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td data-label="Résultat">{{ resultOf(row) }}</td></tr></tbody>
+        <tbody><tr v-for="row in shown" :key="keyOf(row)"><td data-label="Date">{{ dateOf(row) }}</td><td data-label="Section"><span class="badge" :class="badgeOf(row)">{{ typeOf(row) }}</span></td><td class="card-title"><strong>{{ titleOf(row) }}</strong><small class="table-detail">{{ detailOf(row) }}</small></td><td data-label="Résultat">{{ resultOf(row) }}</td></tr></tbody>
       </table><UiFeedback v-if="loading" type="loading" message="Chargement des journaux…"/><p v-else-if="!filtered.length" class="empty">Aucune entrée pour ce filtre.</p>
+      <LoadMore
+        :has-more="shown.length < filtered.length"
+        :label="`Afficher plus d'entrées (${shown.length} sur ${filtered.length})`"
+        @load="visibleCount += PAGE_SIZE"
+      />
     </section>
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
@@ -27,10 +32,11 @@
 
 <script setup>
 import { formatDateTimeSeconds } from '@/utils/format';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RefreshCw, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import ConfirmModal from '@/components/ConfirmModal.vue';
+import LoadMore from '@/components/ui/LoadMore.vue';
 import { useConfirm } from '@/composables/useConfirm';
 
 const tab = ref('diagnostic'), rows = ref([]), loading = ref(false), error = ref('');
@@ -40,6 +46,13 @@ const tabs = [{ id: 'diagnostic', label: 'Parcours demandes' }, { id: 'app', lab
 const jobs = computed(() => [...new Set(rows.value.map(x => x.job).filter(Boolean))]);
 const filtered = computed(() => rows.value.filter(row => (!level.value || row.level === level.value) && (!search.value || JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase()))));
 const activeFilterCount = computed(() => [search.value, level.value, category.value, job.value].filter(Boolean).length);
+// Les endpoints renvoient 200 a 300 entrees d'un coup, toutes rendues : ~55 ecrans de
+// defilement sur telephone. On n'en affiche qu'une tranche, etendue a la demande.
+const PAGE_SIZE = 50;
+const visibleCount = ref(PAGE_SIZE);
+const shown = computed(() => filtered.value.slice(0, visibleCount.value));
+// Un changement d'onglet ou de filtre repart du haut de la liste.
+watch(filtered, () => { visibleCount.value = PAGE_SIZE; });
 function resetFilters() { search.value = ''; level.value = ''; category.value = ''; job.value = ''; load(); }
 
 function endpoint() {

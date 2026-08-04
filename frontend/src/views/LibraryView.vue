@@ -109,7 +109,12 @@ function openDetail(item) {
   router.push(mediaDetailPath(item, item._kind));
 }
 
-const PAGE_SIZE = 200;
+// Une page de 200 cartes represente ~47 ecrans de defilement sur un telephone (mesure
+// a 375x812) : le chargement incremental existe, mais son grain etait pense pour un
+// grand ecran. Le lot est reduit sous 640px, la sentinelle de defilement se chargeant
+// d'enchainer. Fige au montage : changer la taille de lot en cours de session
+// desalignerait les offsets deja demandes.
+const PAGE_SIZE = window.matchMedia('(max-width: 640px)').matches ? 60 : 200;
 
 const libraryItemsRaw = ref([]);
 const pendingRequests = ref([]);
