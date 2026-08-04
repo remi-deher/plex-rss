@@ -43,6 +43,24 @@ def _isolate_application_cache(monkeypatch):
     _refreshing_keys.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_shared_scan_state(monkeypatch):
+    """Isole le miroir Redis de l'état de scan quand la CI expose un vrai Redis.
+
+    Les clés sont fixes (`plexarr:scan-state:v1:*`) : un test qui laisse une section
+    à « running » fait échouer les suivants, dont la garde « déjà en cours » de
+    `_run_vf_scan` annule alors silencieusement le scan. Le miroir lui-même est
+    couvert par test_scan_state.py, qui rebranche `_client` sur son propre faux Redis.
+    """
+    from app.services import scan_state
+
+    async def local_only_client():
+        return None
+
+    monkeypatch.setattr(scan_state, "_client", local_only_client)
+    yield
+
+
 @pytest.fixture()
 def async_db():
     """Hybrid session for synchronous TestClient tests of async endpoints."""
