@@ -23,11 +23,11 @@
   margin: 12px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 20px 14px;
   background: rgba(18, 18, 22, 0.45);
   border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   z-index: 30;
@@ -43,7 +43,7 @@
   margin-left: auto;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: rgba(255, 255, 255, 0.025);
   cursor: pointer;
@@ -83,27 +83,27 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: #fff;
   font-weight: 800;
-  font-size: 18px;
+  font-size: var(--fs-lg);
   padding: 4px 10px 10px;
   letter-spacing: -0.02em;
 }
 
 .brand-icon {
   color: var(--accent);
-  font-size: 20px;
+  font-size: var(--fs-xl);
 }
 
 .menu-section {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--space-1);
 }
 
 .menu-label {
-  font-size: 0.625rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
@@ -117,13 +117,13 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-height: 38px;
   color: var(--muted);
   text-decoration: none;
   padding: 0 12px;
-  border-radius: 8px;
-  font-size: 0.8125rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
   font-weight: 500;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -170,7 +170,7 @@ button svg {
 .list {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 .page-head,
@@ -178,7 +178,7 @@ button svg {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 @media (max-width: 1200px) {
@@ -212,7 +212,7 @@ button svg {
     padding: var(--drawer-pad);
     padding-bottom: max(var(--drawer-pad), var(--safe-bottom));
     transform: none;
-    border-radius: 20px 20px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border-bottom: 0;
   }
 }
@@ -222,7 +222,7 @@ button svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .drawer-head {
@@ -242,7 +242,7 @@ button svg {
 .checklist {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .drawer-section {
@@ -283,7 +283,7 @@ button svg {
     height: 44px;
     padding: 0;
     border: 0;
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     color: var(--muted);
     background: transparent;
     cursor: pointer;
@@ -324,10 +324,10 @@ button svg {
   }
 
   .sidebar.tablet-expanded .brand { justify-content: space-between; padding: 4px 8px 10px; }
-  .sidebar.tablet-expanded .brand-name { display: inline; font-size: 18px; }
+  .sidebar.tablet-expanded .brand-name { display: inline; font-size: var(--fs-lg); }
   .sidebar.tablet-expanded .menu-label { display: block; }
-  .sidebar.tablet-expanded a { justify-content: flex-start; gap: 10px; padding: 0 12px; font-size: .8125rem; }
-  .sidebar.tablet-expanded .context-sidebar-menu a { min-height: 38px; font-size: .75rem; }
+  .sidebar.tablet-expanded a { justify-content: flex-start; gap: var(--space-3); padding: 0 12px; font-size: var(--fs-sm); }
+  .sidebar.tablet-expanded .context-sidebar-menu a { min-height: 38px; font-size: var(--fs-sm); }
 
   .tablet-nav-backdrop {
     display: block;
@@ -350,7 +350,7 @@ button svg {
   .sidebar:not(.collapsed) .brand { justify-content: flex-start; padding: 4px 10px 10px; }
   .sidebar:not(.collapsed) .brand-name,
   .sidebar:not(.collapsed) .menu-label { display: block; }
-  .sidebar:not(.collapsed) a { justify-content: flex-start; gap: 10px; min-height: 38px; padding: 0 12px; font-size: .8125rem; }
+  .sidebar:not(.collapsed) a { justify-content: flex-start; gap: var(--space-3); min-height: 38px; padding: 0 12px; font-size: var(--fs-sm); }
   .sidebar:not(.collapsed) a svg { width: 18px; height: 18px; }
   .sidebar:not(.collapsed) .sidebar-toggle { display: inline-grid; }
 
@@ -413,8 +413,8 @@ button svg {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    font-size: 0.625rem;
+    gap: var(--space-1);
+    font-size: var(--fs-xs);
     color: var(--muted);
     text-decoration: none;
     background: transparent;
@@ -473,14 +473,14 @@ button svg {
     max-height: 80dvh;
     background: #121216;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px 20px 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     padding-top: max(24px, var(--safe-top));
     padding-right: max(24px, var(--safe-right));
     padding-bottom: max(24px, var(--safe-bottom));
     padding-left: max(24px, var(--safe-left));
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: var(--space-5);
     overflow-y: auto;
     overscroll-behavior: contain;
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
@@ -495,7 +495,7 @@ button svg {
   }
 
   .sheet-header h2 {
-    font-size: 18px;
+    font-size: var(--fs-lg);
     font-weight: 700;
     color: #fff;
     margin: 0;
@@ -523,17 +523,17 @@ button svg {
   .sheet-content {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--space-4);
   }
 
   .sheet-content .menu-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-1);
   }
 
   .sheet-content .menu-label {
-    font-size: 0.625rem;
+    font-size: var(--fs-xs);
     font-weight: 700;
     color: var(--muted);
     text-transform: uppercase;
@@ -546,13 +546,13 @@ button svg {
   .sheet-content a {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 10px 14px;
     color: var(--muted);
     text-decoration: none;
-    font-size: 14px;
+    font-size: var(--fs-md);
     font-weight: 500;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.02);
     transition: all 0.2s ease;
     min-height: 44px;
@@ -575,7 +575,7 @@ button svg {
 
   .mobile-admin-groups details {
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 9px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     background: rgba(255, 255, 255, 0.02);
   }
@@ -583,7 +583,7 @@ button svg {
   .mobile-admin-groups summary {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 48px;
     padding: 10px 14px;
     color: var(--muted);
@@ -655,7 +655,7 @@ button svg {
 
   .calendar-day {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .detail-row,
@@ -711,7 +711,7 @@ button svg {
   .mobile-nav-bar a,
   .more-nav-btn {
     flex-direction: row;
-    gap: 6px;
+    gap: var(--space-2);
     font-size: 0;
   }
 

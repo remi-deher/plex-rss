@@ -11,9 +11,44 @@
   --accent-gradient: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
   --green: #22c55e;
   --red: #ef4444;
+  /* Variantes lisibles en texte : #22c55e sur le fond des badges VF ne donnait
+     que 3,13:1, sous le seuil AA, sur les ~190 etiquettes d'une page Bibliotheque.
+     --green / --red restent les couleurs de remplissage (pastilles, jauges). */
+  --green-text: #86efac;
+  --red-text: #fecaca;
   --blue: #38bdf8;
-  --panel-radius: 16px;
-  --btn-radius: 10px;
+  /* Echelle typographique. Plancher a 12px : avant ces tokens, 352 `font-size`
+     etaient codes en dur dans les composants, dont 37 sous 10px et jusqu'a 7px,
+     et 18 tailles distinctes cohabitaient sur le seul tableau de bord. Exprimee
+     en rem plutot qu'en em : les valeurs relatives se composaient en cascade et
+     produisaient des tailles fractionnaires (9.17px, 9.92px, 11.52px...). */
+  --fs-xs: 0.75rem; /* 12px — plancher, badges et labels secondaires */
+  --fs-sm: 0.8125rem; /* 13px — texte dense (tableaux, listes) */
+  --fs-md: 0.9375rem; /* 15px — texte courant compact */
+  --fs-base: 1rem; /* 16px — texte courant */
+  --fs-lg: 1.125rem; /* 18px — sous-titres */
+  --fs-xl: 1.3125rem; /* 21px — titres de section */
+  --fs-2xl: 1.625rem; /* 26px — titres de page */
+  --fs-3xl: 2rem; /* 32px — chiffres de mise en avant */
+
+  /* Rayons : quatre paliers plus la pilule, la ou 14 valeurs distinctes
+     coexistaient sur une seule page (dont 99px et 999px pour le meme effet). */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --panel-radius: var(--radius-lg);
+  --btn-radius: var(--radius-md);
+
+  /* Espacement : progression 4/8/12/16/24/32 (16 valeurs de `gap` distinctes
+     auparavant, de 2px a 30px sans regle). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
   /* Safe areas (encoche / home indicator / coins arrondis) */
   --safe-top: env(safe-area-inset-top, 0px);
@@ -69,7 +104,7 @@ body.modal-open {
   top: max(8px, var(--safe-top));
   left: max(8px, var(--safe-left));
   padding: 11px 14px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: #151515;
   background: var(--accent);
   font-weight: 750;
@@ -108,18 +143,22 @@ h1 {
 }
 
 h2 {
-  font-size: 16px;
+  font-size: var(--fs-base);
+}
+
+small {
+  font-size: var(--fs-sm);
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 th {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
 }
 

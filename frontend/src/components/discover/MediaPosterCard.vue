@@ -69,7 +69,7 @@ const accessibleLabel = computed(() => [
 .discover-media-card {
   position: relative;
   min-width: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: inherit;
 }
 .discover-media-card:hover,
@@ -102,7 +102,7 @@ const accessibleLabel = computed(() => [
   color: #fff;
 }
 .discover-card-overlay.has-request-action { padding-bottom: 52px; }
-.discover-card-copy { display: grid; gap: 5px; width: 100%; min-width: 0; padding: 0 !important; }
+.discover-card-copy { display: grid; gap: var(--space-1); width: 100%; min-width: 0; padding: 0 !important; }
 .discover-card-copy > strong {
   display: -webkit-box;
   overflow: hidden;
@@ -115,11 +115,11 @@ const accessibleLabel = computed(() => [
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
-.discover-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 9px; padding: 0 !important; }
-.discover-card-meta > span { color: rgba(255, 255, 255, .82); font-size: .72rem; font-weight: 650; }
-.discover-rating { display: inline-flex !important; align-items: center; gap: 3px; }
+.discover-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: 0 !important; }
+.discover-card-meta > span { color: rgba(255, 255, 255, .82); font-size: var(--fs-xs); font-weight: 650; }
+.discover-rating { display: inline-flex !important; align-items: center; gap: var(--space-1); }
 .discover-rating svg { width: 12px; height: 12px; color: #fbbf24; fill: currentColor; }
-.discover-card-link-action { margin-top: 2px; color: var(--accent) !important; font-size: .72rem; font-weight: 800; }
+.discover-card-link-action { margin-top: 2px; color: var(--text) !important; font-size: var(--fs-xs); font-weight: 800; }
 .discover-card-action {
   position: absolute;
   inset: auto 9px 9px;
@@ -127,13 +127,13 @@ const accessibleLabel = computed(() => [
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: 34px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   color: #111;
-  font-size: .78rem;
+  font-size: var(--fs-sm);
   font-weight: 800;
   text-align: center;
   box-shadow: 0 5px 16px rgba(0, 0, 0, .38);
@@ -148,6 +148,6 @@ const accessibleLabel = computed(() => [
   .discover-media-card:hover,
   .discover-media-card:focus-within { transform: translateY(-2px); }
   .discover-card-overlay { padding-inline: 10px; }
-  .discover-card-copy > strong { font-size: 1rem; }
+  .discover-card-copy > strong { font-size: var(--fs-base); }
 }
 </style>

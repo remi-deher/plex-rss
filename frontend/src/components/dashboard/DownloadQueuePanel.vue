@@ -180,7 +180,7 @@ function metaLine(item) {
 .queue-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
   padding: 9px 0;
   border-bottom: 1px solid var(--border);
@@ -197,19 +197,19 @@ function metaLine(item) {
 }
 .mini-poster-fallback svg { width: 40%; }
 
-.queue-main { display: grid; gap: 5px; min-width: 0; }
+.queue-main { display: grid; gap: var(--space-1); min-width: 0; }
 
 /* `minmax(0, 1fr)` : sans cela un titre long pousse le badge hors de la ligne au lieu de
    se laisser tronquer — c'est exactement le debordement mesure sur ce panneau. */
 .queue-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 .queue-heading strong {
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -217,7 +217,7 @@ function metaLine(item) {
 .queue-progress {
   height: 5px;
   overflow: hidden;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, .08);
 }
 .queue-progress i {
@@ -234,7 +234,7 @@ function metaLine(item) {
 .queue-meta {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -242,6 +242,6 @@ function metaLine(item) {
 .queue-more {
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 </style>

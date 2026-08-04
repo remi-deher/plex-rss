@@ -18,10 +18,10 @@
       <div v-if="vffScan.status==='running'" class="progress-bar-wrap">
         <div class="progress-bar animated" :style="{width: vffScan.total_items>0 ? `${Math.round(vffScan.items_scanned/vffScan.total_items*100)}%` : '5%'}"></div>
       </div>
-      <span v-if="vffScan.status==='running'" style="font-size:12px;opacity:.6">
+      <span v-if="vffScan.status==='running'" style="font-size:var(--fs-sm);opacity:.6">
         {{ vffScan.items_scanned }} / {{ vffScan.total_items || '?' }} items
       </span>
-      <span v-else-if="vffScan.finished_at" style="font-size:12px;opacity:.6">Termine le {{ formatDate(vffScan.finished_at) }}</span>
+      <span v-else-if="vffScan.finished_at" style="font-size:var(--fs-sm);opacity:.6">Termine le {{ formatDate(vffScan.finished_at) }}</span>
     </div>
 
     <div class="detail-row flex-column gap-6">
@@ -34,10 +34,10 @@
       <div v-if="plexSync.status==='running'" class="progress-bar-wrap">
         <div class="progress-bar animated" :style="{width: plexSync.total_items>0 ? `${Math.round(plexSync.items_synced/plexSync.total_items*100)}%` : '5%'}"></div>
       </div>
-      <span v-if="plexSync.status==='running'" style="font-size:12px;opacity:.6">
+      <span v-if="plexSync.status==='running'" style="font-size:var(--fs-sm);opacity:.6">
         {{ plexSync.items_synced }} / {{ plexSync.total_items || '?' }} items
       </span>
-      <span v-else-if="plexSync.finished_at" style="font-size:12px;opacity:.6">Termine le {{ formatDate(plexSync.finished_at) }}</span>
+      <span v-else-if="plexSync.finished_at" style="font-size:var(--fs-sm);opacity:.6">Termine le {{ formatDate(plexSync.finished_at) }}</span>
     </div>
 
     <div v-if="vffCounts.vf_available!=null" class="inline-row gap-10" style="margin-top:8px;flex-wrap:wrap">

@@ -115,7 +115,7 @@ const badges = computed(() => {
 .card-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   margin-top: 6px;
 }
 .media-card.list .card-actions {
@@ -141,7 +141,7 @@ const badges = computed(() => {
   top: 8px;
   right: 8px;
   padding: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(20, 20, 20, .9);
 }
 .select-tag {
@@ -157,14 +157,14 @@ const badges = computed(() => {
 .requester-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   max-width: 100%;
   padding: 3px 9px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: #fff;
   background: rgba(37, 99, 235, .92);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;

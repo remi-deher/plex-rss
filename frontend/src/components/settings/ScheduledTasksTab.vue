@@ -182,13 +182,13 @@ onMounted(loadTasks);
 .scheduled-task-info {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
 }
 .scheduled-task-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   color: var(--muted);
 }
 .scheduled-task-row strong {
@@ -197,8 +197,8 @@ onMounted(loadTasks);
   text-align: right;
 }
 .scheduled-task-error {
-  font-size: 12px;
-  color: var(--red);
+  font-size: var(--fs-sm);
+  color: var(--red-text);
   word-break: break-word;
 }
 .scheduled-task-history {
@@ -212,16 +212,16 @@ onMounted(loadTasks);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .scheduled-task-history li {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-3);
   align-items: center;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
 }
 .scheduled-task-history li.failed {
@@ -232,9 +232,9 @@ onMounted(loadTasks);
   min-width: 42px;
 }
 .scheduled-task-history li.failed .history-status {
-  color: var(--red);
+  color: var(--red-text);
 }
 .scheduled-task-history li:not(.failed) .history-status {
-  color: var(--green);
+  color: var(--green-text);
 }
 </style>

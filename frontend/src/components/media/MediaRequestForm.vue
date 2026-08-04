@@ -215,7 +215,7 @@ function formatStepDate(value) {
 .request-panel {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, color-mix(in srgb, var(--surface) 94%, var(--accent)), var(--surface));
   box-shadow: 0 14px 40px rgba(0, 0, 0, .16);
 }
@@ -225,7 +225,7 @@ function formatStepDate(value) {
 .request-panel-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: center;
   padding: 20px;
 }
@@ -234,25 +234,25 @@ function formatStepDate(value) {
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 14px;
-  color: var(--accent);
+  border-radius: var(--radius-md);
+  color: var(--muted);
   background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
-.is-available .request-panel-icon { color: var(--green); background: rgba(34, 197, 94, .12); }
+.is-available .request-panel-icon { color: var(--green-text); background: rgba(34, 197, 94, .12); }
 .is-downloading .request-panel-icon { color: #38bdf8; background: rgba(14, 165, 233, .12); }
-.is-failed .request-panel-icon { color: var(--red); background: rgba(239, 68, 68, .12); }
+.is-failed .request-panel-icon { color: var(--red-text); background: rgba(239, 68, 68, .12); }
 .request-panel-icon svg { width: 25px; height: 25px; }
 .request-panel-copy { min-width: 0; }
-.request-panel-copy h2 { margin: 2px 0 5px; font-size: 1.15rem; }
+.request-panel-copy h2 { margin: 2px 0 5px; font-size: var(--fs-lg); }
 .request-panel-copy p { margin: 0; color: var(--muted); line-height: 1.45; }
-.request-panel-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; color: var(--muted); font-size: .76rem; }
+.request-panel-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: 9px; color: var(--muted); font-size: var(--fs-sm); }
 .request-panel-meta span + span { position: relative; }
 .request-panel-meta span + span::before { content: '•'; position: absolute; left: -9px; }
-.request-panel-action { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.request-panel-action :is(a, button) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; text-decoration: none; }
+.request-panel-action { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); }
+.request-panel-action :is(a, button) { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); white-space: nowrap; text-decoration: none; }
 .request-panel-action svg { width: 17px; height: 17px; }
-.request-available-label { display: inline-flex; align-items: center; gap: 7px; color: var(--green); font-weight: 700; }
-.request-inline-confirm { display: flex; align-items: center; gap: 8px; margin: 0; padding: 11px 20px; border-top: 1px solid rgba(34, 197, 94, .25); color: var(--green); background: rgba(34, 197, 94, .08); font-weight: 700; }
+.request-available-label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--green-text); font-weight: 700; }
+.request-inline-confirm { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: 11px 20px; border-top: 1px solid rgba(34, 197, 94, .25); color: var(--green-text); background: rgba(34, 197, 94, .08); font-weight: 700; }
 .request-inline-confirm svg { width: 18px; height: 18px; }
 .request-progress {
   display: flex;
@@ -260,30 +260,30 @@ function formatStepDate(value) {
   border-top: 1px solid var(--border);
   background: rgba(0, 0, 0, .08);
 }
-.request-progress-step { display: flex; flex: 1 0 130px; align-items: center; justify-content: center; gap: 6px; padding: 12px 8px; color: var(--muted); font-size: .76rem; text-align: center; }
+.request-progress-step { display: flex; flex: 1 0 130px; align-items: center; justify-content: center; gap: var(--space-2); padding: 12px 8px; color: var(--muted); font-size: var(--fs-sm); text-align: center; }
 .request-progress-step svg { width: 14px; height: 14px; }
-.request-progress-step > span:not(.progress-dot) { display: grid; gap: 2px; }
-.request-progress-step small { font-size: .65rem; font-weight: 400; opacity: .72; }
-.request-progress-step.done { color: var(--green); }
+.request-progress-step > span:not(.progress-dot) { display: grid; gap: var(--space-1); }
+.request-progress-step small { font-size: var(--fs-xs); font-weight: 400; opacity: .72; }
+.request-progress-step.done { color: var(--green-text); }
 .request-progress-step.current { color: var(--accent); font-weight: 700; }
-.request-progress-step.error { color: var(--red); font-weight: 700; }
+.request-progress-step.error { color: var(--red-text); font-weight: 700; }
 .progress-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .request-options { border-top: 1px solid var(--border); }
-.request-options summary { display: flex; justify-content: space-between; gap: 12px; padding: 13px 20px; cursor: pointer; font-weight: 700; list-style-position: inside; }
+.request-options summary { display: flex; justify-content: space-between; gap: var(--space-3); padding: 13px 20px; cursor: pointer; font-weight: 700; list-style-position: inside; }
 .request-options summary small { color: var(--muted); font-weight: 400; }
 .season-choice-head { padding: 2px 20px 10px; }
-.season-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; padding: 0 20px 18px; }
-.season-choice-grid .check, .season-choice-head .check { display: flex; align-items: center; gap: 7px; }
-.admin-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 0 20px 18px; }
-.admin-options-grid label { display: grid; gap: 6px; font-size: .8rem; font-weight: 600; }
-.admin-action-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 18px; }
-.admin-action-row :is(a, button) { display: inline-flex; align-items: center; gap: 7px; text-decoration: none; }
-.season-progress-list { display: grid; gap: 10px; padding: 0 20px 18px; }
-.season-progress-row { display: grid; grid-template-columns: 85px minmax(80px, 1fr) 45px; gap: 10px; align-items: center; font-size: .8rem; }
+.season-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2); padding: 0 20px 18px; }
+.season-choice-grid .check, .season-choice-head .check { display: flex; align-items: center; gap: var(--space-2); }
+.admin-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); padding: 0 20px 18px; }
+.admin-options-grid label { display: grid; gap: var(--space-2); font-size: var(--fs-sm); font-weight: 600; }
+.admin-action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0 20px 18px; }
+.admin-action-row :is(a, button) { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; }
+.season-progress-list { display: grid; gap: var(--space-3); padding: 0 20px 18px; }
+.season-progress-row { display: grid; grid-template-columns: 85px minmax(80px, 1fr) 45px; gap: var(--space-3); align-items: center; font-size: var(--fs-sm); }
 .season-progress-row strong { text-align: right; }
-.season-progress-track { height: 7px; overflow: hidden; border-radius: 999px; background: var(--surface-2); }
+.season-progress-track { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); }
 .season-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
-.season-progress-empty { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: .8rem; }
+.season-progress-empty { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: var(--fs-sm); }
 .mobile-request-bar { display: none; }
 @media (max-width: 720px) {
   .request-panel-main { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
@@ -301,7 +301,7 @@ function formatStepDate(value) {
     display: block;
     padding: 8px;
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--surface) 92%, transparent);
     box-shadow: 0 12px 34px rgba(0, 0, 0, .42);
     backdrop-filter: blur(16px);

@@ -52,8 +52,8 @@ defineProps({
 .metric-card strong {
   display: block;
   margin-top: 8px;
-  color: var(--accent);
-  font-size: 32px;
+  color: var(--text);
+  font-size: var(--fs-3xl);
   text-shadow: 0 2px 12px rgba(229, 160, 13, 0.3);
 }
 /* Une tuile-lien ne doit pas ressembler à un lien : le fond et la bordure de

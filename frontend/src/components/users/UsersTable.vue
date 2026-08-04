@@ -69,5 +69,5 @@ function toggleAll(event) { selectedIds.value = event.target.checked ? props.row
 defineExpose({ selectedIds });
 </script>
 <style scoped>
-.user-notification-cell{display:flex;align-items:center;gap:7px}.user-notification-cell>div{display:grid;gap:2px}.user-notification-cell small,.card-title small,td>small{display:block;color:var(--muted);font-size:9px}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}.status-dot.active{background:var(--success)}.status-dot.error{background:var(--danger)}.status-dot.missing{background:var(--accent)}.pending-copy{color:var(--accent)}.bulk-bar{overflow-x:auto;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+.user-notification-cell{display:flex;align-items:center;gap: var(--space-2)}.user-notification-cell>div{display:grid;gap: var(--space-1)}.user-notification-cell small,.card-title small,td>small{display:block;color:var(--muted);font-size:var(--fs-xs)}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}.status-dot.active{background:var(--success)}.status-dot.error{background:var(--danger)}.status-dot.missing{background:var(--accent)}.pending-copy{color:var(--accent)}.bulk-bar{overflow-x:auto;padding-bottom:max(8px,env(safe-area-inset-bottom))}
 </style>

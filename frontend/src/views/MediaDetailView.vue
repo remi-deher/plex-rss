@@ -370,24 +370,24 @@ onMounted(load);
   padding: 0 28px 40px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 .drawer-loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 80px 0;
   color: var(--muted);
 }
 @media (min-width: 1025px) {
-  .media-detail-body { font-size: 15px; gap: 19px; }
+  .media-detail-body { font-size: var(--fs-md); gap: var(--space-5); }
   .media-detail-body :deep(.drawer-section > h2),
-  .media-detail-body :deep(.drawer-section > h3) { font-size: 18px; }
-  .media-detail-body :deep(.detail-row > div:first-child > strong) { font-size: 14px; }
+  .media-detail-body :deep(.drawer-section > h3) { font-size: var(--fs-lg); }
+  .media-detail-body :deep(.detail-row > div:first-child > strong) { font-size: var(--fs-md); }
   .media-detail-body :deep(.detail-row > div:first-child > span),
-  .media-detail-body :deep(.detail-row > div:first-child > small) { font-size: 12px; line-height: 1.45; }
-  .media-detail-body :deep(.detail-tabs button) { font-size: 14px; }
-  .media-detail-body :deep(.badge) { font-size: 12px; }
+  .media-detail-body :deep(.detail-row > div:first-child > small) { font-size: var(--fs-sm); line-height: 1.45; }
+  .media-detail-body :deep(.detail-tabs button) { font-size: var(--fs-md); }
+  .media-detail-body :deep(.badge) { font-size: var(--fs-sm); }
 }
 </style>

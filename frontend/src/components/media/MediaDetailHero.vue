@@ -85,14 +85,14 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
 }
 .mdh-row {
   display: flex;
-  gap: 24px;
+  gap: var(--space-5);
   align-items: flex-end;
 }
 .mdh-poster {
   flex: 0 0 180px;
   width: 180px;
   aspect-ratio: 2 / 3;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: 0 16px 40px rgba(0,0,0,.5);
   background: var(--surface-2);
@@ -118,13 +118,13 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
 }
 .mdh-info h1 {
   margin: 4px 0 10px;
-  font-size: 28px;
+  font-size: var(--fs-3xl);
   line-height: 1.2;
 }
 .mdh-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   margin-bottom: 10px;
 }
 .mdh-badges > .badge {
@@ -133,7 +133,7 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
   border-color: rgba(255, 255, 255, .22);
   background: #27272a;
   color: #fff;
-  font-size: .82rem;
+  font-size: var(--fs-sm);
   font-weight: 800;
   line-height: 1.25;
   text-shadow: 0 1px 1px rgba(0, 0, 0, .55);
@@ -160,10 +160,10 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
   margin: 0 0 10px;
   padding: 8px 10px;
   border-left: 3px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: rgba(0, 0, 0, .28);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .origin-badge {
   border-color: rgba(255, 255, 255, .24);
@@ -171,7 +171,7 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
 .mdh-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-2);
   margin-top: 10px;
 }
 .mdh-link {
@@ -180,7 +180,7 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   border: none;
 }
 

@@ -18,5 +18,5 @@ const deviceLabel=computed(()=>({desktop:'Ordinateur',tablet:'Tablette',phone:'T
 </script>
 
 <style scoped>
-.preview-viewport{display:flex;justify-content:center;overflow:auto;margin-top:12px;padding:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:7px}.preview-viewport iframe{display:block;margin:0;width:100%;max-width:100%;transition:width .2s ease}.preview-viewport.device-tablet iframe{width:768px}.preview-viewport.device-phone iframe{width:375px}
+.preview-viewport{display:flex;justify-content:center;overflow:auto;margin-top:12px;padding:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm)}.preview-viewport iframe{display:block;margin:0;width:100%;max-width:100%;transition:width .2s ease}.preview-viewport.device-tablet iframe{width:768px}.preview-viewport.device-phone iframe{width:375px}
 </style>

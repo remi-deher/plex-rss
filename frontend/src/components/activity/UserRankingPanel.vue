@@ -13,5 +13,5 @@ defineProps({users:{type:Array,default:()=>[]},formatDuration:{type:Function,req
 </script>
 
 <style scoped>
-.ranking{display:grid;margin-top:12px}.ranking>div{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}.ranking b{color:var(--accent)}.ranking span{display:grid}.ranking small,.ranking em{font-size:10px;color:var(--muted);font-style:normal}
+.ranking{display:grid;margin-top:12px}.ranking>div{display:grid;grid-template-columns:24px 1fr auto;gap: var(--space-2);align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}.ranking b{color:var(--text)}.ranking span{display:grid}.ranking small,.ranking em{font-size:var(--fs-xs);color:var(--muted);font-style:normal}
 </style>

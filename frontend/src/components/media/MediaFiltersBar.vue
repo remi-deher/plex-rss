@@ -145,6 +145,6 @@ function toggleValue(event, list, value) {
 </script>
 
 <style scoped>
-.compact-filter-toggle{display:inline-flex;align-items:center;gap:7px;flex:none;min-height:38px;padding:0 10px}.compact-filter-toggle svg{width:15px;height:15px}.compact-filter-toggle strong{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent);color:#17130a;font-size:10px}.compact-filter-toggle span{font-size:12px}
+.compact-filter-toggle{display:inline-flex;align-items:center;gap: var(--space-2);flex:none;min-height:38px;padding:0 10px}.compact-filter-toggle svg{width:15px;height:15px}.compact-filter-toggle strong{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:var(--radius-pill);background:var(--accent);color:#17130a;font-size:var(--fs-xs)}.compact-filter-toggle span{font-size:var(--fs-sm)}
 @media(max-width:640px){.filter-row{display:flex}.filter-row .search{flex:1 0 100%;width:100%;min-width:0}.filter-row .segmented{margin-right:auto}.compact-filter-toggle{margin-left:auto;min-height:44px}.filter-pills-scroll{max-height:44px}.filters-panel:has(.filter-pills-scroll[style*="display: none"]){padding-bottom:10px}}
 </style>

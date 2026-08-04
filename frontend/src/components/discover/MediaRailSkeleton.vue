@@ -17,13 +17,13 @@ defineProps({
   display: grid;
   grid-auto-columns: clamp(164px, 18vw, 220px);
   grid-auto-flow: column;
-  gap: 14px;
+  gap: var(--space-4);
   overflow: hidden;
 }
-.skeleton-card { display: grid; gap: 8px; }
+.skeleton-card { display: grid; gap: var(--space-2); }
 .skeleton-poster {
   display: block;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(100deg, var(--surface-2) 20%, color-mix(in srgb, var(--surface-2) 55%, var(--border)) 40%, var(--surface-2) 60%);
   background-size: 220% 100%;
   animation: discover-shimmer 1.4s ease-in-out infinite;

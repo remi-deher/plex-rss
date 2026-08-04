@@ -100,13 +100,13 @@ defineEmits([
 .add-requester-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 .add-requester-label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -122,7 +122,7 @@ defineEmits([
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .request-admin-actions {
   align-self: start;
@@ -131,7 +131,7 @@ defineEmits([
 .request-admin-actions summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-align: right;
 }
@@ -148,36 +148,36 @@ defineEmits([
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   margin: 6px 0;
 }
 .origin-line {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 6px;
   color: var(--muted);
 }
 .waiting-reason {
   margin: 6px 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .plex-origin-card p {
   margin: 6px 0;
   color: var(--muted);
 }
 :deep(.status-stepper .step) {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   color: var(--muted);
   background: var(--surface-2);
 }
 :deep(.status-stepper .step.done) {
   border-color: rgba(34, 197, 94, .45);
-  color: var(--green);
+  color: var(--green-text);
 }
 :deep(.status-stepper .step.current) {
   border-color: var(--accent);
@@ -190,7 +190,7 @@ defineEmits([
 }
 :deep(.mail-history-details summary) {
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   user-select: none;
 }
@@ -201,7 +201,7 @@ defineEmits([
 :deep(.requester-breakdown) {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);
@@ -211,20 +211,20 @@ defineEmits([
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
 }
 
 :deep(.requester-name) {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 :deep(.badge.tiny) {
   min-height: auto;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 :deep(.notif-dot) {
@@ -250,12 +250,12 @@ defineEmits([
   z-index: 30;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 200px;
   padding: 6px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -263,20 +263,20 @@ defineEmits([
 :deep(.requester-menu button) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 8px;
   border: 0;
   background: transparent;
   color: var(--text);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-align: left;
 }
 :deep(.requester-menu button:hover:not(:disabled)) {
   background: rgba(255, 255, 255, 0.06);
 }
 :deep(.requester-menu button.danger) {
-  color: var(--red);
+  color: var(--red-text);
 }
 </style>

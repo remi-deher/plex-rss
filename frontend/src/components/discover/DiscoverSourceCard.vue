@@ -25,11 +25,11 @@ const kindLabel = computed(() => ({
 .discover-source-card {
   display: grid;
   place-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 112px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text);
   background: var(--surface);
   text-align: center;
@@ -37,5 +37,5 @@ const kindLabel = computed(() => ({
 }
 .discover-source-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); transform: translateY(-2px); }
 .discover-source-card img { max-width: 86px; max-height: 46px; object-fit: contain; }
-.discover-source-card span { color: var(--muted); font-size: .72rem; }
+.discover-source-card span { color: var(--muted); font-size: var(--fs-xs); }
 </style>

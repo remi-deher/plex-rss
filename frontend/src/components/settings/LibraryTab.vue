@@ -17,7 +17,7 @@
         <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label>
         <label>Frequence de synchronisation Plex (complete)<IntervalPresetInput v-model="form.plex_sync_interval_hours" :presets="PLEX_SYNC_PRESETS"/><small>La bibliotheque Plex est resynchronisee en entier a cette frequence ; un scan incremental (medias recemment ajoutes) tourne en continu, voir l'onglet Planification</small></label>
         <div>
-          <strong style="display:block;margin-bottom:8px;font-size:13px">Bibliotheques analysees</strong>
+          <strong style="display:block;margin-bottom:8px;font-size:var(--fs-sm)">Bibliotheques analysees</strong>
           <div v-if="plexSectionsLoading" class="notice">Chargement des bibliotheques Plex...</div>
           <div v-else-if="!plexSections.length" class="notice warning-text">Aucune bibliotheque Plex trouvee. Verifiez la connexion Plex dans l'onglet Connexions.</div>
           <div v-else class="vff-library-picker">

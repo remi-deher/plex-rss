@@ -55,7 +55,7 @@ function onCustomInput(event) {
 .interval-preset {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 

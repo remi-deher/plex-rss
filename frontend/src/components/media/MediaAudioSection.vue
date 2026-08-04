@@ -25,7 +25,7 @@
           v-for="season in vfDetail.seasons || []"
           :key="season.season_number"
           class="detail-row"
-          style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border); padding: 0.5rem; border-radius: 6px;"
+          style="margin-bottom: 0.5rem; display: block; border: 1px solid var(--border); padding: 0.5rem; border-radius: var(--radius-sm);"
           @toggle="$event.target.open && $emit('expand-season', season.season_number)"
         >
           <summary style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
@@ -40,19 +40,19 @@
               <button class="icon-button" @click.prevent="$emit('correction', 'season', season.season_number, null)" title="Corriger Saison" aria-label="Corriger Saison"><MessageSquareWarning size="16" /></button>
             </div>
           </summary>
-          <div v-if="season.loading" style="padding: 0.5rem 0; color: var(--muted); font-size: 0.9em;">Chargement des episodes...</div>
+          <div v-if="season.loading" style="padding: 0.5rem 0; color: var(--muted); font-size: var(--fs-md);">Chargement des episodes...</div>
           <p v-else-if="season.error" class="notice error-text">Échec du chargement de cette saison.</p>
           <div v-else style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
-            <div v-for="ep in season.episodes" :key="ep.episode" style="display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start;">
+            <div v-for="ep in season.episodes" :key="ep.episode" style="display: flex; gap: var(--space-3); margin-bottom: 10px; align-items: flex-start;">
               <img
                 v-if="ep.still_url"
                 :src="ep.still_url"
                 alt=""
-                style="width: 120px; height: 68px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: var(--surface-hover);"
+                style="width: 120px; height: 68px; object-fit: cover; border-radius: var(--radius-xs); flex-shrink: 0; background: var(--surface-hover);"
               >
-              <div v-else style="width: 120px; height: 68px; border-radius: 4px; flex-shrink: 0; background: var(--surface-hover);"></div>
+              <div v-else style="width: 120px; height: 68px; border-radius: var(--radius-xs); flex-shrink: 0; background: var(--surface-hover);"></div>
               <div style="flex: 1; min-width: 0;">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);">
                   <strong style="text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">{{ ep.episode }}. {{ ep.title || `Episode ${ep.episode}` }}</strong>
                   <button
                     class="badge"
@@ -64,8 +64,8 @@
                     {{ ep.status === 'unknown' ? '…' : ep.status.toUpperCase() }}
                   </button>
                 </div>
-                <p v-if="formatAirDate(ep.air_date)" style="margin: 2px 0 0; font-size: 0.8em; color: var(--muted);">{{ formatAirDate(ep.air_date) }}</p>
-                <p v-if="ep.overview" style="margin: 4px 0 0; font-size: 0.85em; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ ep.overview }}</p>
+                <p v-if="formatAirDate(ep.air_date)" style="margin: 2px 0 0; font-size: var(--fs-sm); color: var(--muted);">{{ formatAirDate(ep.air_date) }}</p>
+                <p v-if="ep.overview" style="margin: 4px 0 0; font-size: var(--fs-sm); color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ ep.overview }}</p>
               </div>
             </div>
           </div>
@@ -77,14 +77,14 @@
       <div v-else>
         <h2 style="margin: 0 0 0.75rem;">Pistes audio et sous-titres</h2>
         <details class="season-details" style="margin-bottom: 0.5rem;" v-if="vfDetail.tracks?.length">
-          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: 8px; font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
+          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: var(--radius-sm); font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
             <span>Audio ({{ vfDetail.tracks.length }})</span>
             <ChevronDown size="16" />
           </summary>
           <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
             <article v-for="(track, index) in vfDetail.tracks" :key="'audio-'+index" class="detail-row" style="margin-bottom: 6px;">
               <div>
-                <strong>{{ track.lang ? track.lang.toUpperCase() : 'Inconnu' }} <span v-if="track.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>
+                <strong>{{ track.lang ? track.lang.toUpperCase() : 'Inconnu' }} <span v-if="track.is_default" style="font-weight: normal; font-size: var(--fs-sm); opacity: 0.8;">(Par défaut)</span></strong>
                 <span>{{ track.label || 'Audio' }}</span>
               </div>
               <span class="badge" :class="track.is_fr ? 'available' : ''">{{ track.lang ? track.lang.toUpperCase() : '??' }}</span>
@@ -94,14 +94,14 @@
         <p v-if="!vfDetail.tracks?.length" class="empty" style="margin-bottom: 0.5rem;">Aucune piste audio detectee.</p>
 
         <details class="season-details" v-if="vfDetail.subtitles?.length">
-          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: 8px; font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
+          <summary style="cursor: pointer; padding: 0.5rem; background: var(--surface-hover); border-radius: var(--radius-sm); font-weight: 500; display: flex; justify-content: space-between; align-items: center;">
             <span>Sous-titres ({{ vfDetail.subtitles.length }})</span>
             <ChevronDown size="16" />
           </summary>
           <div style="padding-top: 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--border); margin-top: 0.5rem;">
             <article v-for="(sub, index) in vfDetail.subtitles" :key="'sub-'+index" class="detail-row" style="margin-bottom: 6px;">
               <div>
-                <strong>{{ sub.lang ? sub.lang.toUpperCase() : 'Inconnu' }} <span v-if="sub.is_default" style="font-weight: normal; font-size: 0.85em; opacity: 0.8;">(Par défaut)</span></strong>
+                <strong>{{ sub.lang ? sub.lang.toUpperCase() : 'Inconnu' }} <span v-if="sub.is_default" style="font-weight: normal; font-size: var(--fs-sm); opacity: 0.8;">(Par défaut)</span></strong>
                 <span>{{ sub.label || 'Sous-titre' }}</span>
               </div>
               <span class="badge">{{ sub.lang ? sub.lang.toUpperCase() : '??' }}</span>

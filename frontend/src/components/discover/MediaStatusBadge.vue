@@ -31,11 +31,11 @@ const status = computed(() => {
   min-height: 24px;
   padding: 3px 9px;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 1px 5px rgba(0, 0, 0, .55);
   color: #fff;
   background: rgba(39, 39, 42, .94);
-  font-size: .76rem;
+  font-size: var(--fs-sm);
   font-weight: 800;
   line-height: 1.2;
   text-overflow: ellipsis;

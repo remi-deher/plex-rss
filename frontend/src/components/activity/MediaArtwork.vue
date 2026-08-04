@@ -20,5 +20,5 @@ const fallbackIcon=computed(()=>props.type==='track'?Music2:Clapperboard);
 </script>
 
 <style scoped>
-.media-artwork{display:grid;place-items:center;flex:none;overflow:hidden;border:1px solid rgba(255,255,255,.06);border-radius:8px;background:linear-gradient(145deg,#252525,#121212);color:var(--muted)}.media-artwork.small{width:42px;height:58px}.media-artwork.medium{width:54px;height:76px}.media-artwork.history{width:64px;height:92px}.media-artwork.large{width:104px;height:150px}.media-artwork img{width:100%;height:100%;object-fit:cover}.media-artwork svg{width:30%;height:auto}@media(max-width:480px){.media-artwork.history{width:58px;height:84px}}
+.media-artwork{display:grid;place-items:center;flex:none;overflow:hidden;border:1px solid rgba(255,255,255,.06);border-radius:var(--radius-sm);background:linear-gradient(145deg,#252525,#121212);color:var(--muted)}.media-artwork.small{width:42px;height:58px}.media-artwork.medium{width:54px;height:76px}.media-artwork.history{width:64px;height:92px}.media-artwork.large{width:104px;height:150px}.media-artwork img{width:100%;height:100%;object-fit:cover}.media-artwork svg{width:30%;height:auto}@media(max-width:480px){.media-artwork.history{width:58px;height:84px}}
 </style>

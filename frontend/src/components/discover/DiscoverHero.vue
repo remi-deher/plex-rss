@@ -44,16 +44,16 @@ const itemPath = computed(() => {
   min-height: clamp(330px, 48vw, 520px);
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background-color: var(--surface-2);
   background-position: center;
   background-size: cover;
 }
 .discover-hero-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(5, 7, 12, .96), rgba(5, 7, 12, .48) 60%, rgba(5, 7, 12, .12)), linear-gradient(0deg, rgba(5, 7, 12, .9), transparent 60%); }
-.discover-hero-content { position: relative; display: grid; gap: 12px; width: min(620px, 88%); padding: clamp(22px, 5vw, 54px); color: #fff; }
+.discover-hero-content { position: relative; display: grid; gap: var(--space-3); width: min(620px, 88%); padding: clamp(22px, 5vw, 54px); color: #fff; }
 .discover-hero h1 { margin: 0; font-size: clamp(2rem, 5vw, 4rem); line-height: 1; }
 .discover-hero p { display: -webkit-box; margin: 0; overflow: hidden; color: rgba(255, 255, 255, .82); line-height: 1.55; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.discover-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: .84rem; }
+.discover-hero-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); font-size: var(--fs-sm); }
 .discover-hero .primary { justify-self: start; text-decoration: none; }
 .hero-loading { background: linear-gradient(100deg, var(--surface-2) 20%, color-mix(in srgb, var(--surface-2) 55%, var(--border)) 40%, var(--surface-2) 60%); background-size: 220% 100%; animation: hero-shimmer 1.4s infinite; }
 @keyframes hero-shimmer { to { background-position-x: -220%; } }

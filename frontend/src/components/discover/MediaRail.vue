@@ -79,11 +79,11 @@ function scroll(direction) {
 </script>
 
 <style scoped>
-.media-rail { display: grid; gap: 12px; min-width: 0; }
-.media-rail header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
-.media-rail h2 { margin: 2px 0 0; font-size: 1.15rem; }
-.rail-actions { display: flex; align-items: center; gap: 7px; }
-.rail-actions > a { color: var(--muted); font-size: .8rem; text-decoration: none; }
+.media-rail { display: grid; gap: var(--space-3); min-width: 0; }
+.media-rail header { display: flex; align-items: end; justify-content: space-between; gap: var(--space-4); }
+.media-rail h2 { margin: 2px 0 0; font-size: var(--fs-lg); }
+.rail-actions { display: flex; align-items: center; gap: var(--space-2); }
+.rail-actions > a { color: var(--muted); font-size: var(--fs-sm); text-decoration: none; }
 .rail-actions button {
   display: grid;
   place-items: center;
@@ -91,7 +91,7 @@ function scroll(direction) {
   height: 32px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--text);
 }
@@ -100,7 +100,7 @@ function scroll(direction) {
   display: grid;
   grid-auto-columns: clamp(164px, 18vw, 220px);
   grid-auto-flow: column;
-  gap: 14px;
+  gap: var(--space-4);
   padding: 2px 2px 10px;
   overflow-x: auto;
   scroll-behavior: smooth;

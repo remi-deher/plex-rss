@@ -11,7 +11,7 @@
         <div>
           <h2>{{ meta.label || key }}</h2>
           <p>{{ meta.description }}</p>
-          <p v-if="!meta.enabled" class="text-sm error-text mt-2" style="font-size: 0.85em; color: var(--error);">
+          <p v-if="!meta.enabled" class="text-sm error-text mt-2" style="font-size: var(--fs-sm); color: var(--error);">
             <i class="bi bi-exclamation-triangle"></i> {{ meta.disabled_reason }}
           </p>
         </div>

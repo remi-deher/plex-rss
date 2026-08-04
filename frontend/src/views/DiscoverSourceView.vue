@@ -124,8 +124,8 @@ onMounted(load);
 </script>
 
 <style scoped>
-.discover-source-page { gap: 18px; }
-.back-link { justify-self: start; color: var(--muted); font-size: .82rem; text-decoration: none; }
+.discover-source-page { gap: var(--space-4); }
+.back-link { justify-self: start; color: var(--muted); font-size: var(--fs-sm); text-decoration: none; }
 .source-types { justify-self: start; }
 .source-grid { align-items: start; }
 .load-more { display: flex; justify-content: center; padding: 20px; }

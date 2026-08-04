@@ -36,20 +36,20 @@ const progressLabel = computed(() => {
 </script>
 
 <style scoped>
-.workflow-card { margin-bottom: 18px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); overflow: hidden; }
-.workflow-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 16px; }
-.workflow-heading h2 { margin: 0; font-size: 16px; }
-.workflow-heading span { color: var(--muted); font-size: 12px; text-align: right; }
+.workflow-card { margin-bottom: 18px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); overflow: hidden; }
+.workflow-heading { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; margin-bottom: 16px; }
+.workflow-heading h2 { margin: 0; font-size: var(--fs-base); }
+.workflow-heading span { color: var(--muted); font-size: var(--fs-sm); text-align: right; }
 .workflow-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); margin: 0; padding: 0; list-style: none; }
-.workflow-timeline li { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; padding: 0 8px 12px; color: var(--muted); text-align: center; }
+.workflow-timeline li { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); min-width: 0; padding: 0 8px 12px; color: var(--muted); text-align: center; }
 .workflow-timeline li::after { content: ''; position: absolute; z-index: 0; top: 11px; left: calc(50% + 12px); right: calc(-50% + 12px); height: 2px; background: var(--border); }
 .workflow-timeline li:last-child::after,.workflow-timeline li:last-of-type::after { display: none !important; content: none; }
 .workflow-marker { position: relative; z-index: 1; flex: 0 0 24px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-2); border: 2px solid var(--border); }
 .workflow-timeline li > div { width: 100%; min-width: 0; }
 .workflow-marker :deep(svg) { width: 13px; height: 13px; }
 .workflow-timeline strong, .workflow-timeline small { display: block; }
-.workflow-timeline strong { color: inherit; font-size: 13px; line-height: 1.25; }
-.workflow-timeline small { margin-top: 4px; font-size: 11px; }
+.workflow-timeline strong { color: inherit; font-size: var(--fs-sm); line-height: 1.25; }
+.workflow-timeline small { margin-top: 4px; font-size: var(--fs-xs); }
 .workflow-timeline .is-completed { color: var(--success, #42b883); }
 .workflow-timeline .is-completed::after { background: var(--success, #42b883); }
 .workflow-timeline .is-current { color: var(--text); }
@@ -58,14 +58,14 @@ const progressLabel = computed(() => {
 .workflow-timeline .is-error .workflow-marker { border-color: currentColor; }
 @media (min-width: 1025px) {
   .workflow-card { padding: 19px 20px; }
-  .workflow-heading h2 { font-size: 18px; }
-  .workflow-heading span { font-size: 13px; }
-  .workflow-timeline strong { font-size: 14px; line-height: 1.35; }
-  .workflow-timeline small { font-size: 12px; }
+  .workflow-heading h2 { font-size: var(--fs-lg); }
+  .workflow-heading span { font-size: var(--fs-sm); }
+  .workflow-timeline strong { font-size: var(--fs-md); line-height: 1.35; }
+  .workflow-timeline small { font-size: var(--fs-sm); }
 }
 @media (max-width: 720px) {
   .workflow-timeline { display: block; }
-  .workflow-timeline li { flex-direction: row; align-items: flex-start; gap: 9px; padding: 0 0 18px; text-align: left; }
+  .workflow-timeline li { flex-direction: row; align-items: flex-start; gap: var(--space-2); padding: 0 0 18px; text-align: left; }
   .workflow-timeline li > div { width: auto; padding-top: 3px; }
   .workflow-timeline li::after { top: 24px; bottom: 0; left: 11px; right: auto; width: 2px; height: auto; }
 }

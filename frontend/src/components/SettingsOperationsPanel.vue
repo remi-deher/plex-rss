@@ -13,7 +13,7 @@
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadSecrets"><RefreshCw/></button>
         </template>
         <div>
-          <strong style="display:block;margin-bottom:8px;font-size:13px">Token API</strong>
+          <strong style="display:block;margin-bottom:8px;font-size:var(--fs-sm)">Token API</strong>
           <code class="secret-box">{{ apiToken || (tokenActive ? 'Actif (valeur masquee)' : 'Aucun token genere') }}</code>
           <div class="actions">
             <button class="secondary" @click="generateToken"><KeyRound/>Generer</button>
@@ -21,7 +21,7 @@
           </div>
         </div>
         <div>
-          <strong style="display:block;margin-bottom:8px;font-size:13px">Secret webhook</strong>
+          <strong style="display:block;margin-bottom:8px;font-size:var(--fs-sm)">Secret webhook</strong>
           <code class="secret-box">{{ webhookSecret || (webhookActive ? 'Actif (valeur masquee)' : 'Aucun secret genere') }}</code>
           <div class="actions">
             <button class="secondary" @click="generateWebhook"><KeyRound/>Generer</button>
@@ -104,7 +104,7 @@ function episodeLabel(row){const season=row.season_number!=null?`S${String(row.s
 onMounted(()=>Promise.all([loadSecrets(),loadConflicts(),loadAcquisitions()]));
 </script>
 <style scoped>
-.operations-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.operation-summary-card{display:flex;align-items:flex-start;gap:10px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);text-decoration:none}.operation-summary-card:hover{border-color:var(--accent)}.operation-summary-card.alert{border-color:rgba(239,68,68,.35)}.operation-summary-card>svg{width:19px;color:var(--accent)}.operation-summary-card.alert>svg{color:var(--danger)}.operation-summary-card>div{display:grid;gap:2px}.operation-summary-card span{color:var(--muted);font-size:9px;text-transform:uppercase}.operation-summary-card strong{font-size:14px}.operation-summary-card small{color:var(--muted);font-size:9px}.operations-links{display:flex;gap:6px;overflow-x:auto}.operations-links a{padding:7px 10px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:10px;text-decoration:none;white-space:nowrap}.operations-links a.router-link-active{color:var(--accent);border-color:var(--accent)}
-.acquisition-counters,.acquisition-events{display:flex;gap:8px;flex-wrap:wrap}.acquisition-batch{border-top:1px solid var(--border);padding:14px 0;display:grid;gap:8px}.acquisition-head,.queue-observation{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.acquisition-head div,.queue-observation div{display:grid;gap:3px}.queue-observation{padding:10px;border-radius:8px;background:var(--surface-2)}.queue-observation.blocked{border:1px solid var(--danger)}.badge.danger{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
-@media(max-width:900px){.operations-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.operations-summary{grid-template-columns:1fr}.operations-links{position:sticky;top:8px;z-index:8;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:9px}}
+.operations-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap: var(--space-2)}.operation-summary-card{display:flex;align-items:flex-start;gap: var(--space-3);padding:13px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text);text-decoration:none}.operation-summary-card:hover{border-color:var(--accent)}.operation-summary-card.alert{border-color:rgba(239,68,68,.35)}.operation-summary-card>svg{width:19px;color:var(--muted)}.operation-summary-card.alert>svg{color:var(--danger)}.operation-summary-card>div{display:grid;gap: var(--space-1)}.operation-summary-card span{color:var(--muted);font-size:var(--fs-xs);}.operation-summary-card strong{font-size:var(--fs-md)}.operation-summary-card small{color:var(--muted);font-size:var(--fs-xs)}.operations-links{display:flex;gap: var(--space-2);overflow-x:auto}.operations-links a{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-pill);color:var(--muted);font-size:var(--fs-xs);text-decoration:none;white-space:nowrap}.operations-links a.router-link-active{color:var(--accent);border-color:var(--accent)}
+.acquisition-counters,.acquisition-events{display:flex;gap: var(--space-2);flex-wrap:wrap}.acquisition-batch{border-top:1px solid var(--border);padding:14px 0;display:grid;gap: var(--space-2)}.acquisition-head,.queue-observation{display:flex;justify-content:space-between;gap: var(--space-3);align-items:flex-start}.acquisition-head div,.queue-observation div{display:grid;gap: var(--space-1)}.queue-observation{padding:10px;border-radius:var(--radius-sm);background:var(--surface-2)}.queue-observation.blocked{border:1px solid var(--danger)}.badge.danger{background:color-mix(in srgb,var(--danger) 18%,transparent);color:var(--danger)}
+@media(max-width:900px){.operations-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.operations-summary{grid-template-columns:1fr}.operations-links{position:sticky;top:8px;z-index:8;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm)}}
 </style>

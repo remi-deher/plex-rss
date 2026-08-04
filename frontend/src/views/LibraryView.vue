@@ -492,7 +492,7 @@ onUnmounted(() => loadMoreObserver?.disconnect());
 .metric-card small {
   display: block;
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--fs-sm);
 }
 
 .load-more-row {
@@ -506,7 +506,7 @@ onUnmounted(() => loadMoreObserver?.disconnect());
 .library-result-count {
   margin: 0;
   color: var(--muted);
-  font-size: .75rem;
+  font-size: var(--fs-sm);
   text-align: right;
 }
 

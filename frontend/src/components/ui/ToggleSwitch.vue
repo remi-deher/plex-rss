@@ -28,9 +28,9 @@ defineEmits(['update:modelValue']);
 
 <style scoped>
 .ui-switch { position: relative; display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
-.ui-switch-label { color: var(--text); font-size: .72rem; font-weight: 600; white-space: nowrap; }
+.ui-switch-label { color: var(--text); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; }
 .ui-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.ui-switch-track { display: flex; align-items: center; width: 42px; height: 23px; padding: 3px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); transition: background .2s ease, border-color .2s ease; }
+.ui-switch-track { display: flex; align-items: center; width: 42px; height: 23px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-2); transition: background .2s ease, border-color .2s ease; }
 .ui-switch-thumb { width: 15px; height: 15px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: transform .2s ease, background .2s ease; }
 .ui-switch input:checked + .ui-switch-track { border-color: rgba(229, 160, 13, .65); background: rgba(229, 160, 13, .24); }
 .ui-switch input:checked + .ui-switch-track .ui-switch-thumb { transform: translateX(17px); }
