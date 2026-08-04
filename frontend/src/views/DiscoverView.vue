@@ -10,18 +10,72 @@
     <UiFeedback v-if="requestError" type="error" :message="requestError" dismissible @dismiss="requestError=''" />
     <UiFeedback v-if="requestSuccess" type="success" :message="requestSuccess" dismissible @dismiss="requestSuccess=''" />
 
-    <template v-if="mode === 'home'">
-      <section class="home-search">
+    <section class="discover-command" :class="{ 'home-search': mode === 'home' }">
+      <div class="discover-search">
         <Search aria-hidden="true" />
         <input
           v-model="query"
           type="search"
           placeholder="Rechercher un film ou une série"
           aria-label="Rechercher un film ou une série"
-          @input="startSearch"
+          @input="handleSearchInput"
         >
-      </section>
+        <button
+          v-if="mode === 'explore'"
+          class="filter-toggle"
+          :class="{ active: filtersOpen || activeFilterCount }"
+          :aria-expanded="filtersOpen"
+          aria-controls="discover-filters"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <SlidersHorizontal aria-hidden="true" />Filtres
+          <span v-if="activeFilterCount" :aria-label="`${activeFilterCount} filtres actifs`">{{ activeFilterCount }}</span>
+        </button>
+      </div>
 
+      <template v-if="mode === 'explore'">
+        <div class="discover-sections" aria-label="Sélection du catalogue">
+          <button
+            v-for="entry in sections"
+            :key="entry.value"
+            :class="{ active: section === entry.value && !query }"
+            :aria-pressed="section === entry.value && !query"
+            @click="setSection(entry.value)"
+          >{{ entry.label }}</button>
+        </div>
+
+        <div id="discover-filters" class="discover-filters" :class="{ open: filtersOpen }">
+          <div class="segmented" aria-label="Type de média">
+            <button
+              v-for="entry in mediaTypes"
+              :key="entry.value"
+              :class="{ active: mediaType === entry.value }"
+              :aria-pressed="mediaType === entry.value"
+              @click="setMediaType(entry.value)"
+            >{{ entry.label }}</button>
+          </div>
+          <select v-if="section === 'genres' && !query" v-model="genre" aria-label="Genre" @change="reload">
+            <option value="">Tous les genres</option>
+            <option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+          </select>
+          <select v-model="availability" aria-label="Disponibilité" @change="reload">
+            <option value="">Tous les états</option>
+            <option value="available">Disponible sur Plex</option>
+            <option value="requested">Déjà demandé</option>
+            <option value="new">À demander</option>
+          </select>
+          <select v-model="sourceKey" aria-label="Diffuseur ou studio" @change="selectSource">
+            <option value="">Tous les diffuseurs et studios</option>
+            <option v-for="source in sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">
+              {{ source.name }}
+            </option>
+          </select>
+          <button v-if="activeFilterCount" class="secondary" @click="resetFilters">Réinitialiser</button>
+        </div>
+      </template>
+    </section>
+
+    <template v-if="mode === 'home'">
       <DiscoverHero :item="home.hero.item" :loading="home.hero.loading" />
       <UiFeedback v-if="home.hero.error" type="error" :message="home.hero.error" retry @retry="loadHomeGroup" />
 
@@ -153,68 +207,6 @@
     </template>
 
     <template v-else>
-      <section class="discover-command">
-        <div class="discover-search">
-          <Search aria-hidden="true" />
-          <input
-            v-model="query"
-            type="search"
-            placeholder="Rechercher un film ou une série"
-            aria-label="Rechercher un film ou une série"
-            @input="scheduleSearch"
-          >
-          <button
-            class="filter-toggle"
-            :class="{ active: filtersOpen || activeFilterCount }"
-            :aria-expanded="filtersOpen"
-            aria-controls="discover-filters"
-            @click="filtersOpen = !filtersOpen"
-          >
-            <SlidersHorizontal aria-hidden="true" />Filtres
-            <span v-if="activeFilterCount" :aria-label="`${activeFilterCount} filtres actifs`">{{ activeFilterCount }}</span>
-          </button>
-        </div>
-
-        <div class="discover-sections" aria-label="Sélection du catalogue">
-          <button
-            v-for="entry in sections"
-            :key="entry.value"
-            :class="{ active: section === entry.value && !query }"
-            :aria-pressed="section === entry.value && !query"
-            @click="setSection(entry.value)"
-          >{{ entry.label }}</button>
-        </div>
-
-        <div id="discover-filters" class="discover-filters" :class="{ open: filtersOpen }">
-          <div class="segmented" aria-label="Type de média">
-            <button
-              v-for="entry in mediaTypes"
-              :key="entry.value"
-              :class="{ active: mediaType === entry.value }"
-              :aria-pressed="mediaType === entry.value"
-              @click="setMediaType(entry.value)"
-            >{{ entry.label }}</button>
-          </div>
-          <select v-if="section === 'genres' && !query" v-model="genre" aria-label="Genre" @change="reload">
-            <option value="">Tous les genres</option>
-            <option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-          </select>
-          <select v-model="availability" aria-label="Disponibilité" @change="reload">
-            <option value="">Tous les états</option>
-            <option value="available">Disponible sur Plex</option>
-            <option value="requested">Déjà demandé</option>
-            <option value="new">À demander</option>
-          </select>
-          <select v-model="sourceKey" aria-label="Diffuseur ou studio" @change="selectSource">
-            <option value="">Tous les diffuseurs et studios</option>
-            <option v-for="source in sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">
-              {{ source.name }}
-            </option>
-          </select>
-          <button v-if="activeFilterCount" class="secondary" @click="resetFilters">Réinitialiser</button>
-        </div>
-      </section>
-
       <div class="discover-heading">
         <div>
           <span class="eyebrow">{{ query ? 'Résultats' : sectionLabel }}</span>
@@ -387,6 +379,10 @@ function startSearch() {
   mode.value = 'explore';
   syncExplorerUrl();
   scheduleSearch();
+}
+function handleSearchInput() {
+  if (mode.value === 'home') startSearch();
+  else scheduleSearch();
 }
 
 function syncExplorerUrl() {
@@ -595,9 +591,10 @@ onBeforeUnmount(() => window.removeEventListener('popstate', applyExplorerUrl));
 .discover-mode { display: inline-flex; justify-self: start; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
 .discover-mode button { padding: 7px 14px; border: 0; border-radius: 999px; color: var(--muted); background: transparent; }
 .discover-mode button.active { color: #111; background: var(--accent); }
-.home-search { display: flex; align-items: center; gap: 10px; max-width: 760px; padding: 12px 15px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.home-search svg { width: 19px; color: var(--muted); }
-.home-search input { flex: 1; min-width: 0; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 1rem; }
+.home-search { max-width: 760px; padding: 12px 15px; }
+.home-search .discover-search { gap: 10px; }
+.home-search .discover-search svg { width: 19px; }
+.home-search .discover-search input { font-size: 1rem; }
 .discover-home-rails { display: grid; gap: 30px; }
 .discover-sources { display: grid; gap: 12px; min-width: 0; }
 .discover-sources header { display: flex; align-items: end; justify-content: space-between; gap: 16px; }

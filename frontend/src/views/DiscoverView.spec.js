@@ -16,9 +16,10 @@ function media(id, title = `Média ${id}`) {
   return { tmdb_id: id, media_type: 'movie', title, year: 2025, vote: 7, poster_url: `/poster-${id}.jpg` };
 }
 
-function mountView({ home = false, url = '' } = {}) {
+function mountView({ home = false, url = '', attachTo } = {}) {
   window.history.replaceState({}, '', url || (home ? '/discover' : '/discover/explore'));
   return mount(DiscoverView, {
+    attachTo,
     global: {
       stubs: {
         PageHeader: true,
@@ -99,6 +100,20 @@ describe('DiscoverView', () => {
 
     expect(wrapper.text()).toContain('Nouveau');
     expect(wrapper.text()).not.toContain('Ancien');
+  });
+
+  it('conserve le focus du champ partagé lors du passage de l’accueil à Explorer', async () => {
+    apiMock.mockImplementation(path => path.includes('/genres') ? Promise.resolve([]) : Promise.resolve(page([])));
+    const wrapper = mountView({ home: true, attachTo: document.body });
+    await flushPromises();
+    const input = wrapper.get('input[type="search"]');
+
+    input.element.focus();
+    await input.setValue('dune');
+
+    expect(wrapper.findAll('input[type="search"]')).toHaveLength(1);
+    expect(document.activeElement).toBe(input.element);
+    wrapper.unmount();
   });
 
   it('rend les cartes comme de vrais liens accessibles', async () => {
