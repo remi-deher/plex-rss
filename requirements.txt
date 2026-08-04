@@ -23,4 +23,4 @@ redis==5.3.1
 arq==0.28.0
 tzdata==2026.2
 websockets==17.0.1
-pillow==12.2.0
+pillow==12.3.0
