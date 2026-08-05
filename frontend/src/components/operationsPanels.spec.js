@@ -57,7 +57,7 @@ describe('panneaux opérationnels', () => {
   it('désactive les actions pendant une opération de masse', () => {
     const item = { id: 1, _kind: 'request', title: 'Film test', media_type: 'movie', status: 'failed', arr_id: 8 };
     const wrapper = mount(LibraryCard, {
-      props: { item, isAdmin: true, busy: true },
+      props: { item, canModerate: true, busy: true },
       global: { stubs: { MediaPoster: { template: '<div><slot name="badges" /></div>' } } },
     });
 

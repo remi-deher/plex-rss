@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db_async as get_db
-from app.dependencies import require_admin, require_auth
+from app.dependencies import require_admin, require_auth, require_moderator
 from app.main import app
 from app.models import Base, LibraryItem, Settings
 from app.routers.vff_api import _arr_image_url
@@ -25,11 +25,13 @@ def db(async_db):
 def client(db):
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_moderator] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     c = TestClient(app, raise_server_exceptions=True)
     yield c
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(require_moderator, None)
     app.dependency_overrides.pop(get_db, None)
 
 

@@ -96,6 +96,8 @@
           />
         </template>
 
+        <MediaSaga v-if="kind === 'discover'" :saga="detail.saga" />
+
         <MediaRecommendations
           v-if="kind === 'discover'"
           :items="recommendations"
@@ -120,9 +122,10 @@ import MediaCalendarTab from "@/components/media/MediaCalendarTab.vue";
 import MediaAudioSection from "@/components/media/MediaAudioSection.vue";
 import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
+import MediaSaga from "@/components/media/MediaSaga.vue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import { useConfirm } from "@/composables/useConfirm";
-import { isAdminSession, loadSession } from "@/composables/useSession";
+import { canModerateSession, loadSession } from "@/composables/useSession";
 import { useSeasonEpisodes } from "@/composables/useSeasonEpisodes";
 import { useRequestActions } from "@/composables/useRequestActions";
 
@@ -203,7 +206,7 @@ async function loadUsers() {
 }
 
 async function loadAdminFlag() {
-  admin.value = isAdminSession(await loadSession());
+  admin.value = canModerateSession(await loadSession());
 }
 
 async function load() {
@@ -223,7 +226,7 @@ async function load() {
     detail.value = kind.value === 'discover' ? payload : { ...payload.media, ...payload };
     if (kind.value === 'discover') {
       const session = await loadSession();
-      admin.value = isAdminSession(session);
+      admin.value = canModerateSession(session);
       sessionUserId.value = session?.plex_user_id || '';
       if (admin.value) {
         const service = detail.value.media_type === 'show' ? 'sonarr' : 'radarr';

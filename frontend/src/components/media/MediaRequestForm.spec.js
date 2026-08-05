@@ -33,7 +33,7 @@ describe('MediaRequestForm', () => {
     expect(wrapper.emitted('submit')).toHaveLength(1);
   });
 
-  it('réserve le demandeur et le dossier racine aux options administrateur', () => {
+  it('ouvre une modale de configuration pour un administrateur avant d’envoyer la demande', async () => {
     const wrapper = render(
       { media_type: 'movie' },
       {
@@ -43,8 +43,15 @@ describe('MediaRequestForm', () => {
       },
     );
 
-    expect(wrapper.text()).toContain('Administration');
+    expect(wrapper.text()).not.toContain('Administration');
+    expect(wrapper.findAll('select')).toHaveLength(0);
+
+    await wrapper.find('.request-submit').trigger('click');
+    expect(wrapper.emitted('submit')).toBeUndefined();
     expect(wrapper.findAll('select')).toHaveLength(2);
+
+    await wrapper.find('.request-options-modal .primary').trigger('click');
+    expect(wrapper.emitted('submit')).toHaveLength(1);
   });
 
   it('permet de rejoindre puis suivre une demande existante', async () => {

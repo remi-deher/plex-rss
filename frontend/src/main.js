@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import App from "./App.vue";
+import { isAdminSession, isModeratorSession, loadSession } from "./composables/useSession";
 import PageHeader from "./components/ui/PageHeader.vue";
 import StatusBadge from "./components/ui/StatusBadge.vue";
 import UiFeedback from "./components/ui/UiFeedback.vue";
@@ -42,10 +43,11 @@ window.addEventListener("vite:preloadError", event => {
 });
 
 const routes = [
-  { path: "/", redirect: "/dashboard" },
+  { path: "/", redirect: "/discover" },
   { path: "/dashboard", component: DashboardView },
   { path: "/discover/source/:kind/:id", component: DiscoverSourceView },
   { path: "/discover/explore", component: DiscoverView },
+  { path: "/discover/requests", component: DiscoverView },
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },
@@ -66,7 +68,7 @@ const routes = [
   { path: "/profile", component: ProfileView },
   { path: "/releases/:requestId", component: ReleaseSearchView },
   { path: "/media/:kind/:id", component: MediaDetailView },
-  { path: "/:pathMatch(.*)*", redirect: "/dashboard" },
+  { path: "/:pathMatch(.*)*", redirect: "/discover" },
 ];
 
 const router = createRouter({
@@ -75,6 +77,30 @@ const router = createRouter({
 });
 
 router.onError(recoverFromStaleAssets);
+
+// Aucune page admin-only (Dashboard, Telechargements, Activite, Insights,
+// Administration...) n'est proteguee cote route avant ce garde : le masquage de nav
+// (App.vue, v-if="isAdmin"/"canModerate") empechait de les voir dans le menu, mais
+// naviguer directement par URL les affichait quand meme (donnees en echec 403 en
+// cascade, mais la page se montait). Allowlist plutot que blacklist : toute future page
+// admin reste protegee par defaut sans avoir a l'ajouter explicitement ici.
+const PLAIN_USER_ALLOWED_PREFIXES = ["/discover", "/calendar", "/profile", "/media", "/releases"];
+router.beforeEach(async (to) => {
+  const session = await loadSession();
+  // `to.redirectedFrom` porte le chemin d'origine quand une redirection statique de la
+  // table de routes (ex: "/" -> "/discover") a deja resolu `to` vers autre chose : sans
+  // ca, la racine ne serait jamais distinguable d'une visite directe de "/discover".
+  const originalPath = to.redirectedFrom?.path ?? to.path;
+  if (originalPath === "/") {
+    const landing = isAdminSession(session) ? "/dashboard" : "/discover";
+    if (to.path !== landing) return landing;
+    return true;
+  }
+  if (session && !isAdminSession(session) && !isModeratorSession(session)) {
+    if (!PLAIN_USER_ALLOWED_PREFIXES.some(prefix => to.path.startsWith(prefix))) return "/discover";
+  }
+  return true;
+});
 
 createApp(App)
   .component('PageHeader', PageHeader)

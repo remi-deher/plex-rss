@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import current_user, require_admin, require_auth
+from ..dependencies import current_user, require_auth, require_moderator
 from ..models import LibraryItem, MediaIssue, MediaRequest
 from ..services import radarr, sonarr
 from ..utils import async_get_or_404, now_utc_naive
@@ -86,7 +86,7 @@ async def create_media_issue(
     return _serialize_issue(issue)
 
 
-@router.get("/media/issues", dependencies=[Depends(require_admin)])
+@router.get("/media/issues", dependencies=[Depends(require_moderator)])
 async def list_media_issues(status: Optional[str] = "open", db: AsyncSession = Depends(get_db_async)):
     q = select(MediaIssue)
     if status:
@@ -94,7 +94,7 @@ async def list_media_issues(status: Optional[str] = "open", db: AsyncSession = D
     return [_serialize_issue(issue) for issue in (await db.execute(q.order_by(MediaIssue.created_at.desc()).limit(200))).scalars().all()]
 
 
-@router.patch("/media/issues/{issue_id}", dependencies=[Depends(require_admin)])
+@router.patch("/media/issues/{issue_id}", dependencies=[Depends(require_moderator)])
 async def update_media_issue(issue_id: int, body: MediaIssueUpdate, db: AsyncSession = Depends(get_db_async)):
     issue = await async_get_or_404(db, MediaIssue, issue_id, "Issue not found")
     if body.status is not None:
@@ -109,7 +109,7 @@ async def update_media_issue(issue_id: int, body: MediaIssueUpdate, db: AsyncSes
     return _serialize_issue(issue)
 
 
-@router.post("/media/issues/{issue_id}/retry", dependencies=[Depends(require_admin)])
+@router.post("/media/issues/{issue_id}/retry", dependencies=[Depends(require_moderator)])
 async def retry_issue_media_search(issue_id: int, db: AsyncSession = Depends(get_db_async)):
     issue = await async_get_or_404(db, MediaIssue, issue_id, "Issue not found")
     arr_id = None

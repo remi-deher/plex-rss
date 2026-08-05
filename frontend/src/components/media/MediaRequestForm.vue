@@ -33,7 +33,7 @@
           <button v-if="canJoin" class="primary" :disabled="busy" @click="$emit('join')"><UserPlus /> Ajouter à mes demandes</button>
           <RouterLink :to="`/media/request/${detail.request_id}`" class="secondary">Suivre la demande <ChevronRight /></RouterLink>
         </template>
-        <button v-else-if="state === 'requestable'" class="primary request-submit" :disabled="submitDisabled" @click="$emit('submit')">
+        <button v-else-if="state === 'requestable'" class="primary request-submit" :disabled="submitDisabled" @click="handleRequestClick">
           <PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}
         </button>
         <span v-else class="request-available-label"><CheckCircle2 /> Disponible dans Plex</span>
@@ -83,25 +83,12 @@
       </div>
     </details>
 
-    <details v-if="admin && ((state === 'requestable' && (requesters.length || folders.length)) || detail.request_id)" class="request-options admin-options">
+    <details v-if="admin && detail.request_id" class="request-options admin-options">
       <summary>
         <span>Administration</span>
         <small>Options et actions techniques</small>
       </summary>
-      <div v-if="state === 'requestable'" class="admin-options-grid">
-        <label v-if="requesters.length">Demandeur
-          <select v-model="form.plex_user_id">
-            <option v-for="user in requesters" :key="user.plex_user_id" :value="user.plex_user_id">{{ user.custom_name || user.display_name || user.plex_user_id }}</option>
-          </select>
-        </label>
-        <label v-if="folders.length">Dossier racine
-          <select v-model="form.root_folder">
-            <option value="">Dossier par défaut</option>
-            <option v-for="folder in folders" :key="folder.path || folder" :value="folder.path || folder">{{ folder.path || folder }}</option>
-          </select>
-        </label>
-      </div>
-      <div v-if="detail.request_id" class="admin-action-row">
+      <div class="admin-action-row">
         <button v-if="detail.request_status === 'pending_approval'" class="primary" :disabled="busy" @click="$emit('approve')"><Check /> Approuver</button>
         <button v-if="state === 'failed'" class="secondary" :disabled="busy" @click="$emit('retry')"><RotateCcw /> Relancer</button>
         <RouterLink :to="`/media/request/${detail.request_id}`" class="secondary">Administration complète <ChevronRight /></RouterLink>
@@ -110,13 +97,29 @@
   </section>
 
   <div v-if="state === 'requestable'" class="mobile-request-bar">
-    <button class="primary" :disabled="submitDisabled" @click="$emit('submit')"><PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}</button>
+    <button class="primary" :disabled="submitDisabled" @click="handleRequestClick"><PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}</button>
   </div>
+
+  <RequestOptionsModal
+    :open="showOptions"
+    :media-title="detail.title"
+    :requesters="requesters"
+    :folders="folders"
+    :plex-user-id="form.plex_user_id"
+    :root-folder="form.root_folder"
+    :busy="busy"
+    :confirm-label="requestLabel"
+    @update:plex-user-id="v => form.plex_user_id = v"
+    @update:root-folder="v => form.root_folder = v"
+    @cancel="showOptions = false"
+    @confirm="() => { showOptions = false; $emit('submit'); }"
+  />
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { AlertTriangle, Check, CheckCircle2, ChevronRight, Clock3, Download, ExternalLink, PlusCircle, RotateCcw, UserPlus } from '@lucide/vue';
+import RequestOptionsModal from './RequestOptionsModal.vue';
 
 const props = defineProps({
   detail: { type: Object, required: true },
@@ -127,7 +130,13 @@ const props = defineProps({
   admin: { type: Boolean, default: false },
   currentUserId: { type: String, default: '' },
 });
-defineEmits(['submit', 'join', 'retry', 'approve']);
+const emit = defineEmits(['submit', 'join', 'retry', 'approve']);
+
+const showOptions = ref(false);
+function handleRequestClick() {
+  if (props.admin) showOptions.value = true;
+  else emit('submit');
+}
 
 const seasonNumbers = computed(() => Array.from({ length: Number(props.detail?.number_of_seasons || 0) }, (_, index) => index + 1));
 const allSeasonsSelected = computed(() => seasonNumbers.value.length > 0 && seasonNumbers.value.every(season => props.form.seasons.includes(season)));
@@ -274,8 +283,6 @@ function formatStepDate(value) {
 .season-choice-head { padding: 2px 20px 10px; }
 .season-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2); padding: 0 20px 18px; }
 .season-choice-grid .check, .season-choice-head .check { display: flex; align-items: center; gap: var(--space-2); }
-.admin-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); padding: 0 20px 18px; }
-.admin-options-grid label { display: grid; gap: var(--space-2); font-size: var(--fs-sm); font-weight: 600; }
 .admin-action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0 20px 18px; }
 .admin-action-row :is(a, button) { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; }
 .season-progress-list { display: grid; gap: var(--space-3); padding: 0 20px 18px; }
@@ -291,7 +298,6 @@ function formatStepDate(value) {
   .request-panel-action :is(a, button), .request-available-label { width: 100%; }
   .request-submit { min-height: 46px; }
   .request-progress-step { justify-content: flex-start; padding-left: 16px; }
-  .admin-options-grid { grid-template-columns: 1fr; }
   .mobile-request-bar {
     position: fixed;
     z-index: 44;

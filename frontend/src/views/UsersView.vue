@@ -2,7 +2,7 @@
   <div class="page">
     <PageHeader title="Utilisateurs" description="Comptes Plex, Seer, rôles et préférences de notification." eyebrow="Administration"><button class="secondary" :disabled="busy" @click="syncSeer"><RefreshCw/>Synchroniser Seer</button><button class="primary" @click="openCreate"><UserPlus/>Ajouter</button></PageHeader>
     <section class="user-metrics"><button v-for="metric in metrics" :key="metric.key" :class="{active:attention===metric.filter}" @click="attention=attention===metric.filter?'':metric.filter"><component :is="metric.icon"/><div><span>{{ metric.label }}</span><strong>{{ metric.value }}</strong><small>{{ metric.detail }}</small></div></button></section>
-    <FilterBar class="users-filter-bar" :active-count="activeFilterCount" :result-count="filtered.length" @reset="resetFilters"><template #primary><input v-model="query" class="search" type="search" placeholder="Nom, identifiant ou email" aria-label="Rechercher un utilisateur"></template><template #filters><select v-model="status"><option value="">Tous les statuts</option><option value="enabled">Actifs</option><option value="disabled">Désactivés</option></select><select v-model="role"><option value="">Tous les rôles</option><option value="admin">Administrateurs</option><option value="user">Utilisateurs</option></select><select v-model="attention"><option value="">Toutes les situations</option><option value="pending">Approbations en attente</option><option value="missing_email">Sans email</option><option value="notification_error">Erreur de notification</option></select><select v-model="source"><option value="">Toutes les sources</option><option v-for="value in sources" :key="value">{{ value }}</option></select><select v-model="sort"><option value="name">Nom</option><option value="requests">Demandes</option><option value="activity">Activité récente</option></select></template></FilterBar>
+    <FilterBar class="users-filter-bar" :active-count="activeFilterCount" :result-count="filtered.length" @reset="resetFilters"><template #primary><input v-model="query" class="search" type="search" placeholder="Nom, identifiant ou email" aria-label="Rechercher un utilisateur"></template><template #filters><select v-model="status"><option value="">Tous les statuts</option><option value="enabled">Actifs</option><option value="disabled">Désactivés</option></select><select v-model="role"><option value="">Tous les rôles</option><option value="admin">Administrateurs</option><option value="moderator">Modérateurs</option><option value="user">Utilisateurs</option></select><select v-model="attention"><option value="">Toutes les situations</option><option value="pending">Approbations en attente</option><option value="missing_email">Sans email</option><option value="notification_error">Erreur de notification</option></select><select v-model="source"><option value="">Toutes les sources</option><option v-for="value in sources" :key="value">{{ value }}</option></select><select v-model="sort"><option value="name">Nom</option><option value="requests">Demandes</option><option value="activity">Activité récente</option></select></template></FilterBar>
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load"/><UiFeedback v-if="message" type="success" :message="message" dismissible @dismiss="message=''"/>
 
     <UsersTable ref="tableRef" :rows="filtered" :loading="loading" @open="openUser" @toggle="toggle" @bulk-status="bulkStatus" @bulk-notify="bulkNotify" @bulk-permissions="bulkPermissions" @bulk-delete="bulkDelete"/>
@@ -23,6 +23,7 @@
       @user-action="userAction"
       @unlink-seer="unlinkSeer"
       @merge="mergeUser"
+      @set-password="setPassword"
     />
     <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
   </div>
@@ -43,7 +44,7 @@ const loading = ref(false), busy = ref(false), error = ref(''), editorError = re
 const tableRef = ref(null), drawerRef = ref(null);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
-const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, notify_vf_anime: false, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
+const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, notify_vf_anime: false, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, source: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
 const form = reactive({ ...defaults });
 
 const sources = computed(() => [...new Set(users.value.map(x => x.source).filter(Boolean))]);
@@ -79,9 +80,17 @@ async function saveUser() {
   try {
     const path = creating.value ? '/api/users' : `/api/users/${editing.value.id}`;
     const saved = await api(path, { method: creating.value ? 'POST' : 'PUT', body: JSON.stringify(form) });
+    const initialPassword = creating.value ? drawerRef.value?.initialPassword : null;
+    if (creating.value && form.source === 'local' && initialPassword) {
+      await api(`/api/users/${saved.id}/password`, { method: 'POST', body: JSON.stringify({ password: initialPassword }) });
+    }
     await load(); message.value = 'Utilisateur enregistre.';
     if (creating.value) await openUser(saved.id); else await openUser(editing.value.id);
   } catch (e) { editorError.value = e.message; } finally { busy.value = false; }
+}
+async function setPassword(password) {
+  try { await api(`/api/users/${editing.value.id}/password`, { method: 'POST', body: JSON.stringify({ password }) }); message.value = 'Mot de passe modifie.'; }
+  catch (e) { editorError.value = e.message; }
 }
 async function toggle(user) { try { await api(`/api/users/${user.id}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled: !user.enabled }) }); await load(); } catch (e) { error.value = e.message; } }
 async function deleteUser() { if (!await askConfirm({ title: 'Supprimer cet utilisateur ?', message: `${displayName(editing.value)} sera supprimé définitivement.`, confirmLabel: 'Supprimer', danger: true })) return; await api(`/api/users/${editing.value.id}`, { method: 'DELETE' }); closeEditor(); await load(); }

@@ -13,7 +13,7 @@ from sqlalchemy.future import select
 
 from ..cache import cache
 from ..database import AsyncSessionLocal, get_db_async
-from ..dependencies import current_user, require_admin, require_auth
+from ..dependencies import current_user, require_admin, require_auth, require_moderator
 from ..models import (
     ArrInstance,
     LibraryItem,
@@ -460,7 +460,7 @@ async def recheck_plex(
     request_id: Optional[int] = None,
     library_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db_async),
-    _: None = Depends(require_admin),
+    _: None = Depends(require_moderator),
 ):
     """Revérifie si un média (souvent une « anomalie Plex ») est désormais indexé par Plex.
 
@@ -666,14 +666,15 @@ async def _needs_approval(
 ) -> bool:
     """Détermine si une demande doit passer par la file de validation admin.
 
-    Jamais pour un admin/owner (ni un appel token API) : si un admin redemande
-    lui-même un média qu'il a supprimé, c'est déjà la décision consciente qui
-    lève le blocage — pas la peine d'en exiger une seconde. Sinon, en attente si
-    l'approbation est activée globalement et l'utilisateur pas auto-approuvé, OU
-    si ce média a été supprimé par un admin (voir app.services.deleted_media) —
-    peu importe alors le réglage d'auto-approbation, un humain doit revalider.
+    Jamais pour un admin/owner/modérateur (ni un appel token API) : si un
+    admin/modérateur redemande lui-même un média qu'il a supprimé, c'est déjà la
+    décision consciente qui lève le blocage — pas la peine d'en exiger une
+    seconde. Sinon, en attente si l'approbation est activée globalement et
+    l'utilisateur pas auto-approuvé, OU si ce média a été supprimé par un admin
+    (voir app.services.deleted_media) — peu importe alors le réglage
+    d'auto-approbation, un humain doit revalider.
     """
-    if not caller or caller.get("is_owner") or caller.get("role") == "admin":
+    if not caller or caller.get("is_owner") or caller.get("role") in ("admin", "moderator"):
         return False
     if body and await deleted_media.is_tombstoned(
         db, body.media_type, tmdb_id=body.tmdb_id, tvdb_id=body.tvdb_id, imdb_id=body.imdb_id

@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db_async as get_db
-from app.dependencies import require_admin, require_api_scope, require_auth
+from app.dependencies import require_admin, require_api_scope, require_auth, require_moderator
 from app.main import app
 from app.models import Base, LibraryItem, MediaIssue, Settings
 from app.services.totp import _totp_at, generate_secret, verify_code
@@ -25,6 +25,7 @@ def _db():
 def _client(db):
     app.dependency_overrides[require_auth] = lambda: None
     app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_moderator] = lambda: None
     app.dependency_overrides[get_db] = lambda: db
     return TestClient(app, raise_server_exceptions=False)
 
@@ -32,6 +33,7 @@ def _client(db):
 def _cleanup():
     app.dependency_overrides.pop(require_auth, None)
     app.dependency_overrides.pop(require_admin, None)
+    app.dependency_overrides.pop(require_moderator, None)
     app.dependency_overrides.pop(get_db, None)
 
 

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import require_admin
+from ..dependencies import require_moderator
 from ..models import MediaRequest, PlexUser
 from ..serializers import format_datetime
 from ..services.vf_cache import delete_request_episode_cache
@@ -72,7 +72,7 @@ async def _merge_entries(keeper: MediaRequest, dup: MediaRequest, db: AsyncSessi
     await db.delete(dup)
 
 @router.get("/conflicts")
-async def list_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+async def list_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_moderator)):
     """Retourne tous les conflits détectés, filtrés des ignorés."""
     ignored = _load_ignored()
     all_reqs = (await db.execute(select(MediaRequest))).scalars().all()
@@ -134,7 +134,7 @@ async def list_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Dep
     }
 
 @router.post("/conflicts/resolve")
-async def resolve_conflict(body: dict, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+async def resolve_conflict(body: dict, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_moderator)):
     keep_id: int = body.get("keep_id")
     delete_ids: list[int] = body.get("delete_ids", [])
     if not keep_id or not delete_ids:
@@ -150,7 +150,7 @@ async def resolve_conflict(body: dict, db: AsyncSession = Depends(get_db_async),
     return {"ok": True, "kept": keep_id, "deleted": delete_ids}
 
 @router.post("/conflicts/auto-resolve")
-async def auto_resolve_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+async def auto_resolve_conflicts(db: AsyncSession = Depends(get_db_async), _: None = Depends(require_moderator)):
     """Résout automatiquement tous les conflits tmdb : garde l'entrée Seer."""
     all_reqs = (await db.execute(select(MediaRequest))).scalars().all()
     tvdb_groups: dict[tuple, list[MediaRequest]] = defaultdict(list)
@@ -174,7 +174,7 @@ async def auto_resolve_conflicts(db: AsyncSession = Depends(get_db_async), _: No
     return {"ok": True, "resolved": resolved}
 
 @router.post("/conflicts/ignore")
-def ignore_conflict(body: dict, _: None = Depends(require_admin)):
+def ignore_conflict(body: dict, _: None = Depends(require_moderator)):
     """Marque un conflit comme ignoré (ne réapparaîtra plus)."""
     key: str = body.get("key")
     if not key:
@@ -185,7 +185,7 @@ def ignore_conflict(body: dict, _: None = Depends(require_admin)):
     return {"ok": True}
 
 @router.delete("/conflicts/ignore/{key:path}")
-def unignore_conflict(key: str, _: None = Depends(require_admin)):
+def unignore_conflict(key: str, _: None = Depends(require_moderator)):
     """Retire un conflit de la liste des ignorés."""
     ignored = _load_ignored()
     ignored.discard(key)
@@ -193,7 +193,7 @@ def unignore_conflict(key: str, _: None = Depends(require_admin)):
     return {"ok": True}
 
 @router.delete("/conflicts/no-tmdb/{request_id}")
-async def delete_no_tmdb(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+async def delete_no_tmdb(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_moderator)):
     req = await db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")
@@ -205,7 +205,7 @@ async def delete_no_tmdb(request_id: int, db: AsyncSession = Depends(get_db_asyn
     return {"ok": True}
 
 @router.delete("/conflicts/orphan/{request_id}")
-async def delete_orphan(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_admin)):
+async def delete_orphan(request_id: int, db: AsyncSession = Depends(get_db_async), _: None = Depends(require_moderator)):
     req = await db.get(MediaRequest, request_id)
     if not req:
         raise HTTPException(404, "Entrée introuvable")

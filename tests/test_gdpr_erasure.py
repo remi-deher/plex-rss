@@ -5,6 +5,7 @@ demandes orphelines, etc.).
 """
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -24,6 +25,12 @@ from app.models import (
 from app.routers.users_api import BulkDeleteUpdate, bulk_delete_users, delete_user
 from app.services.gdpr import erase_user_data, export_user_data
 from tests.async_support import TestSession
+
+
+def _request():
+    request = MagicMock()
+    request.session = {}
+    return request
 
 
 @pytest.fixture()
@@ -126,7 +133,7 @@ async def test_erase_leaves_other_users_untouched(db):
 async def test_delete_user_endpoint_erases_and_removes_account(db):
     alice, _bob = _seed_alice_and_bob(db)
 
-    result = await delete_user(alice.id, db)
+    result = await delete_user(alice.id, _request(), db)
 
     assert result["status"] == "deleted"
     assert result["erased"]["requests"] == 1
@@ -175,7 +182,7 @@ async def test_export_user_data_excludes_secrets(db):
 async def test_bulk_delete_erases_personal_data(db):
     alice, _bob = _seed_alice_and_bob(db)
 
-    result = await bulk_delete_users(BulkDeleteUpdate(user_ids=[alice.id]), db)
+    result = await bulk_delete_users(BulkDeleteUpdate(user_ids=[alice.id]), _request(), db)
 
     assert result["deleted"] == 1
     assert await _count(db, MediaRequest, MediaRequest.plex_user_id == "alice") == 0

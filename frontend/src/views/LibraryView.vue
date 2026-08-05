@@ -27,7 +27,7 @@
         @search="onSearch"
       />
 
-      <div v-if="isAdmin&&selectedIds.length" class="bulk-bar">
+      <div v-if="canModerate&&selectedIds.length" class="bulk-bar">
         <strong>{{ selectedIds.length }} selectionnee(s)</strong>
         <button class="secondary" @click="bulk('retry')"><RotateCcw/>Relancer</button>
         <button class="secondary" @click="bulk('mark-processed')"><CheckCheck/>Traiter</button>
@@ -46,7 +46,7 @@
         :key="`${item._kind}-${item.id}`"
         :item="item"
         :view="view"
-        :is-admin="isAdmin"
+        :can-moderate="canModerate"
         :busy="busy"
         :selected="selectedIds.includes(item.id)"
         @open="openDetail"
@@ -82,7 +82,7 @@ import { useConfirm } from '@/composables/useConfirm';
 import { useDebounced } from '@/composables/useDebounced';
 import { useLatestRequest } from '@/composables/useLatestRequest';
 import { usePolling } from '@/composables/usePolling';
-import { isAdminSession, loadSession } from '@/composables/useSession';
+import { canModerateSession, isAdminSession, loadSession } from '@/composables/useSession';
 import MediaFiltersBar from '@/components/media/MediaFiltersBar.vue';
 import LibraryCard from '@/components/library/LibraryCard.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
@@ -128,6 +128,7 @@ const hasMoreLibrary = ref(false);
 const loadingMore = ref(false);
 const selectedIds = ref([]);
 const isAdmin = ref(false);
+const canModerate = ref(false);
 const busy = ref(false);
 
 // Une demande partiellement disponible garde son library_item_id une fois indexee cote
@@ -439,7 +440,7 @@ async function deleteOrphan(row) {
 async function act(row, action) {
   busy.value = true;
   try {
-    if (action === 'cancel' && isAdmin.value) await api(`/api/requests/${row.id}`, { method: 'DELETE' });
+    if (action === 'cancel' && canModerate.value) await api(`/api/requests/${row.id}`, { method: 'DELETE' });
     else await api(`/api/requests/${row.id}/${action}`, { method: 'POST' });
     await load();
   } catch (e) {
@@ -486,7 +487,9 @@ useRealtime(['request.updated'], (type, event) => {
 usePolling(load, 120000);
 onMounted(async () => {
   primeFromCache();
-  isAdmin.value = isAdminSession(await loadSession());
+  const session = await loadSession();
+  isAdmin.value = isAdminSession(session);
+  canModerate.value = canModerateSession(session);
   await load();
   loadUsers();
 });

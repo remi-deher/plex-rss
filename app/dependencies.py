@@ -63,6 +63,13 @@ def _is_admin(user: dict | None) -> bool:
     return bool(user and (user.get("is_owner") or user.get("role") == "admin"))
 
 
+def _is_moderator(user: dict | None) -> bool:
+    """Un admin est toujours modérateur ; le rôle 'moderator' ajoute la modération des
+    demandes (approbation, relance, conflits, corrections VF) sans les droits système
+    (Settings, *arr, utilisateurs) réservés à `require_admin`."""
+    return bool(user and (user.get("is_owner") or user.get("role") in ("admin", "moderator")))
+
+
 async def require_auth(request: Request, db: AsyncSession = Depends(get_db_async)):
     """Dépendance : n'importe quel utilisateur authentifié (session ou token API)."""
     if request.session.get("authenticated") or await _valid_api_key(request, db):
@@ -100,6 +107,17 @@ async def require_admin(request: Request, db: AsyncSession = Depends(get_db_asyn
         return
     if user:  # authentifié mais rôle insuffisant
         raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+    raise HTTPException(status_code=401, detail="Non authentifié")
+
+
+async def require_moderator(request: Request, db: AsyncSession = Depends(get_db_async)):
+    """Dépendance : administrateurs et modérateurs — gestion des demandes/contenu, pas la
+    configuration système (voir `require_admin` pour ça)."""
+    user = current_user(request, db)
+    if _is_moderator(user):
+        return
+    if user:  # authentifié mais rôle insuffisant
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs et modérateurs")
     raise HTTPException(status_code=401, detail="Non authentifié")
 
 

@@ -9,7 +9,7 @@
         <template v-if="view!=='list'">
           <span v-for="badge in badges" :key="badge.key" :class="badge.cls">{{ badge.label }}</span>
         </template>
-        <label v-if="isAdmin && item._kind==='request' && !item.orphan" class="select-tag" @click.stop>
+        <label v-if="canModerate && item._kind==='request' && !item.orphan" class="select-tag" @click.stop>
           <input :checked="selected" :disabled="busy" type="checkbox" :aria-label="`Sélectionner ${item.title}`" @change="$emit('toggle-select', item.id)">
         </label>
       </template>
@@ -26,11 +26,11 @@
       </div>
       <div v-if="item._kind==='request'" class="card-actions" @click.stop>
         <template v-if="item.orphan">
-          <button v-if="isAdmin" class="icon-button danger" :disabled="busy" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
+          <button v-if="canModerate" class="icon-button danger" :disabled="busy" title="Supprimer de Sonarr/Radarr" aria-label="Supprimer de Sonarr/Radarr" @click="$emit('delete-orphan',item)"><Trash2/></button>
         </template>
         <template v-else>
           <button v-if="item.arr_id" class="icon-button" :disabled="busy" title="Rechercher une release" aria-label="Rechercher une release" @click="router.push(`/releases/${item.id}`)"><Search/></button>
-          <button v-if="item.status==='failed' && isAdmin" class="icon-button" :disabled="busy" title="Relancer" aria-label="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
+          <button v-if="item.status==='failed' && canModerate" class="icon-button" :disabled="busy" title="Relancer" aria-label="Relancer" @click="$emit('act',item,'retry')"><RotateCcw/></button>
           <button v-if="item.status!=='available'" class="icon-button danger" :disabled="busy" title="Annuler" aria-label="Annuler" @click="$emit('act',item,'cancel')"><X/></button>
         </template>
       </div>
@@ -50,7 +50,7 @@ import { statusLabel, statusShortLabel } from '@/components/media/mediaListHelpe
 const props = defineProps({
   item: { type: Object, required: true },
   view: { type: String, default: 'grid' },
-  isAdmin: { type: Boolean, default: false },
+  canModerate: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 });

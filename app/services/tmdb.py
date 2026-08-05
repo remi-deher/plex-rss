@@ -351,6 +351,13 @@ async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     )
     ext = data.get("external_ids") or {}
     base = _norm({**data, "media_type": mt}, mt) or {}
+    saga = None
+    collection = data.get("belongs_to_collection") if mt == "movie" else None
+    if collection and collection.get("id"):
+        try:
+            saga = await get_collection(db, collection["id"])
+        except Exception as e:
+            logger.debug("Saga TMDB indisponible pour la collection %s: %s", collection.get("id"), e)
     base.update(
         {
             "tvdb_id": ext.get("tvdb_id"),
@@ -362,9 +369,26 @@ async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
             "next_episode_to_air": data.get("next_episode_to_air"),
             "recommendations": _norm_list(data.get("recommendations") or {}, mt),
             "similar": _norm_list(data.get("similar") or {}, mt),
+            "saga": saga,
         }
     )
     return base
+
+
+async def get_collection(db: AsyncSession, collection_id: int) -> dict:
+    """Collection TMDB (saga) : tous les volets d'une franchise cinéma. Pas d'équivalent
+    TMDB pour les séries (belongs_to_collection n'existe que côté films)."""
+    data = await _get(db, f"/collection/{collection_id}")
+    items = [item for item in (_norm(part, "movie") for part in data.get("parts", []) or []) if item and item["tmdb_id"]]
+    items.sort(key=lambda item: item["year"] or 0)
+    return {
+        "id": data.get("id"),
+        "name": data.get("name"),
+        "overview": data.get("overview") or "",
+        "poster_url": _poster(data.get("poster_path")),
+        "backdrop_url": _backdrop(data.get("backdrop_path")),
+        "items": items,
+    }
 
 
 async def external_ids(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:

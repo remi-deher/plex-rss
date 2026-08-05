@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 
-from app.dependencies import current_user, require_admin, require_auth
+from app.dependencies import current_user, require_admin, require_auth, require_moderator
 from app.models import Settings
 from tests.async_support import make_test_session
 
@@ -73,3 +73,42 @@ async def test_api_key_no_longer_admin_level():
 
 def test_current_user_none_when_anonymous():
     assert current_user(_request(), _db_with_token(None)) is None
+
+
+@pytest.mark.asyncio
+async def test_moderator_role_passes_require_moderator_not_admin():
+    request = _request(
+        {"authenticated": True, "is_owner": False, "role": "moderator", "plex_user_id": "mod"}
+    )
+    db = _db_with_token(None)
+    await require_auth(request, db)
+    await require_moderator(request, db)
+    with pytest.raises(HTTPException) as exc:
+        await require_admin(request, db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_passes_require_moderator_too():
+    request = _request(
+        {"authenticated": True, "is_owner": False, "role": "admin", "plex_user_id": "bob"}
+    )
+    await require_moderator(request, _db_with_token(None))
+
+
+@pytest.mark.asyncio
+async def test_plain_user_rejected_by_require_moderator():
+    request = _request(
+        {"authenticated": True, "is_owner": False, "role": "user", "plex_user_id": "alice"}
+    )
+    db = _db_with_token(None)
+    with pytest.raises(HTTPException) as exc:
+        await require_moderator(request, db)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_anonymous_is_rejected_by_require_moderator():
+    with pytest.raises(HTTPException) as exc:
+        await require_moderator(_request(), _db_with_token(None))
+    assert exc.value.status_code == 401

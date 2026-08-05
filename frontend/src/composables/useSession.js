@@ -24,6 +24,17 @@ export function isAdminSession(session) {
   return Boolean(session?.is_owner || session?.role === 'admin');
 }
 
+export function isModeratorSession(session) {
+  return session?.role === 'moderator';
+}
+
+/** Peut modérer le contenu (demandes, conflits, corrections VF) — admin ou modérateur.
+ * Ne donne pas accès à la configuration système (Settings/Utilisateurs/*arr), qui reste
+ * gardée par isAdminSession strict. */
+export function canModerateSession(session) {
+  return isAdminSession(session) || isModeratorSession(session);
+}
+
 /**
  * Session courante, chargée au montage.
  * @returns {{session: import('vue').Ref, isAdmin: import('vue').ComputedRef<boolean>, ready: import('vue').Ref<boolean>}}
@@ -32,11 +43,12 @@ export function useSession() {
   const session = ref(null);
   const ready = ref(false);
   const isAdmin = computed(() => isAdminSession(session.value));
+  const canModerate = computed(() => canModerateSession(session.value));
 
   onMounted(async () => {
     session.value = await loadSession();
     ready.value = true;
   });
 
-  return { session, isAdmin, ready };
+  return { session, isAdmin, canModerate, ready };
 }

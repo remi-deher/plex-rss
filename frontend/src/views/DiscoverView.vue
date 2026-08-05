@@ -5,12 +5,13 @@
     <nav class="discover-mode" aria-label="Mode de découverte">
       <button :class="{ active: mode === 'home' }" :aria-pressed="mode === 'home'" @click="showHome">Accueil</button>
       <button :class="{ active: mode === 'explore' }" :aria-pressed="mode === 'explore'" @click="showExplorer">Explorer</button>
+      <button :class="{ active: mode === 'requests' }" :aria-pressed="mode === 'requests'" @click="showMyRequests">Mes demandes</button>
     </nav>
 
     <UiFeedback v-if="requestError" type="error" :message="requestError" dismissible @dismiss="requestError=''" />
     <UiFeedback v-if="requestSuccess" type="success" :message="requestSuccess" dismissible @dismiss="requestSuccess=''" />
 
-    <section class="discover-command" :class="{ 'home-search': mode === 'home' }">
+    <section v-if="mode !== 'requests'" class="discover-command" :class="{ 'home-search': mode === 'home' }">
       <div class="discover-search">
         <Search aria-hidden="true" />
         <input
@@ -206,7 +207,7 @@
       </div>
     </template>
 
-    <template v-else>
+    <template v-else-if="mode === 'explore'">
       <div class="discover-heading">
         <div>
           <span class="eyebrow">{{ query ? 'Résultats' : sectionLabel }}</span>
@@ -234,6 +235,22 @@
         <LoadMore :has-more="hasMore" :loading="loadingMore" label="Charger plus de médias" @load="loadMore" />
       </template>
     </template>
+
+    <MyRequestsPanel v-else-if="mode === 'requests'" @explore="showExplorer" />
+
+    <RequestOptionsModal
+      :open="optionsDialog.open"
+      :media-title="optionsDialog.item ? (optionsDialog.item.title || optionsDialog.item.name) : ''"
+      :requesters="optionsDialog.requesters"
+      :folders="optionsDialog.folders"
+      :plex-user-id="optionsDialog.plexUserId"
+      :root-folder="optionsDialog.rootFolder"
+      :busy="optionsDialog.busy"
+      @update:plex-user-id="v => optionsDialog.plexUserId = v"
+      @update:root-folder="v => optionsDialog.rootFolder = v"
+      @cancel="cancelOptions"
+      @confirm="confirmOptions"
+    />
   </div>
 </template>
 
@@ -246,6 +263,8 @@ import DiscoverSourceCard from '@/components/discover/DiscoverSourceCard.vue';
 import MediaPosterCard from '@/components/discover/MediaPosterCard.vue';
 import MediaRail from '@/components/discover/MediaRail.vue';
 import MediaRailSkeleton from '@/components/discover/MediaRailSkeleton.vue';
+import RequestOptionsModal from '@/components/media/RequestOptionsModal.vue';
+import MyRequestsPanel from '@/components/discover/MyRequestsPanel.vue';
 import LoadMore from '@/components/ui/LoadMore.vue';
 import { useDebounced } from '@/composables/useDebounced';
 import { mediaRequestKey, useDirectMediaRequest } from '@/composables/useDirectMediaRequest';
@@ -253,10 +272,14 @@ import { useLatestRequest } from '@/composables/useLatestRequest';
 import { mediaDetailPath } from '@/mediaUrl';
 
 const initialParams = new URLSearchParams(window.location.search);
-const initialMode = window.location.pathname === '/discover/explore' || initialParams.get('mode') === 'explore';
+function initialModeFromLocation() {
+  if (window.location.pathname === '/discover/requests' || initialParams.get('mode') === 'requests') return 'requests';
+  if (window.location.pathname === '/discover/explore' || initialParams.get('mode') === 'explore') return 'explore';
+  return 'home';
+}
 const validMediaTypes = new Set(['all', 'movie', 'show']);
 const validSections = new Set(['trending', 'popular', 'coming-soon', 'genres']);
-const mode = ref(initialMode ? 'explore' : 'home');
+const mode = ref(initialModeFromLocation());
 const items = ref([]);
 const query = ref(initialParams.get('q') || '');
 const mediaType = ref(validMediaTypes.has(initialParams.get('type')) ? initialParams.get('type') : 'all');
@@ -334,7 +357,7 @@ const displayedItems = computed(() => items.value.filter(item => {
   return true;
 }));
 const hasMore = computed(() => page.value < totalPages.value);
-const { requesting, requestError, requestSuccess, requestMedia } = useDirectMediaRequest({ onUpdated: updateMatchingMedia });
+const { requesting, requestError, requestSuccess, requestMedia, optionsDialog, confirmOptions, cancelOptions } = useDirectMediaRequest({ onUpdated: updateMatchingMedia });
 
 function updateMatchingMedia(changed, update) {
   const key = mediaRequestKey(changed);
@@ -375,6 +398,11 @@ async function showExplorer() {
   if (!sources.value.length) loadSources();
   await load();
 }
+function showMyRequests() {
+  request.abort();
+  mode.value = 'requests';
+  window.history.replaceState(window.history.state, '', '/discover/requests');
+}
 function startSearch() {
   mode.value = 'explore';
   syncExplorerUrl();
@@ -399,6 +427,10 @@ function syncExplorerUrl() {
 }
 
 function applyExplorerUrl() {
+  if (window.location.pathname === '/discover/requests') {
+    mode.value = 'requests';
+    return;
+  }
   if (window.location.pathname !== '/discover/explore') return;
   const params = new URLSearchParams(window.location.search);
   mode.value = 'explore';
@@ -581,7 +613,7 @@ function scheduleSearch() {
 onMounted(() => {
   window.addEventListener('popstate', applyExplorerUrl);
   if (mode.value === 'home') loadHome();
-  else showExplorer();
+  else if (mode.value === 'explore') showExplorer();
 });
 onBeforeUnmount(() => window.removeEventListener('popstate', applyExplorerUrl));
 </script>

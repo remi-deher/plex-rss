@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import require_admin, require_auth
+from ..dependencies import require_admin, require_auth, require_moderator
 from ..models import EpisodeAvailability, LibraryItem, MediaRequest, RequestStatus, Settings, VfEpisodeStatus
 from ..scheduler import (
     _invalidate_vf_cache,
@@ -398,7 +398,7 @@ async def get_vff_sync_status():
     return await scan_state.resolve("sync", plex_sync_state)
 
 
-@router.post("/requests/{request_id}/vff-scan", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/vff-scan", dependencies=[Depends(require_moderator)])
 async def vff_scan_single_request(
     request_id: int,
     force: bool = False,
@@ -511,7 +511,7 @@ async def vff_scan_single_request(
     }
 
 
-@router.post("/requests/{request_id}/vff-ignore", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/vff-ignore", dependencies=[Depends(require_moderator)])
 async def vff_ignore_request(request_id: int, db: AsyncSession = Depends(get_db_async)):
     """Arrête manuellement le suivi VFF pour une demande spécifique."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -592,7 +592,7 @@ async def library_episodes_vf_status(item_id: int, db: AsyncSession = Depends(ge
     return await _vf_status_payload(db, item)
 
 
-@router.post("/library/{item_id}/vff-scan", dependencies=[Depends(require_admin)])
+@router.post("/library/{item_id}/vff-scan", dependencies=[Depends(require_moderator)])
 async def library_vff_scan(
     item_id: int,
     force: bool = False,
@@ -661,7 +661,7 @@ async def library_vff_scan(
     return {"status": "ok", "has_vf": item.has_vf, "vf_category": item.vf_category}
 
 
-@router.post("/library/{item_id}/vff-ignore", dependencies=[Depends(require_admin)])
+@router.post("/library/{item_id}/vff-ignore", dependencies=[Depends(require_moderator)])
 async def library_vff_ignore(item_id: int, db: AsyncSession = Depends(get_db_async)):
     """Arrête le suivi VFF d'un élément de bibliothèque (force has_vf = True)."""
     item = await async_get_or_404(db, LibraryItem, item_id, "Library item not found")

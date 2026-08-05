@@ -12,11 +12,11 @@
       
       <div class="menu-section">
         <span class="menu-label">Principal</span>
-        <RouterLink to="/dashboard" title="Dashboard"><Gauge />Dashboard</RouterLink>
+        <RouterLink v-if="isAdmin" to="/dashboard" title="Dashboard"><Gauge />Dashboard</RouterLink>
         <RouterLink to="/discover" title="Decouvrir"><Compass />Decouvrir</RouterLink>
-        <RouterLink to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
+        <RouterLink v-if="canModerate" to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
         <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
-        <RouterLink to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
+        <RouterLink v-if="isAdmin" to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
         <div v-if="isAdmin" class="context-nav-group" :class="{open:isActivityRoute}">
           <RouterLink to="/activity" title="Activité Plex"><Activity />Activité Plex<ChevronDown class="context-chevron"/></RouterLink>
           <div v-if="isActivityRoute" class="context-sidebar-menu">
@@ -29,6 +29,7 @@
           </div>
         </div>
         <RouterLink v-if="isAdmin" to="/analytics" title="Insights médiathèque"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
+        <RouterLink v-if="canModerate && !isAdmin" to="/issues" title="Problèmes signalés"><MessageSquareWarning />Problèmes signalés</RouterLink>
       </div>
 
       <div v-if="isAdmin" class="menu-section">
@@ -63,9 +64,9 @@
 
     <!-- Mobile Navigation Bar -->
     <nav class="mobile-nav-bar mobile-only" aria-label="Navigation principale">
-      <RouterLink to="/dashboard" @click="closeMoreMenu"><Gauge /><span>Dashboard</span></RouterLink>
+      <RouterLink v-if="isAdmin" to="/dashboard" @click="closeMoreMenu"><Gauge /><span>Dashboard</span></RouterLink>
       <RouterLink to="/discover" @click="closeMoreMenu"><Compass /><span>Decouvrir</span></RouterLink>
-      <RouterLink to="/library" @click="closeMoreMenu"><Library /><span>Bibliotheque</span></RouterLink>
+      <RouterLink v-if="canModerate" to="/library" @click="closeMoreMenu"><Library /><span>Bibliotheque</span></RouterLink>
       <RouterLink to="/calendar" @click="closeMoreMenu"><CalendarDays /><span>Calendrier</span></RouterLink>
       <button ref="moreButtonRef" type="button" class="more-nav-btn" :class="{ active: isMoreOpen }" aria-controls="mobile-more-menu" :aria-expanded="isMoreOpen" @click="toggleMoreMenu">
         <Menu />
@@ -84,9 +85,10 @@
           <div class="sheet-content">
             <div class="menu-section">
               <span class="menu-label">Principal</span>
-              <RouterLink to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
+              <RouterLink v-if="isAdmin" to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
               <details v-if="isAdmin" class="mobile-activity-group" :open="isActivityRoute"><summary><Activity/>Activité Plex</summary><RouterLink to="/activity" @click="closeMoreMenu">Vue d’ensemble</RouterLink><RouterLink to="/activity?view=live" @click="closeMoreMenu">En direct</RouterLink><RouterLink to="/activity?view=history" @click="closeMoreMenu">Historique</RouterLink><RouterLink to="/activity?view=stats" @click="closeMoreMenu">Statistiques</RouterLink><RouterLink to="/activity?view=quality" @click="closeMoreMenu">Qualité des flux</RouterLink><RouterLink to="/activity?view=users" @click="closeMoreMenu">Utilisateurs</RouterLink></details>
               <RouterLink v-if="isAdmin" to="/analytics" @click="closeMoreMenu"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
+              <RouterLink v-if="canModerate && !isAdmin" to="/issues" @click="closeMoreMenu"><MessageSquareWarning />Problèmes signalés</RouterLink>
             </div>
             
             <div v-if="isAdmin" class="menu-section mobile-admin-groups">
@@ -118,17 +120,18 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-import { Activity, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, Compass, Download, Gauge, Library, LogOut, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Activity, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, Compass, Download, Gauge, Library, LogOut, MessageSquareWarning, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { clearCache, syncCacheOwner } from "@/cache";
 import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
 import { useModalA11y } from "@/composables/useModalA11y";
-import { isAdminSession, loadSession } from "@/composables/useSession";
+import { canModerateSession, isAdminSession, loadSession } from "@/composables/useSession";
 const session=ref(null);
 const route=useRoute();
 const isAdmin=computed(()=>isAdminSession(session.value));
+const canModerate=computed(()=>canModerateSession(session.value));
 const isActivityRoute=computed(()=>route.path==='/activity');
 const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
 const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));

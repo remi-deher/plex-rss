@@ -19,6 +19,7 @@ from ..models import (
 from ..serializers import format_datetime, serialize_media_request
 from ..utils import async_get_or_404, wrap_image_proxy
 from . import tmdb
+from .media_annotate import annotate_media_items
 from .operational_projection import plex_library_projection
 
 logger = logging.getLogger(__name__)
@@ -213,10 +214,14 @@ async def build_media_detail(
     )).scalars().all()
 
     backdrop_url = None
+    saga = None
     if media_obj.tmdb_id:
         try:
             detail = await tmdb.detail(db, media_obj.media_type, int(media_obj.tmdb_id))
             backdrop_url = detail.get("backdrop_url")
+            saga = detail.get("saga")
+            if saga:
+                saga["items"] = await annotate_media_items(db, saga.get("items", []))
         except Exception as exc:
             logger.debug("TMDB backdrop unavailable: %s", exc)
 
@@ -237,4 +242,5 @@ async def build_media_detail(
         "timeline": schedule["timeline"],
         "calendar": schedule["events"],
         "notification_history": history,
+        "saga": saga,
     }

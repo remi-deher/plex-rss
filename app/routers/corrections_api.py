@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import require_admin, require_auth
+from ..dependencies import require_auth, require_moderator
 from ..models import LibraryItem, MediaRequest, NotificationLog, PlexUser, Settings
 from ..services.email_service import build_correction_email, send_correction_notification
 from ..utils import async_get_or_404, now_utc_naive, safe_error_message
@@ -94,7 +94,7 @@ def _validated_correction_target(
     return "series_complete", None, None
 
 
-@router.post("/media/correction-preview", dependencies=[Depends(require_admin)])
+@router.post("/media/correction-preview", dependencies=[Depends(require_moderator)])
 async def preview_media_correction(body: MediaCorrectionRequest, db: AsyncSession = Depends(get_db_async)):
     settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:
@@ -143,7 +143,7 @@ async def preview_media_correction(body: MediaCorrectionRequest, db: AsyncSessio
     return Response(content=html, media_type="text/html")
 
 
-@router.post("/media/send-correction", dependencies=[Depends(require_admin)])
+@router.post("/media/send-correction", dependencies=[Depends(require_moderator)])
 async def send_media_correction(body: MediaCorrectionRequest, db: AsyncSession = Depends(get_db_async)):
     settings = (await db.execute(select(Settings))).scalars().first()
     if not settings:

@@ -28,6 +28,25 @@ describe('isAdminSession', () => {
   });
 });
 
+describe('isModeratorSession / canModerateSession', () => {
+  it('isModeratorSession ne reconnaît que le rôle moderator', async () => {
+    const { isModeratorSession } = await freshModule();
+    expect(isModeratorSession({ role: 'moderator' })).toBe(true);
+    expect(isModeratorSession({ role: 'admin' })).toBe(false);
+    expect(isModeratorSession({ role: 'user' })).toBe(false);
+    expect(isModeratorSession(null)).toBe(false);
+  });
+
+  it('canModerateSession accepte admin, owner et moderator, rien d’autre', async () => {
+    const { canModerateSession } = await freshModule();
+    expect(canModerateSession({ is_owner: true })).toBe(true);
+    expect(canModerateSession({ role: 'admin' })).toBe(true);
+    expect(canModerateSession({ role: 'moderator' })).toBe(true);
+    expect(canModerateSession({ role: 'user' })).toBe(false);
+    expect(canModerateSession(null)).toBe(false);
+  });
+});
+
 describe('loadSession', () => {
   // Trois vues appelaient /api/session séparément, et la fiche média la relançait à chaque
   // changement de route : c'est précisément ce que la mémoïsation supprime.

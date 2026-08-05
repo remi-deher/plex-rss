@@ -34,6 +34,20 @@
       <p v-if="!items.length" class="empty">Aucun média trouvé pour cette sélection.</p>
       <LoadMore :has-more="hasMore" :loading="loadingMore" label="Charger plus de médias" @load="loadMore" />
     </template>
+
+    <RequestOptionsModal
+      :open="optionsDialog.open"
+      :media-title="optionsDialog.item ? (optionsDialog.item.title || optionsDialog.item.name) : ''"
+      :requesters="optionsDialog.requesters"
+      :folders="optionsDialog.folders"
+      :plex-user-id="optionsDialog.plexUserId"
+      :root-folder="optionsDialog.rootFolder"
+      :busy="optionsDialog.busy"
+      @update:plex-user-id="v => optionsDialog.plexUserId = v"
+      @update:root-folder="v => optionsDialog.rootFolder = v"
+      @cancel="cancelOptions"
+      @confirm="confirmOptions"
+    />
   </div>
 </template>
 
@@ -43,6 +57,7 @@ import { useRoute } from 'vue-router';
 import { api } from '@/api';
 import LoadMore from '@/components/ui/LoadMore.vue';
 import MediaPosterCard from '@/components/discover/MediaPosterCard.vue';
+import RequestOptionsModal from '@/components/media/RequestOptionsModal.vue';
 import { mediaDetailPath } from '@/mediaUrl';
 import { mediaRequestKey, useDirectMediaRequest } from '@/composables/useDirectMediaRequest';
 
@@ -64,7 +79,7 @@ const availableMediaTypes = computed(() => route.params.kind === 'network'
   ? [{ value: 'show', label: 'Séries' }]
   : [{ value: 'all', label: 'Tout' }, { value: 'movie', label: 'Films' }, { value: 'show', label: 'Séries' }]);
 const hasMore = computed(() => page.value < totalPages.value);
-const { requesting, requestError, requestSuccess, requestMedia } = useDirectMediaRequest({
+const { requesting, requestError, requestSuccess, requestMedia, optionsDialog, confirmOptions, cancelOptions } = useDirectMediaRequest({
   onUpdated: (changed, update) => {
     for (const item of items.value) {
       if (mediaRequestKey(item) === mediaRequestKey(changed)) Object.assign(item, update);

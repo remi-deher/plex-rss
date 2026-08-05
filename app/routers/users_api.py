@@ -3,14 +3,14 @@ from datetime import timedelta
 from typing import Optional
 
 import sqlalchemy
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import require_admin
+from ..dependencies import current_user, require_admin
 from ..models import (
     MediaIssue,
     MediaRequest,
@@ -50,6 +50,7 @@ class UserCreate(BaseModel):
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
+    source: Optional[str] = None
     role: str = "user"
     can_login: bool = True
     auto_approve: bool = False
@@ -95,6 +96,8 @@ class BulkDeleteUpdate(BaseModel):
 
 
 def _user_source_label(user: PlexUser) -> str:
+    if user.source == "local":
+        return "Compte local"
     if user.source == "seer":
         return "Seer only"
     if user.source == "api" and user.seer_user_id:
@@ -107,8 +110,26 @@ def _user_source_label(user: PlexUser) -> str:
 
 
 def _validate_portal_profile(payload: dict) -> None:
-    if payload.get("role") not in ("admin", "user"):
+    if payload.get("role") not in ("admin", "moderator", "user"):
         raise HTTPException(400, "Role utilisateur invalide.")
+
+
+def _caller_user_id(request: Request, db: AsyncSession) -> Optional[int]:
+    caller = current_user(request, db)
+    return caller.get("id") if caller else None
+
+
+def _guard_self_role_change(request: Request, db: AsyncSession, user_id: int, new_role: str) -> None:
+    """Empêche un admin de se retirer lui-même son propre rôle admin par erreur — rien
+    d'autre ne l'en empêchait jusque-là, avec un risque de verrouillage silencieux. Les
+    autres modifications de son propre compte restent permises."""
+    if new_role != "admin" and _caller_user_id(request, db) == user_id:
+        raise HTTPException(400, "Vous ne pouvez pas retirer votre propre rôle administrateur.")
+
+
+def _guard_self_delete(request: Request, db: AsyncSession, user_ids: list[int]) -> None:
+    if _caller_user_id(request, db) in user_ids:
+        raise HTTPException(400, "Vous ne pouvez pas supprimer votre propre compte.")
 
 
 async def _build_user_diagnostic(user: PlexUser, stats: dict, db: AsyncSession) -> dict:
@@ -340,11 +361,12 @@ async def create_user(data: UserCreate, db: AsyncSession = Depends(get_db_async)
 
 
 @router.put("/users/{user_id}")
-async def update_user(user_id: int, data: UserCreate, db: AsyncSession = Depends(get_db_async)):
+async def update_user(user_id: int, data: UserCreate, request: Request, db: AsyncSession = Depends(get_db_async)):
     user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     payload = data.model_dump()
     _validate_notify_settings(payload)
     _validate_portal_profile(payload)
+    _guard_self_role_change(request, db, user_id, payload["role"])
     for k, v in payload.items():
         setattr(user, k, v)
     # Propager le nouveau display_name sur les demandes existantes
@@ -364,7 +386,8 @@ async def update_user_enabled(user_id: int, data: UserEnabledUpdate, db: AsyncSe
 
 
 @router.delete("/users/{user_id}")
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db_async)):
+async def delete_user(user_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
+    _guard_self_delete(request, db, [user_id])
     user = await async_get_or_404(db, PlexUser, user_id, "User not found")
     # Effacement RGPD (Art. 17) : purge les données personnelles dispersées (demandes,
     # journaux de notification, jalons, signalements, passkeys) avant de retirer le compte.
@@ -824,7 +847,7 @@ async def bulk_update_status(payload: BulkStatusUpdate, db: AsyncSession = Depen
 
 
 @router.put("/users/bulk/permissions")
-async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSession = Depends(get_db_async)):
+async def bulk_update_permissions(payload: BulkPermissionsUpdate, request: Request, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
     users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
@@ -837,9 +860,13 @@ async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSessi
     if payload.auto_approve is not None:
         update_fields["auto_approve"] = payload.auto_approve
     if payload.role is not None:
-        if payload.role not in ("admin", "user"):
+        if payload.role not in ("admin", "moderator", "user"):
             raise HTTPException(400, "Role utilisateur invalide.")
         update_fields["role"] = payload.role
+        if payload.role != "admin":
+            caller_id = _caller_user_id(request, db)
+            if caller_id is not None and caller_id in payload.user_ids:
+                raise HTTPException(400, "Vous ne pouvez pas retirer votre propre rôle administrateur.")
 
     if not update_fields:
         return {"updated": 0}
@@ -852,9 +879,10 @@ async def bulk_update_permissions(payload: BulkPermissionsUpdate, db: AsyncSessi
 
 
 @router.post("/users/bulk/delete")
-async def bulk_delete_users(payload: BulkDeleteUpdate, db: AsyncSession = Depends(get_db_async)):
+async def bulk_delete_users(payload: BulkDeleteUpdate, request: Request, db: AsyncSession = Depends(get_db_async)):
     if not payload.user_ids:
         raise HTTPException(400, "Aucun utilisateur sélectionné.")
+    _guard_self_delete(request, db, payload.user_ids)
     # Fetch them to trigger cascades if needed, or just delete
     users = (await db.execute(select(PlexUser).filter(PlexUser.id.in_(payload.user_ids)))).scalars().all()
     if not users:

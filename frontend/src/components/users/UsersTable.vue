@@ -6,7 +6,7 @@
     <select v-model="bulkNotifyField"><option v-for="f in bulkNotifyFields" :key="f.value" :value="f.value">{{ f.label }}</option></select>
     <button class="secondary" @click="$emit('bulk-notify',bulkNotifyField,true)"><Bell/>Activer</button>
     <button class="secondary" @click="$emit('bulk-notify',bulkNotifyField,false)"><BellOff/>Desactiver</button>
-    <select v-model="bulkRole"><option value="user">Utilisateur</option><option value="admin">Administrateur</option></select>
+    <select v-model="bulkRole"><option value="user">Utilisateur</option><option value="moderator">Modérateur</option><option value="admin">Administrateur</option></select>
     <button class="secondary" @click="$emit('bulk-permissions',{role:bulkRole})"><Shield/>Appliquer le rôle</button>
     <button class="secondary" @click="$emit('bulk-permissions',{can_login:true})"><LogIn/>Autoriser la connexion</button>
     <button class="secondary" @click="$emit('bulk-permissions',{can_login:false})"><LogOut/>Bloquer la connexion</button>
@@ -25,7 +25,7 @@
           <td class="card-title"><button class="text-button" @click="$emit('open',user.id)"><strong>{{ displayName(user) }}</strong><small>{{ user.plex_user_id }} · {{ user.enabled?'Actif':'Désactivé' }}</small></button></td>
           <td data-label="Notifications"><div class="user-notification-cell"><span :class="['status-dot',notificationState(user)]"></span><div>{{ user.notification_email||user.plex_email||user.notify_admin?'Via administrateur':'Aucun destinataire' }}<small v-if="user.has_notification_error">Échec récent</small></div></div></td>
           <td data-label="Source">{{ user.source||'plex' }}</td>
-          <td data-label="Role"><span class="badge" :class="user.role==='admin'?'available':'pending'">{{ user.role }}</span></td>
+          <td data-label="Role"><span class="badge" :class="user.role==='admin'?'available':user.role==='moderator'?'sent_to_arr':'pending'">{{ user.role }}</span></td>
           <td data-label="Demandes"><strong>{{ user.stats?.total??user.request_count??0 }}</strong><small v-if="user.stats?.pending_approval" class="pending-copy">{{ user.stats.pending_approval }} à approuver</small></td>
           <td data-label="Dernière activité">{{ formatDate(user.last_requested_at) }}<small>{{ user.can_login?'Connexion autorisée':'Connexion bloquée' }}</small></td>
           <td class="card-actions"><button class="icon-button" :title="user.enabled?'Desactiver':'Activer'" :aria-label="user.enabled?'Desactiver':'Activer'" @click="$emit('toggle',user)"><Power/></button></td>

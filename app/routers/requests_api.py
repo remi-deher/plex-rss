@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import get_db_async
-from ..dependencies import current_user, require_admin, require_auth
+from ..dependencies import current_user, require_admin, require_auth, require_moderator
 from ..models import (
     AdminActionLog,
     ArrInstance,
@@ -216,7 +216,7 @@ async def join_request(request_id: int, request: Request, db: AsyncSession = Dep
     return {"ok": True, "already_joined": False, "requester_ids": [*requester_ids, uid]}
 
 
-@router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_admin)])
+@router.put("/requests/{request_id}/requesters", dependencies=[Depends(require_moderator)])
 async def update_requesters(request_id: int, body: RequestersUpdate, db: AsyncSession = Depends(get_db_async)):
     """Définit la liste des demandeurs d'une demande (le 1er = demandeur principal,
     les suivants = demandeurs additionnels). Modification manuelle : **aucun mail** n'est
@@ -259,7 +259,7 @@ class NotifyUserRequest(BaseModel):
     events: list[str]
 
 
-@router.post("/requests/{request_id}/notify-user", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/notify-user", dependencies=[Depends(require_moderator)])
 async def notify_single_requester(request_id: int, body: NotifyUserRequest, db: AsyncSession = Depends(get_db_async)):
     """Renvoie rétroactivement le mail "demande" et/ou "disponibilité" à UN SEUL
     demandeur — utilisé quand un co-demandeur est ajouté après coup à une demande déjà
@@ -407,6 +407,7 @@ async def list_requests_compact(
             MediaRequest.arr_id,
             MediaRequest.episodes_available_count,
             MediaRequest.episodes_aired_count,
+            MediaRequest.requested_at,
         )
         .outerjoin(PlexUser, PlexUser.plex_user_id == MediaRequest.plex_user_id)
         .filter(*filters)
@@ -445,6 +446,7 @@ async def list_requests_compact(
                 "arr_instance_id": row.arr_instance_id, "arr_id": row.arr_id,
                 "episodes_available_count": row.episodes_available_count,
                 "episodes_aired_count": row.episodes_aired_count,
+                "requested_at": row.requested_at.isoformat() if row.requested_at else None,
             }
             for row in rows
         ],
@@ -490,7 +492,7 @@ async def open_orphan_detail(arr_type: str, instance_id: int, arr_id: int, db: A
     return {"library_item_id": li.id}
 
 
-@router.delete("/requests/orphans/{arr_type}/{instance_id}/{arr_id}", dependencies=[Depends(require_admin)])
+@router.delete("/requests/orphans/{arr_type}/{instance_id}/{arr_id}", dependencies=[Depends(require_moderator)])
 async def delete_orphan_request(
     arr_type: str, instance_id: int, arr_id: int, request: Request,
     delete_files: bool = False, db: AsyncSession = Depends(get_db_async),
@@ -529,7 +531,7 @@ async def delete_orphan_request(
     return {"status": "ok", "message": message}
 
 
-@router.get("/requests/deleted-log", dependencies=[Depends(require_admin)])
+@router.get("/requests/deleted-log", dependencies=[Depends(require_moderator)])
 async def list_deleted_media_log(db: AsyncSession = Depends(get_db_async)):
     """Médias volontairement supprimés par un admin (demande ou orpheline arr) —
     toute nouvelle demande pour l'un de ces titres est forcée en attente
@@ -540,7 +542,7 @@ async def list_deleted_media_log(db: AsyncSession = Depends(get_db_async)):
     return rows
 
 
-@router.delete("/requests/deleted-log/{log_id}", dependencies=[Depends(require_admin)])
+@router.delete("/requests/deleted-log/{log_id}", dependencies=[Depends(require_moderator)])
 async def forget_deleted_media_log(log_id: int, db: AsyncSession = Depends(get_db_async)):
     """Oublie une suppression : une nouvelle demande pour ce média ne sera plus
     forcée en attente d'approbation."""
@@ -585,7 +587,7 @@ async def plex_library_search(query: str, db: AsyncSession = Depends(get_db_asyn
         return []
 
 
-@router.get("/requests/pending", dependencies=[Depends(require_admin)])
+@router.get("/requests/pending", dependencies=[Depends(require_moderator)])
 async def list_pending_requests(db: AsyncSession = Depends(get_db_async)):
     """File des demandes en attente de validation (admin). Déclaré avant
     /requests/{request_id} pour ne pas être capté par le param int."""
@@ -596,7 +598,7 @@ async def list_pending_requests(db: AsyncSession = Depends(get_db_async)):
     return [serialize_media_request(r, users) for r in reqs]
 
 
-@router.post("/requests/bulk/resolve", dependencies=[Depends(require_admin)])
+@router.post("/requests/bulk/resolve", dependencies=[Depends(require_moderator)])
 async def resolve_bulk_requests(body: BulkResolveFilters, db: AsyncSession = Depends(get_db_async)):
     ids = await _bulk_request_ids_for_filters(db, body)
     return {"status": "success", "count": len(ids), "ids": ids}
@@ -652,7 +654,7 @@ async def get_request(request_id: int, request: Request, db: AsyncSession = Depe
     return d
 
 
-@router.post("/requests/bulk/retry", dependencies=[Depends(require_admin)])
+@router.post("/requests/bulk/retry", dependencies=[Depends(require_moderator)])
 async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_db_async)):
     """Repasse plusieurs demandes en pending et lance un polling."""
     reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
@@ -667,7 +669,7 @@ async def bulk_retry_requests(body: BulkAction, db: AsyncSession = Depends(get_d
     return {"status": "success", "count": count}
 
 
-@router.post("/requests/bulk/mark-processed", dependencies=[Depends(require_admin)])
+@router.post("/requests/bulk/mark-processed", dependencies=[Depends(require_moderator)])
 async def bulk_mark_requests_processed(body: BulkAction, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Marque plusieurs demandes comme traitées (disponibles) sans email."""
     reqs = (await db.execute(select(MediaRequest).filter(MediaRequest.id.in_(body.ids)))).scalars().all()
@@ -702,7 +704,7 @@ async def bulk_mark_requests_processed(body: BulkAction, request: Request, db: A
     return {"status": "success", "count": len(reqs)}
 
 
-@router.post("/requests/bulk/delete", dependencies=[Depends(require_admin)])
+@router.post("/requests/bulk/delete", dependencies=[Depends(require_moderator)])
 async def bulk_delete_requests(body: BulkAction, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Supprime plusieurs demandes définitivement.
 
@@ -737,7 +739,7 @@ class RejectBody(BaseModel):
     reason: Optional[str] = None
 
 
-@router.post("/requests/{request_id}/approve", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/approve", dependencies=[Depends(require_moderator)])
 async def approve_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Valide une demande en attente : la transmet à *arr et bascule en sent_to_arr."""
     from ..services.watchlist_poller import _submit_to_arr
@@ -790,7 +792,7 @@ async def approve_request(request_id: int, request: Request, db: AsyncSession = 
     return {"ok": True, "status": "sent_to_arr", "id": req.id}
 
 
-@router.post("/requests/{request_id}/reject", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/reject", dependencies=[Depends(require_moderator)])
 async def reject_request(request_id: int, body: RejectBody, request: Request, db: AsyncSession = Depends(get_db_async)):
     """Refuse une demande en attente (conservée en historique avec le motif)."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -805,7 +807,7 @@ async def reject_request(request_id: int, body: RejectBody, request: Request, db
     return {"ok": True, "status": "rejected", "id": req.id}
 
 
-@router.post("/requests/{request_id}/retry", dependencies=[Depends(require_admin)])
+@router.post("/requests/{request_id}/retry", dependencies=[Depends(require_moderator)])
 async def retry_request(request_id: int, db: AsyncSession = Depends(get_db_async)):
     """Repasse une demande en `pending` et déclenche un polling immédiat."""
     req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
@@ -817,7 +819,7 @@ async def retry_request(request_id: int, db: AsyncSession = Depends(get_db_async
     return {"status": "retrying"}
 
 
-@router.post("/requests/retry-failed", dependencies=[Depends(require_admin)])
+@router.post("/requests/retry-failed", dependencies=[Depends(require_moderator)])
 async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
     """Repasse toutes les demandes 'failed' en 'pending' et déclenche un polling."""
     failed = (await db.execute(select(MediaRequest).filter(MediaRequest.status == "failed"))).scalars().all()
@@ -829,7 +831,7 @@ async def retry_all_failed(db: AsyncSession = Depends(get_db_async)):
     return {"status": "ok", "retried": count}
 
 
-@router.post("/requests/recalculate-dates", dependencies=[Depends(require_admin)])
+@router.post("/requests/recalculate-dates", dependencies=[Depends(require_moderator)])
 async def recalculate_dates(db: AsyncSession = Depends(get_db_async)):
     """Re-joue sync_seer_requests et sync_plex_dates pour corriger requested_at et available_at."""
     from ..scheduler import sync_seer_requests
@@ -840,7 +842,7 @@ async def recalculate_dates(db: AsyncSession = Depends(get_db_async)):
     return {"status": "ok"}
 
 
-@router.post("/requests/merge-duplicates", dependencies=[Depends(require_admin)])
+@router.post("/requests/merge-duplicates", dependencies=[Depends(require_moderator)])
 async def merge_duplicates_endpoint():
     """Fusionne les MediaRequest en double (même tmdb_id toutes sources)."""
     from scripts.merge_duplicate_requests import merge_duplicates
@@ -864,7 +866,7 @@ async def delete_request(
     delete_from_arr: bool = False,
     delete_files: bool = False,
     db: AsyncSession = Depends(get_db_async),
-    _: None = Depends(require_admin),
+    _: None = Depends(require_moderator),
 ):
     """Supprime une demande. Si `delete_from_arr=True`, supprime aussi le média dans
     Sonarr/Radarr — mais seulement si cette suppression réussit (ou que le média y est
@@ -958,7 +960,7 @@ async def mark_request_processed(
     notify: bool = True,
     stop_vf_tracking: bool = False,
     db: AsyncSession = Depends(get_db_async),
-    _: None = Depends(require_admin),
+    _: None = Depends(require_moderator),
 ):
     """Envoie manuellement le mail "demande" ou "disponible" pour une requête, et/ou
     clôture le suivi VF.
@@ -998,7 +1000,7 @@ async def resend_request_mail(
     request_id: int,
     event: str,
     db: AsyncSession = Depends(get_db_async),
-    _: None = Depends(require_admin),
+    _: None = Depends(require_moderator),
 ):
     """Renvoie manuellement le mail de demande ou de disponibilité, sans modifier le statut.
 

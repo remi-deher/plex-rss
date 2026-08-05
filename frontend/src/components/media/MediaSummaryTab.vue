@@ -3,6 +3,8 @@
     <MediaWorkflowTimeline :steps="detail.workflow_timeline" />
     <MediaInformationGrid :detail="detail" :vf-detail="vfDetail" />
 
+    <MediaSaga :saga="detail.saga" />
+
     <div class="action-grid compact-actions">
       <button class="secondary" :disabled="busy" @click="$emit('recheck-plex')"><RefreshCw />Verifier dans Plex</button>
       <button class="secondary" :disabled="busy" @click="$emit('open-correction', 'media', null, null)"><MessageSquareWarning />Correction globale</button>
@@ -52,6 +54,7 @@ import MediaCorrectionForm from './MediaCorrectionForm.vue';
 import MediaAudioSection from './MediaAudioSection.vue';
 import MediaWorkflowTimeline from './MediaWorkflowTimeline.vue';
 import MediaInformationGrid from './MediaInformationGrid.vue';
+import MediaSaga from './MediaSaga.vue';
 
 defineProps({
   detail: { type: Object, required: true },
