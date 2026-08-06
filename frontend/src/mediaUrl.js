@@ -1,13 +1,14 @@
 // Construit l'URL de la page de detail media (/media/:kind/:id) a partir d'un item
 // heterogene provenant de Bibliotheque, Demandes, Calendrier ou Decouvrir — chacun a
 // historiquement sa propre forme d'objet (voir les anciens modes du drawer).
-export function mediaDetailPath(item, kindHint) {
+export function mediaDetailPath(item, kindHint, options = {}) {
   const kind = kindHint || item._kind;
+  const base = options.discover ? '/discover/media' : '/media';
   if (kind === 'request' || item.request_id) {
-    return `/media/request/${item.request_id || item.id}`;
+    return `${base}/request/${item.request_id || item.id}`;
   }
   if (kind === 'library' || item.library_id) {
-    return `/media/library/${item.library_id || item.id}`;
+    return `${base}/library/${item.library_id || item.id}`;
   }
   // Decouvrir (pas encore suivi) : necessite le type de media + un identifiant TMDB/TVDB.
   // `id_type` precise quel type d'identifiant est encode dans le segment :id, pour que
@@ -22,5 +23,5 @@ export function mediaDetailPath(item, kindHint) {
     params.set('id_type', 'tvdb');
   }
   const qs = params.toString();
-  return `/media/discover/${id}${qs ? `?${qs}` : ''}`;
+  return `${base}/discover/${id}${qs ? `?${qs}` : ''}`;
 }

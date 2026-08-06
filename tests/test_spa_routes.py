@@ -32,6 +32,8 @@ def test_media_detail_route_is_served_not_404(async_db):
         assert resp2.status_code == 200
         resp3 = client.get("/media/discover/438631?media_type=movie")
         assert resp3.status_code == 200
+        resp4 = client.get("/discover/media/discover/438631?media_type=movie")
+        assert resp4.status_code == 200
     finally:
         _cleanup()
 

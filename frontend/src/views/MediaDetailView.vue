@@ -101,7 +101,7 @@
         <MediaRecommendations
           v-if="kind === 'discover'"
           :items="recommendations"
-          @open="item => router.push(mediaDetailPath(item, 'discover'))"
+          @open="item => router.push(relatedMediaPath(item))"
         />
       </div>
     </template>
@@ -150,6 +150,7 @@ const correctionForm = reactive({ scope: 'media', season_number: null, episode_n
 const newRequesterId = ref('');
 
 const kind = computed(() => route.params.kind);
+const inDiscoverShell = computed(() => route.path.startsWith('/discover/'));
 
 const statusLabel = computed(() => detail.value?.operational_status_label || (detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || ''));
 const statusClass = computed(() => detail.value?.available || detail.value?.in_library ? 'available' : 'pending');
@@ -283,7 +284,11 @@ const {
 
 function goBack() {
   if (window.history.state?.back) router.back();
-  else router.push('/library');
+  else router.push(inDiscoverShell.value ? '/discover' : '/library');
+}
+
+function relatedMediaPath(item) {
+  return mediaDetailPath(item, 'discover', { discover: inDiscoverShell.value });
 }
 
 async function openCorrection(scope, season, episode) {

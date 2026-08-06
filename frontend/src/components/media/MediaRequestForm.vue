@@ -1,5 +1,5 @@
 <template>
-  <section class="request-panel" :class="`is-${state}`">
+  <section v-if="state !== 'requestable'" class="request-panel" :class="`is-${state}`">
     <div class="request-panel-main">
       <div class="request-panel-icon" aria-hidden="true">
         <CheckCircle2 v-if="state === 'available'" />
@@ -33,9 +33,6 @@
           <button v-if="canJoin" class="primary" :disabled="busy" @click="$emit('join')"><UserPlus /> Ajouter à mes demandes</button>
           <RouterLink :to="`/media/request/${detail.request_id}`" class="secondary">Suivre la demande <ChevronRight /></RouterLink>
         </template>
-        <button v-else-if="state === 'requestable'" class="primary request-submit" :disabled="submitDisabled" @click="handleRequestClick">
-          <PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}
-        </button>
         <span v-else class="request-available-label"><CheckCircle2 /> Disponible dans Plex</span>
       </div>
     </div>
@@ -68,21 +65,6 @@
       <p v-else class="season-progress-empty">Le détail par saison sera disponible après la première synchronisation Sonarr.</p>
     </details>
 
-    <details v-if="state === 'requestable' && detail.media_type === 'show' && seasonNumbers.length" class="request-options">
-      <summary>
-        <span>Choisir les saisons</span>
-        <small>{{ seasonSelectionLabel }}</small>
-      </summary>
-      <div class="season-choice-head">
-        <label class="check"><input type="checkbox" :checked="allSeasonsSelected" @change="toggleAllSeasons"> Toutes les saisons</label>
-      </div>
-      <div class="season-choice-grid">
-        <label v-for="season in seasonNumbers" :key="season" class="check">
-          <input v-model="form.seasons" type="checkbox" :value="season"> Saison {{ season }}
-        </label>
-      </div>
-    </details>
-
     <details v-if="admin && detail.request_id" class="request-options admin-options">
       <summary>
         <span>Administration</span>
@@ -96,8 +78,8 @@
     </details>
   </section>
 
-  <div v-if="state === 'requestable'" class="mobile-request-bar">
-    <button class="primary" :disabled="submitDisabled" @click="handleRequestClick"><PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}</button>
+  <div v-if="state === 'requestable'" class="request-cta">
+    <button class="primary request-submit" :disabled="busy" @click="handleRequestClick"><PlusCircle />{{ busy ? 'Envoi…' : requestLabel }}</button>
   </div>
 
   <RequestOptionsModal
@@ -109,8 +91,12 @@
     :root-folder="form.root_folder"
     :busy="busy"
     :confirm-label="requestLabel"
+    :media-type="detail.media_type"
+    :seasons="form.seasons"
+    :season-numbers="seasonNumbers"
     @update:plex-user-id="v => form.plex_user_id = v"
     @update:root-folder="v => form.root_folder = v"
+    @update:seasons="v => form.seasons = v"
     @cancel="showOptions = false"
     @confirm="() => { showOptions = false; $emit('submit'); }"
   />
@@ -130,16 +116,14 @@ const props = defineProps({
   admin: { type: Boolean, default: false },
   currentUserId: { type: String, default: '' },
 });
-const emit = defineEmits(['submit', 'join', 'retry', 'approve']);
+defineEmits(['submit', 'join', 'retry', 'approve']);
 
 const showOptions = ref(false);
 function handleRequestClick() {
-  if (props.admin) showOptions.value = true;
-  else emit('submit');
+  showOptions.value = true;
 }
 
 const seasonNumbers = computed(() => Array.from({ length: Number(props.detail?.number_of_seasons || 0) }, (_, index) => index + 1));
-const allSeasonsSelected = computed(() => seasonNumbers.value.length > 0 && seasonNumbers.value.every(season => props.form.seasons.includes(season)));
 const isAvailable = computed(() => Boolean(props.detail.available || props.detail.in_library));
 const isDownloading = computed(() => Boolean(props.detail.is_downloading) || ['queued', 'downloading', 'importing'].includes(props.detail.operational_status));
 const isFailed = computed(() => props.detail.request_status === 'failed' || props.detail.operational_status === 'failed');
@@ -175,10 +159,6 @@ const description = computed(() => {
     ? 'Toutes les saisons seront demandées avec les réglages configurés.'
     : 'La recherche démarrera automatiquement avec les réglages configurés.';
 });
-const submitDisabled = computed(() => props.busy || !props.form.plex_user_id || (props.detail.media_type === 'show' && !props.form.seasons.length));
-const seasonSelectionLabel = computed(() => allSeasonsSelected.value
-  ? 'Toutes les saisons'
-  : `${props.form.seasons.length} saison${props.form.seasons.length > 1 ? 's' : ''} sélectionnée${props.form.seasons.length > 1 ? 's' : ''}`);
 const hasSeasonProgress = computed(() => Boolean(props.detail.seasons?.length)
   || props.detail.episodes_total_count != null
   || props.detail.episodes_available_count != null);
@@ -207,9 +187,6 @@ const timelineSteps = computed(() => props.detail.workflow_timeline?.length
     }))
   : fallbackTimeline.value);
 
-function toggleAllSeasons(event) {
-  props.form.seasons = event.target.checked ? [...seasonNumbers.value] : [];
-}
 function seasonPercent(season) {
   const total = Number(season.episodes_total_count || 0);
   return total ? Math.min(100, Math.round((Number(season.episodes_available_count || 0) / total) * 100)) : 0;
@@ -280,9 +257,6 @@ function formatStepDate(value) {
 .request-options { border-top: 1px solid var(--border); }
 .request-options summary { display: flex; justify-content: space-between; gap: var(--space-3); padding: 13px 20px; cursor: pointer; font-weight: 700; list-style-position: inside; }
 .request-options summary small { color: var(--muted); font-weight: 400; }
-.season-choice-head { padding: 2px 20px 10px; }
-.season-choice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2); padding: 0 20px 18px; }
-.season-choice-grid .check, .season-choice-head .check { display: flex; align-items: center; gap: var(--space-2); }
 .admin-action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0 20px 18px; }
 .admin-action-row :is(a, button) { display: inline-flex; align-items: center; gap: var(--space-2); text-decoration: none; }
 .season-progress-list { display: grid; gap: var(--space-3); padding: 0 20px 18px; }
@@ -291,14 +265,14 @@ function formatStepDate(value) {
 .season-progress-track { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--surface-2); }
 .season-progress-track span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
 .season-progress-empty { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: var(--fs-sm); }
-.mobile-request-bar { display: none; }
+.request-cta { display: flex; justify-content: flex-start; }
+.request-cta button { min-height: 44px; }
 @media (max-width: 720px) {
   .request-panel-main { grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
   .request-panel-action { grid-column: 1 / -1; }
   .request-panel-action :is(a, button), .request-available-label { width: 100%; }
-  .request-submit { min-height: 46px; }
   .request-progress-step { justify-content: flex-start; padding-left: 16px; }
-  .mobile-request-bar {
+  .request-cta {
     position: fixed;
     z-index: 44;
     right: max(10px, var(--safe-right));
@@ -312,6 +286,6 @@ function formatStepDate(value) {
     box-shadow: 0 12px 34px rgba(0, 0, 0, .42);
     backdrop-filter: blur(16px);
   }
-  .mobile-request-bar button { width: 100%; min-height: 46px; }
+  .request-cta button { width: 100%; min-height: 46px; }
 }
 </style>

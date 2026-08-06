@@ -20,16 +20,21 @@ function render(detail, options = {}) {
 }
 
 describe('MediaRequestForm', () => {
-  it('présente une demande directe et replie le choix des saisons', async () => {
+  it('ouvre le choix des saisons dans une modale pour tous les utilisateurs', async () => {
     const form = { plex_user_id: 'alice', root_folder: '', seasons: [1, 2, 3] };
     const wrapper = render({ media_type: 'show', number_of_seasons: 3, year: 2026 }, { form });
 
     expect(wrapper.text()).toContain('Demander la série');
-    expect(wrapper.find('.request-options').attributes('open')).toBeUndefined();
+    expect(wrapper.find('.request-panel').exists()).toBe(false);
     expect(wrapper.findAll('select')).toHaveLength(0);
-    expect(wrapper.text()).toContain('Toutes les saisons');
 
     await wrapper.find('.request-submit').trigger('click');
+    expect(wrapper.emitted('submit')).toBeUndefined();
+    expect(wrapper.find('.request-options-modal').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Toutes les saisons');
+    expect(wrapper.findAll('.season-options-grid input:checked')).toHaveLength(3);
+
+    await wrapper.find('.request-options-modal .primary').trigger('click');
     expect(wrapper.emitted('submit')).toHaveLength(1);
   });
 
@@ -115,10 +120,13 @@ describe('MediaRequestForm', () => {
     expect(wrapper.find('.admin-options').text()).toContain('Relancer');
   });
 
-  it('rend une action mobile persistante sans confirmation modale', () => {
+  it('rend une seule action persistante sur mobile avec confirmation modale', async () => {
     const wrapper = render({ media_type: 'movie' });
 
-    expect(wrapper.find('.mobile-request-bar').exists()).toBe(true);
-    expect(wrapper.find('.mobile-request-bar button').text()).toContain('Demander ce film');
+    expect(wrapper.find('.request-panel').exists()).toBe(false);
+    expect(wrapper.findAll('.request-submit')).toHaveLength(1);
+    expect(wrapper.find('.request-cta button').text()).toContain('Demander ce film');
+    await wrapper.find('.request-submit').trigger('click');
+    expect(wrapper.find('.request-options-modal').exists()).toBe(true);
   });
 });

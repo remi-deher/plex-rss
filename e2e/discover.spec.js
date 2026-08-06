@@ -35,12 +35,16 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ json: {} });
     }
   });
-  await page.goto("/discover/explore", { waitUntil: "domcontentloaded" });
+  await page.goto("/discover/movies", { waitUntil: "domcontentloaded" });
 });
 
 test("charge progressivement le catalogue et conserve des liens accessibles", async ({ page }) => {
   await expect(page.locator(".discover-card")).toHaveCount(2);
   await expect(page.locator(".discover-poster-link").first()).toHaveAttribute("href", /\/media\/discover\/1/);
+  const cardBox = await page.locator('.discover-card').first().boundingBox();
+  const posterBox = await page.locator('.discover-card .poster-shell').first().boundingBox();
+  expect(Math.abs(cardBox.width - posterBox.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(cardBox.height - posterBox.height)).toBeLessThanOrEqual(2);
 
   await page.getByRole("button", { name: "Charger plus de médias" }).click();
 
@@ -48,17 +52,35 @@ test("charge progressivement le catalogue et conserve des liens accessibles", as
   await expect(page.getByText("4 affichés sur 4")).toBeVisible();
 });
 
-test("applique le filtre Films à une recherche", async ({ page }, testInfo) => {
-  if (testInfo.project.name === "mobile") {
-    await page.getByRole("button", { name: /Filtres/ }).click();
-  }
-  await page.getByRole("button", { name: "Films", exact: true }).click();
+test("conserve le catalogue Films lors d'une recherche", async ({ page }) => {
   const searchRequest = page.waitForRequest(request => (
     request.url().includes("/api/discover/search")
     && request.url().includes("media_type=movie")
   ));
-  await page.getByRole("searchbox", { name: "Rechercher un film ou une série" }).fill("Dune");
+  await page.getByRole("searchbox", { name: "Rechercher un film" }).fill("Dune");
   await searchRequest;
+});
+
+test("affiche la navigation dédiée et replie les filtres", async ({ page }) => {
+  const navigation = page.locator('.discover-primary-nav:visible, .discover-mobile-nav:visible');
+  await expect(navigation.getByRole("link", { name: "Accueil" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Séries" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Films" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Demandes" })).toBeVisible();
+  const filters = page.locator('#discover-filters');
+  await expect(filters).toBeHidden();
+  await page.getByRole("button", { name: /Filtres/ }).click();
+  await expect(filters).toBeVisible();
+  await filters.getByRole('button', { name: 'Populaires' }).click();
+  const reset = filters.getByRole('button', { name: 'Réinitialiser' });
+  await expect(reset).toBeVisible();
+  const layoutFits = await filters.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
+  expect(layoutFits).toBe(true);
+  await navigation.getByRole("link", { name: "Séries" }).click();
+  await expect(page).toHaveURL(/\/discover\/shows$/);
+  await expect(page.getByRole("searchbox", { name: "Rechercher une série" })).toBeVisible();
+  await navigation.getByRole("link", { name: "Accueil" }).click();
+  await expect(page).toHaveURL(/\/discover$/);
 });
 
 test("reste utilisable au clavier et sur mobile", async ({ page }, testInfo) => {

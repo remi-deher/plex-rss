@@ -1,6 +1,8 @@
 <template>
-  <div class="shell" :class="{'sidebar-collapsed':isSidebarCollapsed}">
+  <div class="shell" :class="{'sidebar-collapsed':!isDiscoverRoute&&isSidebarCollapsed,'discover-shell':isDiscoverRoute}">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
+    <DiscoverNavigation v-if="isDiscoverRoute" :is-admin="isAdmin" />
+    <template v-else>
     <!-- Desktop Sidebar -->
     <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale" :aria-expanded="!isSidebarCollapsed">
       <div class="brand">
@@ -109,6 +111,7 @@
         </div>
       </div>
     </Transition>
+    </template>
 
     <main id="main-content" class="main" tabindex="-1">
       <RouterView />
@@ -125,6 +128,7 @@ import { api } from "@/api";
 import { clearCache, syncCacheOwner } from "@/cache";
 import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
+import DiscoverNavigation from "@/components/discover/DiscoverNavigation.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
 import { useModalA11y } from "@/composables/useModalA11y";
 import { canModerateSession, isAdminSession, loadSession } from "@/composables/useSession";
@@ -132,6 +136,7 @@ const session=ref(null);
 const route=useRoute();
 const isAdmin=computed(()=>isAdminSession(session.value));
 const canModerate=computed(()=>canModerateSession(session.value));
+const isDiscoverRoute=computed(()=>route.path.startsWith('/discover'));
 const isActivityRoute=computed(()=>route.path==='/activity');
 const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
 const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));

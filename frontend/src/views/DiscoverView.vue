@@ -1,12 +1,6 @@
 <template>
   <div class="page discover-page">
-    <PageHeader title="Découvrir" description="Trouvez votre prochaine histoire et demandez-la en un geste." />
-
-    <nav class="discover-mode" aria-label="Mode de découverte">
-      <button :class="{ active: mode === 'home' }" :aria-pressed="mode === 'home'" @click="showHome">Accueil</button>
-      <button :class="{ active: mode === 'explore' }" :aria-pressed="mode === 'explore'" @click="showExplorer">Explorer</button>
-      <button :class="{ active: mode === 'requests' }" :aria-pressed="mode === 'requests'" @click="showMyRequests">Mes demandes</button>
-    </nav>
+    <PageHeader :title="pageTitle" :description="pageDescription" />
 
     <UiFeedback v-if="requestError" type="error" :message="requestError" dismissible @dismiss="requestError=''" />
     <UiFeedback v-if="requestSuccess" type="success" :message="requestSuccess" dismissible @dismiss="requestSuccess=''" />
@@ -17,8 +11,8 @@
         <input
           v-model="query"
           type="search"
-          placeholder="Rechercher un film ou une série"
-          aria-label="Rechercher un film ou une série"
+          :placeholder="searchPlaceholder"
+          :aria-label="searchPlaceholder"
           @input="handleSearchInput"
         >
         <button
@@ -35,43 +29,46 @@
       </div>
 
       <template v-if="mode === 'explore'">
-        <div class="discover-sections" aria-label="Sélection du catalogue">
-          <button
-            v-for="entry in sections"
-            :key="entry.value"
-            :class="{ active: section === entry.value && !query }"
-            :aria-pressed="section === entry.value && !query"
-            @click="setSection(entry.value)"
-          >{{ entry.label }}</button>
-        </div>
-
         <div id="discover-filters" class="discover-filters" :class="{ open: filtersOpen }">
-          <div class="segmented" aria-label="Type de média">
-            <button
-              v-for="entry in mediaTypes"
-              :key="entry.value"
-              :class="{ active: mediaType === entry.value }"
-              :aria-pressed="mediaType === entry.value"
-              @click="setMediaType(entry.value)"
-            >{{ entry.label }}</button>
+          <div class="discover-filter-catalog">
+            <div class="discover-sections" aria-label="Sélection du catalogue">
+              <button
+                v-for="entry in sections"
+                :key="entry.value"
+                :class="{ active: section === entry.value && !query }"
+                :aria-pressed="section === entry.value && !query"
+                @click="setSection(entry.value)"
+              >{{ entry.label }}</button>
+            </div>
+            <div v-if="!fixedMediaType" class="segmented" aria-label="Type de média">
+              <button
+                v-for="entry in mediaTypes"
+                :key="entry.value"
+                :class="{ active: mediaType === entry.value }"
+                :aria-pressed="mediaType === entry.value"
+                @click="setMediaType(entry.value)"
+              >{{ entry.label }}</button>
+            </div>
           </div>
-          <select v-if="section === 'genres' && !query" v-model="genre" aria-label="Genre" @change="reload">
-            <option value="">Tous les genres</option>
-            <option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-          </select>
-          <select v-model="availability" aria-label="Disponibilité" @change="reload">
-            <option value="">Tous les états</option>
-            <option value="available">Disponible sur Plex</option>
-            <option value="requested">Déjà demandé</option>
-            <option value="new">À demander</option>
-          </select>
-          <select v-model="sourceKey" aria-label="Diffuseur ou studio" @change="selectSource">
-            <option value="">Tous les diffuseurs et studios</option>
-            <option v-for="source in sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">
-              {{ source.name }}
-            </option>
-          </select>
-          <button v-if="activeFilterCount" class="secondary" @click="resetFilters">Réinitialiser</button>
+          <div class="discover-filter-controls">
+            <select v-if="section === 'genres' && !query" v-model="genre" aria-label="Genre" @change="reload">
+              <option value="">Tous les genres</option>
+              <option v-for="entry in genres" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+            </select>
+            <select v-model="availability" aria-label="Disponibilité" @change="reload">
+              <option value="">Tous les états</option>
+              <option value="available">Disponible sur Plex</option>
+              <option value="requested">Déjà demandé</option>
+              <option value="new">À demander</option>
+            </select>
+            <select v-model="sourceKey" aria-label="Diffuseur ou studio" @change="selectSource">
+              <option value="">Tous les diffuseurs et studios</option>
+              <option v-for="source in sources" :key="`${source.kind}:${source.id}`" :value="`${source.kind}:${source.id}`">
+                {{ source.name }}
+              </option>
+            </select>
+            <button v-if="activeFilterCount" class="secondary filter-reset" @click="resetFilters">Réinitialiser</button>
+          </div>
         </div>
       </template>
     </section>
@@ -255,7 +252,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { Search, SlidersHorizontal } from '@lucide/vue';
 import { api } from '@/api';
 import DiscoverHero from '@/components/discover/DiscoverHero.vue';
@@ -272,17 +270,24 @@ import { useLatestRequest } from '@/composables/useLatestRequest';
 import { mediaDetailPath } from '@/mediaUrl';
 
 const initialParams = new URLSearchParams(window.location.search);
+const route = useRoute();
+const router = useRouter();
 function initialModeFromLocation() {
   if (window.location.pathname === '/discover/requests' || initialParams.get('mode') === 'requests') return 'requests';
-  if (window.location.pathname === '/discover/explore' || initialParams.get('mode') === 'explore') return 'explore';
+  if (['/discover/explore', '/discover/movies', '/discover/shows'].includes(window.location.pathname) || initialParams.get('mode') === 'explore') return 'explore';
   return 'home';
 }
 const validMediaTypes = new Set(['all', 'movie', 'show']);
+function mediaTypeFromLocation(params = new URLSearchParams(window.location.search), path = window.location.pathname) {
+  if (path === '/discover/movies') return 'movie';
+  if (path === '/discover/shows') return 'show';
+  return validMediaTypes.has(params.get('type')) ? params.get('type') : 'all';
+}
 const validSections = new Set(['trending', 'popular', 'coming-soon', 'genres']);
 const mode = ref(initialModeFromLocation());
 const items = ref([]);
 const query = ref(initialParams.get('q') || '');
-const mediaType = ref(validMediaTypes.has(initialParams.get('type')) ? initialParams.get('type') : 'all');
+const mediaType = ref(mediaTypeFromLocation(initialParams));
 const section = ref(validSections.has(initialParams.get('section')) ? initialParams.get('section') : 'trending');
 const genre = ref(initialParams.get('genre') || '');
 const availability = ref(['available', 'requested', 'new'].includes(initialParams.get('availability')) ? initialParams.get('availability') : '');
@@ -294,7 +299,7 @@ const error = ref('');
 const page = ref(1);
 const totalPages = ref(1);
 const totalResults = ref(0);
-const filtersOpen = ref(!window.matchMedia('(max-width:640px)').matches);
+const filtersOpen = ref(false);
 const request = useLatestRequest();
 const sources = ref([]);
 const sourcesRegion = ref('');
@@ -336,6 +341,20 @@ const mediaTypes = [
   { value: 'movie', label: 'Films' },
   { value: 'show', label: 'Séries' },
 ];
+const fixedMediaType = computed(() => route.path === '/discover/movies' ? 'movie' : route.path === '/discover/shows' ? 'show' : '');
+const pageTitle = computed(() => mode.value === 'requests' ? 'Demandes' : fixedMediaType.value === 'movie' ? 'Films' : fixedMediaType.value === 'show' ? 'Séries' : 'Découvrir');
+const pageDescription = computed(() => mode.value === 'requests'
+  ? 'Suivez vos demandes et leur disponibilité.'
+  : fixedMediaType.value === 'movie'
+    ? 'Explorez les films et trouvez votre prochaine séance.'
+    : fixedMediaType.value === 'show'
+      ? 'Parcourez les séries à suivre et les nouveautés.'
+      : 'Trouvez votre prochaine histoire et demandez-la en un geste.');
+const searchPlaceholder = computed(() => fixedMediaType.value === 'movie'
+  ? 'Rechercher un film'
+  : fixedMediaType.value === 'show'
+    ? 'Rechercher une série'
+    : 'Rechercher un film ou une série');
 const sections = [
   { value: 'trending', label: 'Tendances' },
   { value: 'popular', label: 'Populaires' },
@@ -349,7 +368,7 @@ const sectionDescription = computed(() => ({
   'coming-soon': 'Les prochaines sorties à surveiller',
   genres: 'Explorez le catalogue par univers',
 })[section.value]);
-const activeFilterCount = computed(() => [mediaType.value !== 'all', genre.value, availability.value, sourceKey.value].filter(Boolean).length);
+const activeFilterCount = computed(() => [!fixedMediaType.value && mediaType.value !== 'all', section.value !== 'trending', genre.value, availability.value, sourceKey.value].filter(Boolean).length);
 const displayedItems = computed(() => items.value.filter(item => {
   if (availability.value === 'available') return item.available || item.in_library;
   if (availability.value === 'requested') return item.requested && !item.available && !item.in_library;
@@ -372,7 +391,7 @@ function updateMatchingMedia(changed, update) {
 }
 function detailPath(item) {
   const kind = item.library_id ? 'library' : item.request_id ? 'request' : 'discover';
-  return mediaDetailPath(item, kind);
+  return mediaDetailPath(item, kind, { discover: true });
 }
 function cardActionLabel(item) {
   if (item.in_library || item.library_id) return 'Voir la fiche';
@@ -388,23 +407,23 @@ function sourcePath(source) {
 function showHome() {
   request.abort();
   mode.value = 'home';
-  window.history.replaceState(window.history.state, '', '/discover');
+  router.push('/discover');
   if (!homeLoaded.value) loadHome();
 }
 async function showExplorer() {
   mode.value = 'explore';
+  if (route.path === '/discover/requests') {
+    await router.push('/discover/movies');
+    return;
+  }
   syncExplorerUrl();
   if (!genres.value.length) loadGenres();
   if (!sources.value.length) loadSources();
   await load();
 }
-function showMyRequests() {
-  request.abort();
-  mode.value = 'requests';
-  window.history.replaceState(window.history.state, '', '/discover/requests');
-}
 function startSearch() {
   mode.value = 'explore';
+  mediaType.value = 'all';
   syncExplorerUrl();
   scheduleSearch();
 }
@@ -417,25 +436,32 @@ function syncExplorerUrl() {
   if (mode.value !== 'explore') return;
   const params = new URLSearchParams();
   if (query.value.trim()) params.set('q', query.value.trim());
-  if (mediaType.value !== 'all') params.set('type', mediaType.value);
+  if (!fixedMediaType.value && mediaType.value !== 'all') params.set('type', mediaType.value);
   if (section.value !== 'trending') params.set('section', section.value);
   if (genre.value) params.set('genre', genre.value);
   if (availability.value) params.set('availability', availability.value);
   if (sourceKey.value) params.set('source', sourceKey.value);
-  const suffix = params.toString();
-  window.history.replaceState(window.history.state, '', `/discover/explore${suffix ? `?${suffix}` : ''}`);
+  const path = fixedMediaType.value === 'movie' ? '/discover/movies' : fixedMediaType.value === 'show' ? '/discover/shows' : '/discover/explore';
+  router.replace({ path, query: Object.fromEntries(params.entries()) });
 }
 
 function applyExplorerUrl() {
-  if (window.location.pathname === '/discover/requests') {
+  if (route.path === '/discover/requests') {
+    request.abort();
     mode.value = 'requests';
     return;
   }
-  if (window.location.pathname !== '/discover/explore') return;
-  const params = new URLSearchParams(window.location.search);
+  if (route.path === '/discover') {
+    request.abort();
+    mode.value = 'home';
+    if (!homeLoaded.value) loadHome();
+    return;
+  }
+  if (!['/discover/explore', '/discover/movies', '/discover/shows'].includes(route.path)) return;
+  const params = new URLSearchParams(route.query);
   mode.value = 'explore';
   query.value = params.get('q') || '';
-  mediaType.value = validMediaTypes.has(params.get('type')) ? params.get('type') : 'all';
+  mediaType.value = mediaTypeFromLocation(params, route.path);
   section.value = validSections.has(params.get('section')) ? params.get('section') : 'trending';
   genre.value = params.get('genre') || '';
   availability.value = ['available', 'requested', 'new'].includes(params.get('availability')) ? params.get('availability') : '';
@@ -540,7 +566,7 @@ function selectSource() {
   reload();
 }
 async function resetFilters() {
-  mediaType.value = 'all';
+  mediaType.value = fixedMediaType.value || 'all';
   genre.value = '';
   availability.value = '';
   sourceKey.value = '';
@@ -611,22 +637,20 @@ function scheduleSearch() {
 }
 
 onMounted(() => {
-  window.addEventListener('popstate', applyExplorerUrl);
   if (mode.value === 'home') loadHome();
   else if (mode.value === 'explore') showExplorer();
 });
-onBeforeUnmount(() => window.removeEventListener('popstate', applyExplorerUrl));
+watch(() => route.path, (path, previousPath) => {
+  // La recherche d'accueil change seulement l'URL : le même champ et les mêmes
+  // résultats restent montés, sans lancer une seconde requête ni perdre le focus.
+  if (previousPath === '/discover' && path === '/discover/explore' && mode.value === 'explore') return;
+  applyExplorerUrl();
+});
 </script>
 
 <style scoped>
 .discover-page { gap: var(--space-5); }
-.discover-mode { display: inline-flex; justify-self: start; gap: var(--space-1); padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); }
-.discover-mode button { padding: 7px 14px; border: 0; border-radius: var(--radius-pill); color: var(--muted); background: transparent; }
-.discover-mode button.active { color: #111; background: var(--accent); }
-.home-search { max-width: 760px; padding: 12px 15px; }
-.home-search .discover-search { gap: var(--space-3); }
-.home-search .discover-search svg { width: 19px; }
-.home-search .discover-search input { font-size: var(--fs-base); }
+.home-search { max-width: 760px; }
 .discover-home-rails { display: grid; gap: var(--space-6); }
 .discover-sources { display: grid; gap: var(--space-3); min-width: 0; }
 .discover-sources header { display: flex; align-items: end; justify-content: space-between; gap: var(--space-4); }
@@ -641,7 +665,13 @@ onBeforeUnmount(() => window.removeEventListener('popstate', applyExplorerUrl));
 .personalized-options { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .personalized-options label { display: flex; align-items: center; gap: var(--space-2); color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
 .personalized-options input { accent-color: var(--accent); }
-.discover-command{position:sticky;top:8px;z-index:20;display:grid;gap: var(--space-2);padding:12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-glass);backdrop-filter:blur(12px)}.discover-search{display:flex;align-items:center;gap: var(--space-2)}.discover-search>svg{width:18px;color:var(--muted)}.discover-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:var(--fs-md);outline:0}.filter-toggle{display:flex;align-items:center;gap: var(--space-2);padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--muted)}.filter-toggle svg{width:15px}.filter-toggle span{padding:2px 5px;border-radius:var(--radius-pill);background:var(--accent);color:#111;font-size:var(--fs-xs)}.filter-toggle.active{color:var(--text)}.discover-sections,.discover-filters{display:flex;align-items:center;gap: var(--space-2);overflow-x:auto}.discover-sections button{padding:6px 10px;border:0;border-radius:var(--radius-pill);background:transparent;color:var(--muted);white-space:nowrap}.discover-sections button.active{background:var(--accent);color:#111}.discover-filters{display:none;padding-top:8px;border-top:1px solid var(--border)}.discover-filters.open{display:flex}.discover-heading{display:flex;align-items:end;justify-content:space-between;gap: var(--space-3);margin-top:6px}.discover-heading>div{display:grid;gap: var(--space-1)}.discover-heading h2{margin:0;font-size:var(--fs-base)}.discover-heading>span{color:var(--muted);font-size:var(--fs-xs)}.discover-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));align-items:start;gap: var(--space-4)}.load-more{display:flex;justify-content:center;padding:20px}.load-more button{display:flex;align-items:center;gap: var(--space-2)}.load-more svg{width:16px}
+.discover-command{position:sticky;top:8px;z-index:20;display:grid;gap: var(--space-2);max-width:980px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-glass);backdrop-filter:blur(12px)}.discover-search{display:flex;align-items:center;gap: var(--space-2);min-height:36px}.discover-search>svg{width:17px;color:var(--muted)}.discover-search input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:var(--fs-sm);outline:0}.filter-toggle{display:flex;align-items:center;gap: var(--space-2);padding:6px 9px;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:var(--muted)}.filter-toggle svg{width:15px}.filter-toggle span{padding:2px 5px;border-radius:var(--radius-pill);background:var(--accent);color:#111;font-size:var(--fs-xs)}.filter-toggle.active{color:var(--text)}.discover-filters{display:none;align-items:center;gap: var(--space-2);padding-top:8px;border-top:1px solid var(--border);overflow-x:auto}.discover-filters.open{display:flex}.discover-sections{display:flex;align-items:center;gap: var(--space-1)}.discover-sections button{padding:6px 10px;border:0;border-radius:var(--radius-pill);background:transparent;color:var(--muted);white-space:nowrap}.discover-sections button.active{background:var(--accent);color:#111}.discover-heading{display:flex;align-items:end;justify-content:space-between;gap: var(--space-3);margin-top:6px}.discover-heading>div{display:grid;gap: var(--space-1)}.discover-heading h2{margin:0;font-size:var(--fs-base)}.discover-heading>span{color:var(--muted);font-size:var(--fs-xs)}.discover-grid{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));align-items:start;gap: var(--space-4)}.load-more{display:flex;justify-content:center;padding:20px}.load-more button{display:flex;align-items:center;gap: var(--space-2)}.load-more svg{width:16px}
+.discover-filters.open { display: grid; align-items: stretch; gap: var(--space-3); overflow: visible; }
+.discover-filter-catalog { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+.discover-filter-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); align-items: center; }
+.discover-filter-controls select { width: 100%; min-width: 0; }
+.filter-reset { grid-column: 1 / -1; justify-self: end; }
+@media(max-width:1024px){.discover-filter-catalog{align-items:stretch;flex-direction:column}.discover-sections{overflow-x:auto}.discover-filter-catalog>.segmented{align-self:flex-start}.discover-filter-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.discover-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap: var(--space-3)}}
-@media(max-width:640px){.discover-mode{width:100%}.discover-mode button{flex:1}.discover-command{top:6px;padding:10px}.filter-toggle{font-size:var(--fs-xs);padding:7px 11px}.discover-filters{align-items:stretch;flex-direction:column;overflow:visible}.discover-filters .segmented{display:flex}.discover-filters .segmented button{flex:1}.discover-filters select{width:100%}.discover-heading h2{font-size:var(--fs-md)}.source-track{grid-auto-columns:minmax(145px,52vw);margin-right:-12px}.personalized-discovery{padding:14px}.personalized-header{display:grid}.personalized-options{display:grid}}
+@media(max-width:640px){.discover-command{top:6px;padding:8px 10px}.filter-toggle{font-size:var(--fs-xs);padding:7px 9px}.discover-filter-catalog>.segmented{display:flex;align-self:stretch}.discover-filter-catalog>.segmented button{flex:1}.discover-filter-controls{grid-template-columns:1fr}.filter-reset{width:100%;justify-self:stretch}.discover-heading h2{font-size:var(--fs-md)}.source-track{grid-auto-columns:minmax(145px,52vw);margin-right:-12px}.personalized-discovery{padding:14px}.personalized-header{display:grid}.personalized-options{display:grid}}
 </style>

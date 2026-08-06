@@ -60,7 +60,7 @@ const headingId = computed(() => `rail-${props.title.toLowerCase().replace(/[^a-
 
 function itemPath(item) {
   const kind = item.library_id ? 'library' : item.request_id ? 'request' : 'discover';
-  return mediaDetailPath(item, kind);
+  return mediaDetailPath(item, kind, { discover: true });
 }
 function actionLabel(item) {
   if (item.in_library || item.library_id) return 'Voir la fiche';

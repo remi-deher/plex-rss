@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import DiscoverView from './DiscoverView.vue';
 
 const apiMock = vi.fn();
@@ -16,11 +17,19 @@ function media(id, title = `Média ${id}`) {
   return { tmdb_id: id, media_type: 'movie', title, year: 2025, vote: 7, poster_url: `/poster-${id}.jpg` };
 }
 
-function mountView({ home = false, url = '', attachTo } = {}) {
-  window.history.replaceState({}, '', url || (home ? '/discover' : '/discover/explore'));
+async function mountView({ home = false, url = '', attachTo } = {}) {
+  const target = url || (home ? '/discover' : '/discover/explore');
+  window.history.replaceState({}, '', target);
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }],
+  });
+  await router.push(target);
+  await router.isReady();
   return mount(DiscoverView, {
     attachTo,
     global: {
+      plugins: [router],
       stubs: {
         PageHeader: true,
         UiFeedback: true,
@@ -51,7 +60,7 @@ describe('DiscoverView', () => {
       if (path.includes('page=2')) return Promise.resolve(page([media(2), media(3)], 2, 2));
       return Promise.resolve(page([media(1), media(2)], 1, 2));
     });
-    const wrapper = mountView();
+    const wrapper = await mountView();
     await flushPromises();
 
     expect(wrapper.findAll('.discover-card')).toHaveLength(2);
@@ -64,7 +73,7 @@ describe('DiscoverView', () => {
 
   it('applique le type de média aux recherches et aux catalogues', async () => {
     apiMock.mockImplementation(path => path.includes('/genres') ? Promise.resolve([]) : Promise.resolve(page([])));
-    const wrapper = mountView();
+    const wrapper = await mountView();
     await flushPromises();
 
     const films = wrapper.findAll('.segmented button').find(button => button.text() === 'Films');
@@ -84,7 +93,7 @@ describe('DiscoverView', () => {
       if (path.includes('ancien')) return new Promise(resolve => { resolveOld = resolve; });
       return new Promise(resolve => { resolveNew = resolve; });
     });
-    const wrapper = mountView();
+    const wrapper = await mountView();
     await flushPromises();
     const input = wrapper.get('input[type="search"]');
 
@@ -104,7 +113,7 @@ describe('DiscoverView', () => {
 
   it('conserve le focus du champ partagé lors du passage de l’accueil à Explorer', async () => {
     apiMock.mockImplementation(path => path.includes('/genres') ? Promise.resolve([]) : Promise.resolve(page([])));
-    const wrapper = mountView({ home: true, attachTo: document.body });
+    const wrapper = await mountView({ home: true, attachTo: document.body });
     await flushPromises();
     const input = wrapper.get('input[type="search"]');
 
@@ -118,7 +127,7 @@ describe('DiscoverView', () => {
 
   it('rend les cartes comme de vrais liens accessibles', async () => {
     apiMock.mockImplementation(path => path.includes('/genres') ? Promise.resolve([]) : Promise.resolve(page([media(1, 'Film test')])));
-    const wrapper = mountView();
+    const wrapper = await mountView();
     await flushPromises();
 
     const card = wrapper.get('.discover-card a.discover-poster-link');
@@ -142,7 +151,7 @@ describe('DiscoverView', () => {
       return Promise.resolve(page([]));
     });
 
-    const wrapper = mountView({ home: true });
+    const wrapper = await mountView({ home: true });
     await flushPromises();
 
     expect(wrapper.text()).toContain('À la une');
@@ -158,7 +167,7 @@ describe('DiscoverView', () => {
       if (path === '/api/media/add') return Promise.resolve({ request_id: 9, pending_approval: false });
       return Promise.resolve(page([media(1, 'Film test')]));
     });
-    const wrapper = mountView();
+    const wrapper = await mountView();
     await flushPromises();
 
     await wrapper.get('button[aria-label="Demander Film test"]').trigger('click');
@@ -182,7 +191,7 @@ describe('DiscoverView', () => {
       return Promise.resolve(page([]));
     });
 
-    const wrapper = mountView({ url: '/discover/explore?type=movie&availability=new&source=provider%3A8' });
+    const wrapper = await mountView({ url: '/discover/explore?type=movie&availability=new&source=provider%3A8' });
     await flushPromises();
 
     expect(wrapper.text()).toContain('Netflix movie');
@@ -215,7 +224,7 @@ describe('DiscoverView', () => {
       return Promise.resolve(page([]));
     });
 
-    const wrapper = mountView({ home: true });
+    const wrapper = await mountView({ home: true });
     await flushPromises();
 
     expect(wrapper.text()).toContain('Pour vous');

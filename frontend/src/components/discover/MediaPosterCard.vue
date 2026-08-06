@@ -69,7 +69,11 @@ const accessibleLabel = computed(() => [
 .discover-media-card {
   position: relative;
   min-width: 0;
+  aspect-ratio: 2 / 3;
+  padding: 0;
+  overflow: hidden;
   border-radius: var(--radius-md);
+  background: var(--surface-2);
   color: inherit;
 }
 .discover-media-card:hover,
@@ -78,11 +82,12 @@ const accessibleLabel = computed(() => [
   box-shadow: 0 16px 34px rgba(0, 0, 0, .42);
   transform: translateY(-4px) scale(1.015);
 }
-.discover-poster-wrap { position: relative; aspect-ratio: 2 / 3; }
+.discover-poster-wrap { position: relative; width: 100%; height: 100%; padding: 0 !important; }
 .discover-poster-link { display: block; height: 100%; color: inherit; text-decoration: none; }
-.discover-poster-link :deep(.poster-shell) { height: 100%; }
+.discover-poster-link :deep(.poster-shell) { width: 100%; height: 100%; padding: 0; overflow: hidden; }
 .discover-poster-link :deep(.poster-shell > img),
-.discover-poster-link :deep(.poster-fallback) { height: 100%; aspect-ratio: auto; }
+.discover-poster-link :deep(.poster-fallback) { display: block; width: 100%; height: 100%; padding: 0; aspect-ratio: auto; object-fit: cover; }
+.discover-poster-link :deep(.poster-fallback) { display: grid; }
 .discover-card-badges {
   position: absolute;
   top: 7px;

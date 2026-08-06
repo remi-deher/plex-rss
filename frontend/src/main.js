@@ -46,8 +46,13 @@ const routes = [
   { path: "/", redirect: "/discover" },
   { path: "/dashboard", component: DashboardView },
   { path: "/discover/source/:kind/:id", component: DiscoverSourceView },
+  { path: "/discover/shows", component: DiscoverView },
+  { path: "/discover/movies", component: DiscoverView },
+  // Ancienne URL partageable : elle reste valide pour les favoris existants et sert
+  // aussi aux recherches mixtes lancees depuis l'accueil.
   { path: "/discover/explore", component: DiscoverView },
   { path: "/discover/requests", component: DiscoverView },
+  { path: "/discover/media/:kind/:id", component: MediaDetailView },
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },

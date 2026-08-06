@@ -32,7 +32,7 @@ const backdropStyle = computed(() => props.item?.backdrop_url
 const itemPath = computed(() => {
   if (!props.item) return '/discover';
   const kind = props.item.library_id ? 'library' : props.item.request_id ? 'request' : 'discover';
-  return mediaDetailPath(props.item, kind);
+  return mediaDetailPath(props.item, kind, { discover: true });
 });
 </script>
 

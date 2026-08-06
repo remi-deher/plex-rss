@@ -89,7 +89,7 @@ const { requesting, requestError, requestSuccess, requestMedia, optionsDialog, c
 
 function detailPath(item) {
   const kind = item.library_id ? 'library' : item.request_id ? 'request' : 'discover';
-  return mediaDetailPath(item, kind);
+  return mediaDetailPath(item, kind, { discover: true });
 }
 function cardActionLabel(item) {
   if (item.in_library || item.library_id) return 'Voir la fiche';

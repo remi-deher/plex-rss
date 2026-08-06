@@ -110,7 +110,7 @@ const sorted = computed(() => {
 });
 
 function openDetail(item) {
-  router.push(mediaDetailPath(item, 'request'));
+  router.push(mediaDetailPath(item, 'request', { discover: true }));
 }
 
 async function act(row, action) {
