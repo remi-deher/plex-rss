@@ -46,7 +46,7 @@ test("charge progressivement le catalogue et conserve des liens accessibles", as
   expect(Math.abs(cardBox.width - posterBox.width)).toBeLessThanOrEqual(2);
   expect(Math.abs(cardBox.height - posterBox.height)).toBeLessThanOrEqual(2);
 
-  await page.getByRole("button", { name: "Charger plus de médias" }).click();
+  await page.locator(".infinite-scroll-trigger").scrollIntoViewIfNeeded();
 
   await expect(page.locator(".discover-card")).toHaveCount(4);
   await expect(page.getByText("4 affichés sur 4")).toBeVisible();

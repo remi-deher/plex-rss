@@ -2,7 +2,7 @@
   <aside class="sidebar discover-sidebar desktop-only" :class="{ collapsed }" aria-label="Navigation Découverte" :aria-expanded="!collapsed">
     <div class="brand discover-brand">
       <span class="brand-mark"><Compass /></span>
-      <span><strong>Plexarr</strong><small>Découverte</small></span>
+      <span><strong>Plexarr</strong></span>
       <button class="sidebar-toggle" type="button" :aria-label="collapsed ? 'Afficher le menu' : 'Réduire le menu'" :title="collapsed ? 'Afficher le menu' : 'Réduire le menu'" @click="$emit('toggle')">
         <PanelLeftOpen v-if="collapsed"/><PanelLeftClose v-else/>
       </button>

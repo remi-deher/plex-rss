@@ -395,6 +395,9 @@ onMounted(load);
   padding: 80px 0;
   color: var(--muted);
 }
+@media (max-width: 720px) {
+  .media-detail-body { padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 76px); }
+}
 @media (min-width: 1025px) {
   .media-detail-body { font-size: var(--fs-md); gap: var(--space-5); }
   .media-detail-body :deep(.drawer-section > h2),

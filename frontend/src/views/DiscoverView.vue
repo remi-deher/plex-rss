@@ -229,7 +229,7 @@
           />
         </section>
         <p v-if="!displayedItems.length" class="empty">Aucun média ne correspond à ces filtres.</p>
-        <LoadMore :has-more="hasMore" :loading="loadingMore" label="Charger plus de médias" @load="loadMore" />
+        <InfiniteScrollTrigger :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
       </template>
     </template>
 
@@ -263,7 +263,7 @@ import MediaRail from '@/components/discover/MediaRail.vue';
 import MediaRailSkeleton from '@/components/discover/MediaRailSkeleton.vue';
 import RequestOptionsModal from '@/components/media/RequestOptionsModal.vue';
 import MyRequestsPanel from '@/components/discover/MyRequestsPanel.vue';
-import LoadMore from '@/components/ui/LoadMore.vue';
+import InfiniteScrollTrigger from '@/components/ui/InfiniteScrollTrigger.vue';
 import { useDebounced } from '@/composables/useDebounced';
 import { mediaRequestKey, useDirectMediaRequest } from '@/composables/useDirectMediaRequest';
 import { useLatestRequest } from '@/composables/useLatestRequest';

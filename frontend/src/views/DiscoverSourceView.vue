@@ -32,7 +32,7 @@
         />
       </section>
       <p v-if="!items.length" class="empty">Aucun média trouvé pour cette sélection.</p>
-      <LoadMore :has-more="hasMore" :loading="loadingMore" label="Charger plus de médias" @load="loadMore" />
+      <InfiniteScrollTrigger :has-more="hasMore" :loading="loadingMore" @load="loadMore" />
     </template>
 
     <RequestOptionsModal
@@ -55,7 +55,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { api } from '@/api';
-import LoadMore from '@/components/ui/LoadMore.vue';
+import InfiniteScrollTrigger from '@/components/ui/InfiniteScrollTrigger.vue';
 import MediaPosterCard from '@/components/discover/MediaPosterCard.vue';
 import RequestOptionsModal from '@/components/media/RequestOptionsModal.vue';
 import { mediaDetailPath } from '@/mediaUrl';
