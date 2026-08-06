@@ -165,6 +165,36 @@ def test_norm_list_empty_when_no_results_key():
     assert tmdb._norm_list({}) == []
 
 
+def test_norm_cast_keeps_profile_and_character():
+    result = tmdb._norm_cast({"cast": [{"id": 287, "name": "Brad Pitt", "character": "Tyler", "profile_path": "/portrait.jpg"}]})
+    assert result == [{
+        "tmdb_id": 287,
+        "name": "Brad Pitt",
+        "character": "Tyler",
+        "profile_url": "https://image.tmdb.org/t/p/w185/portrait.jpg",
+        "order": 0,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_person_detail_normalizes_and_deduplicates_credits(db):
+    payload = {
+        "id": 287,
+        "name": "Brad Pitt",
+        "profile_path": "/portrait.jpg",
+        "combined_credits": {"cast": [
+            {"id": 550, "media_type": "movie", "title": "Fight Club", "character": "Tyler", "popularity": 9},
+            {"id": 550, "media_type": "movie", "title": "Fight Club", "character": "Tyler", "popularity": 9},
+            {"id": 1399, "media_type": "tv", "name": "Une série", "character": "Lui", "popularity": 7},
+        ]},
+    }
+    with patch("app.services.tmdb._get", new=AsyncMock(return_value=payload)):
+        result = await tmdb.person_detail(db, 287)
+
+    assert result["profile_url"].endswith("/h632/portrait.jpg")
+    assert [(item["media_type"], item["tmdb_id"]) for item in result["credits"]] == [("movie", 550), ("show", 1399)]
+
+
 # ---------------------------------------------------------------------------
 # check_connection
 # ---------------------------------------------------------------------------

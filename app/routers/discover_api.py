@@ -619,3 +619,13 @@ async def get_detail(
         return d
     except Exception as e:
         _guard(e)
+
+
+@router.get("/person/{person_id}")
+async def get_person(person_id: int, db: AsyncSession = Depends(get_db_async)):
+    try:
+        payload = await tmdb.person_detail(db, person_id)
+        payload["credits"] = await _annotate(db, payload.get("credits", []))
+        return payload
+    except Exception as e:
+        _guard(e)

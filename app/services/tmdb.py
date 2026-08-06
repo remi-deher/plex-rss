@@ -72,6 +72,10 @@ def _logo(path: Optional[str], size: str = "w154") -> Optional[str]:
     return f"{IMG_BASE}/{size}{path}" if path else None
 
 
+def _profile(path: Optional[str], size: str = "w185") -> Optional[str]:
+    return f"{IMG_BASE}/{size}{path}" if path else None
+
+
 async def _cache_get(db: AsyncSession, key: str) -> Optional[dict]:
     row = (await db.execute(
         select(SearchCache).filter(SearchCache.query == key, SearchCache.category == "tmdb")
@@ -180,6 +184,20 @@ def _norm_page(data: dict, forced_type: Optional[str] = None) -> dict:
         "total_pages": max(1, int(data.get("total_pages") or 1)),
         "total_results": max(0, int(data.get("total_results") or 0)),
     }
+
+
+def _norm_cast(data: dict, limit: int = 18) -> list[dict]:
+    return [
+        {
+            "tmdb_id": person.get("id"),
+            "name": person.get("name") or "",
+            "character": person.get("character") or "",
+            "profile_url": _profile(person.get("profile_path")),
+            "order": person.get("order", index),
+        }
+        for index, person in enumerate((data or {}).get("cast", [])[:limit])
+        if person.get("id") and person.get("name")
+    ]
 
 
 def _merge_pages(movie_page: dict, show_page: dict, page: int) -> dict:
@@ -369,10 +387,37 @@ async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
             "next_episode_to_air": data.get("next_episode_to_air"),
             "recommendations": _norm_list(data.get("recommendations") or {}, mt),
             "similar": _norm_list(data.get("similar") or {}, mt),
+            "cast": _norm_cast(data.get("credits") or {}),
             "saga": saga,
         }
     )
     return base
+
+
+async def person_detail(db: AsyncSession, person_id: int) -> dict:
+    data = await _get(db, f"/person/{person_id}", {"append_to_response": "combined_credits"})
+    credits = []
+    seen = set()
+    for raw in (data.get("combined_credits") or {}).get("cast", []):
+        item = _norm(raw)
+        key = (item or {}).get("media_type"), (item or {}).get("tmdb_id")
+        if not item or not key[1] or key in seen:
+            continue
+        seen.add(key)
+        item["character"] = raw.get("character") or ""
+        credits.append(item)
+    credits.sort(key=lambda item: (item.get("popularity") or 0, item.get("vote") or 0), reverse=True)
+    return {
+        "tmdb_id": data.get("id"),
+        "name": data.get("name") or "",
+        "biography": data.get("biography") or "",
+        "birthday": data.get("birthday"),
+        "deathday": data.get("deathday"),
+        "place_of_birth": data.get("place_of_birth") or "",
+        "known_for_department": data.get("known_for_department") or "",
+        "profile_url": _profile(data.get("profile_path"), "h632"),
+        "credits": credits[:60],
+    }
 
 
 async def get_collection(db: AsyncSession, collection_id: int) -> dict:

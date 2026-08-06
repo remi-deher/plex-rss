@@ -24,6 +24,7 @@ const ProfileView = () => import("./views/ProfileView.vue");
 const LogsView = () => import("./views/LogsView.vue");
 const IssuesView = () => import("./views/IssuesView.vue");
 const MediaDetailView = () => import("./views/MediaDetailView.vue");
+const PersonDetailView = () => import("./views/PersonDetailView.vue");
 import "./styles.css";
 
 const ASSET_RELOAD_KEY = "plexarr:asset-reload";
@@ -53,6 +54,7 @@ const routes = [
   { path: "/discover/explore", component: DiscoverView },
   { path: "/discover/requests", component: DiscoverView },
   { path: "/discover/media/:kind/:id", component: MediaDetailView },
+  { path: "/discover/person/:id", component: PersonDetailView },
   { path: "/discover", component: DiscoverView },
   { path: "/downloads", component: DownloadsView },
   { path: "/activity", component: ActivityView },

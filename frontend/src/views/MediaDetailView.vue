@@ -96,11 +96,18 @@
           />
         </template>
 
-        <MediaSaga v-if="kind === 'discover'" :saga="detail.saga" />
+        <MediaCast :items="detail.cast || []" />
+
+        <MediaSaga v-if="detail.saga" :saga="detail.saga" />
 
         <MediaRecommendations
-          v-if="kind === 'discover'"
-          :items="recommendations"
+          title="Recommandés pour vous"
+          :items="detail.recommendations || []"
+          @open="item => router.push(relatedMediaPath(item))"
+        />
+        <MediaRecommendations
+          title="Titres similaires"
+          :items="detail.similar || []"
           @open="item => router.push(relatedMediaPath(item))"
         />
       </div>
@@ -122,6 +129,7 @@ import MediaCalendarTab from "@/components/media/MediaCalendarTab.vue";
 import MediaAudioSection from "@/components/media/MediaAudioSection.vue";
 import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
+import MediaCast from "@/components/media/MediaCast.vue";
 import MediaSaga from "@/components/media/MediaSaga.vue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import { useConfirm } from "@/composables/useConfirm";
@@ -155,7 +163,6 @@ const inDiscoverShell = computed(() => route.path.startsWith('/discover/'));
 const statusLabel = computed(() => detail.value?.operational_status_label || (detail.value?.available || detail.value?.in_library ? 'Disponible' : detail.value?.requested ? 'Deja demande' : detail.value?.request_status || ''));
 const statusClass = computed(() => detail.value?.available || detail.value?.in_library ? 'available' : 'pending');
 const seasonNumbers = computed(() => Array.from({ length: Number(detail.value?.number_of_seasons || 0) + 1 }, (_, i) => i));
-const recommendations = computed(() => [...(detail.value?.recommendations || []), ...(detail.value?.similar || [])].slice(0, 6));
 const addableUsers = computed(() => {
   const already = new Set((detail.value?.requests || []).flatMap(row => row.requester_ids || [row.plex_user_id]));
   return users.value.filter(u => !already.has(u.plex_user_id));

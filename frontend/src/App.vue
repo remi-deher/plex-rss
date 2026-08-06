@@ -1,7 +1,7 @@
 <template>
-  <div class="shell" :class="{'sidebar-collapsed':!isDiscoverRoute&&isSidebarCollapsed,'discover-shell':isDiscoverRoute}">
+  <div class="shell" :class="{'sidebar-collapsed':isDiscoverRoute?isDiscoverSidebarCollapsed:isSidebarCollapsed,'discover-shell':isDiscoverRoute}">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
-    <DiscoverNavigation v-if="isDiscoverRoute" :is-admin="isAdmin" />
+    <DiscoverNavigation v-if="isDiscoverRoute" :is-admin="isAdmin" :collapsed="isDiscoverSidebarCollapsed" @toggle="toggleDiscoverSidebar" />
     <template v-else>
     <!-- Desktop Sidebar -->
     <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale" :aria-expanded="!isSidebarCollapsed">
@@ -147,12 +147,14 @@ const isMoreOpen=ref(false);
 const mobileMoreRef=ref(null);
 const moreButtonRef=ref(null);
 const isSidebarCollapsed=ref(false);
+const isDiscoverSidebarCollapsed=ref(false);
 const toasts=ref([]);
 const seenPlaybackEvents=new Set();
 const toastTimers=new Map();
 function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
 function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;localStorage.setItem('plexarr.sidebarCollapsed',String(isSidebarCollapsed.value))}
+function toggleDiscoverSidebar(){isDiscoverSidebarCollapsed.value=!isDiscoverSidebarCollapsed.value;localStorage.setItem('plexarr.discoverSidebarCollapsed',String(isDiscoverSidebarCollapsed.value))}
 function dismissToast(id){toasts.value=toasts.value.filter(toast=>toast.id!==id);clearTimeout(toastTimers.get(id));toastTimers.delete(id)}
 function showPlaybackToasts(event){
   const started=playbackStartsFromEvent(event);
@@ -172,7 +174,7 @@ function onMigrationCompleted(){clearCache();window.location.reload()}
 watch(()=>route.fullPath,closeMoreMenu);
 watch(isMoreOpen,open=>{document.body.classList.toggle('modal-open',open)});
 useModalA11y(mobileMoreRef,isMoreOpen,closeMoreMenu);
-onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
+onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');const discoverSaved=localStorage.getItem('plexarr.discoverSidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';isDiscoverSidebarCollapsed.value=discoverSaved===null?window.matchMedia('(max-width:1024px)').matches:discoverSaved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
 onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);window.removeEventListener('plexarr:migration.completed',onMigrationCompleted);toastTimers.forEach(clearTimeout)});
 </script>
 

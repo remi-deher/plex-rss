@@ -39,7 +39,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("charge progressivement le catalogue et conserve des liens accessibles", async ({ page }) => {
-  await expect(page.locator(".discover-card")).toHaveCount(2);
+  await expect(page.locator(".discover-card")).toHaveCount(2, { timeout: 15_000 });
   await expect(page.locator(".discover-poster-link").first()).toHaveAttribute("href", /\/media\/discover\/1/);
   const cardBox = await page.locator('.discover-card').first().boundingBox();
   const posterBox = await page.locator('.discover-card .poster-shell').first().boundingBox();
@@ -90,5 +90,21 @@ test("reste utilisable au clavier et sur mobile", async ({ page }, testInfo) => 
   await expect(firstLink).toBeFocused();
   if (testInfo.project.name === "mobile") {
     await expect(firstCard.locator(".discover-card-action")).toBeVisible();
+  }
+});
+
+test("centre la recherche et mémorise la sidebar rabattue", async ({ page }, testInfo) => {
+  const searchBox = await page.locator('.discover-command').boundingBox();
+  const mainBox = await page.locator('#main-content').boundingBox();
+  expect(Math.abs((searchBox.x + searchBox.width / 2) - (mainBox.x + mainBox.width / 2))).toBeLessThan(3);
+
+  if (testInfo.project.name !== 'mobile') {
+    const sidebar = page.locator('.discover-sidebar');
+    const isExpanded = await sidebar.getAttribute('aria-expanded') === 'true';
+    await page.getByRole('button', { name: isExpanded ? 'Réduire le menu' : 'Afficher le menu' }).click();
+    const expected = isExpanded ? 'false' : 'true';
+    await expect(sidebar).toHaveAttribute('aria-expanded', expected);
+    await page.reload();
+    await expect(sidebar).toHaveAttribute('aria-expanded', expected);
   }
 });

@@ -176,6 +176,23 @@ def test_discover_detail_includes_request_timeline_and_season_progress(client, d
     ]
 
 
+def test_person_detail_returns_annotated_filmography(client):
+    person = {
+        "tmdb_id": 287,
+        "name": "Brad Pitt",
+        "biography": "Biographie",
+        "credits": [{"tmdb_id": 550, "media_type": "movie", "title": "Fight Club"}],
+    }
+    with patch("app.routers.discover_api.tmdb.person_detail", new=AsyncMock(return_value=person)):
+        response = client.get("/api/discover/person/287")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Brad Pitt"
+    assert payload["credits"][0]["tmdb_id"] == 550
+    assert "in_library" in payload["credits"][0]
+
+
 def test_trending_returns_paginated_annotated_envelope(client):
     payload = {
         "items": [{"tmdb_id": 42, "media_type": "movie", "title": "Film"}],

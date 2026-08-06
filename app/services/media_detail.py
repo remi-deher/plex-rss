@@ -215,11 +215,17 @@ async def build_media_detail(
 
     backdrop_url = None
     saga = None
+    recommendations = []
+    similar = []
+    cast = []
     if media_obj.tmdb_id:
         try:
             detail = await tmdb.detail(db, media_obj.media_type, int(media_obj.tmdb_id))
             backdrop_url = detail.get("backdrop_url")
             saga = detail.get("saga")
+            recommendations = await annotate_media_items(db, detail.get("recommendations", []))
+            similar = await annotate_media_items(db, detail.get("similar", []))
+            cast = detail.get("cast", [])
             if saga:
                 saga["items"] = await annotate_media_items(db, saga.get("items", []))
         except Exception as exc:
@@ -243,4 +249,7 @@ async def build_media_detail(
         "calendar": schedule["events"],
         "notification_history": history,
         "saga": saga,
+        "recommendations": recommendations,
+        "similar": similar,
+        "cast": cast,
     }

@@ -1,8 +1,11 @@
 <template>
-  <aside class="sidebar discover-sidebar desktop-only" aria-label="Navigation Découverte">
+  <aside class="sidebar discover-sidebar desktop-only" :class="{ collapsed }" aria-label="Navigation Découverte" :aria-expanded="!collapsed">
     <div class="brand discover-brand">
       <span class="brand-mark"><Compass /></span>
       <span><strong>Plexarr</strong><small>Découverte</small></span>
+      <button class="sidebar-toggle" type="button" :aria-label="collapsed ? 'Afficher le menu' : 'Réduire le menu'" :title="collapsed ? 'Afficher le menu' : 'Réduire le menu'" @click="$emit('toggle')">
+        <PanelLeftOpen v-if="collapsed"/><PanelLeftClose v-else/>
+      </button>
     </div>
 
     <div class="menu-section discover-primary-nav">
@@ -55,11 +58,12 @@
 <script setup>
 import { onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronUp, CircleUserRound, Compass, Film, House, Inbox, LayoutDashboard, LogOut, MoreHorizontal, Tv, UserRound, X } from '@lucide/vue';
+import { ChevronUp, CircleUserRound, Compass, Film, House, Inbox, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Tv, UserRound, X } from '@lucide/vue';
 import { clearCache } from '@/cache';
 import { useModalA11y } from '@/composables/useModalA11y';
 
-defineProps({ isAdmin: { type: Boolean, default: false } });
+defineProps({ isAdmin: { type: Boolean, default: false }, collapsed: { type: Boolean, default: false } });
+defineEmits(['toggle']);
 
 const route = useRoute();
 const isMoreOpen = ref(false);
@@ -78,6 +82,7 @@ onUnmounted(() => document.body.classList.remove('modal-open'));
 <style scoped>
 .discover-sidebar { background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 88%, #17110a), var(--surface)); }
 .discover-brand { align-items: center; }
+.discover-brand .sidebar-toggle { margin-left: auto; }
 .discover-brand > span:last-child { display: grid; line-height: 1.05; }
 .discover-brand strong { font-size: var(--fs-md); }
 .discover-brand small { margin-top: 4px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
@@ -92,6 +97,14 @@ onUnmounted(() => document.body.classList.remove('modal-open'));
 .discover-account[open] summary svg:last-child { transform: rotate(180deg); }
 .discover-account-popover { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; display: grid; gap: 3px; padding: 7px; border: 1px solid var(--border); border-radius: var(--radius-md); background: #17171c; box-shadow: 0 16px 38px rgba(0,0,0,.42); }
 .discover-account-popover a { min-height: 38px; }
+.discover-sidebar.collapsed .discover-brand > span:not(.brand-mark),
+.discover-sidebar.collapsed .discover-account span,
+.discover-sidebar.collapsed .discover-account summary svg:last-child { display: none; }
+.discover-sidebar.collapsed .discover-brand { justify-content: center; padding-inline: 0; }
+.discover-sidebar.collapsed .brand-mark { display: none; }
+.discover-sidebar.collapsed .discover-account summary { justify-content: center; padding: 0; }
+.discover-sidebar.collapsed .discover-account-popover { position: fixed; bottom: 24px; left: 76px; width: 240px; }
+.discover-sidebar.collapsed .discover-account-popover a { justify-content: flex-start; gap: var(--space-3); padding: 0 12px; font-size: var(--fs-sm); }
 @media (min-width: 641px) and (max-width: 1024px) {
   .discover-sidebar .brand-mark { margin: auto; }
   .discover-sidebar .discover-brand > span:last-child, .discover-sidebar .menu-label, .discover-sidebar .discover-account span, .discover-sidebar .discover-account summary svg:last-child { display: none; }

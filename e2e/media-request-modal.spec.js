@@ -18,8 +18,21 @@ test.beforeEach(async ({ page }) => {
           requested: false,
           available: false,
           overview: 'Une série utilisée pour vérifier le parcours de demande.',
+          cast: [{ tmdb_id: 287, name: 'Acteur test', character: 'Personnage principal', profile_url: null }],
+          recommendations: [{ tmdb_id: 550, media_type: 'movie', title: 'Film recommandé', year: 1999 }],
+          similar: [{ tmdb_id: 551, media_type: 'show', title: 'Série similaire', year: 2000 }],
         },
       });
+      return;
+    }
+    if (url.pathname === '/api/discover/person/287') {
+      await route.fulfill({ json: {
+        tmdb_id: 287,
+        name: 'Acteur test',
+        biography: 'Une biographie de test.',
+        known_for_department: 'Acting',
+        credits: [{ tmdb_id: 550, media_type: 'movie', title: 'Film joué', year: 1999 }],
+      } });
       return;
     }
     await route.fulfill({ json: {} });
@@ -38,4 +51,14 @@ test('utilise un CTA unique et choisit les saisons dans une modale', async ({ pa
   await expect(page.getByLabel('Saison 2')).toBeChecked();
   await expect(page.getByLabel('Saison 3')).toBeChecked();
   await expect(page.getByLabel('Saison 0')).toHaveCount(0);
+});
+
+test('affiche casting, recommandations et ouvre la filmographie acteur', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: 'Casting' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recommandés pour vous' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Titres similaires' })).toBeVisible();
+  await page.getByRole('link', { name: 'Voir la fiche de Acteur test' }).click();
+  await expect(page).toHaveURL(/\/discover\/person\/287$/);
+  await expect(page.getByRole('heading', { name: 'Acteur test' })).toBeVisible();
+  await expect(page.getByText('Film joué')).toBeVisible();
 });
