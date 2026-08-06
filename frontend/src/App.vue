@@ -1,7 +1,9 @@
 <template>
-  <div class="shell" :class="{'sidebar-collapsed':isDiscoverRoute?isDiscoverSidebarCollapsed:isSidebarCollapsed,'discover-shell':isDiscoverRoute}">
+  <div class="shell" :class="{'sidebar-collapsed':activeSpaceCollapsed,'discover-shell':isDiscoverRoute||isActivitySpaceRoute||isAdminSpaceRoute}">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
-    <DiscoverNavigation v-if="isDiscoverRoute" :is-admin="isAdmin" :collapsed="isDiscoverSidebarCollapsed" @toggle="toggleDiscoverSidebar" />
+    <AdminNavigation v-if="isAdminSpaceRoute" :collapsed="isAdminSidebarCollapsed" @toggle="toggleAdminSidebar" />
+    <ActivityNavigation v-else-if="isActivitySpaceRoute" :collapsed="isActivitySidebarCollapsed" @toggle="toggleActivitySidebar" />
+    <DiscoverNavigation v-else-if="isDiscoverRoute" :is-admin="isAdmin" :collapsed="isDiscoverSidebarCollapsed" @toggle="toggleDiscoverSidebar" />
     <template v-else>
     <!-- Desktop Sidebar -->
     <aside class="sidebar desktop-only" :class="{collapsed:isSidebarCollapsed}" aria-label="Navigation principale" :aria-expanded="!isSidebarCollapsed">
@@ -19,41 +21,9 @@
         <RouterLink v-if="canModerate" to="/library" title="Bibliotheque"><Library />Bibliotheque</RouterLink>
         <RouterLink to="/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
         <RouterLink v-if="isAdmin" to="/downloads" title="Telechargements"><Download />Telechargements</RouterLink>
-        <div v-if="isAdmin" class="context-nav-group" :class="{open:isActivityRoute}">
-          <RouterLink to="/activity" title="Activité Plex"><Activity />Activité Plex<ChevronDown class="context-chevron"/></RouterLink>
-          <div v-if="isActivityRoute" class="context-sidebar-menu">
-            <RouterLink to="/activity">Vue d’ensemble</RouterLink>
-            <RouterLink to="/activity?view=live">En direct</RouterLink>
-            <RouterLink to="/activity?view=history">Historique</RouterLink>
-            <RouterLink to="/activity?view=stats">Statistiques</RouterLink>
-            <RouterLink to="/activity?view=quality">Qualité des flux</RouterLink>
-            <RouterLink to="/activity?view=users">Utilisateurs</RouterLink>
-          </div>
-        </div>
-        <RouterLink v-if="isAdmin" to="/analytics" title="Insights médiathèque"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
+        <RouterLink v-if="isAdmin" to="/activity" title="Activité &amp; Insights"><Activity />Activité &amp; Insights</RouterLink>
+        <RouterLink v-if="isAdmin" to="/users" title="Administration"><Wrench />Administration</RouterLink>
         <RouterLink v-if="canModerate && !isAdmin" to="/issues" title="Problèmes signalés"><MessageSquareWarning />Problèmes signalés</RouterLink>
-      </div>
-
-      <div v-if="isAdmin" class="menu-section">
-        <span class="menu-label">Administration</span>
-        <div class="context-nav-group" :class="{open:isUsersRoute}">
-          <RouterLink to="/users" title="Utilisateurs"><Users />Utilisateurs<ChevronDown class="context-chevron"/></RouterLink>
-          <div v-if="isUsersRoute" class="context-sidebar-menu"><RouterLink to="/users">Comptes</RouterLink><RouterLink to="/library?status=pending_approval">Approbations</RouterLink><RouterLink to="/issues">Problemes signales</RouterLink></div>
-        </div>
-        <div class="context-nav-group" :class="{open:isNotificationsRoute}">
-          <RouterLink to="/notifications" title="Notifications"><Bell />Notifications<ChevronDown class="context-chevron"/></RouterLink>
-          <div v-if="isNotificationsRoute" class="context-sidebar-menu"><RouterLink to="/notifications?tab=history">Journal</RouterLink><RouterLink to="/notifications?tab=pending">File d'attente</RouterLink><RouterLink to="/settings?tab=notifications-channels">Canaux</RouterLink><RouterLink to="/settings?tab=notifications-rules">Regles</RouterLink><RouterLink to="/settings?tab=templates">Modeles d'emails</RouterLink></div>
-        </div>
-        <div class="context-nav-group" :class="{open:isOperationsRoute}">
-          <RouterLink to="/settings?tab=operations" title="Exploitation"><Wrench />Exploitation<ChevronDown class="context-chevron"/></RouterLink>
-          <div v-if="isOperationsRoute" class="context-sidebar-menu"><RouterLink to="/settings?tab=operations">Vue d'ensemble</RouterLink><RouterLink to="/settings?tab=scheduled-tasks">Taches planifiees</RouterLink><RouterLink to="/logs">Journaux</RouterLink><RouterLink to="/maintenance">Maintenance</RouterLink><RouterLink to="/settings?tab=data">Donnees</RouterLink></div>
-        </div>
-        <div class="context-nav-group" :class="{open:isSettingsRoute}">
-          <RouterLink to="/settings" title="Parametres"><Settings />Parametres<ChevronDown class="settings-chevron"/></RouterLink>
-          <div v-if="isSettingsRoute" class="context-sidebar-menu">
-            <RouterLink v-for="item in settingsSections" :key="item.key" :to="`/settings?tab=${item.key}`">{{ item.label }}</RouterLink>
-          </div>
-        </div>
       </div>
 
       <div class="menu-section mt-auto">
@@ -88,19 +58,11 @@
             <div class="menu-section">
               <span class="menu-label">Principal</span>
               <RouterLink v-if="isAdmin" to="/downloads" @click="closeMoreMenu"><Download />Telechargements</RouterLink>
-              <details v-if="isAdmin" class="mobile-activity-group" :open="isActivityRoute"><summary><Activity/>Activité Plex</summary><RouterLink to="/activity" @click="closeMoreMenu">Vue d’ensemble</RouterLink><RouterLink to="/activity?view=live" @click="closeMoreMenu">En direct</RouterLink><RouterLink to="/activity?view=history" @click="closeMoreMenu">Historique</RouterLink><RouterLink to="/activity?view=stats" @click="closeMoreMenu">Statistiques</RouterLink><RouterLink to="/activity?view=quality" @click="closeMoreMenu">Qualité des flux</RouterLink><RouterLink to="/activity?view=users" @click="closeMoreMenu">Utilisateurs</RouterLink></details>
-              <RouterLink v-if="isAdmin" to="/analytics" @click="closeMoreMenu"><ChartNoAxesCombined />Insights médiathèque</RouterLink>
+              <RouterLink v-if="isAdmin" to="/activity" @click="closeMoreMenu"><Activity />Activité &amp; Insights</RouterLink>
+              <RouterLink v-if="isAdmin" to="/users" @click="closeMoreMenu"><Wrench />Administration</RouterLink>
               <RouterLink v-if="canModerate && !isAdmin" to="/issues" @click="closeMoreMenu"><MessageSquareWarning />Problèmes signalés</RouterLink>
             </div>
-            
-            <div v-if="isAdmin" class="menu-section mobile-admin-groups">
-              <span class="menu-label">Administration</span>
-              <details><summary><Users/>Utilisateurs</summary><RouterLink to="/users" @click="closeMoreMenu">Comptes</RouterLink><RouterLink to="/library?status=pending_approval" @click="closeMoreMenu">Approbations</RouterLink><RouterLink to="/issues" @click="closeMoreMenu">Problemes signales</RouterLink></details>
-              <details><summary><Bell/>Notifications</summary><RouterLink to="/notifications?tab=history" @click="closeMoreMenu">Journal</RouterLink><RouterLink to="/notifications?tab=pending" @click="closeMoreMenu">File d'attente</RouterLink><RouterLink to="/settings?tab=notifications-channels" @click="closeMoreMenu">Canaux</RouterLink><RouterLink to="/settings?tab=notifications-rules" @click="closeMoreMenu">Regles</RouterLink><RouterLink to="/settings?tab=templates" @click="closeMoreMenu">Modeles d'emails</RouterLink></details>
-              <details><summary><Wrench/>Exploitation</summary><RouterLink to="/settings?tab=operations" @click="closeMoreMenu">Vue d'ensemble</RouterLink><RouterLink to="/settings?tab=scheduled-tasks" @click="closeMoreMenu">Taches planifiees</RouterLink><RouterLink to="/logs" @click="closeMoreMenu">Journaux</RouterLink><RouterLink to="/maintenance" @click="closeMoreMenu">Maintenance</RouterLink><RouterLink to="/settings?tab=data" @click="closeMoreMenu">Donnees</RouterLink></details>
-              <details><summary><Settings/>Parametres</summary><RouterLink v-for="item in settingsSections" :key="item.key" :to="`/settings?tab=${item.key}`" @click="closeMoreMenu">{{ item.label }}</RouterLink></details>
-            </div>
-            
+
             <div class="menu-section">
               <span class="menu-label">Compte</span>
               <RouterLink to="/profile" @click="closeMoreMenu"><UserRound />Profil</RouterLink>
@@ -123,12 +85,14 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from 'vue-router';
-import { Activity, Bell, CalendarDays, ChartNoAxesCombined, ChevronDown, Compass, Download, Gauge, Library, LogOut, MessageSquareWarning, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserRound, Users, Wrench, Menu, X } from "@lucide/vue";
+import { Activity, CalendarDays, Compass, Download, Gauge, Library, LogOut, MessageSquareWarning, PanelLeftClose, PanelLeftOpen, ShieldCheck, UserRound, Wrench, Menu, X } from "@lucide/vue";
 import { api } from "@/api";
 import { clearCache, syncCacheOwner } from "@/cache";
 import { connectRealtime } from "@/events";
 import ToastStack from "@/components/ui/ToastStack.vue";
 import DiscoverNavigation from "@/components/discover/DiscoverNavigation.vue";
+import ActivityNavigation from "@/components/activity/ActivityNavigation.vue";
+import AdminNavigation from "@/components/admin/AdminNavigation.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
 import { useModalA11y } from "@/composables/useModalA11y";
 import { canModerateSession, isAdminSession, loadSession } from "@/composables/useSession";
@@ -137,17 +101,16 @@ const route=useRoute();
 const isAdmin=computed(()=>isAdminSession(session.value));
 const canModerate=computed(()=>canModerateSession(session.value));
 const isDiscoverRoute=computed(()=>route.path.startsWith('/discover'));
-const isActivityRoute=computed(()=>route.path==='/activity');
-const isSettingsRoute=computed(()=>route.path==='/settings'&&(!route.query.tab||['overview','connections','webhooks','library','downloads'].includes(route.query.tab)));
-const isUsersRoute=computed(()=>route.path.startsWith('/users')||route.path==='/issues'||(route.path==='/library'&&route.query.status==='pending_approval'));
-const isNotificationsRoute=computed(()=>route.path==='/notifications'||(route.path==='/settings'&&['notifications-channels','notifications-rules','templates'].includes(route.query.tab)));
-const isOperationsRoute=computed(()=>['/logs','/maintenance'].includes(route.path)||(route.path==='/settings'&&['operations','scheduled-tasks','data'].includes(route.query.tab)));
-const settingsSections=[{key:'overview',label:'Vue d’ensemble'},{key:'connections',label:'Connexions'},{key:'webhooks',label:'Webhooks'},{key:'library',label:'Bibliotheque'},{key:'downloads',label:'Telechargements'}];
+const isActivitySpaceRoute=computed(()=>['/activity','/analytics'].some(p=>route.path.startsWith(p)));
+const isAdminSpaceRoute=computed(()=>['/users','/notifications','/settings','/logs','/maintenance'].some(p=>route.path.startsWith(p)));
 const isMoreOpen=ref(false);
 const mobileMoreRef=ref(null);
 const moreButtonRef=ref(null);
 const isSidebarCollapsed=ref(false);
 const isDiscoverSidebarCollapsed=ref(false);
+const isActivitySidebarCollapsed=ref(false);
+const isAdminSidebarCollapsed=ref(false);
+const activeSpaceCollapsed=computed(()=>isAdminSpaceRoute.value?isAdminSidebarCollapsed.value:isActivitySpaceRoute.value?isActivitySidebarCollapsed.value:isDiscoverRoute.value?isDiscoverSidebarCollapsed.value:isSidebarCollapsed.value);
 const toasts=ref([]);
 const seenPlaybackEvents=new Set();
 const toastTimers=new Map();
@@ -155,6 +118,8 @@ function toggleMoreMenu(){isMoreOpen.value=!isMoreOpen.value}
 function closeMoreMenu(){isMoreOpen.value=false}
 function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;localStorage.setItem('plexarr.sidebarCollapsed',String(isSidebarCollapsed.value))}
 function toggleDiscoverSidebar(){isDiscoverSidebarCollapsed.value=!isDiscoverSidebarCollapsed.value;localStorage.setItem('plexarr.discoverSidebarCollapsed',String(isDiscoverSidebarCollapsed.value))}
+function toggleActivitySidebar(){isActivitySidebarCollapsed.value=!isActivitySidebarCollapsed.value;localStorage.setItem('plexarr.activitySidebarCollapsed',String(isActivitySidebarCollapsed.value))}
+function toggleAdminSidebar(){isAdminSidebarCollapsed.value=!isAdminSidebarCollapsed.value;localStorage.setItem('plexarr.adminSidebarCollapsed',String(isAdminSidebarCollapsed.value))}
 function dismissToast(id){toasts.value=toasts.value.filter(toast=>toast.id!==id);clearTimeout(toastTimers.get(id));toastTimers.delete(id)}
 function showPlaybackToasts(event){
   const started=playbackStartsFromEvent(event);
@@ -174,11 +139,17 @@ function onMigrationCompleted(){clearCache();window.location.reload()}
 watch(()=>route.fullPath,closeMoreMenu);
 watch(isMoreOpen,open=>{document.body.classList.toggle('modal-open',open)});
 useModalA11y(mobileMoreRef,isMoreOpen,closeMoreMenu);
-onMounted(async()=>{const saved=localStorage.getItem('plexarr.sidebarCollapsed');const discoverSaved=localStorage.getItem('plexarr.discoverSidebarCollapsed');isSidebarCollapsed.value=saved===null?window.matchMedia('(max-width:1024px)').matches:saved==='true';isDiscoverSidebarCollapsed.value=discoverSaved===null?window.matchMedia('(max-width:1024px)').matches:discoverSaved==='true';window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
+onMounted(async()=>{
+  const isNarrow=window.matchMedia('(max-width:1024px)').matches;
+  const saved=localStorage.getItem('plexarr.sidebarCollapsed');
+  const discoverSaved=localStorage.getItem('plexarr.discoverSidebarCollapsed');
+  const activitySaved=localStorage.getItem('plexarr.activitySidebarCollapsed');
+  const adminSaved=localStorage.getItem('plexarr.adminSidebarCollapsed');
+  isSidebarCollapsed.value=saved===null?isNarrow:saved==='true';
+  isDiscoverSidebarCollapsed.value=discoverSaved===null?isNarrow:discoverSaved==='true';
+  isActivitySidebarCollapsed.value=activitySaved===null?isNarrow:activitySaved==='true';
+  isAdminSidebarCollapsed.value=adminSaved===null?isNarrow:adminSaved==='true';
+  window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
 onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);window.removeEventListener('plexarr:migration.completed',onMigrationCompleted);toastTimers.forEach(clearTimeout)});
 </script>
 
-<style scoped>
-.context-nav-group{display:grid;gap: var(--space-1)}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;gap: var(--space-1);margin:2px 0 6px 22px;padding:5px 5px 5px 12px;border-left:2px solid rgba(229,160,13,.28);border-radius:0 8px 8px 0;background:linear-gradient(90deg,rgba(229,160,13,.055),transparent)}.context-sidebar-menu a{min-height:32px;padding:6px 10px 6px 16px;font-size:var(--fs-xs);color:color-mix(in srgb,var(--muted) 88%,white);border-radius:var(--radius-sm)}.context-sidebar-menu a::after{content:'';position:absolute;left:5px;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}.context-sidebar-menu a:hover{color:var(--text);background:rgba(255,255,255,.045)}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.13);box-shadow:inset 0 0 0 1px rgba(229,160,13,.12)}.context-sidebar-menu a.router-link-exact-active::after{opacity:1;box-shadow:0 0 6px currentColor}.sidebar.collapsed .context-sidebar-menu,.sidebar.collapsed .context-chevron,.sidebar.collapsed .settings-chevron{display:none}
-.mobile-activity-group{overflow:hidden;border:1px solid rgba(255,255,255,.06);border-radius:var(--radius-md)}.mobile-activity-group summary{display:flex;align-items:center;gap: var(--space-3);min-height:48px;padding:10px 14px;color:var(--muted);font-size:var(--fs-sm);cursor:pointer;list-style:none}.mobile-activity-group summary::-webkit-details-marker{display:none}.mobile-activity-group summary svg{width:18px}.mobile-activity-group[open] summary{color:#fff;border-bottom:1px solid rgba(255,255,255,.06)}.mobile-activity-group a{margin:4px 8px;min-height:42px;padding-left:44px;background:transparent}
-</style>

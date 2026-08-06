@@ -1,6 +1,6 @@
 <template>
   <div class="page activity-page">
-    <PageHeader title="Activité Plex" :description="viewDescription" eyebrow="Supervision">
+    <PageHeader title="Activité Plex" :description="viewDescription" eyebrow="Activité &amp; Insights">
       <div v-if="currentView!=='live'" class="period-picker">
         <button v-for="value in [7,30,90,365]" :key="value" :class="{active:days===value}" @click="setDays(value)">{{ value }} j</button>
       </div>

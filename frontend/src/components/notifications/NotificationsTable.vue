@@ -29,6 +29,7 @@
             <small v-if="row.error_msg" class="table-detail error-text">{{ row.error_msg }}</small>
           </td>
           <td class="card-actions">
+            <button v-if="tab==='history'" class="icon-button" title="Voir l'email" aria-label="Voir l'email" @click="$emit('preview',row)"><Eye/></button>
             <button v-if="tab==='history'&&!row.success" class="icon-button" title="Renvoyer" aria-label="Renvoyer" @click="$emit('resend',row)"><Send/></button>
             <button v-if="tab==='pending'" class="icon-button" title="Marquer comme traitee (sans envoyer)" aria-label="Marquer comme traitee" @click="$emit('markHandled',row)"><CheckCheck/></button>
             <button v-if="tab==='pending'" class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="$emit('deleteOne',row)"><Trash2/></button>
@@ -43,19 +44,34 @@
 <script setup>
 import { formatDateTimeShort as formatDate } from '@/utils/format';
 import { computed, ref } from 'vue';
-import { CheckCheck, Send, Trash2 } from '@lucide/vue';
+import { CheckCheck, Eye, Send, Trash2 } from '@lucide/vue';
 
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   tab: { type: String, default: 'history' },
   loading: { type: Boolean, default: false },
 });
-defineEmits(['resend', 'markHandled', 'deleteOne']);
+defineEmits(['resend', 'markHandled', 'deleteOne', 'preview']);
 
 const selected = ref([]);
 const allSelected = computed(() => props.rows.length && props.rows.every(x => selected.value.includes(x.id)));
 
+const SCOPE_LABELS = {
+  episode: 'Épisode',
+  season_start: 'Début de saison',
+  season_complete: 'Saison complète',
+  series_complete: 'Série complète',
+  movie: 'Film',
+};
+
 function context(row) {
+  const scope = row.scope, season = row.season_number, episode = row.episode_number;
+  const parts = [];
+  if (scope === 'episode' && season && episode) parts.push(`S${season}E${episode}`);
+  else if (scope && (season || scope !== 'movie')) parts.push(season ? `${SCOPE_LABELS[scope] || scope} ${season}` : (SCOPE_LABELS[scope] || scope));
+  if (row.language) parts.push(row.language.toUpperCase());
+  if (row.is_upgrade) parts.push('amélioration');
+  if (parts.length) return parts.join(' · ');
   const c = row.context || {};
   return [c.scope, c.language, c.is_upgrade ? 'amelioration' : ''].filter(Boolean).join(' - ') || row.event_description || '';
 }

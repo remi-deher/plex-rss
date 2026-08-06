@@ -54,6 +54,7 @@
           <button class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :aria-label="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de demande a tous' : 'Renvoyer email de demande'" :disabled="busy" @click="$emit('resend-mail', row.id, 'request')"><Mail /></button>
           <button v-if="row.status === 'available'" class="icon-button" :title="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :aria-label="(row.requester_ids || []).length > 1 ? 'Renvoyer le mail de disponibilite a tous' : 'Renvoyer email de disponibilite'" :disabled="busy" @click="$emit('resend-mail', row.id, 'available')"><MailCheck /></button>
           <button v-if="canClose(row)" class="icon-button" title="Cloturer la demande" aria-label="Cloturer la demande" :disabled="busy" @click="$emit('close-request', row)"><CheckCheck /></button>
+          <button class="icon-button danger" title="Annuler la demande (supprime aussi de Sonarr/Radarr)" aria-label="Annuler la demande" :disabled="busy" @click="$emit('withdraw-request', row)"><XCircle /></button>
           <button class="icon-button danger" title="Supprimer" aria-label="Supprimer" @click="$emit('delete-request', row.id)"><Trash2 /></button>
         </div>
       </details>
@@ -74,7 +75,7 @@
 
 <script setup>
 import { requestStatusLabel } from '@/utils/labels';
-import { Ban, Check, CheckCheck, Mail, MailCheck, PlusCircle, RotateCcw, Search, Trash2, Users } from '@lucide/vue';
+import { Ban, Check, CheckCheck, Mail, MailCheck, PlusCircle, RotateCcw, Search, Trash2, Users, XCircle } from '@lucide/vue';
 import RequestMailHistory from './RequestMailHistory.vue';
 import RequestStatusStepper from './RequestStatusStepper.vue';
 import RequesterList from './RequesterList.vue';
@@ -90,7 +91,7 @@ defineProps({
 });
 defineEmits([
   'update:newRequesterId', 'add-requester', 'open-release', 'retry', 'catch-up-all',
-  'resend-mail', 'close-request', 'delete-request', 'notify-user', 'promote-requester', 'remove-requester',
+  'resend-mail', 'close-request', 'delete-request', 'withdraw-request', 'notify-user', 'promote-requester', 'remove-requester',
   'approve', 'reject',
 ]);
 

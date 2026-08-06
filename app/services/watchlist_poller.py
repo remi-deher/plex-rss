@@ -647,6 +647,11 @@ async def _process_watchlist_item(
         else:
             return "skip"
     else:
+        if await deleted_media.is_blocked(
+            db, item["media_type"], tmdb_id=item.get("tmdb_id"), tvdb_id=item.get("tvdb_id"), imdb_id=item.get("imdb_id")
+        ):
+            logger.info("'%s' ignoré (bloqué après annulation) — ne sera pas recréé.", item["title"])
+            return "skip"
         req = MediaRequest(
             plex_user_id=uid,
             plex_user=display_name,

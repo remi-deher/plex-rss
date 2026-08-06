@@ -20,6 +20,7 @@ from ..services.email_service import (
     DEFAULT_CARD_BG_COLOR,
     DEFAULT_CARD_BORDER_RADIUS,
     DEFAULT_CARD_WIDTH,
+    DEFAULT_CANCELLED_TEMPLATE,
     DEFAULT_CORRECTION_TEMPLATE,
     DEFAULT_FAILURE_TEMPLATE,
     DEFAULT_FONT_FAMILY_KEY,
@@ -56,7 +57,7 @@ from ..services.notification_catalog import get_event
 router = APIRouter(tags=["email-templates"], dependencies=[Depends(require_admin)])
 
 _SERIES_EVENT_TYPES = tuple(SERIES_AVAILABILITY_DEFAULTS)
-_EVENT_TYPES = ("request", "available", *_SERIES_EVENT_TYPES, "upgrade", "failure", "correction")
+_EVENT_TYPES = ("request", "available", *_SERIES_EVENT_TYPES, "upgrade", "failure", "correction", "cancelled")
 
 
 @router.get("/settings/email-templates")
@@ -435,6 +436,12 @@ TEMPLATE_FIELDS = [
     "email_correction_badge_text",
     "email_correction_headline_text",
     "email_correction_show_synopsis",
+    "email_cancelled_template",
+    "email_cancelled_subject",
+    "email_cancelled_accent_color",
+    "email_cancelled_badge_text",
+    "email_cancelled_headline_text",
+    "email_cancelled_show_synopsis",
     "email_show_poster",
     "email_show_genres",
     "email_show_requester",
@@ -463,6 +470,7 @@ def get_templates(s: Settings = Depends(get_settings_or_404)):
         "upgrade": DEFAULT_UPGRADE_TEMPLATE,
         "failure": DEFAULT_FAILURE_TEMPLATE,
         "correction": DEFAULT_CORRECTION_TEMPLATE,
+        "cancelled": DEFAULT_CANCELLED_TEMPLATE,
         **{variant: defaults[0] for variant, defaults in SERIES_AVAILABILITY_DEFAULTS.items()},
     }
     result = {}
@@ -557,11 +565,13 @@ async def reset_templates(db: AsyncSession = Depends(get_db_async), s: Settings 
     s.email_upgrade_template = DEFAULT_UPGRADE_TEMPLATE
     s.email_failure_template = DEFAULT_FAILURE_TEMPLATE
     s.email_correction_template = DEFAULT_CORRECTION_TEMPLATE
+    s.email_cancelled_template = DEFAULT_CANCELLED_TEMPLATE
     s.email_request_subject = None
     s.email_available_subject = None
     s.email_upgrade_subject = None
     s.email_failure_subject = None
     s.email_correction_subject = None
+    s.email_cancelled_subject = None
     for field in (
         "email_header_brand",
         "email_header_subtitle",

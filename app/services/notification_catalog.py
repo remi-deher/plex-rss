@@ -89,6 +89,20 @@ EVENTS: dict[str, NotificationEvent] = {
         default_subject="[Plexarr] Import bloqué : {titre}",
         preview_context={"reason": "Fichier introuvable après extraction : vérifiez le nom de la release."},
     ),
+    "cancelled": NotificationEvent(
+        key="cancelled",
+        label="Demande annulée",
+        group="Administration",
+        description=(
+            "La demande a été annulée par un administrateur (supprimée aussi de Sonarr/Radarr) "
+            "et, si elle provenait de la watchlist Plex, bloquée pour empêcher son retour automatique."
+        ),
+        color=0xDC3545,
+        badge_class="bg-danger",
+        template_field="email_cancelled_template",
+        subject_field="email_cancelled_subject",
+        default_subject="[Plexarr] Demande annulée : {titre}",
+    ),
     "correction": NotificationEvent(
         key="correction",
         label="Correction",

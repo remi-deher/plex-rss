@@ -1,6 +1,6 @@
 <template>
   <div class="page">
-    <PageHeader title="Journaux" description="Diagnostic applicatif, parcours des demandes et tâches planifiées." eyebrow="Exploitation">
+    <PageHeader title="Journaux" description="Diagnostic applicatif, parcours des demandes et tâches planifiées." eyebrow="Administration">
       <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load"><RefreshCw :class="{spin: loading}" /></button>
     </PageHeader>
     <nav class="detail-tabs">

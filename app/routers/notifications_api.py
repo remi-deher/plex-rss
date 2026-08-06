@@ -27,6 +27,11 @@ from ..services.email_service import (
     get_shared_email_parts,
     render_subject,
     render_template,
+    send_available_notification,
+    send_cancelled_notification,
+    send_failure_notification,
+    send_import_blocked_notification,
+    send_request_notification,
 )
 from ..services.notification_catalog import event_badge_class, event_mail_flags, get_event
 from ..utils import async_get_or_404, now_utc, now_utc_naive
@@ -394,10 +399,79 @@ async def list_notification_logs(
                 "status_label": "Envoyé" if log.success else "Erreur",
                 "error_msg": log.error_msg,
                 "req_id": log.req_id,
+                "scope": log.scope,
+                "language": log.language,
+                "is_upgrade": log.is_upgrade,
+                "season_number": log.season_number,
+                "episode_number": log.episode_number,
             }
             for log in logs
         ],
     }
+
+
+@router.get("/notifications/{log_id}/preview")
+async def preview_notification_log(log_id: int, db: AsyncSession = Depends(get_db_async)):
+    """Reconstruit à la demande le sujet/HTML d'un email déjà envoyé, en rejouant le même
+    rendu que l'envoi réel (aucun contenu supplémentaire n'est stocké en base) : template
+    actuel de l'évènement + données de la demande + contexte structuré du log (scope/
+    langue/saison/épisode pour "available", raison pour "failed"/"import_blocked").
+
+    Dégradé si la demande a été supprimée depuis (ex. annulation, voir withdraw_request) :
+    reconstruction à partir du seul titre/type connus, sans jaquette ni synopsis. Non
+    reconstructible pour "correction" : le texte libre saisi par l'admin n'est jamais
+    persisté ailleurs que dans l'email déjà envoyé.
+    """
+    log = await async_get_or_404(db, NotificationLog, log_id, "Notification introuvable")
+    settings = (await db.execute(select(Settings))).scalars().first()
+    if not settings:
+        raise HTTPException(400, "Paramètres introuvables")
+
+    req = None
+    if log.req_id:
+        req = (await db.execute(select(MediaRequest).filter(MediaRequest.id == log.req_id))).scalars().first()
+    degraded = req is None
+    if req is None:
+        req = MediaRequest(title=log.media_title or "Média supprimé", media_type=log.media_type or "movie")
+
+    user_obj = None
+    if req.plex_user_id:
+        user_obj = (await db.execute(select(PlexUser).filter(PlexUser.plex_user_id == req.plex_user_id))).scalars().first()
+    display_name = (user_obj.custom_name if user_obj else None) or req.plex_user
+
+    base_event = "failed" if log.event == "failure" else log.event
+
+    try:
+        if base_event == "request":
+            subject, html = await send_request_notification(settings, req, log.recipient, display_name, dry_run=True)
+        elif base_event == "available":
+            subject, html = await send_available_notification(
+                settings, req, log.recipient, display_name,
+                scope=log.scope or "movie", language=log.language, is_upgrade=bool(log.is_upgrade),
+                season_number=log.season_number, episode_number=log.episode_number, dry_run=True,
+            )
+        elif base_event == "failed":
+            subject, html = await send_failure_notification(
+                settings, req, log.recipient, log.error_msg or "", display_name, dry_run=True,
+            )
+        elif base_event == "import_blocked":
+            subject, html = await send_import_blocked_notification(
+                settings, req, log.recipient, log.error_msg or "", display_name, dry_run=True,
+            )
+        elif base_event == "cancelled":
+            subject, html = await send_cancelled_notification(settings, req, log.recipient, display_name, dry_run=True)
+        else:
+            return {
+                "subject": None,
+                "html": None,
+                "reconstructable": False,
+                "note": "Le contenu de ce type d'email (ex. correction) n'est pas conservé et ne peut pas être reconstruit fidèlement.",
+            }
+    except Exception as e:
+        raise HTTPException(500, f"Impossible de reconstruire cet email : {e}")
+
+    note = "Le média associé a été supprimé depuis l'envoi : aperçu partiel, sans jaquette ni synopsis." if degraded else None
+    return {"subject": subject, "html": html, "reconstructable": True, "note": note}
 
 
 @router.get("/admin-action-logs")

@@ -50,6 +50,7 @@
             @resend-mail="resendMail"
             @close-request="closeRequest"
             @delete-request="deleteRequest"
+            @withdraw-request="withdrawRequest"
             @notify-user="notifyUser"
             @promote-requester="promoteRequester"
             @remove-requester="removeRequester"
@@ -282,7 +283,7 @@ async function load() {
 
 const {
   requestAction, rejectRequest, closeRequest, resendMail, notifyUser,
-  addRequester, catchUpAll, promoteRequester, removeRequester, deleteRequest,
+  addRequester, catchUpAll, promoteRequester, removeRequester, deleteRequest, withdrawRequest,
 } = useRequestActions({
   detail, newRequesterId, askConfirm, busy, error,
   reload: load,

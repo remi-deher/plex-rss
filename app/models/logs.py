@@ -47,6 +47,12 @@ class DeletedMediaLog(Base):
     title: Mapped[str]
     deleted_at: Mapped[datetime] = mapped_column(default=now_utc_naive)
     deleted_by: Mapped[Optional[str]] = mapped_column(default=None)
+    # True quand la demande annulée provenait de la watchlist Plex (voir
+    # requests_api.withdraw_request) : au-delà du garde-fou "force l'approbation" que
+    # confère toute entrée de ce journal, empêche aussi purement et simplement la
+    # recréation automatique via watchlist_poller.is_blocked (l'API Plex ne permet pas de
+    # retirer une entrée de la watchlist depuis le serveur).
+    blocked: Mapped[bool] = mapped_column(default=False)
 
 class DiagnosticEvent(Base):
     """Événement persistant du parcours Demande → Arr → Plex → Notification."""

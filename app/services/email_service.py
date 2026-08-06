@@ -141,6 +141,12 @@ DEFAULT_FAILURE_TEMPLATE = """Une erreur est survenue lors de la transmission à
 
 *La demande reste enregistrée. Plexarr réessaiera automatiquement lors de la prochaine vérification si le problème est résolu.*"""
 
+DEFAULT_CANCELLED_TEMPLATE = """Votre demande pour **{media_type_et_titre}** a été annulée par un administrateur et supprimée de Sonarr/Radarr.
+
+Comme cette demande provenait de votre liste d'envies Plex, elle a aussi été bloquée pour empêcher qu'elle ne soit resoumise automatiquement.
+
+**Pensez à retirer ce média de votre liste d'envies Plex** : sans cela, il continuera d'y apparaître, mais ne sera plus traité par Plexarr."""
+
 DEFAULT_CORRECTION_TEMPLATE = """Bonjour {nom_utilisateur},
 
 Une correction a été effectuée sur **{media_type_et_titre}** {details_saison_episode}.
@@ -223,6 +229,12 @@ _EVENT_VISUAL_DEFAULTS = {
         "badge_text": "Correction",
         "headline_text": "Correction effectuée",
         "show_synopsis": True,
+    },
+    "cancelled": {
+        "accent_color": "#dc3545",
+        "badge_text": "Demande annulée",
+        "headline_text": "Demande annulée et bloquée",
+        "show_synopsis": False,
     },
 }
 
@@ -520,7 +532,10 @@ async def _send_templated(
     subject_fallback: str,
     tags: dict,
     extra_jinja_ctx: dict | None = None,
-):
+    dry_run: bool = False,
+) -> tuple[str, str]:
+    """Rend le sujet + le HTML. Envoie réellement l'email sauf si `dry_run=True` (aperçu
+    à la demande, voir /api/notifications/{id}/preview), et retourne toujours (subject, html)."""
     jinja_ctx = _build_jinja_ctx(request, display_name)
     if extra_jinja_ctx:
         jinja_ctx.update(extra_jinja_ctx)
@@ -531,17 +546,19 @@ async def _send_templated(
     subject_str = _resolve_str_setting(settings, subject_field) or default_subject
     subject = render_subject(subject_str, tags, fallback=subject_fallback)
 
-    await _send(settings, recipient, subject, html)
+    if not dry_run:
+        await _send(settings, recipient, subject, html)
+    return subject, html
 
 
 async def send_request_notification(
-    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None
-):
+    settings: Settings, request: MediaRequest, recipient: str, display_name: str | None = None, *, dry_run: bool = False
+) -> tuple[str, str]:
     tags = _build_tags(request, display_name)
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, "request"))
     extra_ctx["_tmdb_url"] = build_tmdb_url(request)
-    await _send_templated(
+    return await _send_templated(
         settings,
         request,
         recipient,
@@ -553,6 +570,7 @@ async def send_request_notification(
         subject_fallback=f"[Plexarr] Nouvelle demande : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
+        dry_run=dry_run,
     )
 
 
@@ -570,7 +588,8 @@ async def send_available_notification(
     batch_summary: str = "",
     availability_variant: str | None = None,
     availability_details: dict | None = None,
-):
+    dry_run: bool = False,
+) -> tuple[str, str]:
     template_field = "email_upgrade_template" if is_upgrade else "email_available_template"
     subject_field = "email_upgrade_subject" if is_upgrade else "email_available_subject"
     default_template = DEFAULT_UPGRADE_TEMPLATE if is_upgrade else DEFAULT_AVAILABLE_TEMPLATE
@@ -615,7 +634,7 @@ async def send_available_notification(
     extra_ctx["_tmdb_url"] = build_tmdb_url(request)
     extra_ctx["_plex_deep_link"] = await resolve_plex_deep_link(settings, request)
 
-    await _send_templated(
+    return await _send_templated(
         settings,
         request,
         recipient,
@@ -627,6 +646,7 @@ async def send_available_notification(
         subject_fallback=f"[Plexarr] Disponible : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
+        dry_run=dry_run,
     )
 
 
@@ -644,13 +664,14 @@ async def _send(settings: Settings, recipient: str, subject: str, html: str):
 
 
 async def send_failure_notification(
-    settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None
-):
+    settings: Settings, request: MediaRequest, recipient: str, reason: str = "", display_name: str | None = None,
+    *, dry_run: bool = False,
+) -> tuple[str, str]:
     tags = _build_tags(request, display_name, reason=reason)
     extra_ctx = get_shared_email_parts(settings)
     extra_ctx.update(get_event_visuals(settings, "failure"))
     extra_ctx["_tmdb_url"] = build_tmdb_url(request)
-    await _send_templated(
+    return await _send_templated(
         settings,
         request,
         recipient,
@@ -662,6 +683,7 @@ async def send_failure_notification(
         subject_fallback=f"[Plexarr] Échec de transmission : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
+        dry_run=dry_run,
     )
 
 
@@ -671,7 +693,9 @@ async def send_import_blocked_notification(
     recipient: str,
     reason: str = "",
     display_name: str | None = None,
-):
+    *,
+    dry_run: bool = False,
+) -> tuple[str, str]:
     """Alerte admin dediee, distincte d'un echec de transmission de demande.
 
     Commune a Sonarr (services/sonarr_queue_monitor.py) et Radarr
@@ -684,7 +708,7 @@ async def send_import_blocked_notification(
     extra_ctx["_badge_text"] = "Intervention *arr"
     extra_ctx["_headline_text"] = "Import bloque"
     extra_ctx["_tmdb_url"] = build_tmdb_url(request)
-    await _send_templated(
+    return await _send_templated(
         settings,
         request,
         recipient,
@@ -699,6 +723,38 @@ async def send_import_blocked_notification(
         subject_fallback=f"[Plexarr] Import bloque : {request.title}",
         tags=tags,
         extra_jinja_ctx=extra_ctx,
+        dry_run=dry_run,
+    )
+
+
+async def send_cancelled_notification(
+    settings: Settings,
+    request: MediaRequest,
+    recipient: str,
+    display_name: str | None = None,
+    *,
+    dry_run: bool = False,
+) -> tuple[str, str]:
+    """Demande annulée par un admin (voir requests_api.withdraw_request) — envoyée
+    uniquement quand la demande provenait de la watchlist Plex, pour prévenir
+    l'utilisateur qu'elle a aussi été bloquée côté Plexarr."""
+    tags = _build_tags(request, display_name)
+    extra_ctx = get_shared_email_parts(settings)
+    extra_ctx.update(get_event_visuals(settings, "cancelled"))
+    extra_ctx["_tmdb_url"] = build_tmdb_url(request)
+    return await _send_templated(
+        settings,
+        request,
+        recipient,
+        display_name,
+        template_field="email_cancelled_template",
+        default_template=DEFAULT_CANCELLED_TEMPLATE,
+        subject_field="email_cancelled_subject",
+        default_subject="[Plexarr] Demande annulée : {titre}",
+        subject_fallback=f"[Plexarr] Demande annulée : {request.title}",
+        tags=tags,
+        extra_jinja_ctx=extra_ctx,
+        dry_run=dry_run,
     )
 
 

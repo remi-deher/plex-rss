@@ -3,7 +3,7 @@
     <PageHeader
       title="Insights médiathèque"
       description="Inventaire technique et exploration interactive des fichiers présents sur Plex."
-      eyebrow="Statistiques"
+      eyebrow="Activité &amp; Insights"
     >
       <button type="button" class="secondary" :disabled="loading" @click="load(true)">
         <RefreshCw /> Actualiser Plex

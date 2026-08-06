@@ -26,8 +26,8 @@ from ..models import (
     VfEpisodeStatus,
 )
 from ..scheduler import check_arr_statuses, poll_watchlists
-from ..services import arr_orphans, deleted_media, radarr, sonarr
-from ..services.notification_orchestrator import _notify, notify_single_user
+from ..services import arr_orphans, deleted_media, email_service, radarr, sonarr
+from ..services.notification_orchestrator import _get_recipients, _notify, _resolve_requester_users, notify_single_user
 from ..services.request_lifecycle import transition_request
 from ..services.vf_cache import delete_request_episode_cache
 from ..utils import async_get_or_404, now_utc_naive, parse_email_list
@@ -887,6 +887,46 @@ async def delete_request(
     await db.delete(req)
     await db.commit()
     return {"status": "deleted"}
+
+
+@router.post("/requests/{request_id}/withdraw", dependencies=[Depends(require_moderator)])
+async def withdraw_request(request_id: int, request: Request, db: AsyncSession = Depends(get_db_async)):
+    """Annule une demande : supprime le média dans Sonarr/Radarr (mêmes garanties que
+    `delete_request`, jamais de désynchronisation), puis la demande localement.
+
+    Si la demande provient de la watchlist Plex (source `rss`/`api`), bloque en plus tout
+    retour automatique via `deleted_media.is_blocked` (l'API Plex ne permet pas de retirer
+    une entrée de la watchlist depuis le serveur) et prévient le(s) demandeur(s) par email
+    qu'ils doivent aussi la retirer eux-mêmes de leur liste d'envies Plex."""
+    req = await async_get_or_404(db, MediaRequest, request_id, "Request not found")
+    ok, msg = await _delete_media_from_arr(db, req, delete_files=False)
+    if not ok:
+        raise HTTPException(502, f"Suppression *arr impossible ({msg}) — rien n'a été annulé.")
+
+    is_plex_source = req.source in ("rss", "api")
+    actor = current_user(request, db) or {}
+    await deleted_media.record_deletion(
+        db, req.media_type, req.title,
+        tmdb_id=req.tmdb_id, tvdb_id=req.tvdb_id, imdb_id=req.imdb_id,
+        deleted_by=actor.get("username") or actor.get("plex_user_id") or "api",
+        blocked=is_plex_source,
+    )
+
+    if is_plex_source:
+        settings = (await db.execute(select(Settings))).scalars().first()
+        if settings:
+            requester_users = await _resolve_requester_users(req, db)
+            recipients = _get_recipients(requester_users, settings, "cancelled")
+            for recipient in recipients:
+                try:
+                    await email_service.send_cancelled_notification(settings, req, recipient)
+                except Exception as e:
+                    logger.warning(f"Envoi du mail 'cancelled' échoué pour {recipient} (req#{req.id}): {e}")
+
+    await delete_request_episode_cache(db, req.id)
+    await db.delete(req)
+    await db.commit()
+    return {"status": "withdrawn", "plex_source": is_plex_source}
 
 
 @router.post("/requests/{request_id}/cancel")

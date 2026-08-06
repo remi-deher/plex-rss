@@ -152,6 +152,28 @@ export function useRequestActions({ detail, newRequesterId, askConfirm, reload, 
     if (ok) onDeleted?.();
   }
 
+  /**
+   * Annule la demande : supprime aussi le média dans Sonarr/Radarr. Si la demande provient
+   * de la watchlist Plex, le message de confirmation rappelle qu'il faut aussi la retirer
+   * de la liste d'envies Plex (l'API ne permet pas de le faire depuis le serveur) — la
+   * demande est alors bloquée côté Plexarr pour ne pas revenir automatiquement.
+   */
+  async function withdrawRequest(row) {
+    const fromPlexWatchlist = ['rss', 'api'].includes(row.source);
+    const { ok } = await run(() => post(`/api/requests/${row.id}/withdraw`), {
+      reload: false,
+      confirm: {
+        title: 'Annuler cette demande ?',
+        message: fromPlexWatchlist
+          ? "Le média sera supprimé de l'application et de Sonarr/Radarr, puis bloqué pour empêcher qu'il ne revienne automatiquement. Pensez aussi à le retirer de votre liste d'envies Plex, sinon il continuera d'y apparaître."
+          : "Le média sera supprimé de l'application et de Sonarr/Radarr.",
+        confirmLabel: 'Annuler la demande',
+        danger: true,
+      },
+    });
+    if (ok) onDeleted?.();
+  }
+
   return {
     requestAction,
     rejectRequest,
@@ -163,5 +185,6 @@ export function useRequestActions({ detail, newRequesterId, askConfirm, reload, 
     promoteRequester,
     removeRequester,
     deleteRequest,
+    withdrawRequest,
   };
 }

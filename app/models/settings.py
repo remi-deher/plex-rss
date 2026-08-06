@@ -260,7 +260,7 @@ _EMAIL_BRANDING_FIELDS = {
     "email_show_plex_button": "show_plex_button",
 }
 _EMAIL_EVENTS = (
-    "request", "available", "upgrade", "failure", "correction",
+    "request", "available", "upgrade", "failure", "correction", "cancelled",
     "episode_available", "season_started", "season_partial",
     "season_complete", "series_partial", "series_complete",
 )
@@ -303,6 +303,6 @@ for _legacy_name, _field in _EMAIL_BRANDING_FIELDS.items():
 for _event in _EMAIL_EVENTS:
     setattr(Settings, f"email_{_event}_template", _template_property(_event, "template"))
     setattr(Settings, f"email_{_event}_subject", _template_property(_event, "subject"))
-for _event in ("request", "available", "upgrade", "failure", "correction"):
+for _event in ("request", "available", "upgrade", "failure", "correction", "cancelled"):
     for _field in ("accent_color", "badge_text", "headline_text", "show_synopsis"):
         setattr(Settings, f"email_{_event}_{_field}", _template_property(_event, _field))

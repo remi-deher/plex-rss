@@ -44,7 +44,18 @@
 
   <p v-if="error" class="notice error-text">{{ error }}</p>
 
-  <NotificationsTable ref="tableRef" :rows="rows" :tab="tab" :loading="loading" @resend="resend" @mark-handled="markHandled" @delete-one="deleteOne"/>
+  <NotificationsTable ref="tableRef" :rows="rows" :tab="tab" :loading="loading" @resend="resend" @mark-handled="markHandled" @delete-one="deleteOne" @preview="openPreview"/>
+
+  <NotificationPreviewModal
+    :open="previewOpen"
+    :loading="previewLoading"
+    :error="previewError"
+    :subject="previewData?.subject || ''"
+    :html="previewData?.html || ''"
+    :note="previewData?.note || ''"
+    :reconstructable="previewData?.reconstructable !== false"
+    @close="previewOpen=false"
+  />
 
   <div v-if="total>limit" class="pagination">
     <button class="secondary" :disabled="offset===0" @click="page(-1)"><ChevronLeft/>Precedent</button>
@@ -64,6 +75,7 @@ import { api } from '@/api';
 import { useRealtime } from '@/events';
 import NotificationsFiltersBar from '@/components/notifications/NotificationsFiltersBar.vue';
 import NotificationsTable from '@/components/notifications/NotificationsTable.vue';
+import NotificationPreviewModal from '@/components/notifications/NotificationPreviewModal.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
 import { useDebounced } from '@/composables/useDebounced';
@@ -96,6 +108,10 @@ const holdEnabled = ref(false);
 const holdSaving = ref(false);
 const feedback = ref({ type: '', text: '' });
 let feedbackTimeout;
+const previewOpen = ref(false);
+const previewLoading = ref(false);
+const previewError = ref('');
+const previewData = ref(null);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
 const notificationTabs = computed(() => [
@@ -177,6 +193,20 @@ async function load() {
     error.value = e.message;
   } finally {
     loading.value = false;
+  }
+}
+
+async function openPreview(row) {
+  previewOpen.value = true;
+  previewLoading.value = true;
+  previewError.value = '';
+  previewData.value = null;
+  try {
+    previewData.value = await api(`/api/notifications/${row.id}/preview`);
+  } catch (e) {
+    previewError.value = e.message;
+  } finally {
+    previewLoading.value = false;
   }
 }
 

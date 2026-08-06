@@ -86,7 +86,7 @@
 
 <script setup>
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { CircleAlert,CircleCheck,Eye,FileWarning,Film,LayoutPanelLeft,MailCheck,Monitor,Palette,RotateCcw,Save,Send,ShieldAlert,Sparkles,Tv,Undo2,UserRoundCheck } from '@lucide/vue';
+import { Ban,CircleAlert,CircleCheck,Eye,FileWarning,Film,LayoutPanelLeft,MailCheck,Monitor,Palette,RotateCcw,Save,Send,ShieldAlert,Sparkles,Tv,Undo2,UserRoundCheck } from '@lucide/vue';
 import { api } from '@/api';
 import EmailEventEditor from './email/EmailEventEditor.vue';
 import EmailSharedSettings from './email/EmailSharedSettings.vue';
@@ -112,6 +112,7 @@ const eventGroups=[
   {label:'Suivi et administration',items:[
     {key:'upgrade',label:'Amelioration VF',description:'Passage connu de VO vers VF',icon:markRaw(Sparkles)},
     {key:'correction',label:'Correction',description:'Message manuel de correction',icon:markRaw(ShieldAlert)},
+    {key:'cancelled',label:'Demande annulee',description:'Demande annulee et bloquee par un administrateur',icon:markRaw(Ban)},
   ]},
 ];
 const eventTypes=eventGroups.flatMap(group=>group.items);
