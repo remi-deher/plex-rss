@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import DiscoverView from './DiscoverView.vue';
+import InfiniteScrollTrigger from '@/components/ui/InfiniteScrollTrigger.vue';
 
 const apiMock = vi.fn();
 vi.mock('@/api', () => ({ api: (...args) => apiMock(...args) }));
@@ -64,11 +65,11 @@ describe('DiscoverView', () => {
     await flushPromises();
 
     expect(wrapper.findAll('.discover-card')).toHaveLength(2);
-    await wrapper.get('.load-more button').trigger('click');
+    await wrapper.findComponent(InfiniteScrollTrigger).vm.$emit('load');
     await flushPromises();
 
     expect(wrapper.findAll('.discover-card')).toHaveLength(3);
-    expect(wrapper.find('.load-more').exists()).toBe(false);
+    expect(wrapper.findComponent(InfiniteScrollTrigger).props('hasMore')).toBe(false);
   });
 
   it('applique le type de média aux recherches et aux catalogues', async () => {
@@ -107,8 +108,8 @@ describe('DiscoverView', () => {
     resolveOld(page([media(1, 'Ancien')]));
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Nouveau');
-    expect(wrapper.text()).not.toContain('Ancien');
+    expect(wrapper.find('img[alt="Affiche de Nouveau"]').exists()).toBe(true);
+    expect(wrapper.find('img[alt="Affiche de Ancien"]').exists()).toBe(false);
   });
 
   it('conserve le focus du champ partagé lors du passage de l’accueil à Explorer', async () => {
@@ -139,7 +140,7 @@ describe('DiscoverView', () => {
   it('charge indépendamment le hero, les rangées et les diffuseurs de l’accueil', async () => {
     apiMock.mockImplementation(path => {
       if (path.includes('sections=hero,trending')) {
-        return Promise.resolve({ sections: { hero: { item: media(1, 'À la une') }, trending: { items: [media(1)] } } });
+        return Promise.resolve({ sections: { hero: { items: [media(1, 'À la une')] }, trending: { items: [media(1)] } } });
       }
       if (path.includes('/home?sections=')) {
         const name = path.split('sections=')[1];
@@ -155,7 +156,7 @@ describe('DiscoverView', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('À la une');
-    expect(wrapper.text()).toContain('Populaire');
+    expect(wrapper.find('img[alt="Affiche de Populaire"]').exists()).toBe(true);
     expect(wrapper.text()).toContain('Diffuseurs & studios');
     expect(wrapper.text()).toContain('Netflix');
   });
@@ -194,7 +195,7 @@ describe('DiscoverView', () => {
     const wrapper = await mountView({ url: '/discover/explore?type=movie&availability=new&source=provider%3A8' });
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Netflix movie');
+    expect(wrapper.find('img[alt="Affiche de Netflix movie"]').exists()).toBe(true);
     expect(wrapper.get('select[aria-label="Diffuseur ou studio"]').element.value).toBe('provider:8');
     expect(apiMock.mock.calls.some(([path]) => path.includes('/source/provider/8?media_type=movie'))).toBe(true);
     expect(window.location.pathname).toBe('/discover/explore');
@@ -215,7 +216,7 @@ describe('DiscoverView', () => {
           },
         });
       }
-      if (path.includes('sections=hero,trending')) return Promise.resolve({ sections: { hero: { item: media(3) }, trending: { items: [] } } });
+      if (path.includes('sections=hero,trending')) return Promise.resolve({ sections: { hero: { items: [media(3)] }, trending: { items: [] } } });
       if (path.includes('/home?sections=')) {
         const name = path.split('sections=')[1];
         return Promise.resolve({ sections: { [name]: { items: [] } } });
@@ -229,6 +230,6 @@ describe('DiscoverView', () => {
 
     expect(wrapper.text()).toContain('Pour vous');
     expect(wrapper.text()).toContain('Inspiré par Dune');
-    expect(wrapper.text()).toContain('Arrival');
+    expect(wrapper.find('img[alt="Affiche de Arrival"]').exists()).toBe(true);
   });
 });

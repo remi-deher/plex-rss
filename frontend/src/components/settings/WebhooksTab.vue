@@ -45,13 +45,24 @@
           </div>
         </div>
       </SettingsCard>
+
+      <SettingsCard title="Token API" subtitle="Jeton pour les appels programmatiques a l'API Plexarr" :icon="KeyRound" status="neutral" :collapsible="false">
+        <template #actions>
+          <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadToken"><RefreshCw/></button>
+        </template>
+        <code class="secret-box">{{ apiToken || (tokenActive ? 'Actif (valeur masquee)' : 'Aucun token genere') }}</code>
+        <div class="actions">
+          <button class="secondary" @click="generateToken"><KeyRound/>Generer</button>
+          <button class="secondary danger" @click="deleteToken"><Trash2/>Revoquer</button>
+        </div>
+      </SettingsCard>
     </div>
   </div>
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 </template>
 <script setup>
-import { reactive, ref } from 'vue';
-import { Check, Copy, Link, RefreshCw } from '@lucide/vue';
+import { onMounted, reactive, ref } from 'vue';
+import { Check, Copy, KeyRound, Link, RefreshCw, Trash2 } from '@lucide/vue';
 import { api } from '@/api';
 import { form, success, fail } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
@@ -64,6 +75,24 @@ const configureStatus = reactive({ plex: null, radarr: null, sonarr: null });
 const testingWebhook = ref(null);
 const configuringWebhook = ref(null);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
+
+const apiToken = ref('');
+const tokenActive = ref(false);
+async function loadToken() {
+  const token = await api('/api/settings/token').catch(() => ({}));
+  tokenActive.value = Boolean(token.active);
+}
+async function generateToken() {
+  const data = await api('/api/settings/token', { method: 'POST', body: JSON.stringify({ scopes: ['*'] }) });
+  apiToken.value = data.api_token;
+  tokenActive.value = true;
+}
+async function deleteToken() {
+  await api('/api/settings/token', { method: 'DELETE' });
+  apiToken.value = '';
+  tokenActive.value = false;
+}
+onMounted(loadToken);
 
 async function generateWebhookSecret() {
   if (form.webhook_secret && !await askConfirm({ title: 'Régénérer le secret webhook ?', message: "L’ancien secret sera invalidé et les webhooks actuellement configurés ne fonctionneront plus.", confirmLabel: 'Régénérer', danger: true })) return;

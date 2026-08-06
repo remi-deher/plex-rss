@@ -237,7 +237,7 @@ def test_home_reuses_trending_for_hero_and_rail(client):
 
     assert response.status_code == 200
     sections = response.json()["sections"]
-    assert sections["hero"]["item"]["title"] == "Film"
+    assert sections["hero"]["items"][0]["title"] == "Film"
     assert sections["trending"]["items"][0]["title"] == "Film"
     assert sections["trending"]["items"][0]["requested"] is False
     trending.assert_awaited_once_with(ANY, "all", "day", 1)

@@ -379,8 +379,8 @@ async def get_home(
 ):
     """Retourne les blocs de l'accueil, sans coupler leur disponibilité.
 
-    `hero` réutilise le premier résultat de `trending` : le demander avec la rangée
-    Tendances ne provoque donc aucun second appel externe.
+    `hero` réutilise les 5 premiers résultats de `trending` (carrousel "à la une") : le
+    demander avec la rangée Tendances ne provoque donc aucun second appel externe.
     """
     requested = list(dict.fromkeys(part.strip() for part in sections.split(",") if part.strip()))
     invalid = [section for section in requested if section not in HOME_SECTIONS]
@@ -422,14 +422,11 @@ async def get_home(
     for section in requested:
         source = "trending" if section == "hero" else section
         if source in errors:
-            result[section] = {"error": errors[source], "item": None} if section == "hero" else {
-                "error": errors[source],
-                "items": [],
-            }
+            result[section] = {"error": errors[source], "items": []}
             continue
         payload = payloads[source]
         result[section] = (
-            {"item": payload.get("items", [None])[0] if payload.get("items") else None}
+            {"items": payload.get("items", [])[:5]}
             if section == "hero"
             else payload
         )

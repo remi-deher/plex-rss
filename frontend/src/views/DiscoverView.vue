@@ -74,7 +74,7 @@
     </section>
 
     <template v-if="mode === 'home'">
-      <DiscoverHero :item="home.hero.item" :loading="home.hero.loading" />
+      <DiscoverHero :items="home.hero.items" :loading="home.hero.loading" />
       <UiFeedback v-if="home.hero.error" type="error" :message="home.hero.error" retry @retry="loadHomeGroup" />
 
       <div class="discover-home-rails">
@@ -656,7 +656,7 @@ watch(() => route.path, (path, previousPath) => {
 .discover-sources header { display: flex; align-items: end; justify-content: space-between; gap: var(--space-4); }
 .discover-sources h2 { margin: 2px 0 0; font-size: var(--fs-lg); }
 .discover-sources header > span { font-size: var(--fs-sm); }
-.source-track { display: grid; grid-auto-columns: clamp(145px, 18vw, 210px); grid-auto-flow: column; gap: var(--space-3); padding-bottom: 8px; overflow-x: auto; scroll-snap-type: x proximity; }
+.source-track { display: grid; grid-auto-columns: clamp(56px, 8vw, 76px); grid-auto-flow: column; gap: var(--space-2); padding-bottom: 8px; overflow-x: auto; scroll-snap-type: x proximity; }
 .source-track > * { scroll-snap-align: start; }
 .personalized-discovery { display: grid; gap: var(--space-5); padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%); }
 .personalized-header { display: flex; align-items: start; justify-content: space-between; gap: var(--space-4); }

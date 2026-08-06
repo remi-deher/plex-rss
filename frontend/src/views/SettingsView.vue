@@ -23,6 +23,8 @@
     <DownloadsTab v-else-if="tab==='downloads'"/>
     <ScheduledTasksTab v-else-if="tab==='scheduled-tasks'"/>
     <SettingsOperationsPanel v-else-if="tab==='operations'"/>
+    <ConflictsTab v-else-if="tab==='conflicts'"/>
+    <AcquisitionsTab v-else-if="tab==='acquisitions'"/>
     <EmailTemplatesPanel v-else-if="tab==='templates'"/>
     <GdprTab v-else-if="tab==='privacy'"/>
     <DataTab v-else/>
@@ -33,7 +35,7 @@
 <script setup>
 import { computed, defineAsyncComponent, markRaw, onMounted, onUnmounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
-import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, Link, Plug, Save, Search, ServerCog, ShieldCheck } from '@lucide/vue';
+import { Bell, BookMarked, Clock, DatabaseZap, Download, FileCode2, ListChecks, ListRestart, Link, Plug, Save, Search, ServerCog, ShieldCheck, WandSparkles } from '@lucide/vue';
 import SettingsOverview from '@/components/settings/SettingsOverview.vue';
 import ConfirmModal from '@/components/ConfirmModal.vue';
 import { useConfirm } from '@/composables/useConfirm';
@@ -48,6 +50,8 @@ const LibraryTab = defineAsyncComponent(() => import('@/components/settings/Libr
 const DownloadsTab = defineAsyncComponent(() => import('@/components/settings/DownloadsTab.vue'));
 const ScheduledTasksTab = defineAsyncComponent(() => import('@/components/settings/ScheduledTasksTab.vue'));
 const SettingsOperationsPanel = defineAsyncComponent(() => import('@/components/SettingsOperationsPanel.vue'));
+const ConflictsTab = defineAsyncComponent(() => import('@/components/settings/ConflictsTab.vue'));
+const AcquisitionsTab = defineAsyncComponent(() => import('@/components/settings/AcquisitionsTab.vue'));
 const EmailTemplatesPanel = defineAsyncComponent(() => import('@/components/EmailTemplatesPanel.vue'));
 const GdprTab = defineAsyncComponent(() => import('@/components/settings/GdprTab.vue'));
 const DataTab = defineAsyncComponent(() => import('@/components/settings/DataTab.vue'));
@@ -55,13 +59,15 @@ const DataTab = defineAsyncComponent(() => import('@/components/settings/DataTab
 const tabs = [
   { key: 'overview', label: 'Vue d’ensemble', icon: markRaw(ServerCog) },
   { key: 'connections', label: 'Connexions', icon: markRaw(Plug) },
-  { key: 'webhooks', label: 'Webhooks', icon: markRaw(Link) },
+  { key: 'webhooks', label: 'API & Webhooks', icon: markRaw(Link) },
   { key: 'notifications-channels', label: 'Notifs · Canaux', icon: markRaw(Bell) },
   { key: 'notifications-rules', label: 'Notifs · Regles', icon: markRaw(ListChecks) },
   { key: 'library', label: 'Bibliotheque', icon: markRaw(BookMarked) },
   { key: 'downloads', label: 'Telechargements', icon: markRaw(Download) },
   { key: 'scheduled-tasks', label: 'Planification', icon: markRaw(Clock) },
   { key: 'operations', label: 'Exploitation', icon: markRaw(ServerCog) },
+  { key: 'conflicts', label: 'Conflits', icon: markRaw(WandSparkles) },
+  { key: 'acquisitions', label: 'Acquisitions', icon: markRaw(ListRestart) },
   { key: 'templates', label: 'Emails', icon: markRaw(FileCode2) },
   { key: 'data', label: 'Donnees', icon: markRaw(DatabaseZap) },
   { key: 'privacy', label: 'RGPD', icon: markRaw(ShieldCheck) },
@@ -69,11 +75,11 @@ const tabs = [
 const tabGroups=[
   {label:'Parametres',items:tabs.filter(item=>['overview','connections','webhooks','library','downloads'].includes(item.key))},
   {label:'Notifications',items:tabs.filter(item=>['notifications-channels','notifications-rules','templates'].includes(item.key))},
-  {label:'Exploitation',items:tabs.filter(item=>['scheduled-tasks','operations','data','privacy'].includes(item.key))},
+  {label:'Exploitation',items:tabs.filter(item=>['scheduled-tasks','operations','conflicts','acquisitions','data','privacy'].includes(item.key))},
 ];
 const route=useRoute(),router=useRouter();
 const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'overview');
-const standaloneTabs = new Set(['operations', 'templates']);
+const standaloneTabs = new Set(['operations', 'conflicts', 'acquisitions', 'templates']);
 let settingsLoadPromise;
 function ensureSettingsLoaded(value = tab.value) {
   if (standaloneTabs.has(value)) return Promise.resolve();

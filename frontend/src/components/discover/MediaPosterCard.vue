@@ -1,7 +1,14 @@
 <template>
   <article class="media-card discover-card discover-media-card">
-    <div class="discover-poster-wrap">
-      <RouterLink :to="to" :aria-label="accessibleLabel" class="discover-poster-link">
+    <div
+      class="discover-poster-wrap"
+      :class="{ revealed }"
+      @mouseenter="revealed = true"
+      @mouseleave="revealed = false"
+      @focusin="revealed = true"
+      @focusout="revealed = false"
+    >
+      <RouterLink :to="to" :aria-label="accessibleLabel" class="discover-poster-link" @click="handleLinkClick">
         <MediaPoster :poster-url="item.poster_url" :alt="`Affiche de ${title}`">
           <template #badges>
             <div class="discover-card-badges">
@@ -9,14 +16,14 @@
             </div>
           </template>
           <template #overlay>
-            <div class="discover-card-overlay" :class="{ 'has-request-action': requestable }">
+            <div class="discover-card-overlay">
               <div class="discover-card-copy">
                 <div class="discover-card-meta">
                   <span v-if="item.year">{{ item.year }}</span>
                   <span>{{ mediaTypeLabel(item.media_type) }}</span>
                   <span v-if="rating" class="discover-rating"><Star aria-hidden="true" />{{ rating }}</span>
                 </div>
-                <strong>{{ title }}</strong>
+                <strong v-if="!requestable">{{ title }}</strong>
                 <span v-if="actionLabel && !requestable" class="discover-card-link-action">{{ actionLabel }}</span>
               </div>
             </div>
@@ -38,7 +45,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Download, Star } from '@lucide/vue';
 import MediaPoster from '@/components/media/MediaPoster.vue';
 import { mediaTypeLabel } from '@/utils/labels';
@@ -52,6 +59,20 @@ const props = defineProps({
   requestBusy: { type: Boolean, default: false },
 });
 defineEmits(['request']);
+
+/**
+ * Bandeau (titre/meta/action) masqué au repos, révélé au survol/focus (souris/clavier) ou
+ * au premier tap tactile — `revealed` sert de filet JS pour le tactile (pas de :hover réel),
+ * le CSS :hover/:focus-within couvre nativement souris et clavier.
+ */
+const revealed = ref(false);
+
+function handleLinkClick(e) {
+  if (!revealed.value) {
+    e.preventDefault();
+    revealed.value = true;
+  }
+}
 
 const title = computed(() => props.item.title || props.item.name || 'Sans titre');
 const rating = computed(() => {
@@ -105,8 +126,16 @@ const accessibleLabel = computed(() => [
   padding: 70px 12px 12px;
   background: linear-gradient(180deg, transparent 20%, rgba(8, 10, 14, .18) 43%, rgba(8, 10, 14, .96) 100%);
   color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
 }
-.discover-card-overlay.has-request-action { padding-bottom: 52px; }
+.discover-poster-wrap:hover .discover-card-overlay,
+.discover-poster-wrap:focus-within .discover-card-overlay,
+.discover-poster-wrap.revealed .discover-card-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
 .discover-card-copy { display: grid; gap: var(--space-1); width: 100%; min-width: 0; padding: 0 !important; }
 .discover-card-copy > strong {
   display: -webkit-box;
@@ -142,6 +171,15 @@ const accessibleLabel = computed(() => [
   font-weight: 800;
   text-align: center;
   box-shadow: 0 5px 16px rgba(0, 0, 0, .38);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+.discover-poster-wrap:hover .discover-card-action,
+.discover-poster-wrap:focus-within .discover-card-action,
+.discover-poster-wrap.revealed .discover-card-action {
+  opacity: 1;
+  pointer-events: auto;
 }
 .discover-card-action svg { width: 15px; height: 15px; }
 .request-action {

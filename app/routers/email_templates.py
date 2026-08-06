@@ -319,7 +319,7 @@ async def preview_email(body: PreviewRequest, db: AsyncSession = Depends(get_db_
     header_html = f"""
     <div style="background:#2a2a2a; color:#fff; font-family:sans-serif; padding:12px 20px; border-bottom:1px solid #333; margin-bottom:15px; font-size:13px;">
       <div style="margin-bottom:4px;"><strong>Objet :</strong> <span style="color:#e5a00d; font-weight:bold;">{escape(rendered_subject)}</span></div>
-      <div style="margin-bottom:4px;"><strong>De :</strong> {escape(settings.smtp_from if settings else "plex-rss@monitor.local")}</div>
+      <div style="margin-bottom:4px;"><strong>De :</strong> {escape(settings.smtp_from if settings and settings.smtp_from else "plex-rss@monitor.local")}</div>
       <div><strong>À :</strong> {escape(recipient_email)}</div>
     </div>
     """

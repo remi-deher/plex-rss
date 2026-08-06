@@ -26,5 +26,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["frontend/src/**/*.{test,spec}.js"],
     globals: false,
+    setupFiles: ["frontend/src/testSetup.js"],
   },
 });
