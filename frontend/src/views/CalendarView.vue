@@ -67,7 +67,6 @@
             v-for="event in group.events"
             :key="eventKey(event)"
             class="calendar-event-card"
-            :style="event.fanart_url ? { backgroundImage: `linear-gradient(90deg, rgba(16, 16, 22, 0.94) 0%, rgba(16, 16, 22, 0.85) 60%, rgba(16, 16, 22, 0.55) 100%), url(${event.fanart_url})` } : {}"
             :class="{ interactive: event.library_item_id || event.request_id, 'has-fanart': !!event.fanart_url }"
             :role="event.library_item_id || event.request_id ? 'link' : undefined"
             :tabindex="event.library_item_id || event.request_id ? 0 : undefined"
@@ -76,6 +75,10 @@
             @keydown.enter.prevent="openDetail(event)"
             @keydown.space.prevent="openDetail(event)"
           >
+            <!-- Background Backdrop & Overlay (100% full card width & height) -->
+            <div v-if="event.fanart_url" class="card-backdrop" :style="{ backgroundImage: `url(${event.fanart_url})` }"></div>
+            <div v-if="event.fanart_url" class="card-backdrop-overlay"></div>
+
             <div class="card-poster">
               <img v-if="event.poster_url" :src="event.poster_url" :alt="event.title" loading="lazy" decoding="async">
               <div v-else class="poster-fallback"><Film v-if="event.type==='movie'"/><Tv v-else/></div>
@@ -99,6 +102,12 @@
             </div>
 
             <div class="card-actions" @click.stop>
+              <!-- Always show status badge -->
+              <span class="status-badge" :class="eventState(event)">
+                {{ eventLabel(event) }}
+              </span>
+
+              <!-- Action button when available in Plex -->
               <button
                 v-if="event.has_file"
                 type="button"
@@ -108,9 +117,6 @@
               >
                 <Play /> <span>Regarder sur Plex</span>
               </button>
-              <span v-else class="status-badge">
-                {{ eventLabel(event) }}
-              </span>
             </div>
           </article>
         </div>
@@ -254,17 +260,16 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .calendar-events { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
 
 .calendar-event-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  padding: 12px 14px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background-color: var(--surface);
-  background-size: cover;
-  background-position: center right;
-  background-repeat: no-repeat;
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -273,6 +278,35 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   border-color: var(--accent);
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.card-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-size: cover;
+  background-position: center right;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
+.card-backdrop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #101016 0%, rgba(16, 16, 22, 0.92) 50%, rgba(16, 16, 22, 0.7) 100%);
+  z-index: 1;
+}
+
+.card-poster,
+.card-info,
+.card-actions {
+  position: relative;
+  z-index: 2;
 }
 
 .card-poster {
@@ -284,7 +318,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 .card-poster img {
@@ -317,7 +351,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .card-title {
   font-size: var(--fs-md);
   font-weight: 700;
-  color: var(--text);
+  color: #ffffff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -329,7 +363,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   gap: 3px;
   padding: 1px 6px;
   border-radius: var(--radius-pill);
-  background: rgba(229, 160, 13, 0.18);
+  background: rgba(229, 160, 13, 0.2);
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
@@ -341,7 +375,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  color: var(--muted);
+  color: #a0a0ab;
   font-size: var(--fs-xs);
 }
 
@@ -363,7 +397,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .instance-tag {
   padding: 1px 6px;
   border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   font-size: 11px;
 }
 
@@ -377,7 +411,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .genre-pill {
   padding: 1px 6px;
   border-radius: var(--radius-xs);
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--muted);
   font-size: 10px;
   font-weight: 500;
@@ -394,20 +428,23 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   border-radius: var(--radius-sm);
-  background: var(--success);
-  color: #111;
+  background: var(--accent);
+  color: #111111;
   font-size: var(--fs-xs);
   font-weight: 700;
   border: 0;
   cursor: pointer;
   text-decoration: none;
-  transition: transform 0.15s ease, filter 0.15s ease;
+  box-shadow: 0 2px 8px rgba(229, 160, 13, 0.3);
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 .plex-action-btn:hover {
-  filter: brightness(1.1);
-  transform: scale(1.03);
+  background: #f5b01d;
+  color: #000000;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(229, 160, 13, 0.45);
 }
 .plex-action-btn svg { width: 14px; height: 14px; fill: currentColor; }
 
@@ -420,7 +457,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   background: var(--surface-2);
   color: var(--muted);
 }
-.status-badge.available { color: var(--success); background: rgba(34, 197, 94, 0.12); }
+.status-badge.available { color: var(--success); background: rgba(34, 197, 94, 0.15); }
 
 /* Adaptations Responsives Mobile */
 @media (max-width: 900px) {
@@ -436,11 +473,11 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   .calendar-command-bar { position: sticky; top: 8px; z-index: 20; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
   .calendar-command-bar :deep(.ui-filter-bar) { position: static; padding: 0; border: 0; background: transparent; }
   .calendar-events { gap: var(--space-2); width: 100%; }
-  .calendar-event-card { padding: 10px; gap: var(--space-2); width: 100%; flex-wrap: wrap; }
+  .calendar-event-card { padding: 10px 12px; gap: var(--space-2); width: 100%; flex-wrap: wrap; }
   .card-poster { flex: 0 0 46px; height: 68px; }
   .card-title { font-size: var(--fs-sm); }
-  .card-actions { width: 100%; margin-top: 4px; justify-content: flex-end; }
-  .plex-action-btn { width: 100%; justify-content: center; padding: 7px 10px; }
+  .card-actions { width: 100%; margin-top: 4px; justify-content: space-between; }
+  .plex-action-btn { flex: 1; justify-content: center; padding: 7px 10px; }
   .status-badge { padding: 3px 8px; font-size: 11px; }
   .calendar-view-switch button:last-child { display: none; }
 }
