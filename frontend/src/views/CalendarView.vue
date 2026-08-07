@@ -10,8 +10,7 @@
     </PageHeader>
 
     <div class="calendar-command-bar">
-      <!-- La grille mensuelle ne tient pas sous 640px : le sélecteur disparaît
-           plutôt que de laisser un bouton « Mois » qui n'affiche rien. -->
+      <!-- La grille mensuelle ne tient pas sous 640px : le sélecteur disparaît -->
       <div v-if="!compact" class="segmented calendar-view-switch" aria-label="Mode d'affichage">
         <button :class="{active:view==='agenda'}" @click="view='agenda'"><List/>Agenda</button>
         <button :class="{active:view==='month'}" @click="view='month'"><CalendarDays/>Mois</button>
@@ -35,7 +34,6 @@
 
     <div class="calendar-legend" aria-label="Légende">
       <span><i class="available"></i>Disponible</span>
-      <span><i></i>Catalogue</span>
     </div>
     <UiFeedback v-if="error" type="error" title="Calendrier indisponible" :message="error" retry @retry="load" />
 
@@ -75,7 +73,7 @@
             @keydown.enter.prevent="openDetail(event)"
             @keydown.space.prevent="openDetail(event)"
           >
-            <!-- Background Backdrop & Overlay (100% full card width & height) -->
+            <!-- Background Backdrop & Overlay -->
             <div v-if="event.fanart_url" class="card-backdrop" :style="{ backgroundImage: `url(${event.fanart_url})` }"></div>
             <div v-if="event.fanart_url" class="card-backdrop-overlay"></div>
 
@@ -102,9 +100,9 @@
             </div>
 
             <div class="card-actions" @click.stop>
-              <!-- Always show status badge -->
-              <span class="status-badge" :class="eventState(event)">
-                {{ eventLabel(event) }}
+              <!-- Show status badge ONLY when available -->
+              <span v-if="event.has_file" class="status-badge available">
+                Disponible
               </span>
 
               <!-- Action button when available in Plex -->
@@ -144,7 +142,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Film, List, Play, RefreshCw, Star, Tv } from '@lucide/vue';
 import { api } from '@/api';
 import { useRouter } from 'vue-router';
-import { mediaDetailPath } from '@/mediaUrl';
+import { formatPlexWebUrl, mediaDetailPath } from '@/mediaUrl';
 import LoadMore from '@/components/ui/LoadMore.vue';
 import InfiniteScrollTrigger from '@/components/ui/InfiniteScrollTrigger.vue';
 import { useSession } from '@/composables/useSession';
@@ -185,7 +183,6 @@ function localIso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 function formatTime(v) { if (!v) return ''; const d = new Date(v); if (isNaN(d.getTime()) || v.endsWith('T00:00:00Z') || v.endsWith('T00:00:00.000Z')) return ''; return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
 function eventKey(event) { return `${event.instance}:${event.date}:${event.title}:${event.subtitle}`; }
 function eventState(event) { return event.has_file ? 'available' : ''; }
-function eventLabel(event) { return event.has_file ? 'Disponible' : 'Catalogue'; }
 
 function openDetail(event) {
   if (event.library_item_id) router.push(mediaDetailPath({ id: event.library_item_id }, 'library'));
@@ -197,8 +194,9 @@ function openPlex(event, e) {
     e.stopPropagation();
     e.preventDefault();
   }
-  if (event.plex_guid) {
-    window.open(`https://app.plex.tv/desktop/#!/provider/tv.plex.provider.discover/details?key=${encodeURIComponent(event.plex_guid)}`, '_blank');
+  const plexUrl = formatPlexWebUrl(event.plex_guid);
+  if (plexUrl) {
+    window.open(plexUrl, '_blank');
   } else {
     openDetail(event);
   }
@@ -440,14 +438,19 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   gap: var(--space-2);
 }
 
+.plex-action-btn,
+.plex-action-btn *,
+.plex-action-btn span {
+  color: #000000 !important;
+}
+
 .plex-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
   border-radius: var(--radius-sm);
-  background: #e5a00d;
-  color: #000000 !important;
+  background: #e5a00d !important;
   font-size: var(--fs-xs);
   font-weight: 700;
   border: 0;
@@ -457,23 +460,21 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 .plex-action-btn:hover {
-  background: #f5b01d;
-  color: #000000 !important;
+  background: #f5b01d !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(229, 160, 13, 0.45);
 }
-.plex-action-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.plex-action-btn svg { width: 14px; height: 14px; fill: #000000 !important; color: #000000 !important; }
 
-.status-badge {
-  flex: 0 0 auto;
+.status-badge.available {
   padding: 4px 10px;
   border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
   font-weight: 700;
-  background: var(--surface-2);
-  color: var(--muted);
+  background: #22c55e !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
 }
-.status-badge.available { color: var(--success); background: rgba(34, 197, 94, 0.15); }
 
 /* Adaptations Responsives Mobile */
 @media (max-width: 900px) {
@@ -499,7 +500,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 
   .card-actions { width: 100%; margin-top: 4px; justify-content: space-between; gap: 8px; }
   .plex-action-btn { padding: 5px 10px; font-size: 11px; max-width: max-content; }
-  .status-badge { padding: 3px 8px; font-size: 11px; }
+  .status-badge.available { padding: 3px 8px; font-size: 11px; }
   .calendar-view-switch button:last-child { display: none; }
 }
 </style>

@@ -105,6 +105,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { AlertTriangle, Check, CheckCircle2, ChevronRight, Clock3, Download, ExternalLink, PlusCircle, RotateCcw, UserPlus } from '@lucide/vue';
+import { formatPlexWebUrl } from '@/mediaUrl';
 import RequestOptionsModal from './RequestOptionsModal.vue';
 
 const props = defineProps({
@@ -129,9 +130,7 @@ const isDownloading = computed(() => Boolean(props.detail.is_downloading) || ['q
 const isFailed = computed(() => props.detail.request_status === 'failed' || props.detail.operational_status === 'failed');
 const state = computed(() => isAvailable.value ? 'available' : isFailed.value ? 'failed' : isDownloading.value ? 'downloading' : props.detail.requested || props.detail.request_id ? 'requested' : 'requestable');
 const canJoin = computed(() => Boolean(props.currentUserId) && !(props.detail.requester_ids || []).includes(props.currentUserId));
-const plexUrl = computed(() => props.detail.plex_guid
-  ? `https://app.plex.tv/desktop/#!/provider/tv.plex.provider.discover/details?key=${encodeURIComponent(props.detail.plex_guid)}`
-  : '');
+const plexUrl = computed(() => formatPlexWebUrl(props.detail?.plex_guid));
 const requestLabel = computed(() => props.detail.media_type === 'show' ? 'Demander la série' : 'Demander ce film');
 const eyebrow = computed(() => ({
   available: 'Disponible',
