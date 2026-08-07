@@ -3,7 +3,7 @@
     <h3>Saga{{ saga.name ? ` — ${saga.name}` : '' }}</h3>
     <UiFeedback v-if="requestError" type="error" :message="requestError" dismissible @dismiss="requestError=''" />
     <UiFeedback v-if="requestSuccess" type="success" :message="requestSuccess" dismissible @dismiss="requestSuccess=''" />
-    <div class="media-grid saga-grid">
+    <div class="saga-rail">
       <MediaPosterCard
         v-for="item in saga.items"
         :key="mediaRequestKey(item)"
@@ -58,5 +58,7 @@ function canRequest(item) {
 </script>
 
 <style scoped>
-.saga-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+.saga-rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(140px, 160px); gap: var(--space-3); padding: 2px 2px 10px; overflow-x: auto; scroll-snap-type: x proximity; }
+.saga-rail > * { scroll-snap-align: start; }
+@media (max-width: 640px) { .saga-rail { grid-auto-columns: 130px; } }
 </style>

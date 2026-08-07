@@ -7,6 +7,10 @@
     @mouseleave="resumeAutoplay"
     @focusin="pauseAutoplay"
     @focusout="resumeAutoplay"
+    @pointerdown="onPointerDown"
+    @pointermove="onPointerMove"
+    @pointerup="onPointerUp"
+    @pointercancel="onPointerUp"
   >
     <div class="discover-hero-shade" />
     <Transition name="hero-fade" mode="out-in">
@@ -68,6 +72,33 @@ const reducedMotion = typeof window !== 'undefined' && window.matchMedia
   ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
   : false;
 
+const SWIPE_THRESHOLD = 40;
+let dragStartX = null;
+let dragging = false;
+
+function onPointerDown(event) {
+  if (props.items.length <= 1) return;
+  dragStartX = event.clientX;
+  dragging = true;
+  pauseAutoplay();
+}
+function onPointerMove(event) {
+  if (!dragging || dragStartX === null) return;
+  event.preventDefault();
+}
+function onPointerUp(event) {
+  if (!dragging || dragStartX === null) return;
+  const delta = event.clientX - dragStartX;
+  if (Math.abs(delta) >= SWIPE_THRESHOLD) {
+    const direction = delta < 0 ? 1 : -1;
+    goTo((activeIndex.value + direction + props.items.length) % props.items.length);
+  } else {
+    resumeAutoplay();
+  }
+  dragging = false;
+  dragStartX = null;
+}
+
 function startAutoplay() {
   if (reducedMotion || props.items.length <= 1) return;
   stopAutoplay();
@@ -101,11 +132,13 @@ onUnmounted(stopAutoplay);
   align-items: end;
   min-height: clamp(330px, 48vw, 520px);
   overflow: hidden;
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background-color: var(--surface-2);
   background-position: center;
   background-size: cover;
+  box-shadow: inset 0 0 0 1px var(--border);
+  transform: translateZ(0);
+  touch-action: pan-y;
 }
 .discover-hero-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(5, 7, 12, .96), rgba(5, 7, 12, .48) 60%, rgba(5, 7, 12, .12)), linear-gradient(0deg, rgba(5, 7, 12, .9), transparent 60%); }
 .discover-hero-content { position: relative; display: grid; gap: var(--space-3); width: min(620px, 88%); padding: clamp(22px, 5vw, 54px); color: #fff; }
@@ -129,6 +162,7 @@ onUnmounted(stopAutoplay);
 .discover-hero-dot {
   width: 9px;
   height: 9px;
+  min-height: 9px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -138,6 +172,10 @@ onUnmounted(stopAutoplay);
 }
 .discover-hero-dot:hover { background: rgba(255, 255, 255, .6); }
 .discover-hero-dot.active { width: 22px; border-radius: var(--radius-pill); background: var(--accent); }
+@media (max-width: 640px) {
+  .discover-hero { flex-direction: column; align-items: stretch; }
+  .discover-hero-dots { justify-content: center; margin-left: 0; padding-top: 0; }
+}
 .hero-loading { background: linear-gradient(100deg, var(--surface-2) 20%, color-mix(in srgb, var(--surface-2) 55%, var(--border)) 40%, var(--surface-2) 60%); background-size: 220% 100%; animation: hero-shimmer 1.4s infinite; }
 @keyframes hero-shimmer { to { background-position-x: -220%; } }
 @media (prefers-reduced-motion: reduce) { .hero-loading { animation: none; } }

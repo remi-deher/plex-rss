@@ -23,7 +23,6 @@
                   <span>{{ mediaTypeLabel(item.media_type) }}</span>
                   <span v-if="rating" class="discover-rating"><Star aria-hidden="true" />{{ rating }}</span>
                 </div>
-                <strong v-if="!requestable">{{ title }}</strong>
                 <span v-if="actionLabel && !requestable" class="discover-card-link-action">{{ actionLabel }}</span>
               </div>
             </div>
@@ -137,23 +136,25 @@ const accessibleLabel = computed(() => [
   pointer-events: auto;
 }
 .discover-card-copy { display: grid; gap: var(--space-1); width: 100%; min-width: 0; padding: 0 !important; }
-.discover-card-copy > strong {
-  display: -webkit-box;
-  overflow: hidden;
-  color: #fff;
-  font-size: clamp(1rem, 1.25vw, 1.25rem);
-  font-weight: 800;
-  line-height: 1.12;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, .9);
-  word-break: break-word;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
 .discover-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: 0 !important; }
 .discover-card-meta > span { color: rgba(255, 255, 255, .82); font-size: var(--fs-xs); font-weight: 650; }
 .discover-rating { display: inline-flex !important; align-items: center; gap: var(--space-1); }
 .discover-rating svg { width: 12px; height: 12px; color: #fbbf24; fill: currentColor; }
-.discover-card-link-action { margin-top: 2px; color: var(--text) !important; font-size: var(--fs-xs); font-weight: 800; }
+.discover-card-link-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin-top: 2px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 75%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  color: var(--text) !important;
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  text-align: center;
+}
 .discover-card-action {
   position: absolute;
   inset: auto 9px 9px;

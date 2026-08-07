@@ -33,6 +33,10 @@ def _media_payload(
     *,
     arr_url: str | None,
     backdrop_url: str | None = None,
+    release_dates: dict | None = None,
+    first_air_date: str | None = None,
+    current_season_air_date: str | None = None,
+    next_episode_to_air: dict | None = None,
 ) -> dict:
     return {
         "kind": "library" if library_item else "request",
@@ -66,6 +70,10 @@ def _media_payload(
         "operational_status_label": operational.get("operational_status_label"),
         "waiting_reason": operational.get("waiting_reason"),
         "workflow_timeline": operational.get("workflow_timeline", []),
+        "release_dates": release_dates,
+        "first_air_date": first_air_date,
+        "current_season_air_date": current_season_air_date,
+        "next_episode_to_air": next_episode_to_air,
     }
 
 
@@ -218,6 +226,10 @@ async def build_media_detail(
     recommendations = []
     similar = []
     cast = []
+    release_dates = None
+    first_air_date = None
+    current_season_air_date = None
+    next_episode_to_air = None
     if media_obj.tmdb_id:
         try:
             detail = await tmdb.detail(db, media_obj.media_type, int(media_obj.tmdb_id))
@@ -226,6 +238,10 @@ async def build_media_detail(
             recommendations = await annotate_media_items(db, detail.get("recommendations", []))
             similar = await annotate_media_items(db, detail.get("similar", []))
             cast = detail.get("cast", [])
+            release_dates = detail.get("release_dates")
+            first_air_date = detail.get("first_air_date")
+            current_season_air_date = detail.get("current_season_air_date")
+            next_episode_to_air = detail.get("next_episode_to_air")
             if saga:
                 saga["items"] = await annotate_media_items(db, saga.get("items", []))
         except Exception as exc:
@@ -242,6 +258,10 @@ async def build_media_detail(
             operational,
             arr_url=arr_url,
             backdrop_url=backdrop_url,
+            release_dates=release_dates,
+            first_air_date=first_air_date,
+            current_season_air_date=current_season_air_date,
+            next_episode_to_air=next_episode_to_air,
         ),
         "requests": request_payloads,
         "issues": [issue_serializer(issue) for issue in issues],

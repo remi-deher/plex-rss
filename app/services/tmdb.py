@@ -360,13 +360,52 @@ async def search(db: AsyncSession, query: str, page: int = 1, media_type: str = 
     return _norm_page(data, forced)
 
 
+_MOVIE_RELEASE_TYPES = {3: "cinema", 4: "plateforme", 5: "dvd_bluray"}
+
+
+def _norm_movie_release_dates(payload: dict) -> dict:
+    """Dates de sortie ciné / plateforme / DVD-Bluray pour un film, à partir de
+    `release_dates.results[]` (TMDB). Priorité à la région FR, repli sur US puis
+    sur la première région disponible si FR n'a pas ce type de sortie."""
+    results = (payload or {}).get("results") or []
+    by_region = {r.get("iso_3166_1"): r.get("release_dates") or [] for r in results}
+    ordered_regions = [REGION, "US", *by_region.keys()]
+    out: dict[str, Optional[str]] = {"cinema": None, "plateforme": None, "dvd_bluray": None}
+    for key, wanted_type in _MOVIE_RELEASE_TYPES.items():
+        for region in ordered_regions:
+            found = next(
+                (rd.get("release_date") for rd in by_region.get(region, []) if rd.get("type") == key and rd.get("release_date")),
+                None,
+            )
+            if found:
+                out[wanted_type] = found[:10]
+                break
+    return out
+
+
+def _current_season_air_date(data: dict) -> Optional[str]:
+    """Date de première diffusion de la saison en cours (celle de l'épisode
+    suivant, ou à défaut du dernier épisode diffusé, ou la plus récente saison)."""
+    target_season = (
+        (data.get("next_episode_to_air") or {}).get("season_number")
+        or (data.get("last_episode_to_air") or {}).get("season_number")
+    )
+    seasons = [s for s in data.get("seasons", []) if s.get("season_number") and s.get("season_number") > 0]
+    if not seasons:
+        return None
+    if target_season is not None:
+        match = next((s for s in seasons if s.get("season_number") == target_season), None)
+        if match:
+            return match.get("air_date")
+    return max(seasons, key=lambda s: s.get("season_number") or 0).get("air_date")
+
+
 async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
     mt = "movie" if media_type in ("movie", "movies") else "tv"
-    data = await _get(
-        db,
-        f"/{mt}/{tmdb_id}",
-        {"append_to_response": "external_ids,recommendations,similar,credits"},
-    )
+    append = "external_ids,recommendations,similar,credits"
+    if mt == "movie":
+        append += ",release_dates"
+    data = await _get(db, f"/{mt}/{tmdb_id}", {"append_to_response": append})
     ext = data.get("external_ids") or {}
     base = _norm({**data, "media_type": mt}, mt) or {}
     saga = None
@@ -391,6 +430,11 @@ async def detail(db: AsyncSession, media_type: str, tmdb_id: int) -> dict:
             "saga": saga,
         }
     )
+    if mt == "movie":
+        base["release_dates"] = _norm_movie_release_dates(data.get("release_dates") or {})
+    else:
+        base["first_air_date"] = data.get("first_air_date")
+        base["current_season_air_date"] = _current_season_air_date(data)
     return base
 
 

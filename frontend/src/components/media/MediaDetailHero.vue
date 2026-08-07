@@ -27,6 +27,12 @@
             </template>
           </div>
           <p v-if="detail.waiting_reason" class="mdh-waiting">{{ detail.waiting_reason }}</p>
+          <dl v-if="releaseDates.length" class="mdh-dates">
+            <div v-for="entry in releaseDates" :key="entry.label">
+              <dt>{{ entry.label }}</dt>
+              <dd>{{ entry.value }}</dd>
+            </div>
+          </dl>
           <p class="mdh-overview">{{ detail.overview || 'Aucun resume disponible.' }}</p>
           <div v-if="detail.genres?.length" class="tag-row">
             <span v-for="genre in detail.genres" :key="genre" class="badge">{{ genre }}</span>
@@ -58,6 +64,34 @@ const props = defineProps({
 defineEmits(['back', 'report-issue']);
 
 const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
+
+function formatDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+const releaseDates = computed(() => {
+  const d = props.detail;
+  if (d.media_type === 'movie') {
+    const dates = d.release_dates || {};
+    return [
+      { key: 'cinema', label: 'Cinéma', value: formatDate(dates.cinema) },
+      { key: 'plateforme', label: 'Plateforme', value: formatDate(dates.plateforme) },
+      { key: 'dvd_bluray', label: 'DVD / Blu-ray', value: formatDate(dates.dvd_bluray) },
+    ].filter(entry => entry.value);
+  }
+  if (d.media_type === 'show') {
+    const nextEpisode = d.next_episode_to_air?.air_date;
+    return [
+      { key: 'next_episode', label: 'Prochain épisode', value: formatDate(nextEpisode) },
+      { key: 'first_air', label: 'Première diffusion', value: formatDate(d.first_air_date) },
+      { key: 'season_air', label: 'Saison en cours depuis', value: formatDate(d.current_season_air_date) },
+    ].filter(entry => entry.value);
+  }
+  return [];
+});
 </script>
 
 <style scoped>
@@ -154,6 +188,29 @@ const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
   color: var(--text);
   opacity: .9;
   margin-bottom: 10px;
+}
+.mdh-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  max-width: 760px;
+  margin: 0 0 10px;
+}
+.mdh-dates > div {
+  display: grid;
+  gap: 2px;
+}
+.mdh-dates dt {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+.mdh-dates dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 650;
 }
 .mdh-waiting {
   max-width: 760px;

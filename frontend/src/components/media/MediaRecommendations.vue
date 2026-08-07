@@ -1,7 +1,7 @@
 <template>
   <section v-if="items.length" class="drawer-section">
     <h3>{{ title }}</h3>
-    <div class="media-grid recommendation-grid">
+    <div class="recommendation-rail">
       <MediaPosterCard
         v-for="item in items.slice(0, 12)"
         :key="`${item.media_type}:${item.tmdb_id}`"
@@ -26,5 +26,7 @@ function detailPath(item) { return mediaDetailPath(item, item.library_id ? 'libr
 </script>
 
 <style scoped>
-.recommendation-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-3); }
+.recommendation-rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(140px, 160px); gap: var(--space-3); padding: 2px 2px 10px; overflow-x: auto; scroll-snap-type: x proximity; }
+.recommendation-rail > * { scroll-snap-align: start; }
+@media (max-width: 640px) { .recommendation-rail { grid-auto-columns: 130px; } }
 </style>
