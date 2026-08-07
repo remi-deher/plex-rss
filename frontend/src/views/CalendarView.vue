@@ -314,7 +314,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(90deg, #101016 0%, rgba(16, 16, 22, 0.92) 50%, rgba(16, 16, 22, 0.65) 100%);
+  background: linear-gradient(90deg, #101016 0%, rgba(16, 16, 22, 0.8) 45%, rgba(16, 16, 22, 0.35) 100%);
   z-index: 1;
 }
 
@@ -447,7 +447,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   padding: 6px 14px;
   border-radius: var(--radius-sm);
   background: #e5a00d;
-  color: #ffffff !important;
+  color: #000000 !important;
   font-size: var(--fs-xs);
   font-weight: 700;
   border: 0;
@@ -458,7 +458,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 }
 .plex-action-btn:hover {
   background: #f5b01d;
-  color: #ffffff !important;
+  color: #000000 !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(229, 160, 13, 0.45);
 }

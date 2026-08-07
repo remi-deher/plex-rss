@@ -23,7 +23,14 @@ from ..utils import safe_error_message
 router = APIRouter(prefix="/api", tags=["misc"])
 logger = logging.getLogger(__name__)
 
-_STATIC_ALLOWED_IMAGE_HOSTS = {"image.tmdb.org"}
+_STATIC_ALLOWED_IMAGE_HOSTS = {
+    "image.tmdb.org",
+    "artworks.thetvdb.com",
+    "thetvdb.com",
+    "banner.thetvdb.com",
+    "media.themoviedb.org",
+    "plex.tv",
+}
 _allowed_hosts_cache: tuple[float, set[str]] = (0.0, set())
 _allowed_hosts_lock = asyncio.Lock()
 

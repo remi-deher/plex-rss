@@ -66,7 +66,7 @@ def _parse_arr_date(value: str):
 def _arr_poster(entity: dict, inst_url: str) -> Optional[str]:
     """Extrait l'URL d'affiche (poster) d'une ressource Sonarr/Radarr."""
     for img in entity.get("images") or []:
-        if img.get("coverType") == "poster":
+        if str(img.get("coverType") or "").lower() == "poster":
             url = img.get("remoteUrl") or img.get("url")
             if url:
                 if url.startswith("/"):
@@ -78,7 +78,7 @@ def _arr_poster(entity: dict, inst_url: str) -> Optional[str]:
 def _arr_fanart(entity: dict, inst_url: str) -> Optional[str]:
     """Extrait l'URL d'arrière-plan (fanart/backdrop) d'une ressource Sonarr/Radarr."""
     for img in entity.get("images") or []:
-        if img.get("coverType") in ("fanart", "backdrop", "banner"):
+        if str(img.get("coverType") or "").lower() in ("fanart", "backdrop", "banner"):
             url = img.get("remoteUrl") or img.get("url")
             if url:
                 if url.startswith("/"):
