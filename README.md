@@ -36,6 +36,22 @@ Overseerr and Jellyseerr are great at the front door: they let people request me
 
 If you already run Overseerr/Jellyseerr for the request UI and just want the acquisition-to-availability tracking, Plexarr's own API/UI/watchlist intake means you can also run it standalone — Seerr integration is optional, not required.
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screenshot-discover.png" alt="Discover page: hero carousel and a trending row of posters"></td>
+<td width="50%"><img src="docs/assets/screenshot-calendar.png" alt="Calendar page: month view of upcoming and available releases"></td>
+</tr>
+<tr>
+<td>Discover — browse and request in one click.</td>
+<td>Calendar — releases and availability at a glance.</td>
+</tr>
+</table>
+
+> [!NOTE]
+> These screenshots use seeded demo data captured against the real UI (no real Plex library or personal instance is shown).
+
 ## What it actually does
 
 ### Requests & routing

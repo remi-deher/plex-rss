@@ -36,6 +36,22 @@ Overseerr et Jellyseerr sont excellents à l'entrée : ils laissent les gens dem
 
 Si tu utilises déjà Overseerr/Jellyseerr pour l'interface de demande et que tu veux juste le suivi acquisition → disponibilité, l'entrée propre de Plexarr (API/interface/watchlist) permet aussi de l'utiliser seul — l'intégration Seerr est optionnelle, pas obligatoire.
 
+## Captures d'écran
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screenshot-discover.png" alt="Page Découvrir : carrousel à la une et rangée de tendances"></td>
+<td width="50%"><img src="docs/assets/screenshot-calendar.png" alt="Page Calendrier : vue mensuelle des sorties et disponibilités"></td>
+</tr>
+<tr>
+<td>Découvrir — parcourir et demander en un clic.</td>
+<td>Calendrier — sorties et disponibilités en un coup d'œil.</td>
+</tr>
+</table>
+
+> [!NOTE]
+> Ces captures utilisent des données de démonstration générées pour l'occasion, capturées sur la vraie interface (aucune bibliothèque Plex ni instance personnelle réelle n'est montrée).
+
 ## Ce que fait Plexarr
 
 ### Demandes et orchestration

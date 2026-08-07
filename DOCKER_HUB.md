@@ -10,6 +10,8 @@ It receives requests from Plex watchlists, RSS, its own API, Seerr, or its respo
 
 > The application is named **Plexarr**. The historical Docker image name remains `mrcryllix/plex-rss`.
 
+![Discover page](https://raw.githubusercontent.com/remi-deher/plex-rss/main/docs/assets/screenshot-discover.png)
+
 ## Why not just Overseerr/Jellyseerr?
 
 Those tools are great at the request front door and largely stop once Sonarr/Radarr picks the request up. Plexarr stays involved for the whole trip: stuck-import detection, confirmed Plex availability, and per-episode audio-track (VF/VO) tracking before anyone gets notified. It has its own request intake (UI/API/watchlist), so Seerr integration is optional, not required.
