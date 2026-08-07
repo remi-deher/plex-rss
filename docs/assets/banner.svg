@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+  <title id="title">Plexarr</title>
+  <desc id="desc">Self-hosted request, acquisition and availability hub for Plex, Sonarr and Radarr</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b0b0d"/>
+      <stop offset="100%" stop-color="#17130a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f5b93a"/>
+      <stop offset="100%" stop-color="#e5a00d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="35%" r="75%">
+      <stop offset="0%" stop-color="#e5a00d" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#e5a00d" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+
+  <rect width="1280" height="320" fill="url(#bg)"/>
+  <rect width="1280" height="320" fill="url(#grid)"/>
+  <rect width="1280" height="320" fill="url(#glow)"/>
+
+  <!-- Mark -->
+  <g transform="translate(96,96)">
+    <rect x="0" y="0" width="128" height="128" rx="28" fill="#09090b" stroke="url(#gold)" stroke-width="2"/>
+    <text x="64" y="92" font-family="Arial, Helvetica, sans-serif" font-size="88" font-weight="800" fill="url(#gold)" text-anchor="middle">P</text>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="264" y="150" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="800" letter-spacing="1" fill="#f5f5f4">Plexarr</text>
+  <text x="266" y="196" font-family="Arial, Helvetica, sans-serif" font-size="26" fill="#b3b1ac">Requests · Acquisition · Availability · VF tracking — for Plex &amp; *arr</text>
+
+  <!-- Pipeline chips -->
+  <g font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="600">
+    <g transform="translate(266,236)">
+      <rect width="150" height="46" rx="23" fill="#1c1917"/>
+      <text x="75" y="30" text-anchor="middle" fill="#e5a00d">Watchlist</text>
+    </g>
+    <path d="M424 259 h34" stroke="#5b5852" stroke-width="2" marker-end="url(#arrow)"/>
+    <g transform="translate(466,236)">
+      <rect width="176" height="46" rx="23" fill="#1c1917"/>
+      <text x="88" y="30" text-anchor="middle" fill="#f5f5f4">Sonarr / Radarr</text>
+    </g>
+    <path d="M650 259 h34" stroke="#5b5852" stroke-width="2" marker-end="url(#arrow)"/>
+    <g transform="translate(692,236)">
+      <rect width="132" height="46" rx="23" fill="#1c1917"/>
+      <text x="66" y="30" text-anchor="middle" fill="#f5f5f4">Plex</text>
+    </g>
+    <path d="M832 259 h34" stroke="#5b5852" stroke-width="2" marker-end="url(#arrow)"/>
+    <g transform="translate(874,236)">
+      <rect width="150" height="46" rx="23" fill="#1c1917"/>
+      <text x="75" y="30" text-anchor="middle" fill="#e5a00d">Notify</text>
+    </g>
+  </g>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b5852"/>
+    </marker>
+  </defs>
+</svg>

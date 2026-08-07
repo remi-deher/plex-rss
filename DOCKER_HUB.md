@@ -1,26 +1,34 @@
-# Plexarr
+![Plexarr](https://raw.githubusercontent.com/remi-deher/plex-rss/main/docs/assets/banner.svg)
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/mrcryllix/plex-rss?logo=docker&color=e5a00d)](https://hub.docker.com/r/mrcryllix/plex-rss)
 [![GitHub](https://img.shields.io/badge/GitHub-remi--deher%2Fplex--rss-181717?logo=github)](https://github.com/remi-deher/plex-rss)
 [![License](https://img.shields.io/github/license/remi-deher/plex-rss)](https://github.com/remi-deher/plex-rss/blob/main/LICENSE)
 
-Self-hosted request, acquisition and availability hub for **Plex**, **Sonarr** and **Radarr**.
+**Plexarr turns "someone requested a movie" into "it's playing in the right language" — without a spreadsheet.**
 
-Plexarr receives requests from Plex watchlists, RSS, its API, Seerr or its responsive web interface. It follows downloads and imports, confirms availability in Plex, tracks VO/VF coverage and sends grouped notifications through email, Discord, Telegram, ntfy or Gotify.
+It receives requests from Plex watchlists, RSS, its own API, Seerr, or its responsive web interface, follows the download through to import, confirms the title is actually in Plex, tracks VO/VF (dub) coverage per season/episode, and sends grouped notifications through email, Discord, Telegram, ntfy or Gotify.
 
 > The application is named **Plexarr**. The historical Docker image name remains `mrcryllix/plex-rss`.
+
+## Why not just Overseerr/Jellyseerr?
+
+Those tools are great at the request front door and largely stop once Sonarr/Radarr picks the request up. Plexarr stays involved for the whole trip: stuck-import detection, confirmed Plex availability, and per-episode audio-track (VF/VO) tracking before anyone gets notified. It has its own request intake (UI/API/watchlist), so Seerr integration is optional, not required.
 
 ## Highlights
 
 - Plex API and RSS watchlist ingestion with fallback.
 - Multiple Sonarr/Radarr instances and optional approval.
 - Complete-series, selected-season and single-episode workflows.
-- Import-block detection and manual matching tools.
-- Plex library synchronization and VO/VF analysis.
-- Grouped milestone notifications without one email per season.
+- Import-block detection (flagged only after two consecutive checks) and manual matching tools.
+- Plex library synchronization and season/episode-level VO/VF analysis.
+- Grouped milestone notifications without one email per episode.
 - Responsive desktop, tablet and mobile UI.
 - PostgreSQL, Redis and an independent ARQ worker.
 - Health endpoint, Prometheus metrics, backups and verified restore tooling.
+
+## The stack
+
+Python 3.12 / FastAPI / SQLAlchemy 2 (async) / Alembic on the backend, Vue 3 + Vite on the frontend, ARQ over Redis for background jobs, PostgreSQL 15 as the system of record, Server-Sent Events (backed by Redis Streams) for real-time UI updates, and Fernet-encrypted secrets at rest. Same image runs both the API and the worker — only the container command changes.
 
 ## Architecture
 
@@ -136,19 +144,19 @@ docker compose exec db pg_isready -U plexrss -d plexrss
 ## Troubleshooting
 
 - **`plex-rss` stuck "unhealthy" after an update, worker never starts**: almost always a failed Alembic migration on container start. Check `docker compose logs plex-rss` for the migration error before anything else — the worker's `depends_on: service_healthy` means it won't even attempt to start while the API container is unhealthy.
-- **Migration fails with "already exists" / `DuplicateTable` on a retry**: a previous start was interrupted mid-migration, leaving a partially-applied schema change without the migration being marked complete in `alembic_version`. See the full [GitHub README troubleshooting section](https://github.com/remi-deher/plex-rss#dépannage) for the recovery steps.
+- **Migration fails with "already exists" / `DuplicateTable` on a retry**: a previous start was interrupted mid-migration, leaving a partially-applied schema change without the migration being marked complete in `alembic_version`. See the full [GitHub README troubleshooting section](https://github.com/remi-deher/plex-rss#troubleshooting) for the recovery steps.
 - **Worker healthy but nothing processes**: confirm `ENABLE_ARQ=1` on both services and that `redis-cli ping` succeeds — a worker container with no queue connection reports healthy on its own check but silently drops jobs.
 
 ## Documentation
 
-Full French documentation, backup/restore commands, migration instructions and development setup are available in the [GitHub README](https://github.com/remi-deher/plex-rss#readme).
+Full documentation (English and French), backup/restore commands, migration instructions and development setup are available on [GitHub](https://github.com/remi-deher/plex-rss#readme).
 
 ---
 
 ## Français
 
-Plexarr est un hub auto-hébergé de demandes et de disponibilité pour Plex. Il récupère les demandes depuis les watchlists Plex, l’API, Seerr ou son interface, les transmet à Sonarr/Radarr, surveille les téléchargements et imports, confirme la présence dans Plex, analyse les versions VO/VF et regroupe les notifications.
+Plexarr transforme « quelqu'un a demandé un film » en « il tourne dans la bonne langue », sans tableur. Il récupère les demandes depuis les watchlists Plex, l'API, Seerr ou son interface, les transmet à Sonarr/Radarr, surveille les téléchargements et imports, confirme la présence dans Plex, analyse la couverture VO/VF par saison/épisode et regroupe les notifications.
 
-Le déploiement complet nécessite l’API, un worker ARQ utilisant la même image, PostgreSQL et Redis. Utilisez le fichier Compose ci-dessus, ouvrez `http://localhost:8000`, puis suivez l’assistant de première configuration.
+Le déploiement complet nécessite l'API, un worker ARQ utilisant la même image, PostgreSQL et Redis. Utilisez le fichier Compose ci-dessus, ouvrez `http://localhost:8000`, puis suivez l'assistant de première configuration.
 
-Consultez le [README GitHub](https://github.com/remi-deher/plex-rss#readme) pour la documentation complète en français, les sauvegardes, les restaurations et la migration depuis SQLite.
+Consultez le [README GitHub](https://github.com/remi-deher/plex-rss/blob/main/README.fr.md) pour la documentation complète en français, les sauvegardes, les restaurations et la migration depuis SQLite.
