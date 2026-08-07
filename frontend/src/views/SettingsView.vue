@@ -49,15 +49,12 @@ const AcquisitionsConflictsTab = defineAsyncComponent(() => import('@/components
 const EmailTemplatesPanel = defineAsyncComponent(() => import('@/components/EmailTemplatesPanel.vue'));
 const DataPrivacyTab = defineAsyncComponent(() => import('@/components/settings/DataPrivacyTab.vue'));
 
-// Sections affichées via `?tab=` (exclut Journaux, qui est une route à part) +
-// les 3 onglets notifications (Canaux/Règles/Modèles), dont la navigation
-// visible passe par NotificationsSubnav plutôt que par settingsSections.
 const notificationTabDefs = notificationSections.filter(item => item.to?.path === '/settings');
 const tabs = [...settingsSections.filter(item => !item.to), ...notificationTabDefs];
 const route=useRoute(),router=useRouter();
 const tab = computed(()=>tabs.some(item=>item.key===route.query.tab)?route.query.tab:'overview');
 const isNotificationsTab = computed(() => notificationTabDefs.some(item => item.key === tab.value));
-const standaloneTabs = new Set(['acquisitions', 'templates']);
+const standaloneTabs = new Set(['acquisitions', 'templates', 'overview']);
 let settingsLoadPromise;
 function ensureSettingsLoaded(value = tab.value) {
   if (standaloneTabs.has(value)) return Promise.resolve();
