@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <PageHeader title="Paramètres" description="Connexions, notifications, automatisation et exploitation." :eyebrow="currentTabLabel">
-      <button v-if="['plex','services','webhooks','notifications-channels','notifications-rules','library','downloads','scheduled-tasks','data'].includes(tab)" class="primary" :disabled="saving" @click="save">
+      <button v-if="['plex','services','webhooks','notifications-channels','notifications-rules','downloads','scheduled-tasks','data'].includes(tab)" class="primary" :disabled="saving" @click="save">
         <Save/>{{ saving ? 'Enregistrement...' : 'Enregistrer' }}
       </button>
     </PageHeader>
@@ -16,7 +16,6 @@
     <WebhooksTab v-else-if="tab==='webhooks'"/>
     <NotificationsChannelsTab v-else-if="tab==='notifications-channels'"/>
     <NotificationsRulesTab v-else-if="tab==='notifications-rules'"/>
-    <LibraryTab v-else-if="tab==='library'"/>
     <DownloadsTab v-else-if="tab==='downloads'"/>
     <PlanningMaintenanceTab v-else-if="tab==='scheduled-tasks'"/>
     <AcquisitionsConflictsTab v-else-if="tab==='acquisitions'"/>
@@ -44,7 +43,6 @@ const ServicesTab = defineAsyncComponent(() => import('@/components/settings/Ser
 const WebhooksTab = defineAsyncComponent(() => import('@/components/settings/WebhooksTab.vue'));
 const NotificationsChannelsTab = defineAsyncComponent(() => import('@/components/settings/NotificationsChannelsTab.vue'));
 const NotificationsRulesTab = defineAsyncComponent(() => import('@/components/settings/NotificationsRulesTab.vue'));
-const LibraryTab = defineAsyncComponent(() => import('@/components/settings/LibraryTab.vue'));
 const DownloadsTab = defineAsyncComponent(() => import('@/components/settings/DownloadsTab.vue'));
 const PlanningMaintenanceTab = defineAsyncComponent(() => import('@/components/settings/PlanningMaintenanceTab.vue'));
 const AcquisitionsConflictsTab = defineAsyncComponent(() => import('@/components/settings/AcquisitionsConflictsTab.vue'));

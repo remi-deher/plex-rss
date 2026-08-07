@@ -1,5 +1,5 @@
 import {
-  BookMarked, Clock, DatabaseZap, Download, Link, ListRestart,
+  Clock, DatabaseZap, Download, Link, ListRestart,
   Plug, ScrollText, ServerCog, Tv,
 } from '@lucide/vue';
 
@@ -17,11 +17,10 @@ import {
 export const settingsSections = [
   { key: 'overview', label: 'Vue d’ensemble', group: '', icon: ServerCog },
 
-  { key: 'plex', label: 'Plex', group: 'Services', icon: Tv },
+  { key: 'plex', label: 'Plex & Bibliothèque', group: 'Services', icon: Tv },
   { key: 'services', label: 'Services', group: 'Services', icon: Plug },
   { key: 'webhooks', label: 'Webhooks & API', group: 'Services', icon: Link },
 
-  { key: 'library', label: 'Bibliothèque & VF', group: 'Bibliothèque & acquisition', icon: BookMarked },
   { key: 'downloads', label: 'Téléchargements', group: 'Bibliothèque & acquisition', icon: Download },
   { key: 'scheduled-tasks', label: 'Planification & Maintenance', group: 'Bibliothèque & acquisition', icon: Clock },
 
