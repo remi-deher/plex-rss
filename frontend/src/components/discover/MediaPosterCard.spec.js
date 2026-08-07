@@ -23,7 +23,7 @@ describe('MediaPosterCard', () => {
 
     expect(wrapper.get('.discover-poster-link').attributes('aria-label')).toContain('Film test');
     expect(wrapper.get('img').attributes('alt')).toBe('Affiche de Film test');
-    expect(wrapper.get('.discover-card-overlay').text()).toContain('Film test');
+    expect(wrapper.get('.discover-card-overlay').text()).not.toContain('Film test');
     expect(wrapper.get('.discover-card-overlay').text()).toContain('2026');
     expect(wrapper.find('.discover-info-link').exists()).toBe(false);
     expect(wrapper.text()).toContain('Demander');

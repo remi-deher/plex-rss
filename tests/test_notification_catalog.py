@@ -14,7 +14,7 @@ def test_catalog_exposes_single_available_event_with_structured_preview():
     }
 
 
-def test_catalog_template_fields_are_reduced_to_three_event_families():
+def test_catalog_template_fields_are_reduced_to_four_event_families():
     fields = template_fields()
     assert fields == [
         "email_request_template",
@@ -23,6 +23,8 @@ def test_catalog_template_fields_are_reduced_to_three_event_families():
         "email_available_subject",
         "email_failure_template",
         "email_failure_subject",
+        "email_cancelled_template",
+        "email_cancelled_subject",
     ]
 
 

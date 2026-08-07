@@ -14,6 +14,7 @@
       <RouterLink to="/discover/shows" title="Séries"><Tv />Séries</RouterLink>
       <RouterLink to="/discover/movies" title="Films"><Film />Films</RouterLink>
       <RouterLink to="/discover/requests" title="Demandes"><Inbox />Demandes</RouterLink>
+      <RouterLink to="/discover/calendar" title="Calendrier"><CalendarDays />Calendrier</RouterLink>
     </div>
 
     <details class="discover-account desktop-only">
@@ -45,6 +46,7 @@
         </div>
         <div class="sheet-content">
           <div class="menu-section">
+            <RouterLink to="/discover/calendar" @click="closeMoreMenu"><CalendarDays />Calendrier</RouterLink>
             <RouterLink to="/profile" @click="closeMoreMenu"><UserRound />Profil</RouterLink>
             <RouterLink v-if="isAdmin" to="/dashboard" @click="closeMoreMenu"><LayoutDashboard />Application principale</RouterLink>
             <a href="/logout" @click="clearCache"><LogOut />Déconnexion</a>
@@ -58,7 +60,7 @@
 <script setup>
 import { onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { ChevronUp, CircleUserRound, Compass, Film, House, Inbox, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Tv, UserRound, X } from '@lucide/vue';
+import { CalendarDays, ChevronUp, CircleUserRound, Compass, Film, House, Inbox, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Tv, UserRound, X } from '@lucide/vue';
 import { clearCache } from '@/cache';
 import { useModalA11y } from '@/composables/useModalA11y';
 

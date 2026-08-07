@@ -59,7 +59,12 @@ import { api } from '@/api';
 import { useRouter } from 'vue-router';
 import { mediaDetailPath } from '@/mediaUrl';
 import LoadMore from '@/components/ui/LoadMore.vue';
+import { useSession } from '@/composables/useSession';
 const router=useRouter();
+const { session, isAdmin, ready: sessionReady } = useSession();
+// Un admin voit tout le calendrier par defaut (comme aujourd'hui) ; un utilisateur
+// simple ne voit que ses propres demandes, sans reglage a activer.
+const myRequestsOnly=computed(()=>!isAdmin.value);
 const events=ref([]),search=ref(''),type=ref(''),tracked=ref(false),loading=ref(false),error=ref(''),cursor=ref(new Date());
 const compactQuery=window.matchMedia('(max-width:640px)');
 const compact=ref(compactQuery.matches);
@@ -93,7 +98,7 @@ function revealDate(date){const i=grouped.value.findIndex(g=>g.date===date);if(i
 function scrollToDate(date){if(!revealDate(date))return;nextTick(()=>document.getElementById(`date-${date}`)?.scrollIntoView({behavior:'smooth',block:'start'}))}
 function showDay(date){view.value='agenda';scrollToDate(date)}
 function resetFilters(){search.value='';type.value='';tracked.value=false;load()}
-async function load(){loading.value=true;error.value='';try{events.value=await api(`/api/calendar?start=${localIso(bounds.value.start)}&end=${localIso(bounds.value.end)}&tracked_only=${tracked.value}`);if(view.value==='agenda')nextTick(()=>setTimeout(()=>{const target=grouped.value.find(g=>g.date>=todayStr);if(target)scrollToDate(target.date)},100))}catch(e){error.value=e.message}finally{loading.value=false}}
+async function load(){loading.value=true;error.value='';try{const userParam=myRequestsOnly.value&&session.value?.plex_user_id?`&user=${encodeURIComponent(session.value.plex_user_id)}`:'';events.value=await api(`/api/calendar?start=${localIso(bounds.value.start)}&end=${localIso(bounds.value.end)}&tracked_only=${tracked.value}${userParam}`);if(view.value==='agenda')nextTick(()=>setTimeout(()=>{const target=grouped.value.find(g=>g.date>=todayStr);if(target)scrollToDate(target.date)},100))}catch(e){error.value=e.message}finally{loading.value=false}}
 function move(delta){cursor.value=new Date(cursor.value.getFullYear(),cursor.value.getMonth()+delta,1);load()}
 function today(){cursor.value=new Date();load()}
 function applyCompact(matches){if(matches===compact.value)return;compact.value=matches;view.value=matches?'agenda':(localStorage.getItem('calendar.view')||'month')}
@@ -101,7 +106,12 @@ function syncCompact(){applyCompact(compactQuery.matches)}
 // Rotation d'ecran, fenetre redimensionnee, vue partagee sur tablette : on ecoute
 // `change` (l'API dediee) et `resize` en filet, certains contextes n'emettant que
 // l'un des deux.
-onMounted(()=>{compact.value=!compactQuery.matches;syncCompact();compactQuery.addEventListener('change',syncCompact);window.addEventListener('resize',syncCompact);load()});
+onMounted(async ()=>{
+  compact.value=!compactQuery.matches;syncCompact();
+  compactQuery.addEventListener('change',syncCompact);window.addEventListener('resize',syncCompact);
+  if(!sessionReady.value){await new Promise(resolve=>{const stop=watch(sessionReady,v=>{if(v){stop();resolve()}})})}
+  load();
+});
 onBeforeUnmount(()=>{compactQuery.removeEventListener('change',syncCompact);window.removeEventListener('resize',syncCompact)});
 </script>
 

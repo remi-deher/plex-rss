@@ -20,7 +20,7 @@ class NotificationEvent:
     preview_context: dict[str, Any] = field(default_factory=dict)
 
 
-# Catalogue réduit à 3 évènements réels (le digest quotidien est un mécanisme séparé, hors
+# Catalogue réduit à 4 évènements réels (le digest quotidien est un mécanisme séparé, hors
 # file de notification par demande — voir notification_orchestrator._send_digest). L'ancien
 # catalogue avait 12 entrées (available/available_vf/available_vo_tracking/vo_only/
 # vf_available/episode_track/partially_available/language_*) qui décrivaient toutes des

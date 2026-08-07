@@ -53,6 +53,7 @@ const routes = [
   // aussi aux recherches mixtes lancees depuis l'accueil.
   { path: "/discover/explore", component: DiscoverView },
   { path: "/discover/requests", component: DiscoverView },
+  { path: "/discover/calendar", component: CalendarView },
   { path: "/discover/media/:kind/:id", component: MediaDetailView },
   { path: "/discover/person/:id", component: PersonDetailView },
   { path: "/discover", component: DiscoverView },
