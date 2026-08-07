@@ -35,7 +35,6 @@
 
     <div class="calendar-legend" aria-label="Légende">
       <span><i class="available"></i>Disponible</span>
-      <span><i class="tracked"></i>Suivi</span>
       <span><i></i>Catalogue</span>
     </div>
     <UiFeedback v-if="error" type="error" title="Calendrier indisponible" :message="error" retry @retry="load" />
@@ -56,11 +55,11 @@
     <div v-else class="calendar-agenda">
       <section v-for="group in shownGroups" :key="group.date" :id="'date-' + group.date" class="calendar-day" :class="{today:group.date===todayStr}">
         <div class="calendar-day-header">
-          <h2>
-            {{ longDate(group.date) }}
+          <h2>{{ longDate(group.date) }}</h2>
+          <div class="calendar-day-sub">
             <span v-if="group.date===todayStr" class="today-badge">Aujourd'hui</span>
-          </h2>
-          <span class="day-event-count">{{ group.events.length }} sortie{{ group.events.length > 1 ? 's' : '' }}</span>
+            <span class="day-event-count">{{ group.events.length }} sortie{{ group.events.length > 1 ? 's' : '' }}</span>
+          </div>
         </div>
 
         <div class="calendar-events">
@@ -159,8 +158,8 @@ watch(view, value => { if (!compact.value) localStorage.setItem('calendar.view',
 function localIso(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 function formatTime(v) { if (!v) return ''; const d = new Date(v); if (isNaN(d.getTime()) || v.endsWith('T00:00:00Z') || v.endsWith('T00:00:00.000Z')) return ''; return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
 function eventKey(event) { return `${event.instance}:${event.date}:${event.title}:${event.subtitle}`; }
-function eventState(event) { return event.has_file ? 'available' : event.tracked ? 'pending' : ''; }
-function eventLabel(event) { return event.has_file ? 'Disponible' : event.tracked ? 'Suivi' : 'Catalogue'; }
+function eventState(event) { return event.has_file ? 'available' : ''; }
+function eventLabel(event) { return event.has_file ? 'Disponible' : 'Catalogue'; }
 function openDetail(event) { if (event.library_item_id) router.push(mediaDetailPath({ id: event.library_item_id }, 'library')); else if (event.request_id) router.push(mediaDetailPath({ id: event.request_id }, 'request')); }
 
 function revealDate(date) { const i = grouped.value.findIndex(g => g.date === date); if (i < 0) return false; if (i >= visibleDays.value) visibleDays.value = i + DAYS_PAGE; return true; }
@@ -193,7 +192,6 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .calendar-legend span { display: flex; align-items: center; gap: var(--space-1); }
 .calendar-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .calendar-legend i.available { background: var(--success); }
-.calendar-legend i.tracked { background: var(--accent); }
 
 /* Vue Grille Mensuelle */
 .month-calendar-shell { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); scrollbar-width: thin; overscroll-behavior-x: contain; }
@@ -209,28 +207,38 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .month-cell header small { color: var(--accent); font-size: var(--fs-xs); }
 .month-event, .month-more { display: flex; align-items: center; gap: var(--space-1); width: 100%; min-width: 0; margin: 3px 0; padding: 4px 5px; border: 0; border-left: 2px solid var(--muted); border-radius: var(--radius-xs); background: rgba(255, 255, 255, 0.035); color: var(--text); font-size: var(--fs-xs); text-align: left; cursor: pointer; }
 .month-event.available { border-color: var(--success); }
-.month-event.pending { border-color: var(--accent); }
 .month-event span { flex: 0 0 auto; font-size: var(--fs-xs); }
 .month-event strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); }
 .month-more { display: block; border: 0; background: transparent; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Vue Agenda Améliorée */
-.calendar-agenda { display: grid; gap: var(--space-5); }
-.calendar-day { display: grid; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
-.calendar-day:last-child { border-bottom: 0; }
-.calendar-day-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.calendar-day-header h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--fs-lg); font-weight: 700; }
+.calendar-agenda { display: flex; flex-direction: column; gap: var(--space-5); width: 100%; }
+
+.calendar-day {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--space-3) !important;
+  width: 100% !important;
+  padding-bottom: var(--space-4) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.calendar-day:last-child { border-bottom: 0 !important; }
+
+.calendar-day-header { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; }
+.calendar-day-header h2 { margin: 0; font-size: var(--fs-lg); font-weight: 700; color: var(--text); line-height: 1.25; text-transform: capitalize; }
+.calendar-day-sub { display: flex; align-items: center; gap: var(--space-2); }
 .day-event-count { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; }
+.today-badge { display: inline-flex; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(229, 160, 13, 0.15); color: var(--accent); font-size: var(--fs-xs); font-weight: 700; }
 
-.today-badge { display: inline-flex; padding: 3px 8px; border-radius: var(--radius-pill); background: rgba(229, 160, 13, 0.15); color: var(--accent); font-size: var(--fs-xs); font-weight: 700; }
-
-.calendar-events { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+/* Vertically stacked full-width cards */
+.calendar-events { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
 
 .calendar-event-card {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 12px;
+  width: 100%;
+  padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -240,13 +248,13 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .calendar-event-card.interactive { cursor: pointer; }
 .calendar-event-card.interactive:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
 }
 
 .card-poster {
-  flex: 0 0 54px;
-  height: 80px;
+  flex: 0 0 52px;
+  height: 76px;
   border-radius: var(--radius-xs);
   overflow: hidden;
   background: var(--surface-2);
@@ -326,7 +334,6 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   color: var(--muted);
 }
 .status-badge.available { color: var(--success); background: rgba(34, 197, 94, 0.12); }
-.status-badge.pending { color: var(--accent); background: rgba(229, 160, 13, 0.12); }
 
 /* Adaptations Responsives Mobile */
 @media (max-width: 900px) {
@@ -341,9 +348,9 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   .calendar-navigation { width: 100%; justify-content: space-between; }
   .calendar-command-bar { position: sticky; top: 8px; z-index: 20; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
   .calendar-command-bar :deep(.ui-filter-bar) { position: static; padding: 0; border: 0; background: transparent; }
-  .calendar-events { grid-template-columns: 1fr; }
-  .calendar-event-card { padding: 10px; }
-  .card-poster { flex: 0 0 46px; height: 68px; }
+  .calendar-events { gap: var(--space-2); width: 100%; }
+  .calendar-event-card { padding: 9px 10px; gap: var(--space-2); width: 100%; }
+  .card-poster { flex: 0 0 42px; height: 62px; }
   .card-title { font-size: var(--fs-sm); }
   .status-badge { padding: 3px 8px; font-size: 11px; }
   .calendar-view-switch button:last-child { display: none; }
