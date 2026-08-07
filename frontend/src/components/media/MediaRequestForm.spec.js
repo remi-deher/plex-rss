@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import MediaRequestForm from './MediaRequestForm.vue';
 
@@ -74,14 +74,21 @@ describe('MediaRequestForm', () => {
     expect(wrapper.emitted('join')).toHaveLength(1);
   });
 
-  it('affiche un accès Plex lorsque le média est disponible', () => {
+  it('affiche un accès Plex lorsque le média est disponible', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {});
     const wrapper = render({ media_type: 'movie', in_library: true, plex_guid: 'plex://movie/abc' });
-    const link = wrapper.find('a.primary');
+    const button = wrapper.find('button.primary');
 
     expect(wrapper.text()).toContain('Ce média est dans Plex');
-    expect(link.text()).toContain('Ouvrir dans Plex');
-    expect(link.attributes('href')).toContain('app.plex.tv');
-    expect(link.attributes('href')).not.toContain('X-Plex-Token');
+    expect(button.text()).toContain('Ouvrir dans Plex');
+
+    await button.trigger('click');
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    const [openedUrl] = openSpy.mock.calls[0];
+    expect(openedUrl).toContain('app.plex.tv');
+    expect(openedUrl).not.toContain('X-Plex-Token');
+
+    openSpy.mockRestore();
   });
 
   it('affiche la chronologie opérationnelle et le détail par saison', () => {

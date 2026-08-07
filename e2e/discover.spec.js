@@ -30,7 +30,12 @@ test.beforeEach(async ({ page }) => {
     } else if (url.pathname === "/api/discover/genres") {
       await route.fulfill({ json: [{ id: 28, name: "Action" }] });
     } else if (url.pathname.startsWith("/api/discover/")) {
-      await route.fulfill({ json: catalog(Number(url.searchParams.get("page") || 1)) });
+      const requestedPage = Number(url.searchParams.get("page") || 1);
+      // La page 1 tient sur moins de 400px (rootMargin du sentinel infini) : sans ce
+      // delai, le chargement de la page 2 est quasi instantane et rend l'etat
+      // intermediaire ("2 cartes avant scroll") impossible a observer de facon fiable.
+      if (requestedPage > 1) await new Promise((resolve) => setTimeout(resolve, 400));
+      await route.fulfill({ json: catalog(requestedPage) });
     } else {
       await route.fulfill({ json: {} });
     }
@@ -46,8 +51,9 @@ test("charge progressivement le catalogue et conserve des liens accessibles", as
   expect(Math.abs(cardBox.width - posterBox.width)).toBeLessThanOrEqual(2);
   expect(Math.abs(cardBox.height - posterBox.height)).toBeLessThanOrEqual(2);
 
-  await page.locator(".infinite-scroll-trigger").scrollIntoViewIfNeeded();
-
+  // Le sentinel (rootMargin 400px) declenche le chargement automatiquement des qu'il
+  // est rendu — pas besoin de scroll manuel, et l'attendre serait racy puisqu'il est
+  // retire du DOM des que la derniere page est chargee.
   await expect(page.locator(".discover-card")).toHaveCount(4);
   await expect(page.getByText("4 affichés sur 4")).toBeVisible();
 });
