@@ -30,7 +30,7 @@
 
   <ConfirmModal v-bind="confirmDialog" @cancel="resolveConfirm(false)" @confirm="resolveConfirm(true)" />
 
-  <TabNav :model-value="tab" :tabs="notificationTabs" aria-label="Notifications" @update:model-value="selectTab"/>
+  <NotificationsSubnav :active="tab" :pending-count="pendingTotal"/>
 
   <FilterBar :active-count="activeFilterCount" :result-count="total" @reset="resetFilters">
     <template #primary><input v-model="search" class="search" type="search" placeholder="Média, destinataire ou événement" aria-label="Rechercher dans les notifications"></template>
@@ -67,7 +67,7 @@
 
 <script setup>
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue';
-import TabNav from '@/components/ui/TabNav.vue';
+import NotificationsSubnav from '@/components/settings/NotificationsSubnav.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CheckCheck, ChevronLeft, ChevronRight, PauseCircle, PlayCircle, RefreshCw, Send, Trash2 } from '@lucide/vue';
@@ -114,16 +114,8 @@ const previewError = ref('');
 const previewData = ref(null);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
-const notificationTabs = computed(() => [
-  { value: 'history', label: 'Historique' },
-  { value: 'pending', label: 'En attente', count: pendingTotal.value },
-]);
 const selectedIds = computed(() => tableRef.value?.selected || []);
 const activeFilterCount = computed(() => Number(Boolean(search.value)) + Number(Boolean(state.value)) + selectedTypes.value.length + selectedUsers.value.length);
-// Un seul point d'entree : poser l'onglet, remettre la pagination a zero, recharger.
-// `watch(tab)` synchronise ensuite l'URL, et `watch(route.query.tab)` ne rappelle load()
-// que si l'onglet a reellement change -- pas de double chargement.
-function selectTab(value){tab.value=value;offset.value=0;load()}
 function resetFilters(){search.value='';state.value='';selectedTypes.value=[];selectedUsers.value=[];offset.value=0;load()}
 
 watch(tab,value=>router.replace({path:'/notifications',query:{...route.query,tab:value}}));

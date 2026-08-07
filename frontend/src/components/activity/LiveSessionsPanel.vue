@@ -69,7 +69,7 @@
         <strong>Collecte en direct désactivée</strong>
         <span>Aucune lecture Plex ne peut apparaître tant que ce réglage est désactivé.</span>
       </div>
-      <RouterLink :to="{path:'/settings',query:{tab:'connections'}}" class="secondary">Activer la collecte</RouterLink>
+      <RouterLink :to="{path:'/settings',query:{tab:'services'}}" class="secondary">Activer la collecte</RouterLink>
     </div>
     <p v-else class="empty">Aucune lecture en cours.</p>
   </section>

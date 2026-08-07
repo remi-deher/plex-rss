@@ -2,17 +2,9 @@
   <div class="settings-grid">
     <div class="settings-cards span-two">
       <PlexConnectionCard/>
-      <TautulliConnectionCard/>
-      <SeerConnectionCard/>
-      <TmdbConnectionCard/>
-      <ArrInstancesCard/>
     </div>
   </div>
 </template>
 <script setup>
 import PlexConnectionCard from './connections/PlexConnectionCard.vue';
-import TautulliConnectionCard from './connections/TautulliConnectionCard.vue';
-import SeerConnectionCard from './connections/SeerConnectionCard.vue';
-import TmdbConnectionCard from './connections/TmdbConnectionCard.vue';
-import ArrInstancesCard from './connections/ArrInstancesCard.vue';
 </script>

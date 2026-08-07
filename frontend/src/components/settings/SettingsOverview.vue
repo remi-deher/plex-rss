@@ -20,7 +20,7 @@ import { Bell,BookMarked,Clock,Download,Link,Plug } from '@lucide/vue';
 import { form,secretsPresent } from '@/settingsForm';
 defineEmits(['select']);
 const cards=computed(()=>[
-  {key:'connections',group:'Services',label:'Plex et métadonnées',icon:markRaw(Plug),state:form.plex_url&&secretsPresent.plex_token?'active':'incomplete',detail:form.plex_url||'URL Plex à configurer'},
+  {key:'plex',group:'Services',label:'Plex et métadonnées',icon:markRaw(Plug),state:form.plex_url&&secretsPresent.plex_token?'active':'incomplete',detail:form.plex_url||'URL Plex à configurer'},
   {key:'webhooks',group:'Automatisation',label:'Webhooks et API',icon:markRaw(Link),state:form.public_base_url?'active':'incomplete',detail:form.public_base_url||'Adresse publique non définie'},
   {key:'notifications-channels',group:'Notifications',label:'Canaux d’envoi',icon:markRaw(Bell),state:form.email_enabled||form.discord_enabled||form.telegram_enabled||form.ntfy_enabled||form.gotify_enabled?'active':'inactive',detail:enabledChannels.value},
   {key:'library',group:'Médias',label:'Bibliothèque et langues',icon:markRaw(BookMarked),state:form.vff_enabled?'active':'inactive',detail:form.vff_enabled?'Analyse audio activée':'Analyse audio désactivée'},

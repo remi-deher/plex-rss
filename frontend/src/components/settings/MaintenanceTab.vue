@@ -1,10 +1,11 @@
 <template>
-  <div class="page">
-    <PageHeader title="Maintenance" description="Opérations contrôlées et progression en direct." eyebrow="Administration">
+  <div class="settings-grid">
+    <div class="maintenance-head">
+      <p>Opérations contrôlées et progression en direct.</p>
       <button class="icon-button" :disabled="loading" title="Actualiser" aria-label="Actualiser" @click="load">
         <RefreshCw :class="{spin:loading}"/>
       </button>
-    </PageHeader>
+    </div>
     <UiFeedback v-if="error" type="error" :message="error" retry @retry="load" />
     <section class="action-grid">
       <article v-for="(meta, key) in actions" :key="key" class="panel action-card">
@@ -90,3 +91,8 @@ useRealtime(['job.updated'], (_, event) => {
 onMounted(load);
 onUnmounted(() => clearTimeout(timer));
 </script>
+
+<style scoped>
+.maintenance-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.maintenance-head p { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+</style>

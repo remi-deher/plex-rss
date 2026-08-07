@@ -15,18 +15,11 @@
     <div class="menu-section admin-primary-nav">
       <span class="menu-label">Administration</span>
       <RouterLink to="/users" title="Utilisateurs"><Users />Utilisateurs</RouterLink>
-      <div class="context-nav-group" :class="{open:isNotificationsRoute}">
-        <RouterLink to="/notifications" title="Notifications"><Bell />Notifications<ChevronDown class="context-chevron"/></RouterLink>
-        <div v-if="isNotificationsRoute" class="context-sidebar-menu"><RouterLink to="/notifications?tab=history">Journal</RouterLink><RouterLink to="/notifications?tab=pending">File d'attente</RouterLink><RouterLink to="/settings?tab=notifications-channels">Canaux</RouterLink><RouterLink to="/settings?tab=notifications-rules">Regles</RouterLink><RouterLink to="/settings?tab=templates">Modeles d'emails</RouterLink></div>
-      </div>
-      <div class="context-nav-group" :class="{open:isOperationsRoute}">
-        <RouterLink to="/settings?tab=operations" title="Exploitation"><Wrench />Exploitation<ChevronDown class="context-chevron"/></RouterLink>
-        <div v-if="isOperationsRoute" class="context-sidebar-menu"><RouterLink to="/settings?tab=operations">Vue d'ensemble</RouterLink><RouterLink to="/settings?tab=scheduled-tasks">Taches planifiees</RouterLink><RouterLink to="/settings?tab=conflicts">Conflits</RouterLink><RouterLink to="/settings?tab=acquisitions">Acquisitions</RouterLink><RouterLink to="/logs">Journaux</RouterLink><RouterLink to="/maintenance">Maintenance</RouterLink><RouterLink to="/settings?tab=data">Donnees</RouterLink></div>
-      </div>
-      <div class="context-nav-group" :class="{open:isSettingsRoute}">
-        <RouterLink to="/settings" title="Parametres"><Settings />Parametres<ChevronDown class="settings-chevron"/></RouterLink>
-        <div v-if="isSettingsRoute" class="context-sidebar-menu">
-          <RouterLink v-for="item in settingsSections" :key="item.key" :to="`/settings?tab=${item.key}`">{{ item.label }}</RouterLink>
+      <RouterLink to="/notifications" title="Notifications" :class="{ 'router-link-active': isNotificationsRoute }"><Bell />Notifications</RouterLink>
+      <div class="context-nav-group" :class="{open:isSettingsSpaceRoute}">
+        <RouterLink to="/settings" title="Parametres"><Settings />Parametres<ChevronDown class="context-chevron"/></RouterLink>
+        <div v-if="isSettingsSpaceRoute" class="context-sidebar-menu">
+          <RouterLink v-for="item in settingsSections" :key="item.key" :to="item.to || `/settings?tab=${item.key}`">{{ item.label }}</RouterLink>
         </div>
       </div>
     </div>
@@ -44,7 +37,6 @@
   <nav class="mobile-nav-bar mobile-only admin-mobile-nav" aria-label="Navigation Administration">
     <RouterLink to="/users" @click="closeMoreMenu"><Users /><span>Utilisateurs</span></RouterLink>
     <RouterLink to="/notifications" @click="closeMoreMenu"><Bell /><span>Notifications</span></RouterLink>
-    <RouterLink to="/settings?tab=operations" @click="closeMoreMenu"><Wrench /><span>Exploitation</span></RouterLink>
     <RouterLink to="/settings" @click="closeMoreMenu"><Settings /><span>Parametres</span></RouterLink>
     <button ref="moreButtonRef" type="button" class="more-nav-btn" :class="{ active: isMoreOpen }" aria-controls="admin-mobile-more" :aria-expanded="isMoreOpen" @click="toggleMoreMenu">
       <MoreHorizontal /><span>Plus</span>
@@ -65,9 +57,8 @@
           <div class="menu-section mobile-admin-groups">
             <span class="menu-label">Administration</span>
             <RouterLink to="/users" @click="closeMoreMenu"><Users/>Utilisateurs</RouterLink>
-            <details><summary><Bell/>Notifications</summary><RouterLink to="/notifications?tab=history" @click="closeMoreMenu">Journal</RouterLink><RouterLink to="/notifications?tab=pending" @click="closeMoreMenu">File d'attente</RouterLink><RouterLink to="/settings?tab=notifications-channels" @click="closeMoreMenu">Canaux</RouterLink><RouterLink to="/settings?tab=notifications-rules" @click="closeMoreMenu">Regles</RouterLink><RouterLink to="/settings?tab=templates" @click="closeMoreMenu">Modeles d'emails</RouterLink></details>
-            <details><summary><Wrench/>Exploitation</summary><RouterLink to="/settings?tab=operations" @click="closeMoreMenu">Vue d'ensemble</RouterLink><RouterLink to="/settings?tab=scheduled-tasks" @click="closeMoreMenu">Taches planifiees</RouterLink><RouterLink to="/settings?tab=conflicts" @click="closeMoreMenu">Conflits</RouterLink><RouterLink to="/settings?tab=acquisitions" @click="closeMoreMenu">Acquisitions</RouterLink><RouterLink to="/logs" @click="closeMoreMenu">Journaux</RouterLink><RouterLink to="/maintenance" @click="closeMoreMenu">Maintenance</RouterLink><RouterLink to="/settings?tab=data" @click="closeMoreMenu">Donnees</RouterLink></details>
-            <details><summary><Settings/>Parametres</summary><RouterLink v-for="item in settingsSections" :key="item.key" :to="`/settings?tab=${item.key}`" @click="closeMoreMenu">{{ item.label }}</RouterLink></details>
+            <RouterLink to="/notifications" @click="closeMoreMenu"><Bell/>Notifications</RouterLink>
+            <details><summary><Settings/>Parametres</summary><RouterLink v-for="item in settingsSections" :key="item.key" :to="item.to || `/settings?tab=${item.key}`" @click="closeMoreMenu">{{ item.label }}</RouterLink></details>
           </div>
           <div class="menu-section">
             <span class="menu-label">Compte</span>
@@ -87,6 +78,7 @@ import { useRoute } from 'vue-router';
 import { Bell, ChevronDown, ChevronUp, CircleUserRound, Compass, House, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, UserRound, Users, Wrench, X } from '@lucide/vue';
 import { clearCache } from '@/cache';
 import { useModalA11y } from '@/composables/useModalA11y';
+import { settingsSections } from '@/settingsSections';
 
 defineProps({ collapsed: { type: Boolean, default: false } });
 defineEmits(['toggle']);
@@ -96,16 +88,8 @@ const isMoreOpen = ref(false);
 const mobileMoreRef = ref(null);
 const moreButtonRef = ref(null);
 
-const isSettingsRoute = computed(() => route.path === '/settings' && (!route.query.tab || ['overview', 'connections', 'webhooks', 'library', 'downloads'].includes(route.query.tab)));
 const isNotificationsRoute = computed(() => route.path === '/notifications' || (route.path === '/settings' && ['notifications-channels', 'notifications-rules', 'templates'].includes(route.query.tab)));
-const isOperationsRoute = computed(() => ['/logs', '/maintenance'].includes(route.path) || (route.path === '/settings' && ['operations', 'scheduled-tasks', 'conflicts', 'acquisitions', 'data'].includes(route.query.tab)));
-const settingsSections = [
-  { key: 'overview', label: 'Vue d’ensemble' },
-  { key: 'connections', label: 'Connexions' },
-  { key: 'webhooks', label: 'Webhooks' },
-  { key: 'library', label: 'Bibliotheque' },
-  { key: 'downloads', label: 'Telechargements' },
-];
+const isSettingsSpaceRoute = computed(() => route.path === '/logs' || (route.path === '/settings' && !isNotificationsRoute.value));
 
 function toggleMoreMenu() { isMoreOpen.value = !isMoreOpen.value; }
 function closeMoreMenu() { isMoreOpen.value = false; }

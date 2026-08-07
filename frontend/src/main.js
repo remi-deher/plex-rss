@@ -18,7 +18,6 @@ const CalendarView = () => import("./views/CalendarView.vue");
 const UsersView = () => import("./views/UsersView.vue");
 const NotificationsView = () => import("./views/NotificationsView.vue");
 const SettingsView = () => import("./views/SettingsView.vue");
-const MaintenanceView = () => import("./views/MaintenanceView.vue");
 const ReleaseSearchView = () => import("./views/ReleaseSearchView.vue");
 const ProfileView = () => import("./views/ProfileView.vue");
 const LogsView = () => import("./views/LogsView.vue");
@@ -72,7 +71,7 @@ const routes = [
   { path: "/notifications", component: NotificationsView },
   { path: "/logs", component: LogsView },
   { path: "/settings", component: SettingsView },
-  { path: "/maintenance", component: MaintenanceView },
+  { path: "/maintenance", redirect: { path: "/settings", query: { tab: "scheduled-tasks" } } },
   { path: "/profile", component: ProfileView },
   { path: "/releases/:requestId", component: ReleaseSearchView },
   { path: "/media/:kind/:id", component: MediaDetailView },

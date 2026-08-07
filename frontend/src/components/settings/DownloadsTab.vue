@@ -1,8 +1,6 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <DownloadClientsCard/>
-
       <SettingsCard title="Regles torrent" :icon="Magnet" status="active" :collapsible="false">
         <label>Confirmation de disponibilite
           <select v-model="form.availability_confirmation_mode">
@@ -29,5 +27,4 @@
 import { Magnet } from '@lucide/vue';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
-import DownloadClientsCard from './connections/DownloadClientsCard.vue';
 </script>
