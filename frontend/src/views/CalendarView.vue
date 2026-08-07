@@ -113,7 +113,7 @@
                 type="button"
                 class="plex-action-btn"
                 title="Regarder sur Plex"
-                @click.stop="openDetail(event)"
+                @click.stop="openPlex(event, $event)"
               >
                 <Play /> <span>Regarder sur Plex</span>
               </button>
@@ -186,7 +186,23 @@ function formatTime(v) { if (!v) return ''; const d = new Date(v); if (isNaN(d.g
 function eventKey(event) { return `${event.instance}:${event.date}:${event.title}:${event.subtitle}`; }
 function eventState(event) { return event.has_file ? 'available' : ''; }
 function eventLabel(event) { return event.has_file ? 'Disponible' : 'Catalogue'; }
-function openDetail(event) { if (event.library_item_id) router.push(mediaDetailPath({ id: event.library_item_id }, 'library')); else if (event.request_id) router.push(mediaDetailPath({ id: event.request_id }, 'request')); }
+
+function openDetail(event) {
+  if (event.library_item_id) router.push(mediaDetailPath({ id: event.library_item_id }, 'library'));
+  else if (event.request_id) router.push(mediaDetailPath({ id: event.request_id }, 'request'));
+}
+
+function openPlex(event, e) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  if (event.plex_guid) {
+    window.open(`https://app.plex.tv/desktop/#!/provider/tv.plex.provider.discover/details?key=${encodeURIComponent(event.plex_guid)}`, '_blank');
+  } else {
+    openDetail(event);
+  }
+}
 
 function revealDate(date) { const i = grouped.value.findIndex(g => g.date === date); if (i < 0) return false; if (i >= visibleDays.value) visibleDays.value = i + DAYS_PAGE; return true; }
 function scrollToDate(date) { if (!revealDate(date)) return; nextTick(() => document.getElementById(`date-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }
@@ -298,7 +314,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(90deg, #101016 0%, rgba(16, 16, 22, 0.92) 50%, rgba(16, 16, 22, 0.7) 100%);
+  background: linear-gradient(90deg, #101016 0%, rgba(16, 16, 22, 0.92) 50%, rgba(16, 16, 22, 0.65) 100%);
   z-index: 1;
 }
 
@@ -361,9 +377,9 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: var(--radius-pill);
-  background: rgba(229, 160, 13, 0.2);
+  background: rgba(229, 160, 13, 0.22);
   color: var(--accent);
   font-size: 11px;
   font-weight: 700;
@@ -430,19 +446,19 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   gap: 6px;
   padding: 6px 14px;
   border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #111111;
+  background: #e5a00d;
+  color: #ffffff !important;
   font-size: var(--fs-xs);
   font-weight: 700;
   border: 0;
   cursor: pointer;
   text-decoration: none;
-  box-shadow: 0 2px 8px rgba(229, 160, 13, 0.3);
+  box-shadow: 0 2px 8px rgba(229, 160, 13, 0.35);
   transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 .plex-action-btn:hover {
   background: #f5b01d;
-  color: #000000;
+  color: #ffffff !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(229, 160, 13, 0.45);
 }
@@ -474,10 +490,15 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   .calendar-command-bar :deep(.ui-filter-bar) { position: static; padding: 0; border: 0; background: transparent; }
   .calendar-events { gap: var(--space-2); width: 100%; }
   .calendar-event-card { padding: 10px 12px; gap: var(--space-2); width: 100%; flex-wrap: wrap; }
-  .card-poster { flex: 0 0 46px; height: 68px; }
+  .card-poster { flex: 0 0 44px; height: 64px; }
   .card-title { font-size: var(--fs-sm); }
-  .card-actions { width: 100%; margin-top: 4px; justify-content: space-between; }
-  .plex-action-btn { flex: 1; justify-content: center; padding: 7px 10px; }
+
+  /* Sizing compact pour mobile */
+  .rating-badge { padding: 1px 5px; font-size: 10px; }
+  .rating-badge svg { width: 10px; height: 10px; }
+
+  .card-actions { width: 100%; margin-top: 4px; justify-content: space-between; gap: 8px; }
+  .plex-action-btn { padding: 5px 10px; font-size: 11px; max-width: max-content; }
   .status-badge { padding: 3px 8px; font-size: 11px; }
   .calendar-view-switch button:last-child { display: none; }
 }

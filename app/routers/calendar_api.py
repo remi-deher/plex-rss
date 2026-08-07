@@ -245,6 +245,7 @@ async def _compute_calendar(
         entry: dict[str, Any] = {
             "in_library": True,
             "library_item_id": li.id,
+            "plex_guid": li.plex_guid,
             "request_id": None,
             "request_status": None,
             "requested_by_ids": [],
@@ -391,6 +392,7 @@ async def _compute_calendar(
                             "tracked": bool(tracked),
                             "library_item_id": (tracked or {}).get("library_item_id"),
                             "request_id": (tracked or {}).get("request_id"),
+                            "plex_guid": (tracked or {}).get("plex_guid"),
                             "tvdb_id": tvdb_id,
                             "tmdb_id": (tracked or {}).get("tmdb_id") or None,
                             "instance": inst.name,
@@ -482,6 +484,7 @@ async def _compute_calendar(
                                 "tracked": bool(tracked),
                                 "library_item_id": (tracked or {}).get("library_item_id"),
                                 "request_id": (tracked or {}).get("request_id"),
+                                "plex_guid": (tracked or {}).get("plex_guid"),
                                 "tmdb_id": tmdb_id,
                                 "instance": inst.name,
                                 "_tracking": {**(tracked or {}), "originally_tracked": originally_tracked},
