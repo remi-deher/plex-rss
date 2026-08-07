@@ -142,7 +142,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Film, List, Play, RefreshCw, Star, Tv } from '@lucide/vue';
 import { api } from '@/api';
 import { useRouter } from 'vue-router';
-import { formatPlexWebUrl, mediaDetailPath } from '@/mediaUrl';
+import { openPlexLink, mediaDetailPath } from '@/mediaUrl';
 import LoadMore from '@/components/ui/LoadMore.vue';
 import InfiniteScrollTrigger from '@/components/ui/InfiniteScrollTrigger.vue';
 import { useSession } from '@/composables/useSession';
@@ -194,9 +194,8 @@ function openPlex(event, e) {
     e.stopPropagation();
     e.preventDefault();
   }
-  const plexUrl = formatPlexWebUrl(event.plex_guid);
-  if (plexUrl) {
-    window.open(plexUrl, '_blank');
+  if (event.plex_guid) {
+    openPlexLink(event.plex_guid);
   } else {
     openDetail(event);
   }

@@ -26,9 +26,9 @@
         <template v-if="state === 'failed'">
           <RouterLink v-if="detail.request_id" :to="`/media/request/${detail.request_id}`" class="secondary">Voir le détail <ChevronRight /></RouterLink>
         </template>
-        <a v-else-if="state === 'available' && plexUrl" :href="plexUrl" target="_blank" rel="noopener" class="primary">
+        <button v-else-if="state === 'available' && plexUrl" type="button" class="primary" @click="openPlexLink(props.detail?.plex_guid)">
           <ExternalLink /> Ouvrir dans Plex
-        </a>
+        </button>
         <template v-else-if="state !== 'requestable' && detail.request_id">
           <button v-if="canJoin" class="primary" :disabled="busy" @click="$emit('join')"><UserPlus /> Ajouter à mes demandes</button>
           <RouterLink :to="`/media/request/${detail.request_id}`" class="secondary">Suivre la demande <ChevronRight /></RouterLink>
@@ -105,7 +105,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { AlertTriangle, Check, CheckCircle2, ChevronRight, Clock3, Download, ExternalLink, PlusCircle, RotateCcw, UserPlus } from '@lucide/vue';
-import { formatPlexWebUrl } from '@/mediaUrl';
+import { formatPlexWebUrl, openPlexLink } from '@/mediaUrl';
 import RequestOptionsModal from './RequestOptionsModal.vue';
 
 const props = defineProps({

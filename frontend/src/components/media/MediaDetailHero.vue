@@ -40,7 +40,7 @@
           <div class="mdh-links">
             <a v-if="detail.imdb_id" :href="`https://www.imdb.com/title/${detail.imdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> IMDb</a>
             <a v-if="detail.tmdb_id" :href="`https://www.themoviedb.org/${detail.media_type === 'show' ? 'tv' : 'movie'}/${detail.tmdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> TMDB</a>
-            <a v-if="plexWebUrl" :href="plexWebUrl" target="_blank" class="badge available mdh-link"><ExternalLink size="14" /> Plex</a>
+            <button v-if="plexWebUrl" type="button" class="badge available mdh-link" @click="openPlexLink(detail?.plex_guid)"><ExternalLink size="14" /> Plex</button>
             <a v-if="admin && detail.arr_url" :href="detail.arr_url" target="_blank" class="badge available mdh-link"><ExternalLink size="14" /> {{ detail.media_type === 'movie' ? 'Radarr' : 'Sonarr' }}</a>
             <button class="badge danger mdh-link" @click="$emit('report-issue')"><Flag size="14" /> Signaler un probleme</button>
           </div>
@@ -54,7 +54,7 @@
 import { mediaTypeLabel } from '@/utils/labels';
 import { computed } from 'vue';
 import { ArrowLeft, ExternalLink, Film, Flag, Star } from '@lucide/vue';
-import { formatPlexWebUrl } from '@/mediaUrl';
+import { formatPlexWebUrl, openPlexLink } from '@/mediaUrl';
 
 const props = defineProps({
   detail: { type: Object, required: true },
