@@ -75,6 +75,39 @@ def _arr_poster(entity: dict, inst_url: str) -> Optional[str]:
     return None
 
 
+def _arr_fanart(entity: dict, inst_url: str) -> Optional[str]:
+    """Extrait l'URL d'arrière-plan (fanart/backdrop) d'une ressource Sonarr/Radarr."""
+    for img in entity.get("images") or []:
+        if img.get("coverType") in ("fanart", "backdrop", "banner"):
+            url = img.get("remoteUrl") or img.get("url")
+            if url:
+                if url.startswith("/"):
+                    url = f"{inst_url.rstrip('/')}{url}"
+                return wrap_image_proxy(url)
+    return None
+
+
+def _arr_rating(entity: dict) -> Optional[float]:
+    """Extrait la note moyenne d'une ressource Sonarr/Radarr."""
+    ratings = entity.get("ratings") or {}
+    if isinstance(ratings, dict):
+        val = ratings.get("value") or (ratings.get("imdb") or {}).get("value") or (ratings.get("tmdb") or {}).get("value")
+        if val:
+            try:
+                return round(float(val), 1)
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
+def _arr_genres(entity: dict) -> list[str]:
+    """Extrait la liste des genres (max 3)."""
+    genres = entity.get("genres") or []
+    if isinstance(genres, list):
+        return [str(g) for g in genres[:3]]
+    return []
+
+
 def _movie_release_events(movie: dict, start_dt: datetime, end_dt: datetime, now: datetime) -> list[tuple]:
     """Événements de sortie d'un film pour le calendrier : (date_iso, type, sous-titre)."""
     specs = (
@@ -351,6 +384,9 @@ async def _compute_calendar(
                             "subtitle": f"S{ep.get('seasonNumber', 0):02d}E{ep.get('episodeNumber', 0):02d}"
                             + (f" — {ep.get('title')}" if ep.get("title") else ""),
                             "poster_url": wrap_image_proxy((tracked or {}).get("poster_url")) or _arr_poster(series, inst.url),
+                            "fanart_url": _arr_fanart(series, inst.url),
+                            "rating": _arr_rating(series),
+                            "genres": _arr_genres(series),
                             "has_file": bool(ep.get("hasFile")),
                             "tracked": bool(tracked),
                             "library_item_id": (tracked or {}).get("library_item_id"),
@@ -427,6 +463,9 @@ async def _compute_calendar(
                         continue
 
                     poster = wrap_image_proxy((tracked or {}).get("poster_url")) or _arr_poster(m, inst.url)
+                    fanart = _arr_fanart(m, inst.url)
+                    rating = _arr_rating(m)
+                    genres = _arr_genres(m)
                     for rdate, rtype, rlabel in release_events:
                         events.append(
                             {
@@ -436,6 +475,9 @@ async def _compute_calendar(
                                 "title": title,
                                 "subtitle": rlabel,
                                 "poster_url": poster,
+                                "fanart_url": fanart,
+                                "rating": rating,
+                                "genres": genres,
                                 "has_file": bool(m.get("hasFile")),
                                 "tracked": bool(tracked),
                                 "library_item_id": (tracked or {}).get("library_item_id"),
