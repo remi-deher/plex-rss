@@ -1,5 +1,5 @@
 <template>
-  <section class="ui-filter-bar" aria-label="Filtres">
+  <section class="ui-filter-bar" v-bind="$attrs" aria-label="Filtres">
     <div v-if="$slots.primary" class="ui-filter-primary"><slot name="primary" /></div>
     <div class="ui-filter-desktop">
       <slot name="filters" />
@@ -30,6 +30,7 @@
 import { ref } from 'vue';
 import { SlidersHorizontal, X } from '@lucide/vue';
 import { useModalA11y } from '@/composables/useModalA11y';
+defineOptions({ inheritAttrs: false });
 defineProps({ activeCount: { type: Number, default: 0 }, resultCount: { type: Number, default: null } });
 defineEmits(['reset']);
 const open=ref(false);
