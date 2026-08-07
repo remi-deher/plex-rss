@@ -374,6 +374,8 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
 .rating-badge {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
   gap: 3px;
   padding: 2px 7px;
   border-radius: var(--radius-pill);
@@ -471,7 +473,7 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   border-radius: var(--radius-pill);
   font-size: var(--fs-xs);
   font-weight: 700;
-  background: #22c55e !important;
+  background: #15803d !important;
   color: #ffffff !important;
   opacity: 1 !important;
 }
@@ -495,8 +497,8 @@ onBeforeUnmount(() => { compactQuery.removeEventListener('change', syncCompact);
   .card-title { font-size: var(--fs-sm); }
 
   /* Sizing compact pour mobile */
-  .rating-badge { padding: 1px 5px; font-size: 10px; }
-  .rating-badge svg { width: 10px; height: 10px; }
+  .rating-badge { padding: 1px 6px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+  .rating-badge svg { width: 10px; height: 10px; flex-shrink: 0; }
 
   .card-actions { width: 100%; margin-top: 4px; justify-content: space-between; gap: 8px; }
   .plex-action-btn { padding: 5px 10px; font-size: 11px; max-width: max-content; }
