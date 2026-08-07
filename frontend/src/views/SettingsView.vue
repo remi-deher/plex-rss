@@ -6,7 +6,7 @@
       </button>
     </PageHeader>
     <NotificationsSubnav v-if="isNotificationsTab" :active="tab"/>
-    <div class="settings-search"><Search/><input v-model="sectionSearch" type="search" placeholder="Rechercher une section de paramètres" aria-label="Rechercher une section"><div v-if="sectionSearch" class="settings-search-results"><button v-for="item in filteredTabs" :key="item.key" @click="selectItem(item);sectionSearch=''">{{ item.label }}<span>{{ item.group }}</span></button><p v-if="!filteredTabs.length">Aucune section trouvée.</p></div></div>
+    <div class="settings-search"><Search/><input v-model="sectionSearch" type="search" placeholder="Rechercher dans tous les paramètres" aria-label="Rechercher une section"><div v-if="sectionSearch" class="settings-search-results"><button v-for="item in filteredTabs" :key="item.key" @click="selectItem(item);sectionSearch=''">{{ item.label }}<span>{{ item.group }}</span></button><p v-if="!filteredTabs.length">Aucune section trouvée.</p></div></div>
     <UiFeedback v-if="error" type="error" title="Enregistrement impossible" :message="error" />
     <UiFeedback v-if="message" type="success" :message="message" />
 
@@ -68,9 +68,12 @@ function ensureSettingsLoaded(value = tab.value) {
   return settingsLoadPromise;
 }
 const currentTabLabel = computed(() => tabs.find(item => item.key === tab.value)?.label || 'Vue d’ensemble');
-const sectionSearch=ref('');
+const sectionSearch = ref('');
 const searchableSections = [...settingsSections, ...notificationSections];
-const filteredTabs=computed(()=>{const query=sectionSearch.value.trim().toLowerCase();return query?searchableSections.filter(item=>`${item.label} ${item.group}`.toLowerCase().includes(query)):[]});
+const filteredTabs = computed(() => {
+  const query = sectionSearch.value.trim().toLowerCase();
+  return query ? searchableSections.filter(item => `${item.label} ${item.group}`.toLowerCase().includes(query)) : [];
+});
 function selectTab(value) {
   router.replace({path:'/settings',query:{tab:value}});
 }
@@ -88,6 +91,6 @@ watch(tab, value => ensureSettingsLoaded(value).catch(() => {}));
 onMounted(() => ensureSettingsLoaded().catch(() => {}));
 </script>
 <style scoped>
-.settings-search{position:relative;display:flex;align-items:center;gap: var(--space-3);width:min(100%,620px);min-height:48px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}.settings-search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}.settings-search>svg{flex:none;width:18px;color:var(--muted)}.settings-search>input{width:100%;border:0;background:transparent;outline:0;color:var(--text);font-size:var(--fs-md)}.settings-search-results{position:absolute;z-index:30;top:calc(100% + 7px);left:0;right:0;display:grid;padding:7px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);box-shadow:0 12px 28px rgba(0,0,0,.3)}.settings-search-results button{display:flex;justify-content:space-between;min-height:44px;padding:10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:var(--fs-sm);text-align:left}.settings-search-results button:hover{background:var(--surface-2)}.settings-search-results span,.settings-search-results p{color:var(--muted);font-size:var(--fs-xs)}
+.settings-search{position:relative;display:flex;align-items:center;gap: var(--space-3);width:min(100%,620px);min-height:48px;margin-bottom:16px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}.settings-search:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}.settings-search>svg{flex:none;width:18px;color:var(--muted)}.settings-search>input{width:100%;border:0;background:transparent;outline:0;color:var(--text);font-size:var(--fs-md)}.settings-search-results{position:absolute;z-index:30;top:calc(100% + 7px);left:0;right:0;display:grid;padding:7px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);box-shadow:0 12px 28px rgba(0,0,0,.3)}.settings-search-results button{display:flex;justify-content:space-between;min-height:44px;padding:10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);font-size:var(--fs-sm);text-align:left}.settings-search-results button:hover{background:var(--surface-2)}.settings-search-results span,.settings-search-results p{color:var(--muted);font-size:var(--fs-xs)}
 @media(max-width:640px){.settings-search{width:100%}}
 </style>

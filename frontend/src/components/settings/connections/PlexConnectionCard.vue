@@ -1,5 +1,5 @@
 <template>
-  <SettingsCard title="Plex" :icon="Server" :status="plexStatus" :collapsible="false">
+  <SettingsCard title="Plex" :icon="Server" :status="plexStatus" :default-open="true">
     <template #actions>
       <button class="secondary" @click.stop="testSaved('/api/test/plex-api')"><PlugZap/>Tester</button>
     </template>

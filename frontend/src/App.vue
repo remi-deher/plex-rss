@@ -1,7 +1,8 @@
 <template>
-  <div class="shell" :class="{'sidebar-collapsed':activeSpaceCollapsed,'discover-shell':isDiscoverRoute||isActivitySpaceRoute||isAdminSpaceRoute}">
+  <div class="shell" :class="{'sidebar-collapsed':activeSpaceCollapsed,'discover-shell':isDiscoverRoute||isActivitySpaceRoute||isAdminSpaceRoute||isSettingsSpaceRoute}">
     <a class="skip-link" href="#main-content">Aller au contenu principal</a>
-    <AdminNavigation v-if="isAdminSpaceRoute" :collapsed="isAdminSidebarCollapsed" @toggle="toggleAdminSidebar" />
+    <SettingsNavigation v-if="isSettingsSpaceRoute" :collapsed="isSettingsSidebarCollapsed" @toggle="toggleSettingsSidebar" />
+    <AdminNavigation v-else-if="isAdminSpaceRoute" :collapsed="isAdminSidebarCollapsed" @toggle="toggleAdminSidebar" />
     <ActivityNavigation v-else-if="isActivitySpaceRoute" :collapsed="isActivitySidebarCollapsed" @toggle="toggleActivitySidebar" />
     <DiscoverNavigation v-else-if="isDiscoverRoute" :is-admin="isAdmin" :collapsed="isDiscoverSidebarCollapsed" @toggle="toggleDiscoverSidebar" />
     <template v-else>
@@ -93,6 +94,7 @@ import ToastStack from "@/components/ui/ToastStack.vue";
 import DiscoverNavigation from "@/components/discover/DiscoverNavigation.vue";
 import ActivityNavigation from "@/components/activity/ActivityNavigation.vue";
 import AdminNavigation from "@/components/admin/AdminNavigation.vue";
+import SettingsNavigation from "@/components/settings/SettingsNavigation.vue";
 import { playbackStartsFromEvent, playbackTitle } from "@/playbackToast";
 import { useModalA11y } from "@/composables/useModalA11y";
 import { canModerateSession, isAdminSession, loadSession } from "@/composables/useSession";
@@ -102,7 +104,8 @@ const isAdmin=computed(()=>isAdminSession(session.value));
 const canModerate=computed(()=>canModerateSession(session.value));
 const isDiscoverRoute=computed(()=>route.path.startsWith('/discover'));
 const isActivitySpaceRoute=computed(()=>['/activity','/analytics'].some(p=>route.path.startsWith(p)));
-const isAdminSpaceRoute=computed(()=>['/users','/notifications','/settings','/logs','/maintenance'].some(p=>route.path.startsWith(p)));
+const isAdminSpaceRoute=computed(()=>['/users','/notifications'].some(p=>route.path.startsWith(p)));
+const isSettingsSpaceRoute=computed(()=>['/settings','/logs','/maintenance'].some(p=>route.path.startsWith(p)));
 const isMoreOpen=ref(false);
 const mobileMoreRef=ref(null);
 const moreButtonRef=ref(null);
@@ -110,7 +113,8 @@ const isSidebarCollapsed=ref(false);
 const isDiscoverSidebarCollapsed=ref(false);
 const isActivitySidebarCollapsed=ref(false);
 const isAdminSidebarCollapsed=ref(false);
-const activeSpaceCollapsed=computed(()=>isAdminSpaceRoute.value?isAdminSidebarCollapsed.value:isActivitySpaceRoute.value?isActivitySidebarCollapsed.value:isDiscoverRoute.value?isDiscoverSidebarCollapsed.value:isSidebarCollapsed.value);
+const isSettingsSidebarCollapsed=ref(false);
+const activeSpaceCollapsed=computed(()=>isSettingsSpaceRoute.value?isSettingsSidebarCollapsed.value:isAdminSpaceRoute.value?isAdminSidebarCollapsed.value:isActivitySpaceRoute.value?isActivitySidebarCollapsed.value:isDiscoverRoute.value?isDiscoverSidebarCollapsed.value:isSidebarCollapsed.value);
 const toasts=ref([]);
 const seenPlaybackEvents=new Set();
 const toastTimers=new Map();
@@ -120,6 +124,7 @@ function toggleSidebar(){isSidebarCollapsed.value=!isSidebarCollapsed.value;loca
 function toggleDiscoverSidebar(){isDiscoverSidebarCollapsed.value=!isDiscoverSidebarCollapsed.value;localStorage.setItem('plexarr.discoverSidebarCollapsed',String(isDiscoverSidebarCollapsed.value))}
 function toggleActivitySidebar(){isActivitySidebarCollapsed.value=!isActivitySidebarCollapsed.value;localStorage.setItem('plexarr.activitySidebarCollapsed',String(isActivitySidebarCollapsed.value))}
 function toggleAdminSidebar(){isAdminSidebarCollapsed.value=!isAdminSidebarCollapsed.value;localStorage.setItem('plexarr.adminSidebarCollapsed',String(isAdminSidebarCollapsed.value))}
+function toggleSettingsSidebar(){isSettingsSidebarCollapsed.value=!isSettingsSidebarCollapsed.value;localStorage.setItem('plexarr.settingsSidebarCollapsed',String(isSettingsSidebarCollapsed.value))}
 function dismissToast(id){toasts.value=toasts.value.filter(toast=>toast.id!==id);clearTimeout(toastTimers.get(id));toastTimers.delete(id)}
 function showPlaybackToasts(event){
   const started=playbackStartsFromEvent(event);
@@ -145,10 +150,12 @@ onMounted(async()=>{
   const discoverSaved=localStorage.getItem('plexarr.discoverSidebarCollapsed');
   const activitySaved=localStorage.getItem('plexarr.activitySidebarCollapsed');
   const adminSaved=localStorage.getItem('plexarr.adminSidebarCollapsed');
+  const settingsSaved=localStorage.getItem('plexarr.settingsSidebarCollapsed');
   isSidebarCollapsed.value=saved===null?isNarrow:saved==='true';
   isDiscoverSidebarCollapsed.value=discoverSaved===null?isNarrow:discoverSaved==='true';
   isActivitySidebarCollapsed.value=activitySaved===null?isNarrow:activitySaved==='true';
   isAdminSidebarCollapsed.value=adminSaved===null?isNarrow:adminSaved==='true';
+  isSettingsSidebarCollapsed.value=settingsSaved===null?isNarrow:settingsSaved==='true';
   window.addEventListener('plexarr:activity.updated',showPlaybackToasts);window.addEventListener('plexarr:migration.completed',onMigrationCompleted);session.value=await loadSession();syncCacheOwner(session.value);if(session.value)connectRealtime()});
 onUnmounted(()=>{document.body.classList.remove('modal-open');window.removeEventListener('plexarr:activity.updated',showPlaybackToasts);window.removeEventListener('plexarr:migration.completed',onMigrationCompleted);toastTimers.forEach(clearTimeout)});
 </script>

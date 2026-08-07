@@ -1,14 +1,14 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <SettingsCard title="Watchlist" :icon="Rss" status="active" :collapsible="false">
+      <SettingsCard title="Watchlist" :icon="Rss" status="active" :default-open="true">
         <label>Frequence de synchronisation<IntervalPresetInput v-model="form.poll_interval_seconds" :presets="WATCHLIST_PRESETS"/></label>
         <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">RSS</option></select></label>
         <label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label>
         <label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label>
       </SettingsCard>
 
-      <SettingsCard title="Analyse VF" :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :collapsible="false">
+      <SettingsCard title="Analyse VF" :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :default-open="form.vff_enabled">
         <template #actions>
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>

@@ -16,12 +16,7 @@
       <span class="menu-label">Administration</span>
       <RouterLink to="/users" title="Utilisateurs"><Users />Utilisateurs</RouterLink>
       <RouterLink to="/notifications" title="Notifications" :class="{ 'router-link-active': isNotificationsRoute }"><Bell />Notifications</RouterLink>
-      <div class="context-nav-group" :class="{open:isSettingsSpaceRoute}">
-        <RouterLink to="/settings" title="Parametres"><Settings />Parametres<ChevronDown class="context-chevron"/></RouterLink>
-        <div v-if="isSettingsSpaceRoute" class="context-sidebar-menu">
-          <RouterLink v-for="item in settingsSections" :key="item.key" :to="item.to || `/settings?tab=${item.key}`">{{ item.label }}</RouterLink>
-        </div>
-      </div>
+      <RouterLink to="/settings" title="Parametres"><Settings />Parametres</RouterLink>
     </div>
 
     <details class="admin-account desktop-only">
@@ -58,7 +53,7 @@
             <span class="menu-label">Administration</span>
             <RouterLink to="/users" @click="closeMoreMenu"><Users/>Utilisateurs</RouterLink>
             <RouterLink to="/notifications" @click="closeMoreMenu"><Bell/>Notifications</RouterLink>
-            <details><summary><Settings/>Parametres</summary><RouterLink v-for="item in settingsSections" :key="item.key" :to="item.to || `/settings?tab=${item.key}`" @click="closeMoreMenu">{{ item.label }}</RouterLink></details>
+            <RouterLink to="/settings" @click="closeMoreMenu"><Settings/>Parametres</RouterLink>
           </div>
           <div class="menu-section">
             <span class="menu-label">Compte</span>
@@ -75,10 +70,9 @@
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { Bell, ChevronDown, ChevronUp, CircleUserRound, Compass, House, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, UserRound, Users, Wrench, X } from '@lucide/vue';
+import { Bell, ChevronUp, CircleUserRound, Compass, House, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, UserRound, Users, Wrench, X } from '@lucide/vue';
 import { clearCache } from '@/cache';
 import { useModalA11y } from '@/composables/useModalA11y';
-import { settingsSections } from '@/settingsSections';
 
 defineProps({ collapsed: { type: Boolean, default: false } });
 defineEmits(['toggle']);
@@ -88,8 +82,7 @@ const isMoreOpen = ref(false);
 const mobileMoreRef = ref(null);
 const moreButtonRef = ref(null);
 
-const isNotificationsRoute = computed(() => route.path === '/notifications' || (route.path === '/settings' && ['notifications-channels', 'notifications-rules', 'templates'].includes(route.query.tab)));
-const isSettingsSpaceRoute = computed(() => route.path === '/logs' || (route.path === '/settings' && !isNotificationsRoute.value));
+const isNotificationsRoute = computed(() => route.path === '/notifications');
 
 function toggleMoreMenu() { isMoreOpen.value = !isMoreOpen.value; }
 function closeMoreMenu() { isMoreOpen.value = false; }
@@ -118,10 +111,6 @@ onUnmounted(() => document.body.classList.remove('modal-open'));
 .admin-account-popover { position: absolute; right: 0; bottom: calc(100% + 8px); left: 0; display: grid; gap: 3px; padding: 7px; border: 1px solid var(--border); border-radius: var(--radius-md); background: #17171c; box-shadow: 0 16px 38px rgba(0,0,0,.42); }
 .admin-account-popover a { min-height: 38px; }
 
-/* Repris de App.vue (context-nav-group vivait auparavant uniquement dans son <style scoped>) */
-.context-nav-group{display:grid;gap: var(--space-1)}.context-nav-group>a{width:100%}.context-chevron,.settings-chevron{margin-left:auto;width:14px;transition:transform .2s}.context-nav-group.open .context-chevron,.context-nav-group.open .settings-chevron{transform:rotate(180deg)}.context-sidebar-menu{display:grid;gap: var(--space-1);margin:2px 0 6px 22px;padding:5px 5px 5px 12px;border-left:2px solid rgba(229,160,13,.28);border-radius:0 8px 8px 0;background:linear-gradient(90deg,rgba(229,160,13,.055),transparent)}.context-sidebar-menu a{min-height:32px;padding:6px 10px 6px 16px;font-size:var(--fs-xs);color:color-mix(in srgb,var(--muted) 88%,white);border-radius:var(--radius-sm)}.context-sidebar-menu a::after{content:'';position:absolute;left:5px;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}.context-sidebar-menu a:hover{color:var(--text);background:rgba(255,255,255,.045)}.context-sidebar-menu a.router-link-exact-active{color:var(--accent);background:rgba(229,160,13,.13);box-shadow:inset 0 0 0 1px rgba(229,160,13,.12)}.context-sidebar-menu a.router-link-exact-active::after{opacity:1;box-shadow:0 0 6px currentColor}
-
-.admin-sidebar.collapsed .context-sidebar-menu,.admin-sidebar.collapsed .context-chevron,.admin-sidebar.collapsed .settings-chevron{display:none}
 .admin-sidebar.collapsed .admin-brand > span:not(.brand-mark),
 .admin-sidebar.collapsed .admin-account span,
 .admin-sidebar.collapsed .admin-account summary svg:last-child { display: none; }

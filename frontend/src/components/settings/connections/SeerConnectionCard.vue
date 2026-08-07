@@ -1,5 +1,5 @@
 <template>
-  <SettingsCard title="Seer" subtitle="Overseerr / Jellyseerr" :icon="Radar" :status="form.seer_enabled ? 'active' : 'inactive'" :collapsible="false">
+  <SettingsCard title="Seer" subtitle="Overseerr / Jellyseerr" :icon="Radar" :status="form.seer_enabled ? 'active' : 'inactive'" :default-open="form.seer_enabled">
     <template #actions>
       <button class="secondary" :disabled="!form.seer_enabled" @click.stop="testSeer"><PlugZap/>Tester</button>
     </template>

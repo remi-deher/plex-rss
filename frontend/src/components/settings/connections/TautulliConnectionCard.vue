@@ -1,5 +1,5 @@
 <template>
-  <SettingsCard title="Tautulli" subtitle="Historique Plex et suivi des lectures" :icon="History" :status="form.tautulli_enabled ? 'active' : 'inactive'" :collapsible="false">
+  <SettingsCard title="Tautulli" subtitle="Historique Plex et suivi des lectures" :icon="History" :status="form.tautulli_enabled ? 'active' : 'inactive'" :default-open="form.tautulli_enabled">
     <template #actions>
       <ToggleSwitch v-model="form.tautulli_enabled" :label="form.tautulli_enabled ? 'Activé' : 'Désactivé'"/>
     </template>
