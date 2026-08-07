@@ -430,6 +430,19 @@ button svg {
     transition: transform 0.2s ease;
   }
 
+  .mobile-nav-bar a span,
+  .more-nav-btn span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.1;
+    text-align: center;
+    padding: 0 2px;
+  }
+
   .mobile-nav-bar a:hover,
   .more-nav-btn:hover {
     color: #fff;

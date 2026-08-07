@@ -81,7 +81,7 @@
     </details>
   </aside>
 
-  <!-- Mobile Navigation -->
+  <!-- Mobile Navigation Bar -->
   <nav class="mobile-nav-bar mobile-only settings-mobile-nav" aria-label="Navigation Paramètres">
     <!-- Mode A: Global Overview (at root /settings) -->
     <template v-if="isGlobalOverview">
@@ -91,7 +91,7 @@
         @click="closeMoreMenu"
       >
         <ServerCog />
-        <span>Vue d’ensemble</span>
+        <span>Aperçu</span>
       </RouterLink>
       <RouterLink
         v-for="group in settingsGroups"
@@ -100,7 +100,7 @@
         @click="closeMoreMenu"
       >
         <component :is="group.items[0].icon" />
-        <span>{{ group.label }}</span>
+        <span>{{ group.label === 'Bibliothèque & acquisition' ? 'Bibliothèque' : group.label }}</span>
       </RouterLink>
     </template>
 
@@ -111,7 +111,7 @@
         @click="closeMoreMenu"
       >
         <ArrowLeft />
-        <span>Paramètres</span>
+        <span>Retour</span>
       </RouterLink>
       <RouterLink
         v-for="item in activeGroupItems"
@@ -121,7 +121,7 @@
         @click="closeMoreMenu"
       >
         <component :is="item.icon" />
-        <span>{{ item.label }}</span>
+        <span>{{ item.mobileLabel || item.label }}</span>
       </RouterLink>
     </template>
 
