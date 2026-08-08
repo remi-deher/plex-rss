@@ -298,6 +298,77 @@ async def build_media_detail(
             except Exception as exc:
                 logger.debug("Plex direct album fetch error: %s", exc)
 
+    tracks = []
+    if media_obj.media_type == "album":
+        stmt_tr = select(LibraryItem).filter(
+            LibraryItem.media_type == "track",
+            (LibraryItem.overview.ilike(f"%{media_obj.title}%") | LibraryItem.title.ilike(f"%{media_obj.title}%"))
+        )
+        track_rows = (await db.execute(stmt_tr.order_by(LibraryItem.title).limit(100))).scalars().all()
+        if track_rows:
+            tracks = [
+                {
+                    "id": item.id,
+                    "track_number": idx + 1,
+                    "title": item.title,
+                    "overview": item.overview,
+                    "year": item.year,
+                    "plex_guid": item.plex_guid,
+                }
+                for idx, item in enumerate(track_rows)
+            ]
+        else:
+            try:
+                from ..models import Settings
+                s = (await db.execute(select(Settings))).scalars().first()
+                if s and s.plex_url and s.plex_token:
+                    from .plex_finder import connect
+                    plex = connect(s.plex_url, s.plex_token)
+                    albums_found = []
+                    for section in plex.library.sections():
+                        if section.type in ("artist", "music") or getattr(section, "kind", None) == "music":
+                            albums_found.extend(section.search(title=media_obj.title, libtype="album"))
+                    
+                    if albums_found:
+                        alb = albums_found[0]
+                        for idx, t in enumerate(alb.tracks()):
+                            codec = "FLAC"
+                            bitrate = None
+                            sample_rate = None
+                            channels = None
+                            if hasattr(t, "media") and t.media:
+                                m = t.media[0]
+                                codec = (getattr(m, "audioCodec", None) or getattr(m, "container", None) or "FLAC").upper()
+                                bitrate = getattr(m, "bitrate", None)
+                                if hasattr(m, "parts") and m.parts:
+                                    p = m.parts[0]
+                                    for st in getattr(p, "streams", []):
+                                        if getattr(st, "streamType", None) == 2 or getattr(st, "type", None) == "audio":
+                                            codec = (getattr(st, "codec", None) or codec).upper()
+                                            bitrate = getattr(st, "bitrate", None) or bitrate
+                                            sample_rate = getattr(st, "samplingRate", None)
+                                            channels = getattr(st, "channels", None)
+                            
+                            dur_ms = getattr(t, "duration", 0) or 0
+                            mins = dur_ms // 60000
+                            secs = (dur_ms % 60000) // 1000
+                            dur_str = f"{mins}:{secs:02d}" if dur_ms else "--:--"
+
+                            tracks.append({
+                                "id": getattr(t, "ratingKey", idx + 1),
+                                "track_number": getattr(t, "trackNumber", idx + 1),
+                                "title": t.title,
+                                "artist": getattr(t, "grandparentTitle", None) or getattr(t, "originalTitle", None) or media_obj.title,
+                                "duration_str": dur_str,
+                                "codec": codec,
+                                "bitrate": f"{bitrate} kbps" if bitrate else None,
+                                "sample_rate": f"{round(sample_rate/1000, 1)} kHz" if sample_rate else None,
+                                "channels": f"{channels}.0" if channels else "Stereo",
+                                "plex_guid": getattr(t, "guid", None),
+                            })
+            except Exception as exc:
+                logger.debug("Plex direct tracks fetch error: %s", exc)
+
     operational = request_payloads[0] if request_payloads else (
         plex_library_projection() if library_item else {}
     )
@@ -324,4 +395,5 @@ async def build_media_detail(
         "similar": similar,
         "cast": cast,
         "albums": albums,
+        "tracks": tracks,
     }

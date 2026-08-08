@@ -97,7 +97,7 @@
           />
         </template>
 
-        <section v-if="isMusic" class="music-albums-section" style="margin-top: 1.5rem;">
+        <section v-if="detail.media_type === 'artist'" class="music-albums-section" style="margin-top: 1.5rem;">
           <h2 class="section-title" style="font-size: var(--fs-xl); margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
             Albums {{ detail.title ? 'de ' + detail.title : '' }}
           </h2>
@@ -112,6 +112,55 @@
           </div>
           <p v-else class="empty-copy" style="color: var(--muted); font-size: var(--fs-sm);">
             Aucun album répertorié pour cet artiste dans Plex.
+          </p>
+        </section>
+
+        <section v-else-if="detail.media_type === 'album'" class="album-tracks-section" style="margin-top: 1.5rem;">
+          <h2 class="section-title" style="font-size: var(--fs-xl); margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
+            Pistes de l'album {{ detail.title ? '« ' + detail.title + ' »' : '' }}
+          </h2>
+          <div v-if="albumTracks.length" class="tracks-table-wrapper">
+            <table class="tracks-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th class="col-title">Titre de la piste</th>
+                  <th class="col-artist">Artiste</th>
+                  <th class="col-duration">Durée</th>
+                  <th class="col-tech">Format & Qualité audio</th>
+                  <th class="col-action">Écoute</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="track in albumTracks" :key="track.id">
+                  <td class="col-num">{{ track.track_number || '-' }}</td>
+                  <td class="col-title">
+                    <strong>{{ track.title }}</strong>
+                  </td>
+                  <td class="col-artist">{{ track.artist || detail.title }}</td>
+                  <td class="col-duration">{{ track.duration_str || '--:--' }}</td>
+                  <td class="col-tech">
+                    <span v-if="track.codec" class="tech-badge codec-badge">{{ track.codec }}</span>
+                    <span v-if="track.bitrate" class="tech-badge">{{ track.bitrate }}</span>
+                    <span v-if="track.sample_rate" class="tech-badge hires-tag">{{ track.sample_rate }}</span>
+                  </td>
+                  <td class="col-action">
+                    <button
+                      v-if="track.plex_guid"
+                      type="button"
+                      class="track-listen-btn"
+                      title="Écouter la piste sur Plex"
+                      @click="openPlexLink(track.plex_guid)"
+                    >
+                      <Play size="13" /> Écouter
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="empty-copy" style="color: var(--muted); font-size: var(--fs-sm);">
+            Aucune piste répertoriée pour cet album dans Plex.
           </p>
         </section>
 
@@ -139,10 +188,10 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { LoaderCircle } from "@lucide/vue";
+import { LoaderCircle, Play } from "@lucide/vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "@/api";
-import { mediaDetailPath } from "@/mediaUrl";
+import { mediaDetailPath, openPlexLink } from "@/mediaUrl";
 import MediaDetailHero from "@/components/media/MediaDetailHero.vue";
 import MediaSummaryTab from "@/components/media/MediaSummaryTab.vue";
 import MediaRequestsTab from "@/components/media/MediaRequestsTab.vue";
@@ -167,6 +216,7 @@ const loading = ref(false), busy = ref(false), error = ref(''), successMessage =
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const isMusic = computed(() => ['artist', 'album', 'track'].includes(detail.value?.media_type));
 const artistAlbums = computed(() => detail.value?.albums || []);
+const albumTracks = computed(() => detail.value?.tracks || []);
 const tabs = computed(() => {
   if (isMusic.value) return [];
   return detail.value?.media_type === 'show'
@@ -434,5 +484,88 @@ onMounted(load);
   .media-detail-body :deep(.detail-row > div:first-child > small) { font-size: var(--fs-sm); line-height: 1.45; }
   .media-detail-body :deep(.detail-tabs button) { font-size: var(--fs-md); }
   .media-detail-body :deep(.badge) { font-size: var(--fs-sm); }
+}
+
+.tracks-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--surface-2);
+}
+.tracks-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--fs-sm);
+}
+.tracks-table th {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+.tracks-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  vertical-align: middle;
+}
+.tracks-table tr:last-child td {
+  border-bottom: 0;
+}
+.tracks-table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.col-num {
+  width: 48px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.col-duration {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tech-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  margin-right: 4px;
+  border-radius: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: #27272a;
+  color: #a1a1aa;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.codec-badge {
+  background: #3b82f6 !important;
+  color: #fff !important;
+  border: 0 !important;
+}
+.hires-tag {
+  background: #7e22ce !important;
+  color: #fff !important;
+  border: 0 !important;
+}
+.track-listen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+.track-listen-btn:hover {
+  background: var(--accent-hover, #e05206);
+  transform: translateY(-1px);
 }
 </style>
