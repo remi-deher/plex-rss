@@ -40,21 +40,49 @@
     </section>
 
     <section v-else-if="editorTab==='notifications'" class="drawer-section form-section">
-      <div class="settings-grid two">
-        <label class="check"><input v-model="form.notify_admin" type="checkbox"> Copier l'administrateur</label>
-        <label class="check"><input v-model="form.notify_on_request" type="checkbox"> Nouvelle demande</label>
-        <label class="check"><input v-model="form.notify_on_available" type="checkbox"> Disponibilite</label>
-        <label class="check"><input v-model="form.notify_digest" type="checkbox"> Digest</label>
-        <label class="check"><input v-model="form.notify_vf_movie" type="checkbox"> VF films</label>
-        <label class="check"><input v-model="form.notify_vf_series" type="checkbox"> VF series</label>
-        <label class="check"><input v-model="form.notify_vf_anime" type="checkbox"> VF animes</label>
-        <label>Granularite series<select v-model="form.series_notify_granularity"><option value="minimal">Finale</option><option value="jalons">Jalons</option><option value="tout">Chaque episode</option></select></label>
-        <label>Webhook Discord personnel<input v-model="form.discord_webhook_url"></label>
-        <label>Chat Telegram personnel<input v-model="form.telegram_chat_id"></label>
+      <div class="notif-group">
+        <h3><Mail/>Emails</h3>
+        <div class="settings-grid two">
+          <label class="check"><input v-model="form.notify_on_request" type="checkbox"> Nouvelle demande</label>
+          <small class="check-hint">Email envoyé à cette personne quand une de ses demandes est enregistrée.</small>
+          <label class="check"><input v-model="form.notify_on_available" type="checkbox"> Disponibilité</label>
+          <small class="check-hint">Email envoyé quand un média qu'elle a demandé devient disponible dans Plex.</small>
+          <label class="check"><input v-model="form.notify_digest" type="checkbox"> Récapitulatif quotidien (digest)</label>
+          <small class="check-hint">Reçoit un résumé une fois par jour au lieu d'un email par événement — nécessite que le digest soit activé globalement (Paramètres → Notifications → Règles).</small>
+          <label class="check"><input v-model="form.notify_admin" type="checkbox"> Copier l'administrateur</label>
+          <small class="check-hint">Ajoute l'adresse email admin en copie sur les notifications envoyées à cette personne.</small>
+        </div>
       </div>
+
+      <div class="notif-group">
+        <h3><Languages/>Disponibilité VF</h3>
+        <p class="hint">Faut-il notifier cette personne quand un média qu'elle a demandé passe en VF ? Désactivé par défaut pour les animes (VO japonaise fréquente à la sortie, pour éviter les faux positifs).</p>
+        <div class="settings-grid two">
+          <label class="check"><input v-model="form.notify_vf_movie" type="checkbox"> Films</label>
+          <label class="check"><input v-model="form.notify_vf_series" type="checkbox"> Séries</label>
+          <label class="check"><input v-model="form.notify_vf_anime" type="checkbox"> Animes</label>
+          <label>Fréquence pour les séries
+            <select v-model="form.series_notify_granularity">
+              <option value="minimal">Une seule fois, à la fin</option>
+              <option value="jalons">Début et fin de saison</option>
+              <option value="tout">Chaque épisode</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="notif-group">
+        <h3><Send/>Canaux personnels</h3>
+        <p class="hint">Optionnel — si renseigné, les notifications push de cette personne partent vers ce webhook/chat personnel plutôt que le canal Discord/Telegram global configuré dans les Paramètres.</p>
+        <div class="settings-grid two">
+          <label>Webhook Discord personnel<input v-model="form.discord_webhook_url" placeholder="https://discord.com/api/webhooks/..."></label>
+          <label>Chat ID Telegram personnel<input v-model="form.telegram_chat_id" placeholder="ex. 123456789"></label>
+        </div>
+      </div>
+
       <div class="actions">
         <button class="primary" @click="$emit('save')"><Save/>Enregistrer</button>
-        <button v-if="!creating" class="secondary" @click="$emit('test-email')"><MailCheck/>Tester l'email</button>
+        <button v-if="!creating" class="secondary" @click="$emit('test-email')" title="Envoie un email de test à l'adresse configurée pour cette personne"><MailCheck/>Tester l'email</button>
       </div>
     </section>
 
@@ -96,7 +124,7 @@
 import MetricCard from '@/components/ui/MetricCard.vue';
 import { formatDate, formatDateTime } from '@/utils/format';
 import { computed, ref, watch } from 'vue';
-import { Download, KeyRound, Link, MailCheck, Merge, RefreshCw, Save, Trash2, Unlink } from '@lucide/vue';
+import { Download, KeyRound, Languages, Link, Mail, MailCheck, Merge, RefreshCw, Save, Send, Trash2, Unlink } from '@lucide/vue';
 import DrawerShell from '@/components/DrawerShell.vue';
 
 const props = defineProps({
@@ -155,4 +183,8 @@ defineExpose({
 .password-row{display:flex;gap: var(--space-2)}
 .password-row input{flex:1;min-width:0}
 .password-section.muted{opacity:.62}
+.notif-group{display:grid;gap: var(--space-2)}
+.notif-group h3{display:flex;align-items:center;gap: var(--space-2);margin:0;font-size:var(--fs-md)}
+.notif-group h3 svg{width:16px;height:16px}
+.notif-group .hint{margin:0;color:var(--muted);font-size:var(--fs-xs)}
 </style>
