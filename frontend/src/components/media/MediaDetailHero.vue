@@ -39,7 +39,19 @@
               <dd>{{ entry.value }}</dd>
             </div>
           </dl>
-          <p class="mdh-overview">{{ detail.overview || (isMusic ? 'Aucune biographie disponible pour cet artiste.' : 'Aucun résumé disponible.') }}</p>
+          <div class="mdh-overview-wrapper">
+            <p class="mdh-overview" :class="{ clamped: !showFullOverview && isOverviewLong }">
+              {{ overviewText }}
+            </p>
+            <button
+              v-if="isOverviewLong"
+              type="button"
+              class="overview-toggle-btn"
+              @click="showFullOverview = !showFullOverview"
+            >
+              {{ showFullOverview ? 'Voir moins' : 'Plus...' }}
+            </button>
+          </div>
           <div v-if="detail.genres?.length" class="tag-row">
             <span v-for="genre in detail.genres" :key="genre" class="badge">{{ genre }}</span>
           </div>
@@ -60,7 +72,7 @@
 
 <script setup>
 import { mediaTypeLabel } from '@/utils/labels';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { ArrowLeft, ExternalLink, Film, Flag, Headphones, Music2, Star } from '@lucide/vue';
 import { formatPlexWebUrl, openPlexLink } from '@/mediaUrl';
 
@@ -74,6 +86,10 @@ const props = defineProps({
 const isMusic = computed(() => props.detail?.media_type === 'artist' || props.detail?.media_type === 'album');
 const plexWebUrl = computed(() => formatPlexWebUrl(props.detail?.plex_guid));
 defineEmits(['back', 'report-issue']);
+
+const showFullOverview = ref(false);
+const overviewText = computed(() => props.detail.overview || (isMusic.value ? 'Aucune biographie disponible pour cet artiste.' : 'Aucun résumé disponible.'));
+const isOverviewLong = computed(() => overviewText.value.length > 260);
 
 const typeLabel = computed(() => mediaTypeLabel(props.detail.media_type));
 
@@ -211,13 +227,36 @@ const releaseDates = computed(() => {
   background: #991b1b;
   color: #fff;
 }
-.mdh-overview {
+.mdh-overview-wrapper {
   max-width: 800px;
+  margin-bottom: 12px;
+}
+.mdh-overview {
   color: var(--text);
   opacity: .92;
   font-size: var(--fs-sm);
   line-height: 1.6;
-  margin-bottom: 14px;
+  margin: 0;
+}
+.mdh-overview.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.overview-toggle-btn {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0 0 0;
+  display: inline-flex;
+  align-items: center;
+}
+.overview-toggle-btn:hover {
+  text-decoration: underline;
 }
 .mdh-dates {
   display: flex;
