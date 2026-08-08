@@ -44,9 +44,7 @@ class VfCategory(str, enum.Enum):
 
     - movie  : film (bibliothèque de type « movie »)
     - series : série classique
-    - anime  : série d'une bibliothèque marquée comme animes (VO japonaise fréquente)
     """
 
     movie = "movie"
     series = "series"
-    anime = "anime"

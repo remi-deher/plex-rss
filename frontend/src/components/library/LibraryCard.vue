@@ -17,7 +17,7 @@
     <div class="card-body">
       <strong>{{ item.title }}</strong>
       <span>
-        {{ item.media_type==='show'?'Serie':'Film' }}<template v-if="item.year"> · {{ item.year }}</template>
+        {{ mediaTypeLabel(item.media_type) }}<template v-if="item.year"> · {{ item.year }}</template>
         <template v-if="item.orphan"> · Suivi {{ item.orphan_source==='sonarr'?'Sonarr':'Radarr' }}</template>
         <template v-else-if="item._kind==='request' && item.source"> · {{ item.source }}</template>
       </span>
@@ -44,6 +44,7 @@ import { RotateCcw, Search, Trash2, X } from '@lucide/vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { mediaDetailPath } from '@/mediaUrl';
+import { mediaTypeLabel } from '@/utils/labels';
 import MediaPoster from '@/components/media/MediaPoster.vue';
 import { statusLabel, statusShortLabel } from '@/components/media/mediaListHelpers';
 
@@ -95,11 +96,13 @@ function requesterLabel(item) {
 const badges = computed(() => {
   const item = props.item;
   const list = [];
-  if (item._kind === 'library') {
+  // La musique n'a pas de notion de VF (pas de piste doublee) : has_vf y reste toujours
+  // null, un badge "?" serait donc trompeur (laisserait croire a une analyse en attente).
+  if (item._kind === 'library' && item.media_type !== 'artist') {
     const label = item.has_vf === true ? 'VF' : item.has_vf === false ? 'VO' : '?';
     const variant = item.has_vf === true ? 'vf' : item.has_vf === false ? 'vo' : 'unknown';
     list.push({ key: 'langue', cls: `language-tag ${variant}`, label });
-  } else {
+  } else if (item._kind !== 'library') {
     // Libelle court en vue grille (badge epingle sur l'affiche, largeur contrainte) ;
     // libelle complet en vue liste, ou le badge est dans le corps de la carte.
     const label = props.view === 'list' ? statusLabel(item.status) : statusShortLabel(item.status);

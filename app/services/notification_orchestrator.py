@@ -254,15 +254,12 @@ def _get_recipients(user_obj, settings: Settings, event: str = "request") -> lis
 def _user_wants_vf(user_obj: PlexUser | None, vf_category: str | None) -> bool:
     """Indique si l'utilisateur souhaite les notifications VF pour ce type de média.
 
-    Défauts : films et séries activés, animes désactivés (VO japonaise fréquente
-    à la sortie → éviter les faux positifs, mais l'utilisateur peut l'activer).
+    Défauts : films et séries activés.
     """
     if not user_obj or not user_obj.enabled:
         return False
     if vf_category == "movie":
         return user_obj.notify_vf_movie is not False
-    if vf_category == "anime":
-        return user_obj.notify_vf_anime is True
     return user_obj.notify_vf_series is not False
 
 

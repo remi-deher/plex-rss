@@ -138,11 +138,14 @@ const filters = reactive({
 const charts = [
   { key: 'types', title: 'Types de médias', eyebrow: 'Catalogue', tone: 'blue', field: 'media_type' },
   { key: 'studios', title: 'Studios principaux', eyebrow: 'Origine', tone: 'accent', field: 'studio' },
+  { key: 'artists', title: 'Artistes principaux', eyebrow: 'Musique', tone: 'purple', field: 'grandparent_title' },
   { key: 'video_codecs', title: 'Codecs vidéo', eyebrow: 'Vidéo', tone: 'green', field: 'video_codec' },
   { key: 'audio_codecs', title: 'Codecs audio', eyebrow: 'Audio', tone: 'purple', field: 'audio_codec' },
   { key: 'resolutions', title: 'Résolutions', eyebrow: 'Qualité', tone: 'blue', field: 'video_resolution' },
   { key: 'containers', title: 'Conteneurs', eyebrow: 'Fichiers', tone: 'red', field: 'container' },
 ];
+
+const MEDIA_TYPE_DISTRIBUTION_LABELS = { movie: 'Films', episode: 'Épisodes', track: 'Musique' };
 
 const params = computed(() => {
   const value = new URLSearchParams();
@@ -157,8 +160,15 @@ const selectedRows = computed(() => insightItems.value);
 const selectedVisibleRows = computed(() => insightItems.value);
 
 function breakdown(key) {
+  const translate = key === 'types' ? (label => MEDIA_TYPE_DISTRIBUTION_LABELS[label] || label) : null;
   return (data.value.distributions?.[key] || []).map(item => ({
-    label: item.label, value: item.count, detail: `${item.percent} % du catalogue filtré`,
+    label: translate ? translate(item.label) : item.label,
+    // Le filtrage (insightRows, cote client) compare a la valeur brute stockee sur
+    // chaque item (row.media_type = "track", pas "Musique") : sans rawValue, cliquer un
+    // segment traduit ne matcherait plus aucune ligne.
+    rawValue: translate ? item.label : undefined,
+    value: item.count,
+    detail: `${item.percent} % du catalogue filtré`,
   }));
 }
 function selectInsight(insight) {

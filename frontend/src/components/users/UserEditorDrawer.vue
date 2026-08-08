@@ -56,11 +56,10 @@
 
       <div class="notif-group">
         <h3><Languages/>Disponibilité VF</h3>
-        <p class="hint">Faut-il notifier cette personne quand un média qu'elle a demandé passe en VF ? Désactivé par défaut pour les animes (VO japonaise fréquente à la sortie, pour éviter les faux positifs).</p>
+        <p class="hint">Faut-il notifier cette personne quand un média qu'elle a demandé passe en VF ?</p>
         <div class="settings-grid two">
           <label class="check"><input v-model="form.notify_vf_movie" type="checkbox"> Films</label>
           <label class="check"><input v-model="form.notify_vf_series" type="checkbox"> Séries</label>
-          <label class="check"><input v-model="form.notify_vf_anime" type="checkbox"> Animes</label>
           <label>Fréquence pour les séries
             <select v-model="form.series_notify_granularity">
               <option value="minimal">Une seule fois, à la fin</option>

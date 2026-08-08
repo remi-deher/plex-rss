@@ -279,8 +279,8 @@ async def list_library(
     stmt = select(LibraryItem)
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
-    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show")]
-    if media_type in ("movie", "show") and media_type not in selected_types:
+    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show", "artist")]
+    if media_type in ("movie", "show", "artist") and media_type not in selected_types:
         selected_types.append(media_type)
     if selected_types:
         stmt = stmt.filter(LibraryItem.media_type.in_(selected_types))
@@ -380,7 +380,7 @@ async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = D
 
     lib_filter = []
     req_filter = []
-    if media_type in ("movie", "show"):
+    if media_type in ("movie", "show", "artist"):
         lib_filter.append(LibraryItem.media_type == media_type)
         req_filter.append(MediaRequest.media_type == media_type)
 
@@ -389,6 +389,7 @@ async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = D
             func.count(LibraryItem.id),
             func.sum(case((LibraryItem.media_type == "movie", 1), else_=0)),
             func.sum(case((LibraryItem.media_type == "show", 1), else_=0)),
+            func.sum(case((LibraryItem.media_type == "artist", 1), else_=0)),
             func.sum(case((LibraryItem.has_vf.is_(True), 1), else_=0)),
             func.sum(case((LibraryItem.has_vf.is_(False), 1), else_=0)),
             func.sum(case((LibraryItem.has_vf.is_(None), 1), else_=0)),
@@ -430,18 +431,19 @@ async def library_metrics(media_type: Optional[str] = None, db: AsyncSession = D
     )).one()
 
     return {
-        "media_type": media_type if media_type in ("movie", "show") else "all",
+        "media_type": media_type if media_type in ("movie", "show", "artist") else "all",
         "total": lib[0] or 0,
         "by_type": {
             "movie": lib[1] or 0,
             "show": lib[2] or 0,
+            "artist": lib[3] or 0,
         },
         "vf": {
-            "complete": lib[3] or 0,
-            "pending": lib[4] or 0,
-            "unchecked": lib[5] or 0,
-            "season_partial": lib[6] or 0,
-            "episode_partial": lib[7] or 0,
+            "complete": lib[4] or 0,
+            "pending": lib[5] or 0,
+            "unchecked": lib[6] or 0,
+            "season_partial": lib[7] or 0,
+            "episode_partial": lib[8] or 0,
             "secondary_default": {
                 "media": secondary[0] or 0,
                 "episodes": secondary[1] or 0,
@@ -495,7 +497,7 @@ async def recheck_plex(
     if media.media_type == "movie":
         lib_names = [lib["name"] for lib in libs if lib["kind"] == "movie"]
     else:
-        lib_names = [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
+        lib_names = [lib["name"] for lib in libs if lib["kind"] == "series"]
 
     def _search():
         plex = connect(settings.plex_url, settings.plex_token)

@@ -10,7 +10,7 @@
         <small class="check-hint">Chaque nouvelle demande (watchlist ou manuelle) reste en attente de validation par un administrateur avant transmission a Sonarr/Radarr.</small>
       </SettingsCard>
 
-      <SettingsCard title="Analyse VF" subtitle="Detecte automatiquement la presence d'une piste VF dans les fichiers Plex, saison par saison." :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :default-open="form.vff_enabled">
+      <SettingsCard title="Analyse VF" subtitle="Detecte automatiquement la presence d'une piste VF dans les fichiers Plex (films/series), et synchronise la bibliotheque musique sans analyse VF." :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :default-open="form.vff_enabled">
         <template #actions>
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>
@@ -29,13 +29,13 @@
               <label class="check vff-lib-check">
                 <input type="checkbox" :checked="isLibrarySelected(section.name)" @change="toggleLibrary(section.name, section.type, $event.target.checked)">
                 <span class="vff-lib-name">{{ section.name }}</span>
-                <span class="badge">{{ section.type==='show'?'Serie':'Film' }}</span>
+                <span class="badge">{{ mediaTypeLabel(section.type) }}</span>
               </label>
               <div v-if="isLibrarySelected(section.name)" class="vff-lib-kind">
                 <div class="segmented small">
                   <button :class="{active: getLibraryKind(section.name)==='series'}" @click="setLibraryKind(section.name, 'series')">Serie</button>
                   <button :class="{active: getLibraryKind(section.name)==='movie'}" @click="setLibraryKind(section.name, 'movie')">Film</button>
-                  <button :class="{active: getLibraryKind(section.name)==='anime'}" @click="setLibraryKind(section.name, 'anime')">Anime</button>
+                  <button :class="{active: getLibraryKind(section.name)==='music'}" @click="setLibraryKind(section.name, 'music')">Musique</button>
                 </div>
               </div>
             </div>
@@ -58,6 +58,7 @@ import { computed, onMounted, ref } from 'vue';
 import { Languages, RefreshCw, Rss, ScanSearch } from '@lucide/vue';
 import { api } from '@/api';
 import { form } from '@/settingsForm';
+import { mediaTypeLabel } from '@/utils/labels';
 import SettingsCard from './SettingsCard.vue';
 import IntervalPresetInput from './IntervalPresetInput.vue';
 
@@ -108,7 +109,7 @@ function isLibrarySelected(name) { return vffLibraryList.value.some(x => x.name 
 function getLibraryKind(name) { return vffLibraryList.value.find(x => x.name === name)?.kind || 'series'; }
 function toggleLibrary(name, plexType, checked) {
   const list = [...vffLibraryList.value];
-  if (checked) { const defaultKind = plexType === 'show' ? 'series' : 'movie'; list.push({ name, kind: defaultKind }); }
+  if (checked) { const defaultKind = { show: 'series', artist: 'music' }[plexType] || 'movie'; list.push({ name, kind: defaultKind }); }
   else { const idx = list.findIndex(x => x.name === name); if (idx >= 0) list.splice(idx, 1); }
   vffLibraryList.value = list;
 }

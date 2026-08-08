@@ -85,13 +85,14 @@ async def _integrate_plex_items(plex_items: list[dict], arr_lookup: dict) -> int
                     arr_match = arr_lookup[("movie", "tmdb", item["tmdb_id"])]
                 elif item["imdb_id"] and ("movie", "imdb", item["imdb_id"]) in arr_lookup:
                     arr_match = arr_lookup[("movie", "imdb", item["imdb_id"])]
-            else:
+            elif item["media_type"] == "show":
                 if item["tvdb_id"] and ("show", "tvdb", item["tvdb_id"]) in arr_lookup:
                     arr_match = arr_lookup[("show", "tvdb", item["tvdb_id"])]
                 elif item["tmdb_id"] and ("show", "tmdb", item["tmdb_id"]) in arr_lookup:
                     arr_match = arr_lookup[("show", "tmdb", item["tmdb_id"])]
                 elif item["imdb_id"] and ("show", "imdb", item["imdb_id"]) in arr_lookup:
                     arr_match = arr_lookup[("show", "imdb", item["imdb_id"])]
+            # media_type == "artist" (musique) : aucun equivalent Sonarr/Radarr, jamais de match.
 
             arr_instance_id = arr_match[0] if arr_match else None
             arr_id = arr_match[1] if arr_match else None

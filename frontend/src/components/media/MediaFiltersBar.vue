@@ -19,6 +19,7 @@
       <button class="filter-pill" :class="{active:!typeFilters.length}" @click="$emit('update:typeFilters',[])">Tout</button>
       <button class="filter-pill" :class="{active:typeFilters.includes('movie')}" @click="$emit('update:typeFilters',['movie'])">Films</button>
       <button class="filter-pill" :class="{active:typeFilters.includes('show')}" @click="$emit('update:typeFilters',['show'])">Séries</button>
+      <button class="filter-pill" :class="{active:typeFilters.includes('artist')}" @click="$emit('update:typeFilters',['artist'])">Musique</button>
 
       <div class="divider"></div>
       <span class="filter-label">Statut:</span>

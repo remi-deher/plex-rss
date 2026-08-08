@@ -53,11 +53,9 @@ class PlexUser(Base):
 
     # --- VFF : notifications par type de média ---
     # Prévenir cet utilisateur quand un média devient dispo mais uniquement en VO,
-    # puis quand la VF arrive. Distinction par type pour éviter les faux positifs
-    # (ex : animes japonais en VO à leur sortie).
+    # puis quand la VF arrive.
     notify_vf_movie: Mapped[Optional[bool]] = mapped_column(default=True)
     notify_vf_series: Mapped[Optional[bool]] = mapped_column(default=True)
-    notify_vf_anime: Mapped[Optional[bool]] = mapped_column(default=False)
 
     # Surcharge par utilisateur des réglages globaux Settings.movie_notify_language /
     # series_notify_language / series_notify_granularity. None = hérite du réglage global.

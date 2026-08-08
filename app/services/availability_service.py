@@ -112,7 +112,7 @@ async def _live_plex_proof(settings: Settings, req: MediaRequest) -> bool:
     libs = _parse_vff_libraries(settings)
     if not libs:
         return False
-    kinds = ("movie",) if req.media_type == "movie" else ("series", "anime")
+    kinds = ("movie",) if req.media_type == "movie" else ("series",)
     library_names = [lib["name"] for lib in libs if lib["kind"] in kinds]
     if not library_names:
         return False

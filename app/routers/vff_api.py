@@ -63,7 +63,6 @@ async def _vf_detail_payload(db: AsyncSession, req):
     libs = _parse_vff_libraries(settings)
     vf_detected = bool(settings.vff_enabled and settings.plex_url and settings.plex_token and libs)
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
-    [lib["name"] for lib in libs if lib["kind"] in ("series", "anime")]
 
     if req.media_type == "movie":
         release_date = None
@@ -425,7 +424,7 @@ async def vff_scan_single_request(
         raise HTTPException(400, "No Plex libraries configured for VFF")
 
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
-    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] == "series"]
     known_vf = (await _load_known_vf_episodes(db, "request", [req.id])).get(req.id, {})
 
     def _scan_single_blocking():
@@ -616,7 +615,7 @@ async def library_vff_scan(
     if not libs:
         raise HTTPException(400, "No Plex libraries configured for VFF")
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
-    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] == "series"]
     known_vf = (await _load_known_vf_episodes(db, "library_item", [item.id])).get(item.id, {})
 
     def _blocking():

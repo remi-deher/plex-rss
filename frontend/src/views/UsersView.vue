@@ -44,7 +44,7 @@ const loading = ref(false), busy = ref(false), error = ref(''), editorError = re
 const tableRef = ref(null), drawerRef = ref(null);
 const { dialog: confirmDialog, askConfirm, resolveConfirm } = useConfirm();
 
-const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, notify_vf_anime: false, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, source: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
+const defaults = { plex_user_id: '', display_name: '', custom_name: '', plex_email: '', notification_email: '', enabled: true, notify_admin: true, notify_on_request: true, notify_on_available: true, notify_digest: false, notify_vf_movie: true, notify_vf_series: true, discord_webhook_url: '', telegram_chat_id: '', seer_active: null, source: null, role: 'user', can_login: true, auto_approve: false, sonarr_instance_id: null, radarr_instance_id: null, movie_notify_language: null, series_notify_language: null, series_notify_granularity: 'jalons' };
 const form = reactive({ ...defaults });
 
 const sources = computed(() => [...new Set(users.value.map(x => x.source).filter(Boolean))]);

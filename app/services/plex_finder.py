@@ -238,13 +238,14 @@ def scan_media_vf(
     """Localise un média dans Plex et détermine son statut VF (bloquant, plexapi).
 
     `show_libs` est une liste de tuples (nom_bibliothèque, kind) où kind vaut
-    "series" ou "anime", utilisée pour catégoriser le résultat.
+    "series" — les bibliothèques musique ("music") ne sont jamais scannées pour la VF,
+    voir l'exclusion faite en amont dans `vff_scanner._scan_vf_blocking`.
 
     `known_vf` (séries uniquement) : cache des épisodes déjà confirmés VF, voir
     `show_has_full_french_audio`. Ignoré pour les films.
 
     Retourne {"found": False} si le média n'est pas trouvé, sinon
-    {"found": True, "has_vf": bool, "category": "movie"|"series"|"anime"}
+    {"found": True, "has_vf": bool, "category": "movie"|"series"}
     (+ "episode_status" pour les séries, à persister dans le cache par l'appelant).
     """
     if media_type == "movie":
@@ -255,10 +256,9 @@ def scan_media_vf(
 
     item = None
     category = "series"
-    for name, kind in show_libs:
+    for name, _kind in show_libs:
         item = find_item_in_libraries(plex, [name], title, year, tmdb_id, tvdb_id, imdb_id, plex_guid=plex_guid)
         if item:
-            category = "anime" if kind == "anime" else "series"
             break
     if not item:
         return {"found": False}
@@ -290,10 +290,11 @@ def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
         elif gid.startswith("imdb://"):
             imdb_id = gid.split("imdb://")[-1]
 
+    media_type = {"series": "show", "music": "artist"}.get(lib["kind"], "movie")
     return {
         "title": m.title,
         "year": getattr(m, "year", None),
-        "media_type": "show" if lib["kind"] in ("series", "anime") else "movie",
+        "media_type": media_type,
         "plex_guid": getattr(m, "guid", None),
         "tmdb_id": tmdb_id,
         "tvdb_id": tvdb_id,

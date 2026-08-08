@@ -109,6 +109,14 @@ def _distribution(rows: list[dict], key: str, limit=12) -> list[dict]:
     ]
 
 
+def _artist_distribution(rows: list[dict], limit=12) -> list[dict]:
+    """Répartition par artiste (pistes musicales uniquement, `grandparent_title` porte
+    l'artiste pour une piste exactement comme il porte la série pour un épisode — voir
+    `parse_plex_item`). Un `_distribution` générique sur toutes les lignes mélangerait
+    les artistes avec les séries des épisodes, d'où cette fonction dédiée."""
+    return _distribution([row for row in rows if row.get("media_type") == "track"], "grandparent_title", limit)
+
+
 def apply_filters(rows: list[dict], filters: dict[str, Any]) -> list[dict]:
     search = str(filters.get("search") or "").strip().lower()
     result = []
@@ -176,6 +184,7 @@ def _build_payload(rows: list[dict], generated_at: str, filters: dict[str, Any])
             "audio_codecs": _distribution(filtered, "audio_codec"),
             "resolutions": _distribution(filtered, "video_resolution"),
             "containers": _distribution(filtered, "container"),
+            "artists": _artist_distribution(filtered),
         },
         "largest": oversized,
         "options": {

@@ -49,7 +49,7 @@
         <div v-for="entry in deletedLog" :key="entry.id" class="detail-row">
           <div>
             <strong>{{ entry.title }}</strong><br>
-            <small>{{ entry.media_type==='show'?'Serie':'Film' }} · supprime le {{ formatDate(entry.deleted_at) }}{{ entry.deleted_by ? ` par ${entry.deleted_by}` : '' }}</small>
+            <small>{{ mediaTypeLabel(entry.media_type) }} · supprime le {{ formatDate(entry.deleted_at) }}{{ entry.deleted_by ? ` par ${entry.deleted_by}` : '' }}</small>
           </div>
           <button class="secondary" :disabled="busy" @click="forgetEntry(entry.id)">Oublier</button>
         </div>
@@ -59,6 +59,7 @@
 </template>
 <script setup>
 import { formatDate } from '@/utils/format';
+import { mediaTypeLabel } from '@/utils/labels';
 import { computed, onMounted, ref } from 'vue';
 import { DatabaseZap, Download, HardDriveDownload, Search, Trash2, Upload } from '@lucide/vue';
 import { api } from '@/api';

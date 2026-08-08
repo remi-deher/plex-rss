@@ -50,9 +50,11 @@ episode_scan_state: dict[str, Any] = {
 def _parse_vff_libraries(settings: Settings) -> list[dict]:
     """Parse la config JSON des bibliothèques VFF. Retourne [] si absente/invalide.
 
-    Format : [{"name": "Films", "kind": "movie"}, {"name": "Animes", "kind": "anime"}]
-    kind ∈ {"movie", "series", "anime"} — "anime" est traité comme une section Plex
-    de type série mais catégorisé à part pour le ciblage des notifications.
+    Format : [{"name": "Films", "kind": "movie"}, {"name": "Musique", "kind": "music"}]
+    kind ∈ {"movie", "series", "music"} — "music" identifie une bibliothèque Plex de
+    type artiste : elle est synchronisée dans la bibliothèque comme les autres, mais
+    n'est jamais scannée pour la VF (aucune notion de piste doublée pour de la musique),
+    voir l'exclusion dans `_scan_vf_blocking`.
     """
     raw = getattr(settings, "vff_libraries", None)
     if not raw:
@@ -66,7 +68,7 @@ def _parse_vff_libraries(settings: Settings) -> list[dict]:
     for entry in libs if isinstance(libs, list) else []:
         name = (entry.get("name") or "").strip()
         kind = (entry.get("kind") or "").strip().lower()
-        if name and kind in ("movie", "series", "anime"):
+        if name and kind in ("movie", "series", "music"):
             out.append({"name": name, "kind": kind})
     return out
 
@@ -211,7 +213,7 @@ def _scan_vf_blocking(
         return []
 
     movie_libs = [lib["name"] for lib in libs if lib["kind"] == "movie"]
-    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] in ("series", "anime")]
+    show_libs = [(lib["name"], lib["kind"]) for lib in libs if lib["kind"] == "series"]
 
     results: list[dict] = []
     for c in candidates:
@@ -375,7 +377,7 @@ async def trigger_plex_library_refresh(
     if not settings.vff_enabled or not settings.plex_url or not settings.plex_token:
         return
     libs = _parse_vff_libraries(settings)
-    kinds = ("movie",) if media_type == "movie" else ("series", "anime")
+    kinds = ("movie",) if media_type == "movie" else ("series",)
     names = [lib["name"] for lib in libs if lib["kind"] in kinds]
     if not names:
         return

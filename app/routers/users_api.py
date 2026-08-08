@@ -46,7 +46,6 @@ class UserCreate(BaseModel):
     notify_digest: Optional[bool] = False
     notify_vf_movie: Optional[bool] = True
     notify_vf_series: Optional[bool] = True
-    notify_vf_anime: Optional[bool] = False
     discord_webhook_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     seer_active: Optional[bool] = None
@@ -73,7 +72,6 @@ class BulkNotificationUpdate(BaseModel):
     notify_digest: Optional[bool] = None
     notify_vf_movie: Optional[bool] = None
     notify_vf_series: Optional[bool] = None
-    notify_vf_anime: Optional[bool] = None
     movie_notify_language: Optional[bool] = None
     series_notify_language: Optional[bool] = None
     series_notify_granularity: Optional[str] = None
@@ -813,7 +811,6 @@ async def bulk_update_notifications(payload: BulkNotificationUpdate, db: AsyncSe
         "notify_digest",
         "notify_vf_movie",
         "notify_vf_series",
-        "notify_vf_anime",
         "movie_notify_language",
         "series_notify_language",
         "series_notify_granularity"

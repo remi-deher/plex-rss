@@ -57,7 +57,6 @@ const bulkNotifyFields = [
   { value: 'notify_admin', label: "Copie a l'administrateur" },
   { value: 'notify_vf_movie', label: 'VF films' },
   { value: 'notify_vf_series', label: 'VF series' },
-  { value: 'notify_vf_anime', label: 'VF animes' },
 ];
 const allSelected = computed(() => props.rows.length && props.rows.every(x => selectedIds.value.includes(x.id)));
 

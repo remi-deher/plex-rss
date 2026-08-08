@@ -213,7 +213,8 @@ class Settings(Base):
     # le mail générique "Disponible sur Plex" devient l'exception (forçage par utilisateur).
     vff_enabled: Mapped[bool] = mapped_column(default=True)
     # Bibliothèques Plex à inspecter, JSON: [{"name": "Films", "kind": "movie"},
-    # {"name": "Animes", "kind": "series"}]. Null → auto-détection des sections.
+    # {"name": "Séries", "kind": "series"}, {"name": "Musique", "kind": "music"}].
+    # Null → auto-détection des sections.
     vff_libraries: Mapped[Optional[str]] = mapped_column(Text)
     # Intervalle du re-scan des médias suivis en VO (minutes)
     vff_recheck_interval_minutes: Mapped[int] = mapped_column(default=360)

@@ -101,7 +101,7 @@ class MediaRequest(Base):
     # --- VFF : état de la piste française au moment de la disponibilité ---
     # None = pas encore analysé ; True = VF présente ; False = VO uniquement (suivi actif)
     has_vf: Mapped[Optional[bool]] = mapped_column(default=None, index=True)
-    # Catégorie VFF ("movie" | "series" | "anime") déterminée par la bibliothèque Plex
+    # Catégorie VFF ("movie" | "series") déterminée par la bibliothèque Plex
     vf_category: Mapped[Optional[str]] = mapped_column(default=None)
     vf_checked_at: Mapped[Optional[datetime]]
     vf_available_at: Mapped[Optional[datetime]]

@@ -35,7 +35,7 @@ const limit=computed(()=>viewport.value<=640?5:viewport.value<=1024?7:10),hasHid
 const visible=computed(()=>{if(expanded.value||!hasHidden.value)return props.items;const n=Math.max(1,limit.value-1),head=props.items.slice(0,n),tail=props.items.slice(n);return[...head,{label:'Autres',value:tail.reduce((s,x)=>s+Number(x.value||0),0),detail:`${tail.length} catégories regroupées`,grouped:true}]});
 const total=computed(()=>props.items.reduce((s,x)=>s+Number(x.value||0),0)||1),maximum=computed(()=>Math.max(1,...visible.value.map(x=>Number(x.value||0))));
 const normalized=computed(()=>visible.value.map(x=>({...x,percent:Number(x.value||0)/total.value*100,width:Math.max(x.value?4:0,Number(x.value||0)/maximum.value*100)})));
-function select(x){if(props.interactive&&!x.grouped)emit('select',x.label)}function resize(){viewport.value=window.innerWidth}
+function select(x){if(props.interactive&&!x.grouped)emit('select',x.rawValue??x.label)}function resize(){viewport.value=window.innerWidth}
 onMounted(()=>window.addEventListener('resize',resize,{passive:true}));onBeforeUnmount(()=>window.removeEventListener('resize',resize));
 </script>
 <style scoped>

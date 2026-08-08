@@ -58,14 +58,20 @@ export function requestStatusShortLabel(value, fallback) {
   return REQUEST_STATUS_SHORT_LABELS[value] || requestStatusLabel(value, fallback);
 }
 
-/** « Film » / « Série » — au singulier, pour une fiche ou une ligne de tableau. */
+/** Film / Série / Musique — types réels de `LibraryItem.media_type` (+ Plex
+ *  `section.type`, qui utilise les mêmes valeurs `movie`/`show`, plus `artist` pour la
+ *  musique). Tout le reste retombe sur « Film », comme avant l'ajout de la musique. */
+const MEDIA_TYPE_LABELS = { show: 'Série', artist: 'Musique' };
+const MEDIA_TYPE_PLURAL_LABELS = { show: 'Séries', artist: 'Musique' };
+
+/** « Film » / « Série » / « Musique » — au singulier, pour une fiche ou une ligne de tableau. */
 export function mediaTypeLabel(value) {
-  return value === 'show' ? 'Série' : 'Film';
+  return MEDIA_TYPE_LABELS[value] || 'Film';
 }
 
-/** « Films » / « Séries » — au pluriel, pour un filtre ou un en-tête de section. */
+/** « Films » / « Séries » / « Musique » — au pluriel, pour un filtre ou un en-tête de section. */
 export function mediaTypePluralLabel(value) {
-  return value === 'show' ? 'Séries' : 'Films';
+  return MEDIA_TYPE_PLURAL_LABELS[value] || 'Films';
 }
 
 export const PLAYBACK_METHOD_LABELS = {
