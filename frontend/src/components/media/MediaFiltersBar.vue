@@ -381,26 +381,55 @@ const activeFilterCount = computed(() => {
 .subnav-row {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.type-segmented button {
+.type-segmented,
+.music-sub-segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox */
+}
+
+.type-segmented::-webkit-scrollbar,
+.music-sub-segmented::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.type-segmented button,
+.music-sub-segmented button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 0 12px;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: #ffffff;
+  color: #ffffff !important;
+  white-space: nowrap;
 }
 
-.type-segmented svg {
-  width: 14px;
-  height: 14px;
-  color: #ffffff;
+.type-segmented button svg,
+.music-sub-segmented button svg,
+.type-segmented button span,
+.music-sub-segmented button span {
+  color: #ffffff !important;
 }
 
-.type-segmented button.active svg {
-  color: #ffffff;
+.type-segmented button:hover,
+.type-segmented button:focus,
+.type-segmented button:active,
+.type-segmented button.active,
+.music-sub-segmented button:hover,
+.music-sub-segmented button:focus,
+.music-sub-segmented button:active,
+.music-sub-segmented button.active {
+  color: #ffffff !important;
+}
+
+.type-segmented button.active,
+.music-sub-segmented button.active {
+  background: var(--accent);
 }
 
 .filter-modal-form {
@@ -444,6 +473,54 @@ const activeFilterCount = computed(() => {
 }
 
 .reset-btn:hover {
-  color: var(--text);
+  color: #ffffff;
+}
+
+/* ===== Responsive Mobile Adjustments ===== */
+@media (max-width: 640px) {
+  .filters-panel {
+    gap: 8px;
+  }
+
+  .search-input-container {
+    padding: 2px 4px 2px 8px;
+  }
+
+  .search-input {
+    height: 36px;
+    font-size: var(--fs-xs);
+  }
+
+  .filter-modal-trigger {
+    height: 30px;
+    padding: 0 8px;
+    font-size: 11px;
+    gap: 4px;
+  }
+
+  .type-segmented button,
+  .music-sub-segmented button {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: var(--fs-xs);
+    gap: 4px;
+  }
+
+  .type-segmented button svg,
+  .music-sub-segmented button svg {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+@media (max-width: 440px) {
+  .filter-modal-trigger span {
+    display: none;
+  }
+
+  .type-segmented button span,
+  .music-sub-segmented button span {
+    font-size: 11px;
+  }
 }
 </style>
