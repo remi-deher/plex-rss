@@ -161,4 +161,4 @@ Plexarr transforme « quelqu'un a demandé un film » en « il tourne dans la bo
 
 Le déploiement complet nécessite l'API, un worker ARQ utilisant la même image, PostgreSQL et Redis. Utilisez le fichier Compose ci-dessus, ouvrez `http://localhost:8000`, puis suivez l'assistant de première configuration.
 
-Consultez le [README GitHub](https://github.com/remi-deher/plex-rss/blob/main/README.fr.md) pour la documentation complète en français, les sauvegardes, les restaurations et la migration depuis SQLite.
+Consultez le [README GitHub](https://github.com/remi-deher/plex-rss#français) pour la documentation complète en français, les sauvegardes, les restaurations et la migration depuis SQLite.
