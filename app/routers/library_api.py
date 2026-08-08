@@ -257,30 +257,18 @@ async def list_library(
     media_types: Optional[str] = None,
     vf: Optional[str] = None,
     requesters: Optional[str] = None,
+    decade: Optional[str] = None,
+    sort: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
     db: AsyncSession = Depends(get_db_async),
 ):
-    """Return Plex library items for the SPA library browser (paginee via limit/offset).
-
-    `limit` est plafonne a 500 par appel ; le client pagine avec des appels successifs
-    en incrementant `offset` (voir LibraryView.vue) plutot que de tout charger d'un coup —
-    necessaire des que la bibliotheque depasse quelques centaines de medias.
-
-    Tous les filtres de la page sont appliques ici, en SQL. Ils l'etaient auparavant en
-    JavaScript sur la page deja chargee : au-dela du premier lot, « VF uniquement » ne
-    filtrait que les 200 premiers medias et masquait tout le reste de la bibliotheque.
-
-    `media_types` / `requesters` acceptent plusieurs valeurs separees par des virgules
-    (`media_type` reste accepte pour une valeur unique).
-    """
-    # Paginer d'abord la table principale. L'ancienne jointure + GROUP BY devait
-    # agréger toute la bibliothèque avant d'appliquer LIMIT, ce qui se dégradait vite.
+    """Return Plex library items for the SPA library browser (paginee via limit/offset)."""
     stmt = select(LibraryItem)
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
-    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show", "artist")]
-    if media_type in ("movie", "show", "artist") and media_type not in selected_types:
+    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show", "artist", "album")]
+    if media_type in ("movie", "show", "artist", "album") and media_type not in selected_types:
         selected_types.append(media_type)
     if selected_types:
         stmt = stmt.filter(LibraryItem.media_type.in_(selected_types))
@@ -290,20 +278,39 @@ async def list_library(
         stmt = stmt.filter(LibraryItem.has_vf.is_(False))
     elif vf == "unchecked":
         stmt = stmt.filter(LibraryItem.has_vf.is_(None))
+    if decade:
+        decade_map = {
+            "70s": (1970, 1979),
+            "80s": (1980, 1989),
+            "90s": (1990, 1999),
+            "2000s": (2000, 2009),
+            "2010s": (2010, 2019),
+            "2020s": (2020, 2099),
+        }
+        if decade in decade_map:
+            start_yr, end_yr = decade_map[decade]
+            stmt = stmt.filter(LibraryItem.year >= start_yr, LibraryItem.year <= end_yr)
     selected_requesters = _split_values(requesters)
     if selected_requesters:
-        # Un media Plex n'a pas de demandeur en propre : il en herite des demandes qui
-        # pointent dessus (y compris les demandeurs secondaires, voir extra_requesters
-        # cote requests_api).
         stmt = stmt.filter(
             sqlalchemy.exists().where(
                 MediaRequest.library_item_id == LibraryItem.id,
                 MediaRequest.plex_user_id.in_(selected_requesters),
             )
         )
+    order_clause = [LibraryItem.added_at.desc(), LibraryItem.title, LibraryItem.id]
+    if sort == "title_asc":
+        order_clause = [LibraryItem.title.asc(), LibraryItem.id]
+    elif sort == "title_desc":
+        order_clause = [LibraryItem.title.desc(), LibraryItem.id]
+    elif sort == "year_desc":
+        order_clause = [LibraryItem.year.desc().nulls_last(), LibraryItem.title, LibraryItem.id]
+    elif sort == "added_desc":
+        order_clause = [LibraryItem.added_at.desc().nulls_last(), LibraryItem.title, LibraryItem.id]
+
     items = (
         await db.execute(
-            stmt.order_by(LibraryItem.added_at.desc(), LibraryItem.title, LibraryItem.id)
+            stmt.order_by(*order_clause)
             .offset(max(offset, 0))
             .limit(min(limit, 500))
         )

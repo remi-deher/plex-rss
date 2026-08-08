@@ -12,7 +12,6 @@
 
       <!-- Bouton d'ouverture de la Modale de Filtres -->
       <button
-        v-if="!isMusicOnly"
         class="filter-modal-trigger"
         type="button"
         title="Ouvrir les filtres"
@@ -46,8 +45,21 @@
         <button :class="{ active: typeFilters.includes('movie') }" title="Films" type="button" @click="$emit('update:typeFilters', ['movie'])">
           <Film /><span>Films</span>
         </button>
-        <button :class="{ active: typeFilters.includes('artist') }" title="Musiques" type="button" @click="$emit('update:typeFilters', ['artist'])">
+        <button :class="{ active: isMusicOnly }" title="Musiques" type="button" @click="$emit('update:typeFilters', ['artist', 'album'])">
           <Music2 /><span>Musiques</span>
+        </button>
+      </div>
+
+      <!-- Sous-vue Musique : Artistes vs Albums -->
+      <div v-if="isMusicOnly" class="segmented music-sub-segmented">
+        <button :class="{ active: isAllMusicSelected }" type="button" @click="$emit('update:typeFilters', ['artist', 'album'])">
+          Toute la musique
+        </button>
+        <button :class="{ active: isArtistOnlySelected }" type="button" @click="$emit('update:typeFilters', ['artist'])">
+          🎤 Artistes
+        </button>
+        <button :class="{ active: isAlbumOnlySelected }" type="button" @click="$emit('update:typeFilters', ['album'])">
+          💿 Albums
         </button>
       </div>
     </div>
@@ -59,7 +71,34 @@
       subtitle="Sélectionnez vos critères puis cliquez sur Appliquer"
       @close="closeFilterModal"
     >
-      <div class="filter-modal-form">
+      <!-- Formulaire Modale pour la Musique -->
+      <div v-if="isMusicOnly" class="filter-modal-form">
+        <div class="form-group">
+          <label class="form-label" for="filter-music-sort">Ordre d'affichage</label>
+          <select id="filter-music-sort" class="form-select" v-model="draftSort">
+            <option value="">Par défaut (Ajouts récents)</option>
+            <option value="title_asc">Nom d'artiste / Titre (A-Z)</option>
+            <option value="title_desc">Nom d'artiste / Titre (Z-A)</option>
+            <option value="year_desc">Année de sortie (Récent -> Ancien)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="filter-music-decade">Époque / Décennie</label>
+          <select id="filter-music-decade" class="form-select" v-model="draftDecade">
+            <option value="">Toutes les époques</option>
+            <option value="2020s">2020 et plus</option>
+            <option value="2010s">Années 2010</option>
+            <option value="2000s">Années 2000</option>
+            <option value="90s">Années 90</option>
+            <option value="80s">Années 80</option>
+            <option value="70s">Années 70 et avant</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Formulaire Modale standard (Films / Séries / Tout) -->
+      <div v-else class="filter-modal-form">
         <!-- Statut -->
         <div class="form-group">
           <label class="form-label" for="filter-status-select">Statut</label>
@@ -135,21 +174,29 @@ const props = defineProps({
   vf: { type: String, default: '' },
   sourceFilters: { type: Array, default: () => [] },
   requesterFilters: { type: Array, default: () => [] },
+  decade: { type: String, default: '' },
+  sort: { type: String, default: '' },
   sources: { type: Array, default: () => [] },
   requesters: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
   'update:query', 'update:view', 'update:statusFilters', 'update:typeFilters', 'update:vf',
-  'update:sourceFilters', 'update:requesterFilters', 'search',
+  'update:sourceFilters', 'update:requesterFilters', 'update:decade', 'update:sort', 'search',
 ]);
 
-const isMusicOnly = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('artist'));
+const isMusicOnly = computed(() => props.typeFilters.some(t => t === 'artist' || t === 'album'));
+
+const isAllMusicSelected = computed(() => props.typeFilters.includes('artist') && props.typeFilters.includes('album'));
+const isArtistOnlySelected = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('artist'));
+const isAlbumOnlySelected = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('album'));
 
 const isModalOpen = ref(false);
 const draftStatusFilters = ref([]);
 const draftVf = ref('');
 const draftSourceFilters = ref([]);
 const draftRequesterFilters = ref([]);
+const draftDecade = ref('');
+const draftSort = ref('');
 
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
 
@@ -158,6 +205,8 @@ function openFilterModal() {
   draftVf.value = props.vf;
   draftSourceFilters.value = [...props.sourceFilters];
   draftRequesterFilters.value = [...props.requesterFilters];
+  draftDecade.value = props.decade;
+  draftSort.value = props.sort;
   isModalOpen.value = true;
 }
 
@@ -196,6 +245,8 @@ function resetDraftFilters() {
   draftVf.value = '';
   draftSourceFilters.value = [];
   draftRequesterFilters.value = [];
+  draftDecade.value = '';
+  draftSort.value = '';
 }
 
 function applyFilters() {
@@ -203,11 +254,15 @@ function applyFilters() {
   emit('update:vf', draftVf.value);
   emit('update:sourceFilters', [...draftSourceFilters.value]);
   emit('update:requesterFilters', [...draftRequesterFilters.value]);
+  emit('update:decade', draftDecade.value);
+  emit('update:sort', draftSort.value);
   closeFilterModal();
 }
 
 const activeFilterCount = computed(() => {
-  if (isMusicOnly.value) return 0;
+  if (isMusicOnly.value) {
+    return (props.decade ? 1 : 0) + (props.sort ? 1 : 0);
+  }
   return props.statusFilters.length + (props.vf ? 1 : 0)
     + props.sourceFilters.length + props.requesterFilters.length;
 });

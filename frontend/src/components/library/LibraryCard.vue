@@ -1,6 +1,6 @@
 <template>
-  <div class="media-card interactive" :class="{list:view==='list'}" role="link" tabindex="0" :aria-label="`Ouvrir la fiche de ${item.title}`" @click="handleOpen" @keydown.enter.prevent="handleOpen" @keydown.space.prevent="handleOpen">
-    <MediaPoster :poster-url="item.poster_url">
+  <div class="media-card interactive" :class="{ list: view === 'list', 'is-music': isMusic }" role="link" tabindex="0" :aria-label="`Ouvrir la fiche de ${item.title}`" @click="handleOpen" @keydown.enter.prevent="handleOpen" @keydown.space.prevent="handleOpen">
+    <MediaPoster :poster-url="item.poster_url" :is-music="isMusic">
       <template #badges>
         <!-- En vue liste, l'affiche n'est qu'une vignette de 64 px : y epingler un badge
              texte le tronque forcement (« Partiellement disponible » demande ~152 px).
@@ -60,6 +60,8 @@ const emit = defineEmits(['open', 'toggle-select', 'act', 'delete-orphan', 'erro
 const router = useRouter();
 const opening = ref(false);
 
+const isMusic = computed(() => props.item.media_type === 'artist' || props.item.media_type === 'album');
+
 // Un item "Suivi Sonarr/Radarr" n'a pas de MediaRequest ni de LibraryItem tant que
 // personne n'a ouvert sa fiche -- on le materialise a la demande (voir POST
 // .../orphans/.../open) plutot que d'en creer un pour chaque orphelin liste, jamais
@@ -96,15 +98,14 @@ function requesterLabel(item) {
 const badges = computed(() => {
   const item = props.item;
   const list = [];
-  // La musique n'a pas de notion de VF (pas de piste doublee) : has_vf y reste toujours
-  // null, un badge "?" serait donc trompeur (laisserait croire a une analyse en attente).
-  if (item._kind === 'library' && item.media_type !== 'artist') {
+  if (isMusic.value) {
+    const label = item.media_type === 'artist' ? '🎤 Artiste' : item.media_type === 'album' ? '💿 Album' : '🎵 Musique';
+    list.push({ key: 'music-type', cls: 'badge music-tag', label });
+  } else if (item._kind === 'library') {
     const label = item.has_vf === true ? 'VF' : item.has_vf === false ? 'VO' : '?';
     const variant = item.has_vf === true ? 'vf' : item.has_vf === false ? 'vo' : 'unknown';
     list.push({ key: 'langue', cls: `language-tag ${variant}`, label });
-  } else if (item._kind !== 'library') {
-    // Libelle court en vue grille (badge epingle sur l'affiche, largeur contrainte) ;
-    // libelle complet en vue liste, ou le badge est dans le corps de la carte.
+  } else {
     const label = props.view === 'list' ? statusLabel(item.status) : statusShortLabel(item.status);
     list.push({ key: 'statut', cls: `badge status-tag ${item.status}`, label });
   }
@@ -179,5 +180,30 @@ const badges = computed(() => {
   left: 8px;
   max-width: calc(100% - 16px);
   box-shadow: 0 1px 4px rgba(0, 0, 0, .5);
+}
+
+.media-card.is-music :deep(img),
+.media-card.is-music :deep(.poster-fallback) {
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+}
+
+.music-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  color: #fff;
+  background: rgba(147, 51, 234, 0.92);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.poster-shell .music-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
 }
 </style>
