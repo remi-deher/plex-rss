@@ -361,11 +361,16 @@ async def list_requests_compact(
         else:
             filters.append(MediaRequest.status.in_(status_values))
 
-    type_values = [value for value in _split(media_types) if value in ("movie", "show")]
-    if media_type in ("movie", "show") and media_type not in type_values:
-        type_values.append(media_type)
-    if type_values:
-        filters.append(MediaRequest.media_type.in_(type_values))
+    requested_types = _split(media_types)
+    if media_type and media_type not in requested_types:
+        requested_types.append(media_type)
+
+    if requested_types:
+        valid_types = [value for value in requested_types if value in ("movie", "show")]
+        if not valid_types:
+            filters.append(sqlalchemy.false())
+        else:
+            filters.append(MediaRequest.media_type.in_(valid_types))
 
     source_values = _split(sources)
     if source and source not in source_values:

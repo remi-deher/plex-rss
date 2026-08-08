@@ -291,3 +291,23 @@ def test_facets_stay_complete_despite_the_filters(async_db):
         assert sorted(entry["id"] for entry in facets["requesters"]) == ["alice", "bob"]
     finally:
         _cleanup()
+
+
+def test_requests_list_music_media_type_returns_no_requests(async_db):
+    """Lorsqu'on filtre sur la musique (artist), aucune demande (movie/show) ne doit être retournée."""
+    async_db.add_all(
+        [
+            MediaRequest(title="Film en attente", media_type="movie", plex_user_id="alice"),
+            MediaRequest(title="Série en attente", media_type="show", plex_user_id="bob"),
+        ]
+    )
+    async_db.commit()
+    client = _client(async_db)
+    try:
+        response = client.get("/api/requests-list?media_types=artist")
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+        assert response.json()["items"] == []
+    finally:
+        _cleanup()
+

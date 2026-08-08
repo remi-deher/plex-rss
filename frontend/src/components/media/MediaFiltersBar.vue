@@ -1,91 +1,131 @@
 <template>
   <div class="filters-panel">
-    <div class="filter-row">
-      <input :value="query" class="search" type="search" placeholder="Rechercher" @input="$emit('update:query',$event.target.value);$emit('search')">
-      <div class="segmented">
-        <button :class="{active:view==='grid'}" title="Grille" @click="$emit('update:view','grid')"><Grid2X2/></button>
-        <button :class="{active:view==='list'}" title="Liste" @click="$emit('update:view','list')"><List/></button>
-      </div>
-      <button class="compact-filter-toggle secondary" type="button" :aria-expanded="expanded" @click="toggleExpanded">
-        <SlidersHorizontal/>
-        <span>{{ expanded ? 'Replier' : 'Filtres' }}</span>
-        <strong v-if="activeFilterCount">{{ activeFilterCount }}</strong>
-        <ChevronUp v-if="expanded"/><ChevronDown v-else/>
+    <!-- Ligne de recherche contenant le bouton Filtres et les boutons Grille / Liste -->
+    <div class="search-input-container">
+      <input
+        :value="query"
+        class="search-input"
+        type="search"
+        placeholder="Rechercher un média..."
+        @input="$emit('update:query', $event.target.value); $emit('search')"
+      />
+
+      <!-- Bouton d'ouverture de la Modale de Filtres -->
+      <button
+        v-if="!isMusicOnly"
+        class="filter-modal-trigger"
+        type="button"
+        title="Ouvrir les filtres"
+        @click="openFilterModal"
+      >
+        <SlidersHorizontal />
+        <span>Filtres</span>
+        <strong v-if="activeFilterCount" class="filter-badge">{{ activeFilterCount }}</strong>
       </button>
+
+      <!-- Toggle Mode d'affichage (Grille / Liste) -->
+      <div class="view-toggle-segmented" role="tablist" aria-label="Mode d'affichage">
+        <button :class="{ active: view === 'grid' }" title="Grille" type="button" @click="$emit('update:view', 'grid')">
+          <Grid2X2 />
+        </button>
+        <button :class="{ active: view === 'list' }" title="Liste" type="button" @click="$emit('update:view', 'list')">
+          <List />
+        </button>
+      </div>
     </div>
 
-    <div v-show="expanded" class="filter-pills-scroll">
-      <span class="filter-label">Type:</span>
-      <button class="filter-pill" :class="{active:!typeFilters.length}" @click="$emit('update:typeFilters',[])">Tout</button>
-      <button class="filter-pill" :class="{active:typeFilters.includes('movie')}" @click="$emit('update:typeFilters',['movie'])">Films</button>
-      <button class="filter-pill" :class="{active:typeFilters.includes('show')}" @click="$emit('update:typeFilters',['show'])">Séries</button>
-      <button class="filter-pill" :class="{active:typeFilters.includes('artist')}" @click="$emit('update:typeFilters',['artist'])">Musique</button>
-
-      <div class="divider"></div>
-      <span class="filter-label">Statut:</span>
-      <button class="filter-pill" :class="{active:isInProgressFilter}" @click="$emit('update:statusFilters',IN_PROGRESS_STATUSES)">En cours</button>
-      <button class="filter-pill" :class="{active:!statusFilters.length}" @click="$emit('update:statusFilters',[])">Tout</button>
-      <div class="multi-select" :class="{open:openMenu==='status'}">
-        <button class="filter-pill dropdown-toggle" @click="toggle('status')">
-          {{ statusFilters.length && !isInProgressFilter ? statusFilters.map(statusLabel).join(', ') : 'Statuts precis' }}
-          <ChevronDown/>
+    <!-- Subnavbar de type de média (Tout / Séries / Films / Musiques) -->
+    <div class="subnav-row">
+      <div class="segmented type-segmented" role="tablist" aria-label="Type de média">
+        <button :class="{ active: !typeFilters.length }" title="Tout" type="button" @click="$emit('update:typeFilters', [])">
+          <Layers /><span>Tout</span>
         </button>
-        <div v-if="openMenu==='status'" class="multi-select-menu" @click.stop>
-          <label v-for="value in ALL_STATUSES" :key="value" class="check">
-            <input type="checkbox" :value="value" :checked="statusFilters.includes(value)" @change="toggleValue('update:statusFilters',statusFilters,value)"> {{ statusLabel(value) }}
-          </label>
-          <button v-if="statusFilters.length" class="text-button clear-selection" @click="$emit('update:statusFilters',[])">Effacer</button>
+        <button :class="{ active: typeFilters.includes('show') }" title="Séries" type="button" @click="$emit('update:typeFilters', ['show'])">
+          <Tv /><span>Séries</span>
+        </button>
+        <button :class="{ active: typeFilters.includes('movie') }" title="Films" type="button" @click="$emit('update:typeFilters', ['movie'])">
+          <Film /><span>Films</span>
+        </button>
+        <button :class="{ active: typeFilters.includes('artist') }" title="Musiques" type="button" @click="$emit('update:typeFilters', ['artist'])">
+          <Music2 /><span>Musiques</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Modale de gestion des filtres -->
+    <ModalShell
+      v-if="isModalOpen"
+      title="Filtres de recherche"
+      subtitle="Sélectionnez vos critères puis cliquez sur Appliquer"
+      @close="closeFilterModal"
+    >
+      <div class="filter-modal-form">
+        <!-- Statut -->
+        <div class="form-group">
+          <label class="form-label" for="filter-status-select">Statut</label>
+          <select id="filter-status-select" class="form-select" :value="draftStatusSingle" @change="onDraftStatusChange">
+            <option value="">Tous les statuts</option>
+            <option value="in_progress">En cours</option>
+            <option value="library">Dans Plex</option>
+            <option value="orphan">Suivi Sonarr/Radarr</option>
+            <option value="pending_approval">À approuver</option>
+            <option value="pending">En attente</option>
+            <option value="sent_to_arr">Transmise</option>
+            <option value="partially_available">Partiellement disponible</option>
+            <option value="failed">Échec</option>
+            <option value="rejected">Refusée</option>
+          </select>
+        </div>
+
+        <!-- Audio -->
+        <div class="form-group">
+          <label class="form-label" for="filter-audio-select">Piste Audio</label>
+          <select id="filter-audio-select" class="form-select" v-model="draftVf">
+            <option value="">Toutes les langues</option>
+            <option value="vf">VF uniquement</option>
+            <option value="vo">VO uniquement</option>
+            <option value="unchecked">Non analysée</option>
+          </select>
+        </div>
+
+        <!-- Source -->
+        <div v-if="sources.length" class="form-group">
+          <label class="form-label" for="filter-source-select">Source</label>
+          <select id="filter-source-select" class="form-select" :value="draftSourceFilters[0] || ''" @change="onDraftSourceChange">
+            <option value="">Toutes les sources</option>
+            <option v-for="s in sources" :key="s" :value="s">{{ s }}</option>
+          </select>
+        </div>
+
+        <!-- Demandeur -->
+        <div v-if="requesters.length > 1" class="form-group">
+          <label class="form-label" for="filter-requester-select">Demandeur</label>
+          <select id="filter-requester-select" class="form-select" :value="draftRequesterFilters[0] || ''" @change="onDraftRequesterChange">
+            <option value="">Tous les demandeurs</option>
+            <option v-for="r in requesters" :key="r.id" :value="r.id">{{ r.label }}</option>
+          </select>
         </div>
       </div>
 
-      <div class="divider"></div>
-      <span class="filter-label">Audio:</span>
-      <button class="filter-pill" :class="{active:vf===''}" @click="$emit('update:vf','')">Toutes</button>
-      <button class="filter-pill" :class="{active:vf==='vf'}" @click="$emit('update:vf','vf')">VF</button>
-      <button class="filter-pill" :class="{active:vf==='vo'}" @click="$emit('update:vf','vo')">VO</button>
-      <button class="filter-pill" :class="{active:vf==='unchecked'}" @click="$emit('update:vf','unchecked')">Non analysée</button>
-
-      <template v-if="sources.length">
-        <div class="divider"></div>
-        <span class="filter-label">Source:</span>
-        <div class="multi-select" :class="{open:openMenu==='source'}">
-          <button class="filter-pill dropdown-toggle" @click="toggle('source')">
-            {{ sourceFilters.length ? sourceFilters.join(', ') : 'Toutes les sources' }}
-            <ChevronDown/>
-          </button>
-          <div v-if="openMenu==='source'" class="multi-select-menu" @click.stop>
-            <label v-for="value in sources" :key="value" class="check">
-              <input type="checkbox" :value="value" :checked="sourceFilters.includes(value)" @change="toggleValue('update:sourceFilters',sourceFilters,value)"> {{ value }}
-            </label>
-            <button v-if="sourceFilters.length" class="text-button clear-selection" @click="$emit('update:sourceFilters',[])">Effacer</button>
-          </div>
-        </div>
+      <template #actions>
+        <button class="text-button reset-btn" type="button" @click="resetDraftFilters">
+          Réinitialiser
+        </button>
+        <button class="secondary" type="button" @click="closeFilterModal">
+          Annuler
+        </button>
+        <button class="primary" type="button" @click="applyFilters">
+          Appliquer
+        </button>
       </template>
-
-      <template v-if="requesters.length > 1">
-        <div class="divider"></div>
-        <span class="filter-label">Demandeur:</span>
-        <div class="multi-select" :class="{open:openMenu==='requester'}">
-          <button class="filter-pill dropdown-toggle" @click="toggle('requester')">
-            {{ requesterFilters.length ? requesterLabels : 'Tous les demandeurs' }}
-            <ChevronDown/>
-          </button>
-          <div v-if="openMenu==='requester'" class="multi-select-menu" @click.stop>
-            <label v-for="r in requesters" :key="r.id" class="check">
-              <input type="checkbox" :value="r.id" :checked="requesterFilters.includes(r.id)" @change="toggleValue('update:requesterFilters',requesterFilters,r.id)"> {{ r.label }}
-            </label>
-            <button v-if="requesterFilters.length" class="text-button clear-selection" @click="$emit('update:requesterFilters',[])">Effacer</button>
-          </div>
-        </div>
-      </template>
-    </div>
+    </ModalShell>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { ChevronDown, ChevronUp, Grid2X2, List, SlidersHorizontal } from '@lucide/vue';
-import { STATUSES, statusLabel } from './mediaListHelpers';
+import { computed, ref } from 'vue';
+import { Film, Grid2X2, Layers, List, Music2, SlidersHorizontal, Tv } from '@lucide/vue';
+import ModalShell from '@/components/ui/ModalShell.vue';
 
 const props = defineProps({
   query: { type: String, default: '' },
@@ -103,49 +143,252 @@ const emit = defineEmits([
   'update:sourceFilters', 'update:requesterFilters', 'search',
 ]);
 
-// 'available' n'est plus selectionnable ici : une demande "disponible" est desormais
-// classee sous 'library' (voir LibraryView.vue matchesStatusFilter) meme sans
-// LibraryItem -- la garder ici l'aurait rendue selectionnable mais toujours vide.
-const ALL_STATUSES = ['library', ...STATUSES.filter(s => s !== 'available'), 'orphan'];
+const isMusicOnly = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('artist'));
+
+const isModalOpen = ref(false);
+const draftStatusFilters = ref([]);
+const draftVf = ref('');
+const draftSourceFilters = ref([]);
+const draftRequesterFilters = ref([]);
+
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
-const isInProgressFilter = computed(() => {
-  const current = [...props.statusFilters].sort();
-  return current.length === IN_PROGRESS_STATUSES.length
-    && current.every((v, i) => v === [...IN_PROGRESS_STATUSES].sort()[i]);
-});
-const activeFilterCount = computed(() =>
-  props.statusFilters.length + props.typeFilters.length + (props.vf ? 1 : 0)
-  + props.sourceFilters.length + props.requesterFilters.length
-);
 
-const openMenu = ref(null);
-const expanded = ref(true);
-function toggle(name) { openMenu.value = openMenu.value === name ? null : name; }
-function toggleExpanded() {
-  expanded.value = !expanded.value;
-  if (!expanded.value) openMenu.value = null;
-  localStorage.setItem('library.filtersExpanded', String(expanded.value));
+function openFilterModal() {
+  draftStatusFilters.value = [...props.statusFilters];
+  draftVf.value = props.vf;
+  draftSourceFilters.value = [...props.sourceFilters];
+  draftRequesterFilters.value = [...props.requesterFilters];
+  isModalOpen.value = true;
 }
-function handleOutsideClick(event) { if (!event.target.closest('.multi-select')) openMenu.value = null; }
-onMounted(() => {
-  const saved = localStorage.getItem('library.filtersExpanded');
-  expanded.value = saved === null ? !window.matchMedia('(max-width:640px)').matches : saved === 'true';
-  document.addEventListener('click', handleOutsideClick);
-});
-onUnmounted(() => document.removeEventListener('click', handleOutsideClick));
 
-const requesterLabels = computed(() => {
-  const byId = new Map(props.requesters.map(r => [r.id, r.label]));
-  return props.requesterFilters.map(id => byId.get(id) || id).join(', ');
-});
-
-function toggleValue(event, list, value) {
-  const next = list.includes(value) ? list.filter(x => x !== value) : [...list, value];
-  emit(event, next);
+function closeFilterModal() {
+  isModalOpen.value = false;
 }
+
+const draftStatusSingle = computed(() => {
+  const current = [...draftStatusFilters.value].sort();
+  const inProgressSorted = [...IN_PROGRESS_STATUSES].sort();
+  const isInProgress = current.length === inProgressSorted.length && current.every((v, i) => v === inProgressSorted[i]);
+  if (isInProgress) return 'in_progress';
+  if (!draftStatusFilters.value.length) return '';
+  return draftStatusFilters.value[0] || '';
+});
+
+function onDraftStatusChange(e) {
+  const val = e.target.value;
+  if (!val) draftStatusFilters.value = [];
+  else if (val === 'in_progress') draftStatusFilters.value = [...IN_PROGRESS_STATUSES];
+  else draftStatusFilters.value = [val];
+}
+
+function onDraftSourceChange(e) {
+  const val = e.target.value;
+  draftSourceFilters.value = val ? [val] : [];
+}
+
+function onDraftRequesterChange(e) {
+  const val = e.target.value;
+  draftRequesterFilters.value = val ? [val] : [];
+}
+
+function resetDraftFilters() {
+  draftStatusFilters.value = [];
+  draftVf.value = '';
+  draftSourceFilters.value = [];
+  draftRequesterFilters.value = [];
+}
+
+function applyFilters() {
+  emit('update:statusFilters', [...draftStatusFilters.value]);
+  emit('update:vf', draftVf.value);
+  emit('update:sourceFilters', [...draftSourceFilters.value]);
+  emit('update:requesterFilters', [...draftRequesterFilters.value]);
+  closeFilterModal();
+}
+
+const activeFilterCount = computed(() => {
+  if (isMusicOnly.value) return 0;
+  return props.statusFilters.length + (props.vf ? 1 : 0)
+    + props.sourceFilters.length + props.requesterFilters.length;
+});
 </script>
 
 <style scoped>
-.compact-filter-toggle{display:inline-flex;align-items:center;gap: var(--space-2);flex:none;min-height:38px;padding:0 10px}.compact-filter-toggle svg{width:15px;height:15px}.compact-filter-toggle strong{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:var(--radius-pill);background:var(--accent);color:#17130a;font-size:var(--fs-xs)}.compact-filter-toggle span{font-size:var(--fs-sm)}
-@media(max-width:640px){.filter-row{display:flex}.filter-row .search{flex:1 0 100%;width:100%;min-width:0}.filter-row .segmented{margin-right:auto}.compact-filter-toggle{margin-left:auto;min-height:44px}.filter-pills-scroll{max-height:44px}.filters-panel:has(.filter-pills-scroll[style*="display: none"]){padding-bottom:10px}}
+.filters-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-input-container {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 3px 4px 3px 12px;
+  transition: border-color 0.2s ease;
+}
+
+.search-input-container:focus-within {
+  border-color: var(--accent);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  outline: none;
+}
+
+.filter-modal-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-modal-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.filter-modal-trigger svg {
+  width: 14px;
+  height: 14px;
+}
+
+.filter-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #17130a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.view-toggle-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.view-toggle-segmented button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-xs, 4px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-toggle-segmented button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.view-toggle-segmented button:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view-toggle-segmented button.active {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.subnav-row {
+  display: flex;
+  align-items: center;
+}
+
+.type-segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.type-segmented svg {
+  width: 14px;
+  height: 14px;
+  color: #ffffff;
+}
+
+.type-segmented button.active svg {
+  color: #ffffff;
+}
+
+.filter-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  padding: var(--space-3, 12px) 0;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 6px);
+}
+
+.form-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.form-select {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: #ffffff;
+  font-size: var(--fs-sm);
+  outline: none;
+}
+
+.form-select:focus {
+  border-color: var(--accent);
+}
+
+.reset-btn {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+
+.reset-btn:hover {
+  color: var(--text);
+}
 </style>

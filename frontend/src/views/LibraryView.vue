@@ -9,10 +9,6 @@
         </button>
     </PageHeader>
 
-    <MetricGrid aria-label="Résumé de la bibliothèque">
-      <MetricCard v-for="entry in metrics" :key="entry.label" :label="entry.label" :value="entry.value" :detail="entry.sub"/>
-    </MetricGrid>
-
     <div class="sticky-stack">
       <MediaFiltersBar
         v-model:query="query"
@@ -68,11 +64,9 @@
 </template>
 
 <script setup>
-import MetricCard from '@/components/ui/MetricCard.vue';
-import MetricGrid from '@/components/ui/MetricGrid.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { CheckCheck, RefreshCw, RotateCcw, Trash2, X } from '@lucide/vue';
+import { CheckCheck, Film, Layers, Music2, RefreshCw, RotateCcw, Trash2, Tv, X } from '@lucide/vue';
 import { mediaDetailPath } from '@/mediaUrl';
 import { proxyUrl } from '@/utils/mediaImage';
 import { api } from '@/api';
@@ -201,31 +195,11 @@ function matchesOrphanFilters(item) {
   return true;
 }
 
-const filtered = computed(() => items.value.filter(item => !item.orphan || matchesOrphanFilters(item)));
-
-const libraryItems = computed(() => items.value.filter(x => x._kind === 'library'));
-// Demandes "disponibles" ou "partiellement disponibles" sans LibraryItem affiche (son
-// LibraryItem existe mais est exclu du calcul ci-dessus, voir le filtrage de `items` plus
-// haut) : comptent comme "Dans Plex" pour les metriques aussi, pas comme "En cours"
-// (voir matchesStatusFilter).
-const availableUnsynced = computed(() => items.value.filter(x => x._kind === 'request' && !x.orphan && (x.status === 'available' || x.status === 'partially_available')));
-
-// Toutes les demandes (tous statuts confondus, cote arr) -- Radarr gere les films,
-// Sonarr les series, d'ou la repartition par media_type plutot qu'un champ "source"
-// dedie (source designe l'origine de la demande : Overseerr, formulaire, etc.).
-const requestsByArrCount = computed(() => {
-  const movies = requestSummary.value.facets?.by_type?.movie || 0;
-  const shows = requestSummary.value.facets?.by_type?.show || 0;
-  return { movies, shows };
-});
-
-const metrics = computed(() => [
-  { label: 'Demandes', value: requestsByArrCount.value.movies + requestsByArrCount.value.shows, sub: `${requestsByArrCount.value.movies} Radarr / ${requestsByArrCount.value.shows} Sonarr` },
-  { label: 'Dans Plex', value: (rawMetrics.value.total ?? libraryItems.value.length) + availableUnsynced.value.length },
-  { label: 'En cours', value: items.value.length - libraryItems.value.length - availableUnsynced.value.length },
-  { label: 'En VO', value: rawMetrics.value.vf?.missing ?? libraryItems.value.filter(x => x.has_vf === false).length },
-  { label: 'En VF', value: rawMetrics.value.vf?.complete ?? libraryItems.value.filter(x => x.has_vf === true).length }
-]);
+const filtered = computed(() => items.value.filter(item => {
+  if (typeFilters.value.length && !typeFilters.value.includes(item.media_type)) return false;
+  if (item.orphan) return matchesOrphanFilters(item);
+  return true;
+}));
 
 function toggleSelect(id) {
   selectedIds.value = selectedIds.value.includes(id) ? selectedIds.value.filter(x => x !== id) : [...selectedIds.value, id];

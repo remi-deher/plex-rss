@@ -1,0 +1,1 @@
+import{o as a,M as i}from"./index-Cgb9JRzI.js";function s(n,r,{whenVisible:o=!0,immediate:u=!1}={}){let e;function t(){o&&document.hidden||n()}return a(()=>{u&&t(),e=setInterval(t,r)}),i(()=>clearInterval(e)),{stop:()=>clearInterval(e)}}export{s as u};
