@@ -249,24 +249,54 @@ async def build_media_detail(
 
     albums = []
     if media_obj.media_type in ("artist", "album"):
-        album_rows = (await db.execute(
-            select(LibraryItem)
-            .filter(LibraryItem.media_type == "album")
-            .order_by(LibraryItem.year.desc().nulls_last(), LibraryItem.title)
-            .limit(50)
-        )).scalars().all()
-        albums = [
-            {
-                "id": item.id,
-                "_kind": "library",
-                "title": item.title,
-                "year": item.year,
-                "media_type": item.media_type,
-                "poster_url": wrap_image_proxy(item.poster_url),
-                "overview": item.overview,
-            }
-            for item in album_rows
-        ]
+        stmt = select(LibraryItem).filter(
+            LibraryItem.media_type == "album",
+            (LibraryItem.overview.ilike(f"%{media_obj.title}%") | LibraryItem.title.ilike(f"%{media_obj.title}%"))
+        )
+        album_rows = (await db.execute(stmt.order_by(LibraryItem.year.desc().nulls_last()).limit(50))).scalars().all()
+        if not album_rows:
+            album_rows = (await db.execute(
+                select(LibraryItem).filter(LibraryItem.media_type == "album").order_by(LibraryItem.year.desc().nulls_last()).limit(50)
+            )).scalars().all()
+
+        if album_rows:
+            albums = [
+                {
+                    "id": item.id,
+                    "_kind": "library",
+                    "title": item.title,
+                    "year": item.year,
+                    "media_type": item.media_type,
+                    "poster_url": wrap_image_proxy(item.poster_url),
+                    "overview": item.overview,
+                }
+                for item in album_rows
+            ]
+        else:
+            try:
+                from ..models import Settings
+                s = (await db.execute(select(Settings))).scalars().first()
+                if s and s.plex_url and s.plex_token:
+                    from .plex_finder import connect
+                    plex = connect(s.plex_url, s.plex_token)
+                    for section in plex.library.sections():
+                        if section.type in ("artist", "music") or getattr(section, "kind", None) == "music":
+                            for artist in section.search(title=media_obj.title, libtype="artist"):
+                                for alb in artist.albums():
+                                    albums.append({
+                                        "id": getattr(alb, "ratingKey", hash(alb.title)),
+                                        "_kind": "library",
+                                        "title": alb.title,
+                                        "year": getattr(alb, "year", None),
+                                        "media_type": "album",
+                                        "poster_url": wrap_image_proxy(
+                                            f"{s.plex_url.rstrip('/')}{alb.thumb}?X-Plex-Token={s.plex_token}"
+                                            if getattr(alb, "thumb", None) else None
+                                        ),
+                                        "overview": getattr(alb, "summary", None),
+                                    })
+            except Exception as exc:
+                logger.debug("Plex direct album fetch error: %s", exc)
 
     operational = request_payloads[0] if request_payloads else (
         plex_library_projection() if library_item else {}

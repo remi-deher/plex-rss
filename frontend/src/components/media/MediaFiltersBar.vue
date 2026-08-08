@@ -56,10 +56,10 @@
           Toute la musique
         </button>
         <button :class="{ active: isArtistOnlySelected }" type="button" @click="$emit('update:typeFilters', ['artist'])">
-          🎤 Artistes
+          Artistes
         </button>
         <button :class="{ active: isAlbumOnlySelected }" type="button" @click="$emit('update:typeFilters', ['album'])">
-          💿 Albums
+          Albums
         </button>
       </div>
     </div>

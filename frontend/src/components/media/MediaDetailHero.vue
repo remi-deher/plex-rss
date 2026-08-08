@@ -15,7 +15,7 @@
           <span class="eyebrow">{{ typeLabel }}</span>
           <h1>{{ detail.title }}</h1>
           <div class="mdh-badges">
-            <span v-if="isMusic" class="badge music-badge">{{ detail.media_type === 'artist' ? '🎤 Artiste' : '💿 Album' }}</span>
+            <span v-if="isMusic" class="badge music-badge">{{ detail.media_type === 'artist' ? 'Artiste' : 'Album' }}</span>
             <span v-if="detail.year" class="badge">{{ detail.year }}</span>
             <span v-if="detail.vote" class="badge"><Star size="14" />{{ detail.vote }}</span>
             <span v-if="statusLabel && !isMusic" class="badge" :class="statusClass">{{ statusLabel }}</span>

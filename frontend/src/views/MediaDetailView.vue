@@ -99,7 +99,7 @@
 
         <section v-if="isMusic" class="music-albums-section" style="margin-top: 1.5rem;">
           <h2 class="section-title" style="font-size: var(--fs-xl); margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
-            💿 Albums {{ detail.title ? 'de ' + detail.title : '' }}
+            Albums {{ detail.title ? 'de ' + detail.title : '' }}
           </h2>
           <div v-if="artistAlbums.length" class="media-grid">
             <LibraryCard

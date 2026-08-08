@@ -273,11 +273,7 @@ def scan_media_vf(
 
 
 def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
-    """Convertit un item plexapi (Movie/Show) en dict structuré pour l'integration en base.
-
-    Partagee par le scan complet et le scan incremental ("recemment ajoutes") : meme
-    forme de sortie consommee par `_integrate_plex_items`, quelle que soit la source.
-    """
+    """Convertit un item plexapi (Movie/Show/Artist/Album) en dict structuré pour l'intégration en base."""
     tmdb_id = None
     tvdb_id = None
     imdb_id = None
@@ -290,7 +286,19 @@ def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
         elif gid.startswith("imdb://"):
             imdb_id = gid.split("imdb://")[-1]
 
-    media_type = {"series": "show", "music": "artist"}.get(lib["kind"], "movie")
+    m_type = getattr(m, "type", None)
+    if m_type == "artist":
+        media_type = "artist"
+    elif m_type == "album":
+        media_type = "album"
+    else:
+        media_type = {"series": "show", "music": "artist"}.get(lib.get("kind"), "movie")
+
+    overview = getattr(m, "summary", None) or ""
+    parent_title = getattr(m, "parentTitle", None) or getattr(m, "grandparentTitle", None)
+    if parent_title and media_type == "album" and parent_title not in overview:
+        overview = f"Artiste: {parent_title}\n{overview}".strip()
+
     return {
         "title": m.title,
         "year": getattr(m, "year", None),
@@ -302,16 +310,13 @@ def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
         "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}"
         if getattr(m, "thumb", None)
         else None,
-        "overview": getattr(m, "summary", None),
+        "overview": overview or None,
         "added_at": getattr(m, "addedAt", None),
     }
 
 
 def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict]) -> list[dict]:
-    """Récupère l'intégralité des médias présents dans les bibliothèques Plex spécifiées.
-
-    Retourne une liste de dictionnaires structurés.
-    """
+    """Récupère l'intégralité des médias présents dans les bibliothèques Plex spécifiées."""
     try:
         plex = connect(plex_url, plex_token)
     except Exception as exc:
@@ -322,7 +327,12 @@ def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict])
     for lib in libs:
         try:
             section = plex.library.section(lib["name"])
-            all_media = section.all()
+            all_media = list(section.all())
+            if lib.get("kind") == "music" and hasattr(section, "albums"):
+                try:
+                    all_media.extend(section.albums())
+                except Exception as alb_exc:
+                    logger.warning(f"VFF sync : erreur lecture albums pour '{lib['name']}' : {alb_exc}")
             for m in all_media:
                 try:
                     items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))
@@ -335,20 +345,7 @@ def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict])
 
 
 def sync_plex_library_recent_blocking(plex_url: str, plex_token: str, libs: list[dict], since) -> list[dict]:
-    """Recupere uniquement les medias ajoutes a Plex depuis `since` (scan incremental).
-
-    Utilise le filtre avance `filters={"addedAt>>": since}` de plexapi (traduit
-    serveur-side en epoch, voir LibrarySection._validateFieldValueDate) plutot que
-    `section.all()` : cout quasi nul meme sur une grosse bibliotheque, pense pour
-    tourner toutes les quelques minutes (voir sync_plex_media_recent) au lieu
-    d'attendre le scan complet quotidien -- meme principe que le "Recently Added Scan"
-    de Seer/Overseerr.
-
-    Note : la forme kwarg `addedAt__gte=...` existe aussi cote plexapi mais declenche
-    un filtrage cote client qui compare la valeur brute renvoyee par Plex (str) a notre
-    datetime Python et leve une TypeError -- `filters={"addedAt>>": ...}` est la seule
-    forme qui passe par la conversion epoch serveur.
-    """
+    """Recupere uniquement les medias ajoutes a Plex depuis `since` (scan incremental)."""
     try:
         plex = connect(plex_url, plex_token)
     except Exception as exc:
@@ -359,7 +356,12 @@ def sync_plex_library_recent_blocking(plex_url: str, plex_token: str, libs: list
     for lib in libs:
         try:
             section = plex.library.section(lib["name"])
-            recent_media = section.search(filters={"addedAt>>": since})
+            recent_media = list(section.search(filters={"addedAt>>": since}))
+            if lib.get("kind") == "music" and hasattr(section, "albums"):
+                try:
+                    recent_media.extend(section.albums(filters={"addedAt>>": since}))
+                except Exception:
+                    pass
             for m in recent_media:
                 try:
                     items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))

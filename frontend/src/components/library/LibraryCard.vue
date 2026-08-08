@@ -99,7 +99,7 @@ const badges = computed(() => {
   const item = props.item;
   const list = [];
   if (isMusic.value) {
-    const label = item.media_type === 'artist' ? '🎤 Artiste' : item.media_type === 'album' ? '💿 Album' : '🎵 Musique';
+    const label = item.media_type === 'artist' ? 'Artiste' : item.media_type === 'album' ? 'Album' : 'Musique';
     list.push({ key: 'music-type', cls: 'badge music-tag', label });
   } else if (item._kind === 'library') {
     const label = item.has_vf === true ? 'VF' : item.has_vf === false ? 'VO' : '?';
