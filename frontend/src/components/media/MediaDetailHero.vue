@@ -3,7 +3,7 @@
     <div class="mdh-scrim"></div>
     <div class="mdh-content">
       <button class="mdh-back icon-button" title="Retour" aria-label="Retour" @click="$emit('back')"><ArrowLeft /></button>
-      <div class="mdh-row">
+      <div class="mdh-row" :class="{ 'is-music': isMusic }">
         <div class="mdh-poster" :class="{ 'is-music': isMusic }">
           <img v-if="detail.poster_url" :src="detail.poster_url" alt="" decoding="async">
           <div v-else class="mdh-poster-fallback">
@@ -19,7 +19,7 @@
             <span v-if="detail.year" class="badge">{{ detail.year }}</span>
             <span v-if="detail.vote" class="badge"><Star size="14" />{{ detail.vote }}</span>
             <span v-if="statusLabel && !isMusic" class="badge" :class="statusClass">{{ statusLabel }}</span>
-            <span v-if="detail.origin_label" class="badge origin-badge">{{ detail.origin_label }}</span>
+            <span v-if="detail.origin_label && !isMusic" class="badge origin-badge">{{ detail.origin_label }}</span>
             <template v-if="!isMusic">
               <template v-if="detail.vf_granularity === 'partial'">
                 <span class="badge warning">VF Partiel</span>
@@ -33,7 +33,7 @@
             </template>
           </div>
           <p v-if="detail.waiting_reason && !isMusic" class="mdh-waiting">{{ detail.waiting_reason }}</p>
-          <dl v-if="releaseDates.length" class="mdh-dates">
+          <dl v-if="releaseDates.length && !isMusic" class="mdh-dates">
             <div v-for="entry in releaseDates" :key="entry.label">
               <dt>{{ entry.label }}</dt>
               <dd>{{ entry.value }}</dd>
@@ -47,8 +47,8 @@
             <button v-if="plexWebUrl" type="button" class="primary-button mdh-listen-btn" @click="openPlexLink(detail?.plex_guid)">
               <Headphones size="16" /> Écouter sur Plex
             </button>
-            <a v-if="detail.imdb_id" :href="`https://www.imdb.com/title/${detail.imdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> IMDb</a>
-            <a v-if="detail.tmdb_id" :href="`https://www.themoviedb.org/${detail.media_type === 'show' ? 'tv' : 'movie'}/${detail.tmdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> TMDB</a>
+            <a v-if="detail.imdb_id && !isMusic" :href="`https://www.imdb.com/title/${detail.imdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> IMDb</a>
+            <a v-if="detail.tmdb_id && !isMusic" :href="`https://www.themoviedb.org/${detail.media_type === 'show' ? 'tv' : 'movie'}/${detail.tmdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> TMDB</a>
             <a v-if="admin && detail.arr_url && !isMusic" :href="detail.arr_url" target="_blank" class="badge available mdh-link"><ExternalLink size="14" /> {{ detail.media_type === 'movie' ? 'Radarr' : 'Sonarr' }}</a>
             <button v-if="!isMusic" class="badge danger mdh-link" @click="$emit('report-issue')"><Flag size="14" /> Signaler un problème</button>
           </div>
@@ -134,6 +134,9 @@ const releaseDates = computed(() => {
   gap: var(--space-5);
   align-items: flex-end;
 }
+.mdh-row.is-music {
+  align-items: flex-start;
+}
 .mdh-poster {
   flex: 0 0 180px;
   width: 180px;
@@ -144,7 +147,12 @@ const releaseDates = computed(() => {
   background: var(--surface-2);
 }
 .mdh-poster.is-music {
+  flex: 0 0 220px;
+  width: 220px;
+  height: 220px;
   aspect-ratio: 1 / 1;
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 16px 40px rgba(0,0,0,.6);
 }
 .mdh-poster img {
   width: 100%;
@@ -174,7 +182,7 @@ const releaseDates = computed(() => {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .mdh-badges > .badge {
   min-height: 28px;
@@ -204,10 +212,12 @@ const releaseDates = computed(() => {
   color: #fff;
 }
 .mdh-overview {
-  max-width: 760px;
+  max-width: 800px;
   color: var(--text);
-  opacity: .9;
-  margin-bottom: 10px;
+  opacity: .92;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  margin-bottom: 14px;
 }
 .mdh-dates {
   display: flex;
@@ -250,7 +260,7 @@ const releaseDates = computed(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-top: 12px;
+  margin-top: 14px;
 }
 .mdh-link {
   text-decoration: none;
@@ -266,7 +276,7 @@ const releaseDates = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 8px 18px;
   border-radius: var(--radius-md);
   background: var(--accent);
   color: #fff;
@@ -300,6 +310,7 @@ const releaseDates = computed(() => {
   }
   .mdh-poster.is-music {
     width: 180px;
+    height: 180px;
   }
   .mdh-badges,
   .mdh-links,

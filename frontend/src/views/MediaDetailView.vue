@@ -97,27 +97,36 @@
           />
         </template>
 
-        <MediaSummaryTab
-          v-else-if="isMusic"
-          :detail="detail"
-          :busy="busy"
-          :show-issue-form="false"
-          :show-correction-form="false"
-          :users="users"
-          :correction-options="[]"
-          :correction-form="correctionForm"
-        />
+        <section v-if="isMusic" class="music-albums-section" style="margin-top: 1.5rem;">
+          <h2 class="section-title" style="font-size: var(--fs-xl); margin-bottom: 1rem; display: flex; align-items: center; gap: 8px;">
+            💿 Albums {{ detail.title ? 'de ' + detail.title : '' }}
+          </h2>
+          <div v-if="artistAlbums.length" class="media-grid">
+            <LibraryCard
+              v-for="album in artistAlbums"
+              :key="`album-${album.id}`"
+              :item="album"
+              view="grid"
+              @open="openDetail"
+            />
+          </div>
+          <p v-else class="empty-copy" style="color: var(--muted); font-size: var(--fs-sm);">
+            Aucun album répertorié pour cet artiste dans Plex.
+          </p>
+        </section>
 
-        <MediaCast v-if="detail.cast?.length" :items="detail.cast" />
+        <MediaCast v-if="detail.cast?.length && !isMusic" :items="detail.cast" />
 
         <MediaSaga v-if="detail.saga && !isMusic" :saga="detail.saga" />
 
         <MediaRecommendations
+          v-if="!isMusic"
           title="Recommandés pour vous"
           :items="detail.recommendations || []"
           @open="item => router.push(relatedMediaPath(item))"
         />
         <MediaRecommendations
+          v-if="!isMusic"
           title="Titres similaires"
           :items="detail.similar || []"
           @open="item => router.push(relatedMediaPath(item))"
@@ -143,6 +152,7 @@ import MediaRequestForm from "@/components/media/MediaRequestForm.vue";
 import MediaRecommendations from "@/components/media/MediaRecommendations.vue";
 import MediaCast from "@/components/media/MediaCast.vue";
 import MediaSaga from "@/components/media/MediaSaga.vue";
+import LibraryCard from "@/components/library/LibraryCard.vue";
 import ConfirmModal from "@/components/ConfirmModal.vue";
 import { useConfirm } from "@/composables/useConfirm";
 import { canModerateSession, loadSession } from "@/composables/useSession";
@@ -156,6 +166,7 @@ const detail = ref(null), requesters = ref([]), folders = ref([]);
 const loading = ref(false), busy = ref(false), error = ref(''), successMessage = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
 const isMusic = computed(() => detail.value?.media_type === 'artist' || detail.value?.media_type === 'album');
+const artistAlbums = computed(() => detail.value?.albums || []);
 const tabs = computed(() => {
   if (isMusic.value) return [];
   return detail.value?.media_type === 'show'
