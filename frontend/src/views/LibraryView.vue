@@ -106,6 +106,7 @@ watch(loadMoreSentinel, (el) => {
 });
 
 function openDetail(item) {
+  sessionStorage.setItem('library.scroll_position', String(window.scrollY));
   router.push(mediaDetailPath(item, item._kind));
 }
 
@@ -145,24 +146,28 @@ const items = computed(() => {
 });
 
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
-const query = ref(route.query.query || '');
-// Filtre par defaut = "Dans Plex" (pas "Tout") a l'arrivee sur la page : Bibliotheque
-// doit d'abord montrer ce qui est reellement regardable, pas le melange complet avec
-// les demandes en cours/orphelins. Un lien externe avec ?status=xxx (dashboard) garde
-// son comportement d'origine.
+const savedFilters = JSON.parse(sessionStorage.getItem('library.active_filters') || '{}');
+
+const query = ref(route.query.query || savedFilters.query || '');
 const statusFilters = ref(
-  route.query.status ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status]) : ['library']
+  route.query.status
+    ? (Array.isArray(route.query.status) ? route.query.status : [route.query.status])
+    : (savedFilters.statusFilters || ['library'])
 );
-const typeFilters = ref(route.query.type ? (Array.isArray(route.query.type) ? route.query.type : [route.query.type]) : []);
-const vf = ref('');
-const sourceFilters = ref([]);
-const requesterFilters = ref([]);
-const decade = ref('');
-const sort = ref('');
-const genre = ref('');
-const audioFormat = ref('');
-const releaseType = ref('');
-const hiRes = ref('');
+const typeFilters = ref(
+  route.query.type
+    ? (Array.isArray(route.query.type) ? route.query.type : [route.query.type])
+    : (savedFilters.typeFilters || [])
+);
+const vf = ref(route.query.vf || savedFilters.vf || '');
+const sourceFilters = ref(savedFilters.sourceFilters || []);
+const requesterFilters = ref(savedFilters.requesterFilters || []);
+const decade = ref(route.query.decade || savedFilters.decade || '');
+const sort = ref(route.query.sort || savedFilters.sort || '');
+const genre = ref(route.query.genre || savedFilters.genre || '');
+const audioFormat = ref(route.query.audio_format || savedFilters.audioFormat || '');
+const releaseType = ref(route.query.release_type || savedFilters.releaseType || '');
+const hiRes = ref(route.query.hi_res || savedFilters.hiRes || '');
 const view = ref(localStorage.getItem('library.view') || 'grid');
 
 const loading = ref(false);
@@ -231,7 +236,27 @@ watch(
 // `vf` fait partie de la liste depuis que le filtre est applique en SQL : tant qu'il ne
 // servait qu'au filtrage client, le changer suffisait a recalculer `filtered` sans
 // rechargement -- ce n'est plus le cas.
-watch([statusFilters, typeFilters, sourceFilters, requesterFilters, vf, decade, sort, genre, audioFormat, releaseType, hiRes], () => load(), { deep: true });
+watch(
+  [statusFilters, typeFilters, sourceFilters, requesterFilters, vf, decade, sort, genre, audioFormat, releaseType, hiRes],
+  () => {
+    sessionStorage.setItem('library.active_filters', JSON.stringify({
+      query: query.value,
+      statusFilters: statusFilters.value,
+      typeFilters: typeFilters.value,
+      vf: vf.value,
+      sourceFilters: sourceFilters.value,
+      requesterFilters: requesterFilters.value,
+      decade: decade.value,
+      sort: sort.value,
+      genre: genre.value,
+      audioFormat: audioFormat.value,
+      releaseType: releaseType.value,
+      hiRes: hiRes.value,
+    }));
+    load();
+  },
+  { deep: true },
+);
 
 // La frappe au clavier abandonne la requete en cours avant d'armer le delai : inutile de
 // laisser courir une recherche que l'utilisateur est deja en train de reformuler.
@@ -375,6 +400,13 @@ async function load() {
     // Ecrit une fois les deux vagues arrivees : le cache represente ainsi une page
     // complete, jamais un etat intermediaire sans demandes ni orphelins.
     if (libraryPage) writeCache(_cacheKey(), { library: libraryPage, requests, stats, orphans: orphanRows });
+    const savedScroll = sessionStorage.getItem('library.scroll_position');
+    if (savedScroll) {
+      setTimeout(() => {
+        window.scrollTo(0, Number(savedScroll));
+        sessionStorage.removeItem('library.scroll_position');
+      }, 100);
+    }
   } catch (e) {
     if (!request.isAbort(e) && isCurrent()) error.value = e.message;
   }
