@@ -12,10 +12,16 @@
     <section class="panel form-section span-two">
       <h2>Evenements et canaux</h2>
       <p class="hint">Choisis, pour chaque type d'evenement, quels canaux doivent envoyer une notification. Un canal doit d'abord etre active dans l'onglet Canaux pour que sa case ici ait un effet.</p>
+      <dl class="event-legend">
+        <div v-for="event in notificationEvents" :key="event.key">
+          <dt>{{ event.label }}</dt>
+          <dd>{{ event.description }}</dd>
+        </div>
+      </dl>
       <div class="event-matrix">
         <div></div><strong>Email</strong><strong>Discord</strong><strong>Telegram</strong><strong>ntfy</strong><strong>Gotify</strong>
         <template v-for="event in notificationEvents" :key="event.key">
-          <strong>{{ event.label }}</strong>
+          <strong :title="event.description">{{ event.label }}</strong>
           <label class="check"><input v-model="form[`email_on_${event.key}`]" type="checkbox"></label>
           <label v-for="channel in channels" :key="channel.key" class="check"><input v-model="form[`${channel.key}_send_${event.key}`]" type="checkbox"></label>
         </template>
@@ -24,7 +30,9 @@
       <small class="check-hint">Notifie separement quand un media deja disponible en VO recoit sa VF, en plus de la notification de disponibilite initiale.</small>
       <div class="settings-grid two">
         <label class="check"><input v-model="form.movie_notify_language" type="checkbox"> Distinguer VO/VF pour les films</label>
+        <small class="check-hint">Actif : un film disponible d'abord en VO puis mis a jour en VF declenche deux notifications separees. Desactive : une seule notification generique "disponible", sans distinction de langue.</small>
         <label class="check"><input v-model="form.series_notify_language" type="checkbox"> Distinguer VO/VF pour les series</label>
+        <small class="check-hint">Actif : les jalons VO/VF d'une serie suivent la granularite choisie ci-dessous. Desactive : suivi de disponibilite classique, sans notification liee a la langue.</small>
         <label>Granularite series
           <select v-model="form.series_notify_granularity">
             <option value="minimal">Serie complete</option>
@@ -50,5 +58,24 @@ const channels = [
   { key: 'ntfy', label: 'ntfy', icon: Bell },
   { key: 'gotify', label: 'Gotify', icon: Megaphone },
 ];
-const notificationEvents = [{ key: 'request', label: 'Nouvelle demande' }, { key: 'available', label: 'Disponibilite' }, { key: 'failure', label: 'Echec' }];
+// Descriptions alignees sur app/services/notification_catalog.py (source de verite
+// utilisee aussi par l'editeur de modeles d'email) pour ne pas raconter une autre
+// histoire que celle des emails reellement envoyes.
+const notificationEvents = [
+  { key: 'request', label: 'Nouvelle demande', description: 'Confirmation envoyee quand une demande est enregistree.' },
+  { key: 'available', label: 'Disponibilite', description: "Un media (ou un episode/une saison suivie) est disponible sur Plex — VO, VF, amelioration VO→VF, ou jalon de serie, selon le contexte." },
+  { key: 'failure', label: 'Echec', description: "La demande n'a pas pu etre transmise a Sonarr ou Radarr." },
+];
 </script>
+<style scoped>
+.event-legend {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: var(--space-1) var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 0 0 var(--space-2);
+}
+.event-legend > div { display: flex; flex-direction: column; gap: 2px; }
+.event-legend dt { font-weight: 600; font-size: var(--fs-sm); }
+.event-legend dd { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.4; }
+</style>
