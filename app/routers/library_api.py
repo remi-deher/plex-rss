@@ -259,6 +259,10 @@ async def list_library(
     requesters: Optional[str] = None,
     decade: Optional[str] = None,
     sort: Optional[str] = None,
+    genre: Optional[str] = None,
+    audio_format: Optional[str] = None,
+    release_type: Optional[str] = None,
+    hi_res: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
     db: AsyncSession = Depends(get_db_async),
@@ -290,6 +294,16 @@ async def list_library(
         if decade in decade_map:
             start_yr, end_yr = decade_map[decade]
             stmt = stmt.filter(LibraryItem.year >= start_yr, LibraryItem.year <= end_yr)
+    if genre:
+        stmt = stmt.filter(LibraryItem.overview.ilike(f"%{genre.strip()}%") | LibraryItem.title.ilike(f"%{genre.strip()}%"))
+    if audio_format:
+        stmt = stmt.filter(LibraryItem.overview.ilike(f"%{audio_format.strip()}%") | LibraryItem.title.ilike(f"%{audio_format.strip()}%"))
+    if release_type:
+        stmt = stmt.filter(LibraryItem.overview.ilike(f"%{release_type.strip()}%") | LibraryItem.title.ilike(f"%{release_type.strip()}%"))
+    if hi_res == "hi_res":
+        stmt = stmt.filter(LibraryItem.overview.ilike("%24-bit%") | LibraryItem.overview.ilike("%hi-res%") | LibraryItem.overview.ilike("%flac%"))
+    elif hi_res == "standard":
+        stmt = stmt.filter(~LibraryItem.overview.ilike("%24-bit%"))
     selected_requesters = _split_values(requesters)
     if selected_requesters:
         stmt = stmt.filter(

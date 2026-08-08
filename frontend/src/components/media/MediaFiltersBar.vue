@@ -87,6 +87,56 @@
         </div>
 
         <div class="form-group">
+          <label class="form-label" for="filter-music-genre">Genre musical</label>
+          <select id="filter-music-genre" class="form-select" v-model="draftGenre">
+            <option value="">Tous les genres</option>
+            <option value="Rock">Rock</option>
+            <option value="Pop">Pop</option>
+            <option value="Jazz">Jazz</option>
+            <option value="Electronic">Électronique / Synth</option>
+            <option value="Hip-Hop">Hip-Hop / Rap</option>
+            <option value="Metal">Metal / Hard Rock</option>
+            <option value="Classical">Classique</option>
+            <option value="Blues">Blues / Soul / R&B</option>
+            <option value="Folk">Folk / Country</option>
+            <option value="Indie">Indie / Alternative</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="filter-music-format">Format Audio</label>
+          <select id="filter-music-format" class="form-select" v-model="draftAudioFormat">
+            <option value="">Tous les formats</option>
+            <option value="FLAC">FLAC (Lossless)</option>
+            <option value="ALAC">ALAC (Apple Lossless)</option>
+            <option value="WAV">WAV (Non compressé)</option>
+            <option value="MP3">MP3</option>
+            <option value="AAC">AAC / M4A</option>
+            <option value="OGG">OGG / Vorbis</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="filter-music-release">Type de sortie</label>
+          <select id="filter-music-release" class="form-select" v-model="draftReleaseType">
+            <option value="">Tous les types</option>
+            <option value="album">Album Studio</option>
+            <option value="single">Single / EP</option>
+            <option value="live">Concert / Live</option>
+            <option value="compilation">Compilation</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="filter-music-hires">Qualité Audio / Définition</label>
+          <select id="filter-music-hires" class="form-select" v-model="draftHiRes">
+            <option value="">Toutes les qualités</option>
+            <option value="hi_res">Hi-Res Audio (24-bit / 96kHz+)</option>
+            <option value="standard">Qualité CD Standard (16-bit / 44.1kHz)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
           <label class="form-label" for="filter-music-decade">Époque / Décennie</label>
           <select id="filter-music-decade" class="form-select" v-model="draftDecade">
             <option value="">Toutes les époques</option>
@@ -179,12 +229,17 @@ const props = defineProps({
   requesterFilters: { type: Array, default: () => [] },
   decade: { type: String, default: '' },
   sort: { type: String, default: '' },
+  genre: { type: String, default: '' },
+  audioFormat: { type: String, default: '' },
+  releaseType: { type: String, default: '' },
+  hiRes: { type: String, default: '' },
   sources: { type: Array, default: () => [] },
   requesters: { type: Array, default: () => [] },
 });
 const emit = defineEmits([
   'update:query', 'update:view', 'update:statusFilters', 'update:typeFilters', 'update:vf',
-  'update:sourceFilters', 'update:requesterFilters', 'update:decade', 'update:sort', 'search',
+  'update:sourceFilters', 'update:requesterFilters', 'update:decade', 'update:sort',
+  'update:genre', 'update:audioFormat', 'update:releaseType', 'update:hiRes', 'search',
 ]);
 
 const isMusicOnly = computed(() => props.typeFilters.some(t => ['artist', 'album', 'track'].includes(t)));
@@ -201,6 +256,10 @@ const draftSourceFilters = ref([]);
 const draftRequesterFilters = ref([]);
 const draftDecade = ref('');
 const draftSort = ref('');
+const draftGenre = ref('');
+const draftAudioFormat = ref('');
+const draftReleaseType = ref('');
+const draftHiRes = ref('');
 
 const IN_PROGRESS_STATUSES = ['pending_approval', 'pending', 'sent_to_arr', 'partially_available'];
 
@@ -211,6 +270,10 @@ function openFilterModal() {
   draftRequesterFilters.value = [...props.requesterFilters];
   draftDecade.value = props.decade;
   draftSort.value = props.sort;
+  draftGenre.value = props.genre;
+  draftAudioFormat.value = props.audioFormat;
+  draftReleaseType.value = props.releaseType;
+  draftHiRes.value = props.hiRes;
   isModalOpen.value = true;
 }
 
@@ -251,6 +314,10 @@ function resetDraftFilters() {
   draftRequesterFilters.value = [];
   draftDecade.value = '';
   draftSort.value = '';
+  draftGenre.value = '';
+  draftAudioFormat.value = '';
+  draftReleaseType.value = '';
+  draftHiRes.value = '';
 }
 
 function applyFilters() {
@@ -260,12 +327,17 @@ function applyFilters() {
   emit('update:requesterFilters', [...draftRequesterFilters.value]);
   emit('update:decade', draftDecade.value);
   emit('update:sort', draftSort.value);
+  emit('update:genre', draftGenre.value);
+  emit('update:audioFormat', draftAudioFormat.value);
+  emit('update:releaseType', draftReleaseType.value);
+  emit('update:hiRes', draftHiRes.value);
   closeFilterModal();
 }
 
 const activeFilterCount = computed(() => {
   if (isMusicOnly.value) {
-    return (props.decade ? 1 : 0) + (props.sort ? 1 : 0);
+    return (props.decade ? 1 : 0) + (props.sort ? 1 : 0) + (props.genre ? 1 : 0)
+      + (props.audioFormat ? 1 : 0) + (props.releaseType ? 1 : 0) + (props.hiRes ? 1 : 0);
   }
   return props.statusFilters.length + (props.vf ? 1 : 0)
     + props.sourceFilters.length + props.requesterFilters.length;

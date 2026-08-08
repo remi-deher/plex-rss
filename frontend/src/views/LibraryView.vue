@@ -20,6 +20,10 @@
         v-model:requester-filters="requesterFilters"
         v-model:decade="decade"
         v-model:sort="sort"
+        v-model:genre="genre"
+        v-model:audio-format="audioFormat"
+        v-model:release-type="releaseType"
+        v-model:hi-res="hiRes"
         :sources="sources"
         :requesters="requesters"
         @search="onSearch"
@@ -155,6 +159,10 @@ const sourceFilters = ref([]);
 const requesterFilters = ref([]);
 const decade = ref('');
 const sort = ref('');
+const genre = ref('');
+const audioFormat = ref('');
+const releaseType = ref('');
+const hiRes = ref('');
 const view = ref(localStorage.getItem('library.view') || 'grid');
 
 const loading = ref(false);
@@ -223,7 +231,7 @@ watch(
 // `vf` fait partie de la liste depuis que le filtre est applique en SQL : tant qu'il ne
 // servait qu'au filtrage client, le changer suffisait a recalculer `filtered` sans
 // rechargement -- ce n'est plus le cas.
-watch([statusFilters, typeFilters, sourceFilters, requesterFilters, vf, decade, sort], () => load(), { deep: true });
+watch([statusFilters, typeFilters, sourceFilters, requesterFilters, vf, decade, sort, genre, audioFormat, releaseType, hiRes], () => load(), { deep: true });
 
 // La frappe au clavier abandonne la requete en cours avant d'armer le delai : inutile de
 // laisser courir une recherche que l'utilisateur est deja en train de reformuler.
@@ -241,6 +249,10 @@ function _libraryParams(offset) {
   if (requesterFilters.value.length) p.set('requesters', requesterFilters.value.join(','));
   if (decade.value) p.set('decade', decade.value);
   if (sort.value) p.set('sort', sort.value);
+  if (genre.value) p.set('genre', genre.value);
+  if (audioFormat.value) p.set('audio_format', audioFormat.value);
+  if (releaseType.value) p.set('release_type', releaseType.value);
+  if (hiRes.value) p.set('hi_res', hiRes.value);
   p.set('limit', PAGE_SIZE);
   p.set('offset', offset);
   return p;
