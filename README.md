@@ -30,6 +30,7 @@ Overseerr et Jellyseerr sont excellents à l'entrée : ils laissent les gens dem
 | | Plexarr | Gestionnaire de demandes classique |
 |---|---|---|
 | Sources de demandes | Watchlist Plex (API + RSS), interface, API, Overseerr/Jellyseerr | Interface, API |
+| Watchlists des amis | Flux RSS Universal Watchlist (Plex Pass) — agrège les watchlists de tous tes amis sans qu'ils aient besoin de se connecter à Plexarr | Chaque utilisateur doit se connecter au moins une fois pour lier sa watchlist |
 | Suivi après approbation | Téléchargement → import → disponibilité Plex → analyse des pistes audio | Envoie à Sonarr/Radarr, s'arrête généralement là |
 | Détection d'import bloqué | Oui — signale « téléchargé mais jamais importé » après deux contrôles consécutifs | Non |
 | Suivi de langue/doublage | Par saison, par épisode : VO, VF, VF secondaire, couverture partielle | Non |
@@ -37,6 +38,8 @@ Overseerr et Jellyseerr sont excellents à l'entrée : ils laissent les gens dem
 | Déploiement | Docker Compose : API + worker + PostgreSQL + Redis | Variable |
 
 Si tu utilises déjà Overseerr/Jellyseerr pour l'interface de demande et que tu veux juste le suivi acquisition → disponibilité, l'entrée propre de Plexarr (API/interface/watchlist) permet aussi de l'utiliser seul — l'intégration Seerr est optionnelle, pas obligatoire.
+
+L'agrégation par flux RSS mérite une précision : c'est une fonctionnalité **Plex Pass** (Universal Watchlist), configurée une seule fois par l'admin via l'URL RSS de son compte Plex. Elle expose ensuite les watchlists de tous ses amis Plex sans qu'aucun d'eux n'ait à se connecter à Plexarr ni à générer de token — contrairement à Overseerr/Jellyseerr, où chaque utilisateur doit s'authentifier au moins une fois pour que son compte soit reconnu.
 
 ### Captures d'écran
 
@@ -58,6 +61,7 @@ Si tu utilises déjà Overseerr/Jellyseerr pour l'interface de demande et que tu
 
 #### Demandes et orchestration
 - Entrées depuis la **Watchlist Plex API**, un flux **RSS Plex**, l'API Plexarr, l'interface Découvrir ou **Overseerr/Jellyseerr**.
+- Flux RSS **Universal Watchlist** (Plex Pass) : surveille les watchlists de tous tes amis Plex d'un coup, sans qu'ils aient besoin de se connecter à Plexarr.
 - Routage direct vers plusieurs instances **Sonarr** et **Radarr**.
 - Approbation facultative, co-demandeurs et historique de la provenance.
 - Recherche de releases via Prowlarr et ajout direct à un client compatible.
@@ -483,6 +487,7 @@ Overseerr and Jellyseerr are great at the front door: they let people request me
 | | Plexarr | Typical request manager |
 |---|---|---|
 | Intake sources | Plex Watchlist (API + RSS), UI, API, Overseerr/Jellyseerr | UI, API |
+| Friends' watchlists | Universal Watchlist RSS feed (Plex Pass) — aggregates every friend's watchlist without any of them ever signing into Plexarr | Each user has to sign in at least once to link their watchlist |
 | Post-approval tracking | Download → import → Plex availability → audio-track analysis | Sends to Sonarr/Radarr, mostly stops there |
 | Stuck-import detection | Yes — flags "downloaded but never imported" after two consecutive checks | No |
 | Language/dub tracking | Per season, per episode: original, dub, secondary dub, partial coverage | No |
@@ -490,6 +495,8 @@ Overseerr and Jellyseerr are great at the front door: they let people request me
 | Deployment | Docker Compose: API + worker + PostgreSQL + Redis | Varies |
 
 If you already run Overseerr/Jellyseerr for the request UI and just want the acquisition-to-availability tracking, Plexarr's own API/UI/watchlist intake means you can also run it standalone — Seerr integration is optional, not required.
+
+The RSS aggregation deserves a callout: it's a **Plex Pass** feature (Universal Watchlist), set up once by the admin via their Plex account's RSS URL. It then exposes every Plex friend's watchlist without any of them signing into Plexarr or generating a token — unlike Overseerr/Jellyseerr, where each user has to authenticate at least once before their account is recognized.
 
 ### Screenshots
 
@@ -511,6 +518,7 @@ If you already run Overseerr/Jellyseerr for the request UI and just want the acq
 
 #### Requests & routing
 - Intake from **Plex Watchlist API**, a **Plex RSS** feed, the Plexarr API, the Discover UI, or **Overseerr/Jellyseerr**.
+- **Universal Watchlist** RSS feed (Plex Pass): watches every Plex friend's watchlist at once, with no sign-in required from any of them.
 - Routes to multiple **Sonarr** and **Radarr** instances.
 - Optional admin approval, co-requesters, and full provenance history.
 - Release search via Prowlarr with direct push to a compatible download client.

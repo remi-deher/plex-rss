@@ -16,9 +16,11 @@ It receives requests from Plex watchlists, RSS, its own API, Seerr, or its respo
 
 Those tools are great at the request front door and largely stop once Sonarr/Radarr picks the request up. Plexarr stays involved for the whole trip: stuck-import detection, confirmed Plex availability, and per-episode audio-track (VF/VO) tracking before anyone gets notified. It has its own request intake (UI/API/watchlist), so Seerr integration is optional, not required.
 
+It also supports Plex's **Universal Watchlist** RSS feed (Plex Pass): one admin-configured URL aggregates every friend's watchlist, so nobody has to sign into Plexarr or generate a token just to get their requests picked up — unlike Overseerr/Jellyseerr, which need each user to authenticate at least once.
+
 ## Highlights
 
-- Plex API and RSS watchlist ingestion with fallback.
+- Plex API and RSS watchlist ingestion with fallback, including Plex Pass's Universal Watchlist (friends' watchlists, no per-user sign-in).
 - Multiple Sonarr/Radarr instances and optional approval.
 - Complete-series, selected-season and single-episode workflows.
 - Import-block detection (flagged only after two consecutive checks) and manual matching tools.
