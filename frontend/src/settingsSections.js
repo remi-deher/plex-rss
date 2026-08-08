@@ -18,7 +18,7 @@ export const settingsSections = [
   { key: 'overview', label: 'Vue d’ensemble', mobileLabel: 'Aperçu', group: '', icon: ServerCog },
 
   { key: 'plex', label: 'Plex & Bibliothèque', mobileLabel: 'Plex', group: 'Services', icon: Tv },
-  { key: 'services', label: 'Services', mobileLabel: 'Services', group: 'Services', icon: Plug },
+  { key: 'services', label: 'Intégrations', mobileLabel: 'Intégrations', group: 'Services', icon: Plug },
   { key: 'webhooks', label: 'Webhooks & API', mobileLabel: 'Webhooks', group: 'Services', icon: Link },
 
   { key: 'downloads', label: 'Téléchargements', mobileLabel: 'Downloads', group: 'Bibliothèque & acquisition', icon: Download },
