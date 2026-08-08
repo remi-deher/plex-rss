@@ -273,7 +273,7 @@ def scan_media_vf(
 
 
 def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
-    """Convertit un item plexapi (Movie/Show/Artist/Album) en dict structuré pour l'intégration en base."""
+    """Convertit un item plexapi (Movie/Show/Artist/Album/Track) en dict structuré pour l'intégration en base."""
     tmdb_id = None
     tvdb_id = None
     imdb_id = None
@@ -291,13 +291,17 @@ def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
         media_type = "artist"
     elif m_type == "album":
         media_type = "album"
+    elif m_type == "track":
+        media_type = "track"
     else:
         media_type = {"series": "show", "music": "artist"}.get(lib.get("kind"), "movie")
 
     overview = getattr(m, "summary", None) or ""
     parent_title = getattr(m, "parentTitle", None) or getattr(m, "grandparentTitle", None)
-    if parent_title and media_type == "album" and parent_title not in overview:
-        overview = f"Artiste: {parent_title}\n{overview}".strip()
+    if parent_title and media_type in ("album", "track") and parent_title not in overview:
+        overview = f"Artiste / Album: {parent_title}\n{overview}".strip()
+
+    thumb = getattr(m, "thumb", None) or getattr(m, "grandparentThumb", None)
 
     return {
         "title": m.title,
@@ -307,8 +311,8 @@ def _plex_item_to_dict(m, lib: dict, plex_url: str, plex_token: str) -> dict:
         "tmdb_id": tmdb_id,
         "tvdb_id": tvdb_id,
         "imdb_id": imdb_id,
-        "poster_url": f"{plex_url.rstrip('/')}{m.thumb}?X-Plex-Token={plex_token}"
-        if getattr(m, "thumb", None)
+        "poster_url": f"{plex_url.rstrip('/')}{thumb}?X-Plex-Token={plex_token}"
+        if thumb
         else None,
         "overview": overview or None,
         "added_at": getattr(m, "addedAt", None),
@@ -328,11 +332,17 @@ def sync_plex_library_blocking(plex_url: str, plex_token: str, libs: list[dict])
         try:
             section = plex.library.section(lib["name"])
             all_media = list(section.all())
-            if lib.get("kind") == "music" and hasattr(section, "albums"):
-                try:
-                    all_media.extend(section.albums())
-                except Exception as alb_exc:
-                    logger.warning(f"VFF sync : erreur lecture albums pour '{lib['name']}' : {alb_exc}")
+            if lib.get("kind") == "music":
+                if hasattr(section, "albums"):
+                    try:
+                        all_media.extend(section.albums())
+                    except Exception as alb_exc:
+                        logger.warning(f"VFF sync : erreur lecture albums pour '{lib['name']}' : {alb_exc}")
+                if hasattr(section, "tracks"):
+                    try:
+                        all_media.extend(section.tracks())
+                    except Exception as trk_exc:
+                        logger.warning(f"VFF sync : erreur lecture pistes pour '{lib['name']}' : {trk_exc}")
             for m in all_media:
                 try:
                     items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))
@@ -357,11 +367,17 @@ def sync_plex_library_recent_blocking(plex_url: str, plex_token: str, libs: list
         try:
             section = plex.library.section(lib["name"])
             recent_media = list(section.search(filters={"addedAt>>": since}))
-            if lib.get("kind") == "music" and hasattr(section, "albums"):
-                try:
-                    recent_media.extend(section.albums(filters={"addedAt>>": since}))
-                except Exception:
-                    pass
+            if lib.get("kind") == "music":
+                if hasattr(section, "albums"):
+                    try:
+                        recent_media.extend(section.albums(filters={"addedAt>>": since}))
+                    except Exception:
+                        pass
+                if hasattr(section, "tracks"):
+                    try:
+                        recent_media.extend(section.tracks(filters={"addedAt>>": since}))
+                    except Exception:
+                        pass
             for m in recent_media:
                 try:
                     items.append(_plex_item_to_dict(m, lib, plex_url, plex_token))

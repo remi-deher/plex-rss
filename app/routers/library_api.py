@@ -267,8 +267,8 @@ async def list_library(
     stmt = select(LibraryItem)
     if query:
         stmt = stmt.filter(LibraryItem.title.ilike(f"%{query.strip()}%"))
-    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show", "artist", "album")]
-    if media_type in ("movie", "show", "artist", "album") and media_type not in selected_types:
+    selected_types = [value for value in _split_values(media_types) if value in ("movie", "show", "artist", "album", "track")]
+    if media_type in ("movie", "show", "artist", "album", "track") and media_type not in selected_types:
         selected_types.append(media_type)
     if selected_types:
         stmt = stmt.filter(LibraryItem.media_type.in_(selected_types))

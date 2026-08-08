@@ -60,7 +60,7 @@ const emit = defineEmits(['open', 'toggle-select', 'act', 'delete-orphan', 'erro
 const router = useRouter();
 const opening = ref(false);
 
-const isMusic = computed(() => props.item.media_type === 'artist' || props.item.media_type === 'album');
+const isMusic = computed(() => ['artist', 'album', 'track'].includes(props.item.media_type));
 
 // Un item "Suivi Sonarr/Radarr" n'a pas de MediaRequest ni de LibraryItem tant que
 // personne n'a ouvert sa fiche -- on le materialise a la demande (voir POST
@@ -99,7 +99,7 @@ const badges = computed(() => {
   const item = props.item;
   const list = [];
   if (isMusic.value) {
-    const label = item.media_type === 'artist' ? 'Artiste' : item.media_type === 'album' ? 'Album' : 'Musique';
+    const label = item.media_type === 'artist' ? 'Artiste' : item.media_type === 'album' ? 'Album' : item.media_type === 'track' ? 'Piste' : 'Musique';
     list.push({ key: 'music-type', cls: 'badge music-tag', label });
   } else if (item._kind === 'library') {
     const label = item.has_vf === true ? 'VF' : item.has_vf === false ? 'VO' : '?';

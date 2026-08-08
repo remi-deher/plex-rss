@@ -45,14 +45,14 @@
         <button :class="{ active: typeFilters.includes('movie') }" title="Films" type="button" @click="$emit('update:typeFilters', ['movie'])">
           <Film /><span>Films</span>
         </button>
-        <button :class="{ active: isMusicOnly }" title="Musiques" type="button" @click="$emit('update:typeFilters', ['artist', 'album'])">
+        <button :class="{ active: isMusicOnly }" title="Musiques" type="button" @click="$emit('update:typeFilters', ['artist', 'album', 'track'])">
           <Music2 /><span>Musiques</span>
         </button>
       </div>
 
-      <!-- Sous-vue Musique : Artistes vs Albums -->
+      <!-- Sous-vue Musique : Artistes / Albums / Pistes -->
       <div v-if="isMusicOnly" class="segmented music-sub-segmented">
-        <button :class="{ active: isAllMusicSelected }" type="button" @click="$emit('update:typeFilters', ['artist', 'album'])">
+        <button :class="{ active: isAllMusicSelected }" type="button" @click="$emit('update:typeFilters', ['artist', 'album', 'track'])">
           Toute la musique
         </button>
         <button :class="{ active: isArtistOnlySelected }" type="button" @click="$emit('update:typeFilters', ['artist'])">
@@ -60,6 +60,9 @@
         </button>
         <button :class="{ active: isAlbumOnlySelected }" type="button" @click="$emit('update:typeFilters', ['album'])">
           Albums
+        </button>
+        <button :class="{ active: isTrackOnlySelected }" type="button" @click="$emit('update:typeFilters', ['track'])">
+          Pistes
         </button>
       </div>
     </div>
@@ -184,11 +187,12 @@ const emit = defineEmits([
   'update:sourceFilters', 'update:requesterFilters', 'update:decade', 'update:sort', 'search',
 ]);
 
-const isMusicOnly = computed(() => props.typeFilters.some(t => t === 'artist' || t === 'album'));
+const isMusicOnly = computed(() => props.typeFilters.some(t => ['artist', 'album', 'track'].includes(t)));
 
-const isAllMusicSelected = computed(() => props.typeFilters.includes('artist') && props.typeFilters.includes('album'));
+const isAllMusicSelected = computed(() => props.typeFilters.includes('artist') && props.typeFilters.includes('album') && props.typeFilters.includes('track'));
 const isArtistOnlySelected = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('artist'));
 const isAlbumOnlySelected = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('album'));
+const isTrackOnlySelected = computed(() => props.typeFilters.length === 1 && props.typeFilters.includes('track'));
 
 const isModalOpen = ref(false);
 const draftStatusFilters = ref([]);

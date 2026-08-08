@@ -165,7 +165,7 @@ const router = useRouter();
 const detail = ref(null), requesters = ref([]), folders = ref([]);
 const loading = ref(false), busy = ref(false), error = ref(''), successMessage = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
-const isMusic = computed(() => detail.value?.media_type === 'artist' || detail.value?.media_type === 'album');
+const isMusic = computed(() => ['artist', 'album', 'track'].includes(detail.value?.media_type));
 const artistAlbums = computed(() => detail.value?.albums || []);
 const tabs = computed(() => {
   if (isMusic.value) return [];
