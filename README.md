@@ -20,7 +20,7 @@
 ## Français
 
 <p align="center">
-  <strong>Plexarr transforme « quelqu'un veut un film » en « il tourne dans la bonne langue », sans que tu touches à un tableur.</strong>
+  <strong>Plexarr repère en un coup d'œil les films et épisodes de ta bibliothèque encore en VO, pour savoir immédiatement quoi prioriser vers la VF.</strong>
 </p>
 
 ### Pourquoi Plexarr
@@ -75,6 +75,7 @@ L'agrégation par flux RSS mérite une précision : c'est une fonctionnalité **
 - Association et import manuels depuis l'interface.
 
 #### Disponibilité Plex et langues
+- Bibliothèque filtrable par statut VF/VO en un clic, pour repérer immédiatement ce qui reste à mettre à jour vers la VF.
 - Séparation claire entre demande, transmission \*arr, téléchargement, import et disponibilité Plex.
 - Synchronisation des médias déjà présents dans Plex, pas seulement des nouvelles demandes.
 - Couverture par saison et épisode, pas juste « la série existe ».
@@ -477,7 +478,7 @@ Les contributions sont décrites dans [CONTRIBUTING.md](CONTRIBUTING.md). Pour l
 ## English
 
 <p align="center">
-  <strong>Plexarr turns "someone wants a movie" into "it's playing in the right language" — without you touching a spreadsheet.</strong>
+  <strong>Plexarr surfaces, at a glance, exactly which movies and episodes in your library are still in their original language — so you know what to prioritize for a French dub (VF).</strong>
 </p>
 
 ### Why Plexarr
@@ -532,6 +533,7 @@ The RSS aggregation deserves a callout: it's a **Plex Pass** feature (Universal 
 - Manual matching and import from the UI when automation can't resolve it.
 
 #### Plex availability & language tracking
+- Library filterable by VF/VO status in one click, to immediately spot what still needs a French dub.
 - Clear separation between requested → sent to *arr → downloading → imported → available in Plex.
 - Syncs media already present in the library, not just new requests.
 - Season- and episode-level coverage, not just "the show exists."
@@ -560,20 +562,20 @@ The RSS aggregation deserves a callout: it's a **Plex Pass** feature (Universal 
 
 ```mermaid
 flowchart LR
-    A["Plex Watchlist<br/>API / RSS"] --> D["Plexarr request"]
-    B["Discover UI<br/>manual add"] --> D
-    C["API / Seerr"] --> D
-    D --> E{"Approval<br/>required?"}
-    E -->|Yes| F["Admin review"]
-    E -->|No| G["Sonarr / Radarr"]
-    F --> G
-    G --> H["Download client"]
-    H --> I{"Import succeeded?"}
-    I -->|No| J["Flagged for review"]
-    J --> I
-    I -->|Yes| K["Plex detects the media"]
-    K --> L["VO / VF analysis<br/>& coverage"]
-    L --> M["Grouped notification"]
+    eA["Plex Watchlist<br/>API / RSS"] --> eD["Plexarr request"]
+    eB["Discover UI<br/>manual add"] --> eD
+    eC["API / Seerr"] --> eD
+    eD --> eE{"Approval<br/>required?"}
+    eE -->|Yes| eF["Admin review"]
+    eE -->|No| eG["Sonarr / Radarr"]
+    eF --> eG
+    eG --> eH["Download client"]
+    eH --> eI{"Import succeeded?"}
+    eI -->|No| eJ["Flagged for review"]
+    eJ --> eI
+    eI -->|Yes| eK["Plex detects the media"]
+    eK --> eL["VO / VF analysis<br/>& coverage"]
+    eL --> eM["Grouped notification"]
 ```
 
 The original request stays attached end to end. A Watchlist or API request for a series implies every season except season 0; a manual request can target just a few seasons, or a single episode.
@@ -582,16 +584,16 @@ The original request stays attached end to end. A Watchlist or API request for a
 
 ```mermaid
 flowchart TB
-    UI["Vue 3 responsive UI"] --> API["FastAPI"]
-    API --> PG[("PostgreSQL 15")]
-    API --> REDIS[("Redis 7")]
-    REDIS --> WORKER["ARQ worker"]
-    WORKER --> PLEX["Plex"]
-    WORKER --> ARR["Sonarr / Radarr"]
-    WORKER --> CLIENTS["Download clients"]
-    WORKER --> CHANNELS["Email / Discord / Telegram<br/>ntfy / Gotify"]
-    PLEX -->|Webhooks / sync| API
-    ARR -->|Webhooks / queue state| API
+    eUI["Vue 3 responsive UI"] --> eAPI["FastAPI"]
+    eAPI --> ePG[("PostgreSQL 15")]
+    eAPI --> eREDIS[("Redis 7")]
+    eREDIS --> eWORKER["ARQ worker"]
+    eWORKER --> ePLEX["Plex"]
+    eWORKER --> eARR["Sonarr / Radarr"]
+    eWORKER --> eCLIENTS["Download clients"]
+    eWORKER --> eCHANNELS["Email / Discord / Telegram<br/>ntfy / Gotify"]
+    ePLEX -->|Webhooks / sync| eAPI
+    eARR -->|Webhooks / queue state| eAPI
 ```
 
 | Component | Role |
