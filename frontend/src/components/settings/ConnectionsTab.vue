@@ -3,9 +3,9 @@
     <div class="settings-cards span-two">
       <PlexConnectionCard/>
     </div>
-    <h2 class="settings-merged-heading">Bibliothèque & VF</h2>
-    <LibraryTab/>
+    <h2 class="settings-merged-heading span-two">Bibliothèque & VF</h2>
   </div>
+  <LibraryTab/>
 </template>
 <script setup>
 import PlexConnectionCard from './connections/PlexConnectionCard.vue';

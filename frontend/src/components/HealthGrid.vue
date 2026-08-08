@@ -40,7 +40,7 @@ const meta = {
   plex: ["Plex API", Server],
   seer: ["Seer", Compass],
   smtp: ["Email", Mail],
-  rss: ["Flux RSS", Rss],
+  rss: ["Watchlist Plex", Rss],
 };
 
 const cards = computed(() => Object.entries(meta).map(([key, [label, icon]]) => {

@@ -5,10 +5,10 @@
     </template>
     <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label>
     <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label>
-    <label>URL RSS<input v-model="form.plex_rss_url" type="url"></label>
+    <label>URL Universal Watchlist<input v-model="form.plex_rss_url" type="url" placeholder="https://rss.plex.tv/..."><small>Agrege la watchlist de tous tes amis Plex sans qu'ils aient besoin de se connecter a Plexarr. Necessite un abonnement Plex Pass — genere depuis plex.tv, Reglages du compte -&gt; Watchlist -&gt; Activer le flux RSS.</small></label>
     <label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label>
     <div class="actions">
-      <button class="secondary" @click="testSaved('/api/test/plex-rss')"><Rss/>Tester le RSS</button>
+      <button class="secondary" @click="testSaved('/api/test/plex-rss')"><Rss/>Tester l'Universal Watchlist</button>
       <button class="secondary" @click="startPlexSso"><LogIn/>Connexion Plex SSO</button>
     </div>
   </SettingsCard>

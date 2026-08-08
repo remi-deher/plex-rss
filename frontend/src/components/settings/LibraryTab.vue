@@ -3,7 +3,7 @@
     <div class="settings-cards span-two">
       <SettingsCard title="Watchlist" :icon="Rss" status="active" :default-open="true">
         <label>Frequence de synchronisation<IntervalPresetInput v-model="form.poll_interval_seconds" :presets="WATCHLIST_PRESETS"/></label>
-        <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">RSS</option></select></label>
+        <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">Universal Watchlist (RSS)</option></select><small>Universal Watchlist necessite un abonnement Plex Pass et agrege les watchlists de tous tes amis Plex sans qu'ils aient besoin de se connecter — voir la carte Plex ci-dessous.</small></label>
         <label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label>
         <label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label>
       </SettingsCard>
