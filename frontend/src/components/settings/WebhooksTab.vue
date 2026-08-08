@@ -51,6 +51,7 @@
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadToken"><RefreshCw/></button>
         </template>
         <code class="secret-box">{{ apiToken || (tokenActive ? 'Actif (valeur masquee)' : 'Aucun token genere') }}</code>
+        <p class="hint">Ce token donne un acces complet a l'API Plexarr (creation de demandes, lecture des utilisateurs, etc.) — a passer en en-tete <code>Authorization: Bearer …</code>. Il n'est affiche qu'une seule fois a la generation ; regenerez-le si vous le perdez.</p>
         <div class="actions">
           <button class="secondary" @click="generateToken"><KeyRound/>Generer</button>
           <button class="secondary danger" @click="deleteToken"><Trash2/>Revoquer</button>

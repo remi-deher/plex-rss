@@ -1,7 +1,7 @@
 <template>
   <SettingsCard
     title="Clients de telechargement direct"
-    :subtitle="`${clients.length} client(s) configure(s)`"
+    :subtitle="`${clients.length} client(s) configure(s) — utilises pour pousser une release choisie manuellement via la recherche Prowlarr, sans passer par Sonarr/Radarr`"
     :icon="Download"
     :status="clients.some(c => c.enabled) ? 'active' : 'inactive'"
     :default-open="clients.some(c => c.enabled)"
@@ -45,9 +45,10 @@
         <label>URL<input v-model="clientForm.url" type="url"></label>
         <label>Utilisateur<input v-model="clientForm.username"></label>
         <label>Mot de passe<input v-model="clientForm.password" type="password"></label>
-        <label>Categorie<input v-model="clientForm.category"></label>
-        <label>Tags<input v-model="clientForm.tags"></label>
+        <label>Categorie<input v-model="clientForm.category"><small>Categorie appliquee aux torrents envoyes, pour les retrouver facilement dans le client.</small></label>
+        <label>Tags<input v-model="clientForm.tags"><small>Tags separes par des virgules, appliques aux torrents envoyes depuis Plexarr.</small></label>
         <label class="check"><input v-model="clientForm.is_default" type="checkbox"> Client par defaut</label>
+        <small class="check-hint">Client preselectionne quand plusieurs sont configures et qu'aucun n'est explicitement choisi lors d'un envoi manuel.</small>
     </div>
     <template #actions>
       <button class="primary" :disabled="!clientForm.name||!clientForm.url" @click="saveClient"><Save/>{{ editingClientId?'Mettre a jour':'Ajouter' }}</button>

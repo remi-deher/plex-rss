@@ -1,23 +1,26 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <SettingsCard title="Export et sauvegarde" :icon="HardDriveDownload" status="neutral" :collapsible="false">
+      <SettingsCard title="Export et sauvegarde" subtitle="Deux formats distincts : un export JSON portable, et un dump complet de la base." :icon="HardDriveDownload" status="neutral" :collapsible="false">
         <label class="check"><input v-model="includeSecrets" type="checkbox"> Inclure les identifiants</label>
+        <small class="check-hint">Sans cette case, les tokens Plex/*arr et cles de notification sont omis de l'export JSON — pratique pour partager une config sans exposer de secrets.</small>
         <div class="actions">
           <a class="secondary" :href="includeSecrets?'/api/export?include_secrets=true':'/api/export'"><Download/>Exporter en JSON</a>
           <a class="secondary" href="/api/backup/db"><HardDriveDownload/>Backup complet</a>
         </div>
         <p class="warning-text">Ces fichiers peuvent contenir des secrets.</p>
+        <p class="hint">"Exporter en JSON" produit un fichier lisible et portable (utilisateurs, parametres, demandes) reutilisable avec "Importer un export JSON" ci-dessous. "Backup complet" produit un dump PostgreSQL brut, destine a une restauration via <code>docker compose --profile operations run --rm restore</code> (voir le README).</p>
       </SettingsCard>
 
-      <SettingsCard title="Importer un export JSON" :icon="Upload" status="neutral" :collapsible="false">
+      <SettingsCard title="Importer un export JSON" subtitle="Fusionne un export JSON precedent dans cette instance, sans rien supprimer." :icon="Upload" status="neutral" :collapsible="false">
         <input ref="jsonInput" type="file" accept=".json">
         <div class="actions">
           <button class="secondary" :disabled="busy" @click="importJson"><Upload/>Fusionner les donnees</button>
         </div>
+        <p class="hint">Les utilisateurs et donnees du fichier sont ajoutes ou mis a jour (upsert) par-dessus l'existant — rien n'est efface. Utile pour restaurer un export JSON ou fusionner deux instances.</p>
       </SettingsCard>
 
-      <SettingsCard title="Ancienne base SQLite" :icon="DatabaseZap" status="neutral" :collapsible="false">
+      <SettingsCard title="Ancienne base SQLite" subtitle="Migration ponctuelle depuis une installation Plex RSS Monitor / Plexarr pre-PostgreSQL." :icon="DatabaseZap" status="neutral" :collapsible="false">
         <input ref="sqliteInput" type="file" accept=".db,.sqlite,.sqlite3" @change="resetInspection">
         <div class="actions">
           <button class="secondary" :disabled="busy" @click="inspectSqlite"><Search/>Inspecter</button>

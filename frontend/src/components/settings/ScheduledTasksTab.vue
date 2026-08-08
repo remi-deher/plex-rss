@@ -1,7 +1,7 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <SettingsCard title="Historique" :icon="Archive" status="active" :collapsible="false">
+      <SettingsCard title="Historique" subtitle="Duree de conservation de l'historique d'execution des taches planifiees ci-dessous." :icon="Archive" status="active" :collapsible="false">
         <label>Historique de polling (jours)<input v-model.number="form.poll_history_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
       </SettingsCard>
 

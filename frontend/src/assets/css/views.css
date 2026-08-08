@@ -1573,8 +1573,18 @@ button:disabled {
 }
 
 .settings-card-body > label:not(.check),
-.settings-card-body .form-grid > label:not(.check):not(.check-field):not(.collection-toggle) {
+.settings-card-body .settings-grid > label:not(.check):not(.check-field):not(.collection-toggle) {
   font-size: var(--fs-md);
+}
+
+/* Note explicative sous une checkbox .check autonome (celle-ci n'a pas de zone
+   dediee pour un <small>, contrairement a .check-field) : tire vers le haut pour
+   rester visuellement rattachee a la case plutot qu'au champ suivant. */
+.check-hint {
+  margin-top: -8px;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
 }
 
 .settings-card-body input:not([type="checkbox"]),

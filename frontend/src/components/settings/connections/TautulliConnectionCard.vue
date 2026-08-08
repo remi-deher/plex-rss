@@ -3,10 +3,10 @@
     <template #actions>
       <ToggleSwitch v-model="form.tautulli_enabled" :label="form.tautulli_enabled ? 'Activé' : 'Désactivé'"/>
     </template>
-    <div class="form-grid">
-      <label class="span-two">URL Tautulli<input v-model.trim="form.tautulli_url" type="url" placeholder="http://tautulli:8181"></label>
-      <label class="span-two">Clé API<input v-model="form.tautulli_api_key" type="password" :placeholder="secretsPresent.tautulli_api_key?'Clé configurée':'Clé API Tautulli'"></label>
-      <label>Historique à conserver (jours)<input v-model.number="form.activity_retention_days" type="number" min="0" placeholder="365"></label>
+    <div class="settings-grid two">
+      <label class="span-two">URL Tautulli<input v-model.trim="form.tautulli_url" type="url" placeholder="http://tautulli:8181"><small>Adresse de ton instance Tautulli, ex. http://tautulli:8181 en Docker.</small></label>
+      <label class="span-two">Clé API<input v-model="form.tautulli_api_key" type="password" :placeholder="secretsPresent.tautulli_api_key?'Clé configurée':'Clé API Tautulli'"><small>Disponible dans Tautulli sous Réglages -&gt; Web Interface -&gt; API.</small></label>
+      <label>Historique à conserver (jours)<input v-model.number="form.activity_retention_days" type="number" min="0" placeholder="365"><small>Sessions plus anciennes supprimées automatiquement ; 0 ou vide = conservation indéfinie.</small></label>
       <label class="check-field"><input v-model="form.activity_anonymize_ips" type="checkbox"><span><strong>Anonymiser les adresses IP</strong><small>Masque les adresses avant leur stockage.</small></span></label>
       <label class="collection-toggle span-two" :class="{ active: form.live_activity_enabled }">
         <input v-model="form.live_activity_enabled" type="checkbox" role="switch" :aria-checked="String(form.live_activity_enabled)">
@@ -18,6 +18,11 @@
         <span class="collection-state">{{ form.live_activity_enabled ? 'Activée' : 'Désactivée' }}</span>
       </label>
     </div>
+    <p class="connection-result">
+      <strong>Importer</strong> récupère les sessions passées depuis Tautulli (jusqu'à la limite choisie).
+      <strong>Normaliser l'historique</strong> recalcule la décision de lecture, la progression et le temps regardé des sessions déjà importées.
+      <strong>Recalculer les lieux</strong> complète la localisation des sessions qui n'en ont pas, à partir de leur IP.
+    </p>
     <div class="card-actions">
       <button class="secondary" :disabled="busy" @click="testConnection"><PlugZap/>Tester</button>
       <select v-model.number="importLength"><option :value="500">500 sessions</option><option :value="2000">2 000 sessions</option><option :value="10000">Tout (10 000 max.)</option></select>

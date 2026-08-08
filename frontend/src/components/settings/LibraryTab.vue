@@ -1,20 +1,24 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <SettingsCard title="Watchlist" :icon="Rss" status="active" :default-open="true">
-        <label>Frequence de synchronisation<IntervalPresetInput v-model="form.poll_interval_seconds" :presets="WATCHLIST_PRESETS"/></label>
+      <SettingsCard title="Watchlist" subtitle="Surveille les watchlists Plex et cree automatiquement les demandes correspondantes." :icon="Rss" status="active" :default-open="true">
+        <label>Frequence de synchronisation<IntervalPresetInput v-model="form.poll_interval_seconds" :presets="WATCHLIST_PRESETS"/><small>A quelle frequence Plexarr relit la watchlist pour detecter de nouveaux ajouts.</small></label>
         <label>Priorite<select v-model="form.watchlist_source_priority"><option value="api">API Plex</option><option value="rss">Universal Watchlist (RSS)</option></select><small>Universal Watchlist necessite un abonnement Plex Pass et agrege les watchlists de tous tes amis Plex sans qu'ils aient besoin de se connecter — voir la carte Plex ci-dessous.</small></label>
         <label class="check"><input v-model="form.watchlist_fallback_enabled" type="checkbox"> Source de repli</label>
+        <small class="check-hint">Si la source prioritaire (API ou Universal Watchlist) echoue, Plexarr bascule automatiquement sur l'autre plutot que d'ignorer le cycle de synchronisation.</small>
         <label class="check"><input v-model="form.require_approval" type="checkbox"> Approbation admin requise</label>
+        <small class="check-hint">Chaque nouvelle demande (watchlist ou manuelle) reste en attente de validation par un administrateur avant transmission a Sonarr/Radarr.</small>
       </SettingsCard>
 
-      <SettingsCard title="Analyse VF" :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :default-open="form.vff_enabled">
+      <SettingsCard title="Analyse VF" subtitle="Detecte automatiquement la presence d'une piste VF dans les fichiers Plex, saison par saison." :icon="Languages" :status="form.vff_enabled ? 'active' : 'inactive'" :default-open="form.vff_enabled">
         <template #actions>
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadVffStatus"><RefreshCw/></button>
         </template>
         <label class="check"><input v-model="form.vff_enabled" type="checkbox"> Analyse active</label>
-        <label>Nouvelle analyse<IntervalPresetInput v-model="form.vff_recheck_interval_minutes" :presets="MINUTES_PRESETS"/></label>
+        <small class="check-hint">Desactiver arrete l'analyse VO/VF : la bibliotheque et les notifications ne distingueront plus les langues disponibles.</small>
+        <label>Nouvelle analyse<IntervalPresetInput v-model="form.vff_recheck_interval_minutes" :presets="MINUTES_PRESETS"/><small>Frequence a laquelle un media deja detecte en VO uniquement est re-analyse (au cas ou la VF aurait ete ajoutee depuis).</small></label>
         <label class="check"><input v-model="form.vff_auto_search" type="checkbox"> Recherche automatique</label>
+        <small class="check-hint">Relance automatiquement une recherche Sonarr/Radarr des qu'un media est detecte en VO uniquement, pour tenter de trouver une release avec VF.</small>
         <label>Frequence de synchronisation Plex (complete)<IntervalPresetInput v-model="form.plex_sync_interval_hours" :presets="PLEX_SYNC_PRESETS"/><small>La bibliotheque Plex est resynchronisee en entier a cette frequence ; un scan incremental (medias recemment ajoutes) tourne en continu, voir l'onglet Planification</small></label>
         <div>
           <strong style="display:block;margin-bottom:8px;font-size:var(--fs-sm)">Bibliotheques analysees</strong>

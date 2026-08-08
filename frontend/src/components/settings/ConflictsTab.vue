@@ -1,11 +1,12 @@
 <template>
   <div class="settings-grid">
     <div class="settings-cards span-two">
-      <SettingsCard :title="`Conflits de deduplication`" :subtitle="`${conflicts.length} element(s) a examiner`" :icon="WandSparkles" :status="conflicts.length ? 'error' : 'active'" :collapsible="false">
+      <SettingsCard :title="`Conflits de deduplication`" :subtitle="`Doublons TMDB, entrees orphelines ou demandes bloquees depuis longtemps a nettoyer — ${conflicts.length} element(s) a examiner`" :icon="WandSparkles" :status="conflicts.length ? 'error' : 'active'" :collapsible="false">
         <template #actions>
           <button class="secondary" @click.stop="autoResolve"><WandSparkles/>Resolution automatique</button>
           <button class="icon-button" title="Actualiser" aria-label="Actualiser" @click.stop="loadConflicts"><RefreshCw/></button>
         </template>
+        <p class="hint">"Fusionner" regroupe les entrees dupliquees en une seule (garde celle recommandee, supprime les autres). "Supprimer" retire une entree orpheline. "Ignorer" (coche) masque l'element sans le modifier.</p>
         <article v-for="group in conflicts" :key="group.key||group.tmdb_id" class="detail-row">
           <div><strong>{{ group.title||group.key||`TMDB ${group.tmdb_id}` }}</strong><span>{{ (group.entries||[]).length || 1 }} entree(s) · {{ group.type||'' }}</span></div>
           <div class="actions">

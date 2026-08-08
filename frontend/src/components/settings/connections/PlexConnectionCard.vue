@@ -1,10 +1,10 @@
 <template>
-  <SettingsCard title="Plex" :icon="Server" :status="plexStatus" :default-open="true">
+  <SettingsCard title="Plex" subtitle="Connexion au serveur Plex local — requise pour la bibliotheque, les demandes et la synchronisation VF." :icon="Server" :status="plexStatus" :default-open="true">
     <template #actions>
       <button class="secondary" @click.stop="testSaved('/api/test/plex-api')"><PlugZap/>Tester</button>
     </template>
-    <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"></label>
-    <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"></label>
+    <label>URL<input v-model="form.plex_url" type="url" placeholder="http://plex:32400"><small>Adresse locale de ton serveur Plex (pas app.plex.tv), ex. http://192.168.1.10:32400 ou http://plex:32400 en Docker.</small></label>
+    <label>Token<input v-model="form.plex_token" type="password" placeholder="Laisser vide pour conserver"><small>Jeton d'authentification Plex (X-Plex-Token). Le plus simple est d'utiliser "Connexion Plex SSO" ci-dessous, qui le recupere automatiquement.</small></label>
     <label>URL Universal Watchlist<input v-model="form.plex_rss_url" type="url" placeholder="https://rss.plex.tv/..."><small>Agrege la watchlist de tous tes amis Plex sans qu'ils aient besoin de se connecter a Plexarr. Necessite un abonnement Plex Pass — genere depuis plex.tv, Reglages du compte -&gt; Watchlist -&gt; Activer le flux RSS.</small></label>
     <label class="check"><input v-model="form.plex_verify_ssl" type="checkbox"> Verifier le certificat TLS</label>
     <div class="actions">

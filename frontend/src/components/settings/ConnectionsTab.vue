@@ -1,11 +1,13 @@
 <template>
-  <div class="settings-grid">
-    <div class="settings-cards span-two">
-      <PlexConnectionCard/>
+  <div class="settings-merged">
+    <div class="settings-grid">
+      <div class="settings-cards span-two">
+        <PlexConnectionCard/>
+      </div>
     </div>
-    <h2 class="settings-merged-heading span-two">Bibliothèque & VF</h2>
+    <h2 class="settings-merged-heading">Bibliothèque & VF</h2>
+    <LibraryTab/>
   </div>
-  <LibraryTab/>
 </template>
 <script setup>
 import PlexConnectionCard from './connections/PlexConnectionCard.vue';
