@@ -6,7 +6,7 @@
     <div class="settings-grid two">
       <label class="span-two">URL Tautulli<input v-model.trim="form.tautulli_url" type="url" placeholder="http://tautulli:8181"><small>Adresse de ton instance Tautulli, ex. http://tautulli:8181 en Docker.</small></label>
       <label class="span-two">Clé API<input v-model="form.tautulli_api_key" type="password" :placeholder="secretsPresent.tautulli_api_key?'Clé configurée':'Clé API Tautulli'"><small>Disponible dans Tautulli sous Réglages -&gt; Web Interface -&gt; API.</small></label>
-      <label>Historique à conserver (jours)<input v-model.number="form.activity_retention_days" type="number" min="0" placeholder="365"><small>Sessions plus anciennes supprimées automatiquement ; 0 ou vide = conservation indéfinie.</small></label>
+      <label>Historique à conserver (jours)<RetentionDaysInput v-model="form.activity_retention_days" :default-days="365" placeholder="365"/><small>Sessions plus anciennes supprimées automatiquement.</small></label>
       <label class="collection-toggle span-two" :class="{ active: form.activity_anonymize_ips }">
         <input v-model="form.activity_anonymize_ips" type="checkbox" role="switch" :aria-checked="String(form.activity_anonymize_ips)">
         <span class="collection-toggle-copy">
@@ -52,6 +52,7 @@ import ConfirmModal from '@/components/ConfirmModal.vue';
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue';
 import { useConfirm } from '@/composables/useConfirm';
 import SettingsCard from '../SettingsCard.vue';
+import RetentionDaysInput from '../RetentionDaysInput.vue';
 
 const busy=ref(false),status=ref(''),importLength=ref(2000);
 const {dialog:confirmDialog,askConfirm,resolveConfirm}=useConfirm();

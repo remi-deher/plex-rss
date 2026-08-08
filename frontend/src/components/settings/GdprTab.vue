@@ -23,8 +23,8 @@
         status="active"
         :collapsible="false"
       >
-        <label>Tentatives de connexion / adresses IP (jours)<input v-model.number="form.login_attempt_retention_days" type="number" min="0" placeholder="90"><small>Les adresses IP de connexion sont purgées après ce délai. 0 ou vide = conservation indéfinie (déconseillé).</small></label>
-        <label>Journaux d'audit et de diagnostic (jours)<input v-model.number="form.audit_log_retention_days" type="number" min="0" placeholder="0 ou vide = indéfini"><small>Actions admin, événements de diagnostic, exécutions de tâches. 0 ou vide = conserver indéfiniment.</small></label>
+        <label>Tentatives de connexion / adresses IP (jours)<RetentionDaysInput v-model="form.login_attempt_retention_days" :default-days="90" placeholder="90"/><small>Les adresses IP de connexion sont purgées après ce délai. Conservation indéfinie déconseillée pour ces données.</small></label>
+        <label>Journaux d'audit et de diagnostic (jours)<RetentionDaysInput v-model="form.audit_log_retention_days" :default-days="90"/><small>Actions admin, événements de diagnostic, exécutions de tâches.</small></label>
       </SettingsCard>
     </div>
   </div>
@@ -33,4 +33,5 @@
 import { ShieldCheck, Timer } from '@lucide/vue';
 import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
+import RetentionDaysInput from './RetentionDaysInput.vue';
 </script>

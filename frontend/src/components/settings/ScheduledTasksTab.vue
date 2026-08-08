@@ -2,7 +2,7 @@
   <div class="settings-grid">
     <div class="settings-cards span-two">
       <SettingsCard title="Historique" subtitle="Duree de conservation de l'historique d'execution des taches planifiees ci-dessous." :icon="Archive" status="active" :collapsible="false">
-        <label>Historique de polling (jours)<input v-model.number="form.poll_history_retention_days" type="number" min="0" placeholder="0 ou vide = indefini"><small>0 ou vide = conserver indefiniment</small></label>
+        <label>Historique de polling (jours)<RetentionDaysInput v-model="form.poll_history_retention_days" :default-days="30"/></label>
       </SettingsCard>
 
       <SettingsCard
@@ -73,6 +73,7 @@ import { form } from '@/settingsForm';
 import SettingsCard from './SettingsCard.vue';
 import IntervalPresetInput from './IntervalPresetInput.vue';
 import TimeOfDayInput from './TimeOfDayInput.vue';
+import RetentionDaysInput from './RetentionDaysInput.vue';
 
 // Presets par tache : chaque job periodique a ses propres frequences pertinentes
 // (un scan leger n'a pas les memes echelles de temps qu'une synchro complete).

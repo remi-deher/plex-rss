@@ -18,8 +18,6 @@ from ..utils import now_utc_naive
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RETENTION_DAYS = 90
-
 
 async def record_completed(
     db: AsyncSession,
@@ -49,7 +47,9 @@ async def record_completed(
 
 async def purge_old_entries(db: AsyncSession) -> int:
     settings = (await db.execute(select(Settings))).scalars().first()
-    days = (settings.notification_log_retention_days if settings else None) or DEFAULT_RETENTION_DAYS
+    days = settings.notification_log_retention_days if settings else None
+    if not days:
+        return 0
     cutoff = datetime.now() - timedelta(days=days)
     result = await db.execute(sqlalchemy.delete(DownloadHistory).filter(DownloadHistory.completed_at < cutoff))
     deleted = int(result.rowcount or 0)
