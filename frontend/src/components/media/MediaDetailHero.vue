@@ -4,45 +4,53 @@
     <div class="mdh-content">
       <button class="mdh-back icon-button" title="Retour" aria-label="Retour" @click="$emit('back')"><ArrowLeft /></button>
       <div class="mdh-row">
-        <div class="mdh-poster">
+        <div class="mdh-poster" :class="{ 'is-music': isMusic }">
           <img v-if="detail.poster_url" :src="detail.poster_url" alt="" decoding="async">
-          <div v-else class="mdh-poster-fallback"><Film /></div>
+          <div v-else class="mdh-poster-fallback">
+            <Music2 v-if="isMusic" />
+            <Film v-else />
+          </div>
         </div>
         <div class="mdh-info">
           <span class="eyebrow">{{ typeLabel }}</span>
           <h1>{{ detail.title }}</h1>
           <div class="mdh-badges">
+            <span v-if="isMusic" class="badge music-badge">{{ detail.media_type === 'artist' ? '🎤 Artiste' : '💿 Album' }}</span>
             <span v-if="detail.year" class="badge">{{ detail.year }}</span>
             <span v-if="detail.vote" class="badge"><Star size="14" />{{ detail.vote }}</span>
-            <span v-if="statusLabel" class="badge" :class="statusClass">{{ statusLabel }}</span>
+            <span v-if="statusLabel && !isMusic" class="badge" :class="statusClass">{{ statusLabel }}</span>
             <span v-if="detail.origin_label" class="badge origin-badge">{{ detail.origin_label }}</span>
-            <template v-if="detail.vf_granularity === 'partial'">
-              <span class="badge warning">VF Partiel</span>
-            </template>
-            <template v-else-if="detail.vf_granularity === 'vo'">
-              <span class="badge mdh-language-vo">VO</span>
-            </template>
-            <template v-else-if="detail.has_vf">
-              <span class="badge available mdh-language-vf">VF</span>
+            <template v-if="!isMusic">
+              <template v-if="detail.vf_granularity === 'partial'">
+                <span class="badge warning">VF Partiel</span>
+              </template>
+              <template v-else-if="detail.vf_granularity === 'vo'">
+                <span class="badge mdh-language-vo">VO</span>
+              </template>
+              <template v-else-if="detail.has_vf">
+                <span class="badge available mdh-language-vf">VF</span>
+              </template>
             </template>
           </div>
-          <p v-if="detail.waiting_reason" class="mdh-waiting">{{ detail.waiting_reason }}</p>
+          <p v-if="detail.waiting_reason && !isMusic" class="mdh-waiting">{{ detail.waiting_reason }}</p>
           <dl v-if="releaseDates.length" class="mdh-dates">
             <div v-for="entry in releaseDates" :key="entry.label">
               <dt>{{ entry.label }}</dt>
               <dd>{{ entry.value }}</dd>
             </div>
           </dl>
-          <p class="mdh-overview">{{ detail.overview || 'Aucun resume disponible.' }}</p>
+          <p class="mdh-overview">{{ detail.overview || (isMusic ? 'Aucune biographie disponible pour cet artiste.' : 'Aucun résumé disponible.') }}</p>
           <div v-if="detail.genres?.length" class="tag-row">
             <span v-for="genre in detail.genres" :key="genre" class="badge">{{ genre }}</span>
           </div>
           <div class="mdh-links">
+            <button v-if="plexWebUrl" type="button" class="primary-button mdh-listen-btn" @click="openPlexLink(detail?.plex_guid)">
+              <Headphones size="16" /> Écouter sur Plex
+            </button>
             <a v-if="detail.imdb_id" :href="`https://www.imdb.com/title/${detail.imdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> IMDb</a>
             <a v-if="detail.tmdb_id" :href="`https://www.themoviedb.org/${detail.media_type === 'show' ? 'tv' : 'movie'}/${detail.tmdb_id}`" target="_blank" class="badge mdh-link"><ExternalLink size="14" /> TMDB</a>
-            <button v-if="plexWebUrl" type="button" class="badge available mdh-link" @click="openPlexLink(detail?.plex_guid)"><ExternalLink size="14" /> Plex</button>
-            <a v-if="admin && detail.arr_url" :href="detail.arr_url" target="_blank" class="badge available mdh-link"><ExternalLink size="14" /> {{ detail.media_type === 'movie' ? 'Radarr' : 'Sonarr' }}</a>
-            <button class="badge danger mdh-link" @click="$emit('report-issue')"><Flag size="14" /> Signaler un probleme</button>
+            <a v-if="admin && detail.arr_url && !isMusic" :href="detail.arr_url" target="_blank" class="badge available mdh-link"><ExternalLink size="14" /> {{ detail.media_type === 'movie' ? 'Radarr' : 'Sonarr' }}</a>
+            <button v-if="!isMusic" class="badge danger mdh-link" @click="$emit('report-issue')"><Flag size="14" /> Signaler un problème</button>
           </div>
         </div>
       </div>
@@ -53,7 +61,7 @@
 <script setup>
 import { mediaTypeLabel } from '@/utils/labels';
 import { computed } from 'vue';
-import { ArrowLeft, ExternalLink, Film, Flag, Star } from '@lucide/vue';
+import { ArrowLeft, ExternalLink, Film, Flag, Headphones, Music2, Star } from '@lucide/vue';
 import { formatPlexWebUrl, openPlexLink } from '@/mediaUrl';
 
 const props = defineProps({
@@ -63,6 +71,7 @@ const props = defineProps({
   admin: { type: Boolean, default: false },
 });
 
+const isMusic = computed(() => props.detail?.media_type === 'artist' || props.detail?.media_type === 'album');
 const plexWebUrl = computed(() => formatPlexWebUrl(props.detail?.plex_guid));
 defineEmits(['back', 'report-issue']);
 
@@ -134,6 +143,9 @@ const releaseDates = computed(() => {
   box-shadow: 0 16px 40px rgba(0,0,0,.5);
   background: var(--surface-2);
 }
+.mdh-poster.is-music {
+  aspect-ratio: 1 / 1;
+}
 .mdh-poster img {
   width: 100%;
   height: 100%;
@@ -174,6 +186,11 @@ const releaseDates = computed(() => {
   font-weight: 800;
   line-height: 1.25;
   text-shadow: 0 1px 1px rgba(0, 0, 0, .55);
+}
+.music-badge {
+  border-color: #a855f7 !important;
+  background: #7e22ce !important;
+  color: #fff !important;
 }
 .mdh-badges > .badge.available,
 .mdh-badges > .mdh-language-vf {
@@ -231,8 +248,9 @@ const releaseDates = computed(() => {
 .mdh-links {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
-  margin-top: 10px;
+  margin-top: 12px;
 }
 .mdh-link {
   text-decoration: none;
@@ -244,8 +262,50 @@ const releaseDates = computed(() => {
   border: none;
 }
 
+.mdh-listen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  border: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.mdh-listen-btn:hover {
+  transform: translateY(-1px);
+  background: var(--accent-hover, #e05206);
+}
+
 @media (max-width: 720px) {
-  .mdh-row { flex-direction: column; align-items: flex-start; }
-  .mdh-poster { flex-basis: 130px; width: 130px; }
+  .mdh-backdrop {
+    margin: -16px -16px 16px -16px;
+  }
+  .mdh-content {
+    padding: 8px 16px 20px;
+  }
+  .mdh-row {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .mdh-poster {
+    flex-basis: auto;
+    width: 160px;
+    margin-bottom: 12px;
+  }
+  .mdh-poster.is-music {
+    width: 180px;
+  }
+  .mdh-badges,
+  .mdh-links,
+  .tag-row,
+  .mdh-dates {
+    justify-content: center;
+  }
 }
 </style>

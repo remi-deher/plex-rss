@@ -1,24 +1,24 @@
 <template>
   <section class="drawer-section">
-    <MediaWorkflowTimeline :steps="detail.workflow_timeline" />
+    <MediaWorkflowTimeline v-if="!isMusic" :steps="detail.workflow_timeline" />
     <MediaInformationGrid :detail="detail" :vf-detail="vfDetail" />
 
-    <MediaSaga :saga="detail.saga" />
+    <MediaSaga v-if="!isMusic" :saga="detail.saga" />
 
-    <div class="action-grid compact-actions">
+    <div v-if="!isMusic" class="action-grid compact-actions">
       <button class="secondary" :disabled="busy" @click="$emit('recheck-plex')"><RefreshCw />Verifier dans Plex</button>
       <button class="secondary" :disabled="busy" @click="$emit('open-correction', 'media', null, null)"><MessageSquareWarning />Correction globale</button>
     </div>
 
     <MediaIssueForm
-      v-if="showIssueForm"
+      v-if="showIssueForm && !isMusic"
       :busy="busy"
       @submit="$emit('report-issue', $event)"
       @cancel="$emit('cancel-issue')"
     />
 
     <MediaCorrectionForm
-      v-if="showCorrectionForm"
+      v-if="showCorrectionForm && !isMusic"
       :initial-form="correctionForm"
       :users="users"
       :correction-options="correctionOptions"
@@ -28,7 +28,7 @@
     />
 
     <MediaAudioSection
-      v-if="detail.media_type !== 'show'"
+      v-if="detail.media_type !== 'show' && !isMusic"
       :vf-detail="vfDetail"
       :busy="busy"
       :available="Boolean(detail?.in_library)"
@@ -40,7 +40,7 @@
       @expand-season="(n) => $emit('expand-season', n)"
     />
 
-    <article v-for="issue in detail.issues || []" :key="issue.id" class="detail-row" style="margin-top: 1rem;">
+    <article v-for="issue in (isMusic ? [] : (detail.issues || []))" :key="issue.id" class="detail-row" style="margin-top: 1rem;">
       <div><strong>{{ issue.issue_type }}</strong><span>{{ issue.message || 'Sans commentaire' }}</span></div>
       <span class="badge">{{ issue.status }}</span>
     </article>
@@ -48,6 +48,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import { RefreshCw, MessageSquareWarning } from '@lucide/vue';
 import MediaIssueForm from './MediaIssueForm.vue';
 import MediaCorrectionForm from './MediaCorrectionForm.vue';
@@ -56,7 +57,7 @@ import MediaWorkflowTimeline from './MediaWorkflowTimeline.vue';
 import MediaInformationGrid from './MediaInformationGrid.vue';
 import MediaSaga from './MediaSaga.vue';
 
-defineProps({
+const props = defineProps({
   detail: { type: Object, required: true },
   busy: { type: Boolean, default: false },
   showIssueForm: { type: Boolean, default: false },
@@ -69,6 +70,9 @@ defineProps({
   availabilityError: { type: Boolean, default: false },
   vfStatusError: { type: Boolean, default: false },
 });
+
+const isMusic = computed(() => props.detail?.media_type === 'artist' || props.detail?.media_type === 'album');
+
 defineEmits([
   'recheck-plex', 'open-correction', 'report-issue', 'cancel-issue',
   'submit-correction', 'cancel-correction', 'scan-vff', 'expand-season',

@@ -16,7 +16,7 @@
         <UiFeedback v-if="successMessage" type="success" :message="successMessage" dismissible @dismiss="successMessage=''"/>
 
         <MediaRequestForm
-          v-if="kind === 'discover'"
+          v-if="kind === 'discover' && !isMusic"
           :detail="detail"
           :form="requestForm"
           :requesters="requesters"
@@ -30,8 +30,8 @@
           @approve="requestAction(detail.request_id, 'approve')"
         />
 
-        <template v-if="kind !== 'discover'">
-          <nav class="detail-tabs" style="overflow-x: auto; display: flex; gap: 0.5rem; white-space: nowrap; padding-bottom: 0.5rem;">
+        <template v-if="kind !== 'discover' && !isMusic">
+          <nav v-if="tabs.length" class="detail-tabs" style="overflow-x: auto; display: flex; gap: 0.5rem; white-space: nowrap; padding-bottom: 0.5rem;">
             <button v-for="entry in tabs" :key="entry" :class="{active:tab===entry}" @click="tab=entry">{{ tabLabel(entry) }}</button>
           </nav>
 
@@ -97,9 +97,20 @@
           />
         </template>
 
-        <MediaCast :items="detail.cast || []" />
+        <MediaSummaryTab
+          v-else-if="isMusic"
+          :detail="detail"
+          :busy="busy"
+          :show-issue-form="false"
+          :show-correction-form="false"
+          :users="users"
+          :correction-options="[]"
+          :correction-form="correctionForm"
+        />
 
-        <MediaSaga v-if="detail.saga" :saga="detail.saga" />
+        <MediaCast v-if="detail.cast?.length" :items="detail.cast" />
+
+        <MediaSaga v-if="detail.saga && !isMusic" :saga="detail.saga" />
 
         <MediaRecommendations
           title="Recommandés pour vous"
@@ -144,9 +155,13 @@ const router = useRouter();
 const detail = ref(null), requesters = ref([]), folders = ref([]);
 const loading = ref(false), busy = ref(false), error = ref(''), successMessage = ref(''), tab = ref('summary');
 const requestForm = reactive({ plex_user_id: '', root_folder: '', seasons: [] });
-const tabs = computed(() => detail.value?.media_type === 'show'
-  ? ['summary', 'audio', 'requests', 'calendar']
-  : ['summary', 'requests', 'calendar']);
+const isMusic = computed(() => detail.value?.media_type === 'artist' || detail.value?.media_type === 'album');
+const tabs = computed(() => {
+  if (isMusic.value) return [];
+  return detail.value?.media_type === 'show'
+    ? ['summary', 'audio', 'requests', 'calendar']
+    : ['summary', 'requests', 'calendar'];
+});
 const admin = ref(false);
 const sessionUserId = ref('');
 let loadGeneration = 0;

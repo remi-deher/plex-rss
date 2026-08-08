@@ -1,41 +1,62 @@
 <template>
   <div class="media-information-grid">
-    <article class="information-card state-card">
-      <header><Activity/><div><span>État actuel</span><strong>{{ currentState }}</strong></div></header>
-      <dl>
-        <div><dt>Plex</dt><dd>{{ detail.in_library ? 'Disponible' : 'Absent' }}</dd></div>
-        <div><dt>Source</dt><dd>{{ detail.origin_label || 'Ajout direct' }}</dd></div>
-        <div><dt>Prochaine action</dt><dd>{{ nextAction }}</dd></div>
-      </dl>
-      <p v-if="detail.waiting_reason" class="information-note">{{ detail.waiting_reason }}</p>
-    </article>
+    <!-- Fiche d'information Musique -->
+    <template v-if="isMusic">
+      <article class="information-card state-card">
+        <header><Activity/><div><span>Bibliothèque Plex</span><strong>{{ detail.in_library ? 'Présent dans Plex' : 'Musique Plex' }}</strong></div></header>
+        <dl>
+          <div><dt>Type</dt><dd>{{ detail.media_type === 'artist' ? 'Artiste' : 'Album' }}</dd></div>
+          <div><dt>Plex</dt><dd>{{ detail.in_library ? 'Disponible' : 'Synchronisé' }}</dd></div>
+          <div v-if="detail.year"><dt>Année</dt><dd>{{ detail.year }}</dd></div>
+        </dl>
+      </article>
 
-    <article class="information-card">
-      <header><Layers3/><div><span>Couverture</span><strong>{{ coverageTitle }}</strong></div></header>
-      <dl v-if="detail.media_type==='show'">
-        <div><dt>Saisons complètes</dt><dd>{{ coverage.complete }} / {{ coverage.total }}</dd></div>
-        <div><dt>Épisodes</dt><dd>{{ coverage.available }} / {{ coverage.episodes }}</dd></div>
-        <div><dt>Langue</dt><dd>{{ languageLabel }}</dd></div>
-      </dl>
-      <dl v-else><div><dt>Disponibilité</dt><dd>{{ detail.in_library ? 'Dans Plex' : 'En attente' }}</dd></div><div><dt>Langue</dt><dd>{{ languageLabel }}</dd></div></dl>
-    </article>
+      <article class="information-card notification-card">
+        <header><BellRing/><div><span>Notifications</span><strong>{{ notifications.length ? `${notifications.length} événement${notifications.length>1?'s':''}` : 'Aucun envoi' }}</strong></div></header>
+        <ul v-if="notifications.length" class="compact-list"><li v-for="log in notifications.slice(0,5)" :key="log.id"><div><strong>{{ eventLabel(log) }}</strong><small>{{ log.recipient }} · {{ formatDate(log.sent_at) }}</small></div><span class="badge" :class="log.success?'available':'failed'">{{ log.success ? 'Envoyée' : 'Échec' }}</span></li></ul>
+        <p v-else class="empty-copy">Aucune notification enregistrée pour ce média.</p>
+      </article>
+    </template>
 
-    <article class="information-card">
-      <header><CalendarClock/><div><span>Prochaines sorties</span><strong>{{ upcoming.length ? `${upcoming.length} planifiée${upcoming.length>1?'s':''}` : 'Aucune sortie' }}</strong></div></header>
-      <ul v-if="upcoming.length" class="compact-list"><li v-for="event in upcoming" :key="`${event.date}:${event.subtitle}`"><div><strong>{{ event.subtitle || event.title }}</strong><small>{{ formatDate(event.date) }}</small></div><span class="badge">{{ event.tracked ? 'Suivi' : 'Catalogue' }}</span></li></ul>
-      <p v-else class="empty-copy">Aucune date future connue.</p>
-    </article>
+    <!-- Fiches d'information Films / Séries -->
+    <template v-else>
+      <article class="information-card state-card">
+        <header><Activity/><div><span>État actuel</span><strong>{{ currentState }}</strong></div></header>
+        <dl>
+          <div><dt>Plex</dt><dd>{{ detail.in_library ? 'Disponible' : 'Absent' }}</dd></div>
+          <div><dt>Source</dt><dd>{{ detail.origin_label || 'Ajout direct' }}</dd></div>
+          <div><dt>Prochaine action</dt><dd>{{ nextAction }}</dd></div>
+        </dl>
+        <p v-if="detail.waiting_reason" class="information-note">{{ detail.waiting_reason }}</p>
+      </article>
 
-    <article class="information-card">
-      <header><Users/><div><span>Demandes</span><strong>{{ requestersCount }} demandeur{{ requestersCount>1?'s':'' }}</strong></div></header>
-      <dl><div><dt>Première demande</dt><dd>{{ firstRequestDate }}</dd></div><div><dt>Source</dt><dd>{{ detail.origin_label || 'Inconnue' }}</dd></div><div><dt>Demandes liées</dt><dd>{{ requests.length }}</dd></div></dl>
-    </article>
+      <article class="information-card">
+        <header><Layers3/><div><span>Couverture</span><strong>{{ coverageTitle }}</strong></div></header>
+        <dl v-if="detail.media_type==='show'">
+          <div><dt>Saisons complètes</dt><dd>{{ coverage.complete }} / {{ coverage.total }}</dd></div>
+          <div><dt>Épisodes</dt><dd>{{ coverage.available }} / {{ coverage.episodes }}</dd></div>
+          <div><dt>Langue</dt><dd>{{ languageLabel }}</dd></div>
+        </dl>
+        <dl v-else><div><dt>Disponibilité</dt><dd>{{ detail.in_library ? 'Dans Plex' : 'En attente' }}</dd></div><div><dt>Langue</dt><dd>{{ languageLabel }}</dd></div></dl>
+      </article>
 
-    <article class="information-card notification-card">
-      <header><BellRing/><div><span>Notifications</span><strong>{{ notifications.length ? `${notifications.length} événement${notifications.length>1?'s':''}` : 'Aucun envoi' }}</strong></div></header>
-      <ul v-if="notifications.length" class="compact-list"><li v-for="log in notifications.slice(0,5)" :key="log.id"><div><strong>{{ eventLabel(log) }}</strong><small>{{ log.recipient }} · {{ formatDate(log.sent_at) }}</small></div><span class="badge" :class="log.success?'available':'failed'">{{ log.success ? 'Envoyée' : 'Échec' }}</span></li></ul>
-      <p v-else class="empty-copy">Aucune notification enregistrée pour ce média.</p>
-    </article>
+      <article class="information-card">
+        <header><CalendarClock/><div><span>Prochaines sorties</span><strong>{{ upcoming.length ? `${upcoming.length} planifiée${upcoming.length>1?'s':''}` : 'Aucune sortie' }}</strong></div></header>
+        <ul v-if="upcoming.length" class="compact-list"><li v-for="event in upcoming" :key="`${event.date}:${event.subtitle}`"><div><strong>{{ event.subtitle || event.title }}</strong><small>{{ formatDate(event.date) }}</small></div><span class="badge">{{ event.tracked ? 'Suivi' : 'Catalogue' }}</span></li></ul>
+        <p v-else class="empty-copy">Aucune date future connue.</p>
+      </article>
+
+      <article class="information-card">
+        <header><Users/><div><span>Demandes</span><strong>{{ requestersCount }} demandeur{{ requestersCount>1?'s':'' }}</strong></div></header>
+        <dl><div><dt>Première demande</dt><dd>{{ firstRequestDate }}</dd></div><div><dt>Source</dt><dd>{{ detail.origin_label || 'Inconnue' }}</dd></div><div><dt>Demandes liées</dt><dd>{{ requests.length }}</dd></div></dl>
+      </article>
+
+      <article class="information-card notification-card">
+        <header><BellRing/><div><span>Notifications</span><strong>{{ notifications.length ? `${notifications.length} événement${notifications.length>1?'s':''}` : 'Aucun envoi' }}</strong></div></header>
+        <ul v-if="notifications.length" class="compact-list"><li v-for="log in notifications.slice(0,5)" :key="log.id"><div><strong>{{ eventLabel(log) }}</strong><small>{{ log.recipient }} · {{ formatDate(log.sent_at) }}</small></div><span class="badge" :class="log.success?'available':'failed'">{{ log.success ? 'Envoyée' : 'Échec' }}</span></li></ul>
+        <p v-else class="empty-copy">Aucune notification enregistrée pour ce média.</p>
+      </article>
+    </template>
   </div>
 </template>
 
@@ -45,6 +66,7 @@ import { computed } from 'vue';
 import { Activity,BellRing,CalendarClock,Layers3,Users } from '@lucide/vue';
 
 const props=defineProps({detail:{type:Object,required:true},vfDetail:{type:Object,default:null}});
+const isMusic=computed(()=>props.detail?.media_type==='artist'||props.detail?.media_type==='album');
 const requests=computed(()=>props.detail.requests||[]);
 const notifications=computed(()=>props.detail.notification_history||[]);
 const currentState=computed(()=>props.detail.operational_status_label||(props.detail.in_library?'Disponible':'En attente'));
