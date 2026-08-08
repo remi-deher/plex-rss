@@ -68,48 +68,55 @@ export function detectPlatform() {
   return 'desktop';
 }
 
-function buildAndroidIntentUrl(webUrl) {
-  // Syntaxe Intent Chrome/Android : ouvre l'app si le lien https est associe (App Links),
-  // sinon bascule automatiquement sur browser_fallback_url — pas besoin de timer JS.
-  const withoutScheme = webUrl.replace(/^https?:\/\//, '');
-  const fallback = encodeURIComponent(PLEX_PLAY_STORE_URL);
-  return `intent://${withoutScheme}#Intent;scheme=https;package=${PLEX_ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`;
-}
-
 // Schema custom `plex://` enregistre par l'app iOS/Android — a la difference des Universal
-// Links (https), il n'a pas besoin d'association de domaine verifiee cote Plex pour ouvrir
-// l'app, et Safari ignore silencieusement la navigation si l'app n'est pas installee (pas de
-// page d'erreur). On mime le chemin de l'URL web (memes provider/key) : au pire l'app s'ouvre
-// sur son accueil plutot que sur le titre exact si ce chemin n'est pas reconnu tel quel.
+// Links / App Links (https, qui necessitent une association de domaine verifiee cote Plex et
+// se sont averes non interceptes en conditions reelles pour ce chemin sur iOS comme sur
+// Android), le schema custom n'a besoin que de l'app installee pour repondre. On mime le
+// chemin de l'URL web (memes provider/key) : au pire l'app s'ouvre sur son accueil plutot que
+// sur le titre exact si ce chemin n'est pas reconnu tel quel.
 function buildPlexAppSchemeUrl(guid) {
   const metaKey = parsePlexMetaKey(guid);
   if (!metaKey) return null;
   return `plex://provider/tv.plex.provider.discover/details?key=${encodeURIComponent(metaKey)}`;
 }
 
+function buildAndroidIntentUrl(appUrl) {
+  // Enveloppe Intent Chrome/Android autour du schema plex:// (et non https://app.plex.tv,
+  // dont l'App Link n'est pas reconnue) : ouvre l'app si son intent-filter matche ce schema,
+  // sinon bascule automatiquement sur browser_fallback_url — pas besoin de timer JS ici,
+  // contrairement a iOS qui n'a pas d'equivalent "fallback intégré au lien".
+  const withoutScheme = appUrl.replace(/^plex:\/\//, '');
+  const fallback = encodeURIComponent(PLEX_PLAY_STORE_URL);
+  return `intent://${withoutScheme}#Intent;scheme=plex;package=${PLEX_ANDROID_PACKAGE};S.browser_fallback_url=${fallback};end`;
+}
+
 /**
- * Ouvre un lien Plex en s'adaptant a l'appareil :
+ * Ouvre un lien Plex en s'adaptant a l'appareil. iOS et Android tentent tous deux le schema
+ * custom `plex://` plutot que l'URL https app.plex.tv : les Universal/App Links pour ce chemin
+ * ne sont interceptees par l'app sur aucune des deux plateformes en conditions reelles.
  * - Desktop : ouvre app.plex.tv dans un nouvel onglet (comportement historique).
- * - Android : passe par un intent Chrome qui ouvre l'app Plex si installee (via les App
- *   Links associes a app.plex.tv), sinon bascule automatiquement vers le Play Store.
- * - iOS : tente le schema custom `plex://` (l'app doit etre installee pour repondre — testee
- *   en conditions reelles, les Universal Links https ne sont pas interceptes pour ce chemin),
- *   puis si la page reste visible apres un court delai (l'app n'a donc pas repondu), redirige
- *   vers l'App Store.
+ * - Android : enveloppe plex:// dans un intent Chrome qui bascule automatiquement vers le
+ *   Play Store si l'app ne repond pas (pas de timer JS necessaire, gere par l'intent lui-meme).
+ * - iOS : navigue vers plex:// puis, si la page reste visible apres un court delai (l'app n'a
+ *   donc pas repondu), redirige vers l'App Store.
  */
 export function openPlexLink(guid) {
   const webUrl = formatPlexWebUrl(guid);
   if (!webUrl) return;
 
   const platform = detectPlatform();
+  const appUrl = platform === 'android' || platform === 'ios' ? buildPlexAppSchemeUrl(guid) : null;
 
   if (platform === 'android') {
-    window.location.href = buildAndroidIntentUrl(webUrl);
+    if (!appUrl) {
+      window.open(webUrl, '_blank', 'noopener');
+      return;
+    }
+    window.location.href = buildAndroidIntentUrl(appUrl);
     return;
   }
 
   if (platform === 'ios') {
-    const appUrl = buildPlexAppSchemeUrl(guid);
     if (!appUrl) {
       // GUID deja sous forme d'URL http(s) complete : pas de schema custom fiable a
       // construire, on se contente d'ouvrir la page web comme sur desktop.
